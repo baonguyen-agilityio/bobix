@@ -1,5 +1,5 @@
 // Bobix — Electron main process: local server for hooks, pets overlay, control panel, tray, notifications.
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -20,7 +20,7 @@ const STALE_MS = 12 * 3600e3;
 const sessions = new Map();
 let settings, server, overlay, panel, tray, token, nodePath = null, lastEventAt = null;
 const shown = new Set(); // live Notification objects: a collected one loses its click handler
-let rects = [], interactive = false, lastMouse = '';
+let rects = [], interactive = false, lastMouse = '', overlayReady = false;
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 const origin = () => `http://127.0.0.1:${settings.port}`;
@@ -95,7 +95,7 @@ function createOverlay() {
   overlay.setBounds(targetDisplay().workArea);
   overlay.webContents.on('will-navigate', e => e.preventDefault());
   overlay.loadURL(pageUrl('/pets'));
-  overlay.once('ready-to-show', () => settings.petsVisible && overlay.showInactive());
+  overlay.once('ready-to-show', () => { overlayReady = true; if (settings.petsVisible) overlay.showInactive(); });
 }
 
 const placeOverlay = () => overlay && overlay.setBounds(targetDisplay().workArea);
@@ -249,6 +249,29 @@ function migrateFromOldName() {
   }
 }
 
+// Smoke check for CI (BOBIX_SMOKE=<folder>): a pretend session, then is the pets overlay really on screen?
+// Writes report.json, overlay.png (the page) and screen.png (the real desktop), exits 0 only if pets are visible.
+async function smoke(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  testEvent();
+  await new Promise(r => setTimeout(r, 6000));
+  const wc = overlay.webContents;
+  const report = {
+    platform: process.platform, readyToShow: overlayReady, visible: overlay.isVisible(), bounds: overlay.getBounds(),
+    workArea: targetDisplay().workArea, sessions: sessions.size, loadedUrl: wc.getURL().replace(/t=[^&]+/, 't=…'),
+    pets: await wc.executeJavaScript('document.querySelectorAll(".pet").length').catch(e => `error: ${e.message}`),
+    petRects: await wc.executeJavaScript('[...document.querySelectorAll(".pet")].map(p => { const r = p.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })').catch(() => null),
+  };
+  try { fs.writeFileSync(path.join(dir, 'overlay.png'), (await wc.capturePage()).toPNG()); } catch (err) { report.overlayShot = err.message; }
+  try {
+    const [src] = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: targetDisplay().size });
+    if (src) fs.writeFileSync(path.join(dir, 'screen.png'), src.thumbnail.toPNG());
+  } catch (err) { report.screenShot = err.message; }
+  fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(report, null, 2));
+  console.log('[bobix] smoke', JSON.stringify(report));
+  app.exit(report.visible && report.pets > 0 ? 0 : 1);
+}
+
 // ---------- boot ----------
 app.on('second-instance', () => showPanel());
 app.on('window-all-closed', () => {}); // keep running in the tray
@@ -289,6 +312,7 @@ app.whenReady().then(async () => {
   screen.on('display-metrics-changed', placeOverlay);
   screen.on('display-added', placeOverlay);
   screen.on('display-removed', placeOverlay);
+  if (process.env.BOBIX_SMOKE) return smoke(process.env.BOBIX_SMOKE);
   if (!hooks.status().events.length) showPanel({ tab: 'setup' }); // first run: help connect Claude Code
 });
 

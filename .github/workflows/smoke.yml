@@ -1,0 +1,40 @@
+# Starts the real app on each OS with a pretend session and checks the pets overlay is on screen.
+name: smoke
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Smoke (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+          xvfb-run -a -s "-screen 0 1920x1080x24" npx electron . --no-sandbox
+        env:
+          BOBIX_SMOKE: smoke-out
+      - name: Smoke
+        if: runner.os != 'Linux'
+        run: npx electron .
+        env:
+          BOBIX_SMOKE: smoke-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.os }}
+          path: smoke-out/
