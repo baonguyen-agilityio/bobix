@@ -259,15 +259,41 @@ async function smoke(dir) {
   const write = () => fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(report, null, 2));
   fs.mkdirSync(dir, { recursive: true });
   setTimeout(() => { report.watchdog = 'gave up after 60 s'; write(); log(JSON.stringify(report)); app.exit(2); }, 60000).unref?.();
-  testEvent();
-  await new Promise(r => setTimeout(r, 6000));
   const wc = overlay.webContents;
+  // Collect every error the pets page logs or throws while sessions arrive.
+  report.pageErrors = [];
+  wc.on('console-message', (e, level, message) => {
+    const lvl = e.level ?? level, msg = e.message ?? message;
+    if ((lvl === 'error' || lvl === 3) && !/Electron Security Warning/.test(msg)) report.pageErrors.push(String(msg).slice(0, 300));
+  });
+  await within(wc.executeJavaScript(`addEventListener('error', e => console.error('uncaught: ' + e.message + ' @' + e.lineno)); addEventListener('unhandledrejection', e => console.error('rejection: ' + e.reason)); 1`), 5000, 'hook errors').catch(() => {});
+  testEvent();
+  // A session delivered the way Claude Code delivers it: hook.js on stdin, real cwd, a transcript, CLAUDE_PID.
+  const transcript = path.join(dir, 'real-session.jsonl');
+  fs.writeFileSync(transcript, [
+    { type: 'ai-title', aiTitle: 'Smoke real session' },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'Looking at the code.' }], usage: { input_tokens: 10, cache_read_input_tokens: 40000 } } },
+  ].map(l => JSON.stringify(l)).join('\n') + '\n');
+  const real = { session_id: '3f1c2a9e-7b4d-4e21-9a0c-5d6e7f8a9b0c', cwd: process.cwd(), transcript_path: transcript };
+  const viaHook = ev => new Promise(res => {
+    const child = require('child_process').execFile(process.execPath, [path.join(__dirname, 'hook', 'hook.js'), String(settings.port)],
+      { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', CLAUDE_PID: String(process.pid) } }, err => res(err ? err.message : 'ok'));
+    child.stdin.end(JSON.stringify({ ...real, ...ev }));
+  });
+  report.hookRuns = [];
+  for (const ev of [{ hook_event_name: 'SessionStart', source: 'startup' }, { hook_event_name: 'UserPromptSubmit', prompt: 'Fix the login bug' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: path.join(process.cwd(), 'README.md') } }]) report.hookRuns.push(await viaHook(ev));
+  await new Promise(r => setTimeout(r, 6000));
+  const rs = sessions.get(real.session_id);
+  report.realSession = rs ? { state: rs.state, title: rs.title, name: rs.name, claudePid: rs.claudePid, hostSession: rs.hostSession } : 'not received';
+  report.chain = await ancestors(process.pid).catch(e => `error: ${e.message}`);
+  report.focus = await within(focusPids(Array.isArray(report.chain) ? report.chain : []), 8000, 'focus').catch(e => `error: ${e.message}`);
   Object.assign(report, {
     readyToShow: overlayReady, visible: overlay.isVisible(), minimized: overlay.isMinimized(), bounds: overlay.getBounds(),
     workArea: targetDisplay().workArea, sessions: sessions.size, loading: wc.isLoading(), loadedUrl: wc.getURL().replace(/t=[^&]+/, 't=…'),
   });
   log('window ' + JSON.stringify(report));
-  for (const [key, js] of [['pets', 'document.querySelectorAll(".pet").length'],
+  for (const [key, js] of [['pets', 'document.querySelectorAll(".pet").length'], ['petLabels', '[...document.querySelectorAll(".pet .tag")].map(t => t.textContent)'],
     ['petRects', '[...document.querySelectorAll(".pet")].map(p => { const r = p.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })']]) {
     try { report[key] = await within(wc.executeJavaScript(js), 5000, key); } catch (err) { report[key] = `error: ${err.message}`; }
   }
@@ -278,7 +304,9 @@ async function smoke(dir) {
     if (src) fs.writeFileSync(path.join(dir, 'screen.png'), src.thumbnail.toPNG());
   } catch (err) { report.screenShot = err.message; }
   write(); log('done ' + JSON.stringify(report));
-  app.exit(report.visible && report.pets > 0 ? 0 : 1);
+  const ok = report.visible && report.pets >= 2 && !report.pageErrors.length;
+  app.exit(ok ? 0 : 1);
+  setTimeout(() => process.exit(ok ? 0 : 1), 3000); // app.exit alone did not end the process on CI runners
 }
 
 // ---------- boot ----------
