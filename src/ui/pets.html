@@ -9,7 +9,8 @@
 /* Runs inside a transparent, click-through window covering the screen's work area. */
 html{--size:56px}
 html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 var(--t-sm)/1.45 var(--f-body);color:var(--ink);font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none}
-.pet{position:absolute;left:0;bottom:var(--s1);width:var(--size);cursor:pointer;transition:opacity 150ms var(--ease)}
+.pet{position:absolute;left:0;bottom:var(--s1);width:var(--size);cursor:pointer;touch-action:none;transition:opacity 150ms var(--ease)}
+.pet.dragging{cursor:grabbing}
 .edge-top .pet{bottom:auto;top:var(--s1)}
 .spr{width:var(--size);height:var(--size);display:grid;place-items:center}
 .spr svg{width:100%;height:100%;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))}
@@ -89,11 +90,11 @@ function sayText(p, st, now) {
 
 function paint(p, now) {
   const s = p.s, st = look(s), say = p.hover ? null : sayText(p, st, now);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.edge, cfg.label, cfg.clickAction, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.dragging, p.edge, cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
-  p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''} ${p.edge}`;
+  p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''} ${p.edge}`;
   p.el.innerHTML = `
     ${p.hover ? `<div class="card">
         <h2>${esc(s.title || s.name)}</h2>
@@ -117,10 +118,10 @@ function sync(list) {
     let p = pets.get(s.id);
     if (!p) {
       const el = document.createElement('div');
-      el.onclick = () => bridge ? bridge.petClick(s.id) : open('/?s=' + encodeURIComponent(s.id));
       document.body.appendChild(el);
       const { min, max } = zone();
       p = { el, x: min + (hashStr(s.id) % 1000) / 1000 * (max - min), dir: hashStr(s.id) & 1 ? 1 : -1, walking: true, next: 0, actAt: 0, edge: '' };
+      draggable(p, s.id);
       pets.set(s.id, p);
     }
     if (p.s && s.tool !== p.s.tool && s.hits !== p.s.hits) p.actAt = Date.now();
@@ -129,9 +130,35 @@ function sync(list) {
   for (const [id, p] of pets) if (!seen.has(id)) { p.el.remove(); pets.delete(id); }
 }
 
+// Press and slide sideways to move a pet along the edge; a press that barely moves is a click.
+let drag = null; // { p, dx, x0, moved }
+function draggable(p, id) {
+  const el = p.el;
+  el.onpointerdown = e => {
+    if (e.button !== 0) return;
+    drag = { p, dx: e.clientX - p.x, x0: e.clientX, moved: false };
+    el.setPointerCapture(e.pointerId);
+  };
+  el.onpointermove = e => {
+    if (drag?.p !== p) return;
+    if (!drag.moved && Math.abs(e.clientX - drag.x0) < 5) return;
+    if (!drag.moved) { drag.moved = true; p.dragging = true; rectAt = 0; }
+    const { min, max } = zone();
+    p.x = Math.min(max, Math.max(min, e.clientX - drag.dx));
+    p.goal = null;
+    wake();
+  };
+  el.onpointerup = el.onpointercancel = e => {
+    const d = drag;
+    drag = null;
+    if (d?.p !== p) return;
+    if (d.moved) { p.dragging = false; p.walking = false; p.droppedAt = p.next = Date.now(); p.next += 4000; rectAt = 0; wake(); } // stand where dropped for a moment
+    else if (e.type === 'pointerup') bridge ? bridge.petClick(id) : open('/?s=' + encodeURIComponent(id));
+  };
+}
 const zone = () => ({ min: innerWidth * cfg.zoneStart / 100, max: Math.max(innerWidth * cfg.zoneStart / 100, innerWidth * cfg.zoneEnd / 100 - cfg.size) });
 const spacing = () => Math.max(88, cfg.size * 1.6);
-const rank = p => hashStr(p.s.id);
+const rank = p => p.droppedAt ? -p.droppedAt : hashStr(p.s.id); // a pet just dropped keeps its spot; the others make room
 
 // Nearest spot at least `spacing` away from every other standing pet. Of two crowded pets only the later-ranked one moves.
 function freeSpot(p, all) {
@@ -177,8 +204,11 @@ function frame(t) {
     if (inRect(r, mouse.x, mouse.y) || (card && inRect(card.getBoundingClientRect(), mouse.x, mouse.y))) p.hoverUntil = now + 250;
     p.hover = now < (p.hoverUntil || 0);
     p.stepping = false;
-    if (p.x < min || p.x > max) { p.goal = Math.min(max, Math.max(min, p.x)); }
-    if (p.hover) {
+    if (p.dragging) { p.hover = false; p.stepping = true; } // follows the cursor (pointermove)
+    else if (p.x < min || p.x > max) { p.goal = Math.min(max, Math.max(min, p.x)); }
+    if (p.dragging) {
+      // moved by the pointer
+    } else if (p.hover) {
       // stand still while being read
     } else if (st === 'working' && p.goal == null) {
       if (now > p.next) { p.walking = Math.random() < 0.7; if (Math.random() < 0.3) p.dir *= -1; p.next = now + 1500 + Math.random() * 3500; }
@@ -206,7 +236,9 @@ function frame(t) {
   if (bridge && t - rectAt > 100) {
     rectAt = t;
     const rects = [];
-    for (const { el } of pets.values()) for (const n of [el, el.querySelector('.tag'), el.querySelector('.card,.say')]) {
+    // While dragging, the whole window takes the mouse, or the drag would end as soon as the cursor leaves the pet.
+    if (drag?.moved) rects.push([0, 0, innerWidth, innerHeight]);
+    else for (const { el } of pets.values()) for (const n of [el, el.querySelector('.tag'), el.querySelector('.card,.say')]) {
       if (!n) continue;
       const b = n.getBoundingClientRect();
       rects.push([b.left, b.top, b.width, b.height].map(Math.round));
@@ -214,7 +246,7 @@ function frame(t) {
     const j = JSON.stringify(rects);
     if (j !== lastRects) { lastRects = j; bridge.setRects(rects); }
   }
-  const busy = mouseMoved || all.some(p => p.stepping || p.goal != null || p.hover);
+  const busy = mouseMoved || !!drag || all.some(p => p.stepping || p.goal != null || p.hover);
   mouseMoved = false;
   if (busy && !document.hidden) raf = requestAnimationFrame(frame);
   else timer = setTimeout(() => frame(performance.now()), all.length ? 400 : 1000);
