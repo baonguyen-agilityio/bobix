@@ -13,6 +13,7 @@ const DEFAULTS = {
   opacity: 1,
   fadeNearCursor: true,    // fade pets when the cursor passes near them (not over them)
   showIdle: true,
+  sleepHide: 30,           // minutes a pet may sleep on screen before it leaves (0 = never); it comes back with the next prompt
   onlyAttention: false,    // only pets that wait for you or just finished
   label: 'title',          // title | folder | both
   clickAction: 'focus',    // focus (bring the session's window forward) | panel
@@ -25,7 +26,7 @@ const DEFAULTS = {
 };
 
 const ENUMS = { language: ['auto', 'en', 'vi'], edge: ['bottom', 'top'], label: ['title', 'folder', 'both'], clickAction: ['focus', 'panel'] };
-const RANGES = { port: [1024, 65535], zoneStart: [0, 95], zoneEnd: [5, 100], size: [32, 128], opacity: [0.2, 1] };
+const RANGES = { port: [1024, 65535], zoneStart: [0, 95], zoneEnd: [5, 100], size: [32, 128], opacity: [0.2, 1], sleepHide: [0, 1440] };
 
 // Keeps only known keys with valid values; anything else falls back to the current value.
 function sanitize(input, base = DEFAULTS) {

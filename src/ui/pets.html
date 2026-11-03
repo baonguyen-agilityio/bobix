@@ -56,14 +56,20 @@ const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 const bridge = window.bobix; // present inside the app (preload); absent in a plain browser tab
 
-let cfg = { size: 56, edge: 'bottom', zoneStart: 0, zoneEnd: 100, opacity: 1, fadeNearCursor: true, showIdle: true, onlyAttention: false, label: 'title', clickAction: 'focus', language: 'auto' };
+let cfg = { size: 56, edge: 'bottom', zoneStart: 0, zoneEnd: 100, opacity: 1, fadeNearCursor: true, showIdle: true, sleepHide: 30, onlyAttention: false, label: 'title', clickAction: 'focus', language: 'auto' };
 let lang = navigator.language;
 const T = (k, v) => I18N.t(lang, k, v);
 
 const pets = new Map(); // id -> { el, s, x, dir, walking, next, actAt, hover, key, goal, lane }
 let mouse = { x: -1, y: -1 };
 
-const visible = s => { const st = look(s); return cfg.onlyAttention ? st === 'waiting' || st === 'done' : cfg.showIdle || st !== 'idle'; };
+// A pet asleep for longer than sleepHide minutes leaves the screen; the next prompt brings it back.
+const sleptTooLong = s => cfg.sleepHide > 0 && Date.now() - (s.state === 'done' ? s.since + IDLE_AFTER : s.since) > cfg.sleepHide * 60e3;
+const visible = s => {
+  const st = look(s);
+  if (st === 'idle' && sleptTooLong(s)) return false;
+  return cfg.onlyAttention ? st === 'waiting' || st === 'done' : cfg.showIdle || st !== 'idle';
+};
 function labelOf(s) {
   const title = s.title || s.name;
   return cfg.label === 'folder' ? s.name : cfg.label === 'both' && s.title ? `${s.title} · ${s.name}` : title;
@@ -152,8 +158,16 @@ function stackBubbles(all) {
 }
 
 const inRect = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-let last = performance.now(), rectAt = 0, lastRects = '';
+let last = performance.now(), rectAt = 0, lastRects = '', raf = 0, timer = 0, mouseMoved = false;
+// 60 fps only while something moves; otherwise a few ticks a second (also the only clock while the window is hidden).
+function wake() {
+  if (document.hidden || raf) return;
+  clearTimeout(timer); timer = 0;
+  raf = requestAnimationFrame(frame);
+}
 function frame(t) {
+  raf = 0; timer = 0;
+  if (t - last < 32) { raf = requestAnimationFrame(frame); return; } // ~30 fps is smooth enough for a pixel pet
   const dt = Math.min(0.05, (t - last) / 1000), now = Date.now(), speed = cfg.size * 0.75;
   last = t;
   const all = [...pets.values()], { min, max } = zone();
@@ -200,7 +214,10 @@ function frame(t) {
     const j = JSON.stringify(rects);
     if (j !== lastRects) { lastRects = j; bridge.setRects(rects); }
   }
-  requestAnimationFrame(frame);
+  const busy = mouseMoved || all.some(p => p.stepping || p.goal != null || p.hover);
+  mouseMoved = false;
+  if (busy && !document.hidden) raf = requestAnimationFrame(frame);
+  else timer = setTimeout(() => frame(performance.now()), all.length ? 400 : 1000);
 }
 
 function applySettings(s) {
@@ -210,19 +227,22 @@ function applySettings(s) {
   document.documentElement.style.setProperty('--size', cfg.size + 'px');
   for (const p of pets.values()) p.key = null;
   if (lastList) sync(lastList);
+  wake();
 }
 
 let lastList = null;
-addEventListener('mousemove', e => { mouse = { x: e.clientX, y: e.clientY }; });
-addEventListener('mouseleave', () => { mouse = { x: -1, y: -1 }; });
+const moveTo = m => { mouse = m; mouseMoved = true; wake(); };
+addEventListener('mousemove', e => moveTo({ x: e.clientX, y: e.clientY }));
+addEventListener('mouseleave', () => moveTo({ x: -1, y: -1 }));
+document.addEventListener('visibilitychange', wake);
 if (bridge) {
-  bridge.onMouse(m => { mouse = m; });            // the window is click-through most of the time, so the app feeds us the cursor
+  bridge.onMouse(moveTo);            // the window is click-through most of the time, so the app feeds us the cursor
   bridge.onSettings(applySettings);
   bridge.getState().then(st => applySettings(st.settings));
 }
-new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || '')).onmessage = m => { lastList = JSON.parse(m.data).sessions || []; sync(lastList); };
+new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || '')).onmessage = m => { lastList = JSON.parse(m.data).sessions || []; sync(lastList); wake(); };
 setInterval(() => lastList && sync(lastList), 15e3); // "done" turns into "resting" by time alone
-requestAnimationFrame(frame);
+frame(performance.now());
 </script>
 </body>
 </html>

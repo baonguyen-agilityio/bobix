@@ -70,6 +70,8 @@ test('an interrupted turn (Esc / denied permission) puts the pet to rest', () =>
   assert.equal(m.get('i1').state, 'waiting');
   assert.equal(refresh(m.get('i1'), false), true);
   assert.equal(m.get('i1').state, 'idle');
+  m.get('i1').state = 'working';
+  assert.equal(refresh(m.get('i1'), false, Date.now() + 6000), false, 'an unchanged transcript is not read again');
   fs.unlinkSync(f);
 });
 
@@ -77,6 +79,7 @@ test('settings sanitize', () => {
   const s = sanitize({ size: 9999, edge: 'left', opacity: 0, zoneStart: 90, zoneEnd: 91, evil: 1, sound: 'yes' });
   assert.equal(s.size, 128); assert.equal(s.edge, DEFAULTS.edge); assert.equal(s.opacity, 0.2);
   assert.equal(s.zoneEnd, 95); assert.equal(s.evil, undefined); assert.equal(s.sound, DEFAULTS.sound);
+  assert.equal(sanitize({ sleepHide: '60' }).sleepHide, 60); assert.equal(sanitize({ sleepHide: -5 }).sleepHide, 0);
 });
 
 test('hooks install keeps foreign hooks and is idempotent', () => {

@@ -128,6 +128,10 @@ function ctxLeft(u, forcedWindow) {
 function refresh(s, withSummary, now = Date.now(), forcedWindow) {
   if (!s.transcript || (!withSummary && now - (s.readAt || 0) < 5000)) return;
   s.readAt = now;
+  let mark = null;
+  try { const st = fs.statSync(s.transcript); mark = `${st.size}:${st.mtimeMs}`; } catch {}
+  if (!withSummary && mark && mark === s.readMark) return false; // nothing new written: skip the read
+  s.readMark = mark;
   const r = readTranscript(s.transcript);
   if (r.usage) s.ctx = ctxLeft(r.usage, forcedWindow);
   if (r.title) s.title = short(r.title, 80);
@@ -140,6 +144,6 @@ function refresh(s, withSummary, now = Date.now(), forcedWindow) {
 }
 
 // What the outside world sees (no internal bookkeeping fields).
-const publicView = s => { const { readAt, ...rest } = s; return rest; };
+const publicView = s => { const { readAt, readMark, ...rest } = s; return rest; };
 
 module.exports = { apply, readTranscript, ctxLeft, refresh, short, publicView, ID_RE };

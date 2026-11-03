@@ -32,7 +32,7 @@ const STALE_MS = 12 * 3600e3;
 const sessions = new Map();
 let settings, server, overlay, panel, tray, token, nodePath = null, lastEventAt = null;
 const shown = new Set(); // live Notification objects: a collected one loses its click handler
-let rects = [], interactive = false, lastMouse = '', overlayReady = false;
+let rects = [], interactive = false, lastMouse = '', overlayReady = false, timers = [];
 const pageErrors = []; // last errors from the pets page, for diagnostics
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
@@ -110,7 +110,7 @@ function createOverlay() {
   overlay.setAlwaysOnTop(true, 'floating');
   overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   overlay.setIgnoreMouseEvents(true);
-  overlay.setBounds(targetDisplay().workArea);
+  overlay.setBounds(overlayBounds());
   overlay.webContents.on('will-navigate', e => e.preventDefault());
   overlay.webContents.on('console-message', (e, level, message) => {
     const lvl = e.level ?? level, msg = String(e.message ?? message);
@@ -119,14 +119,28 @@ function createOverlay() {
   overlay.webContents.once('did-finish-load', () => overlay.webContents.executeJavaScript(
     `addEventListener('error', e => console.error('uncaught: ' + e.message + ' @' + e.lineno)); addEventListener('unhandledrejection', e => console.error('rejection: ' + e.reason))`).catch(() => {}));
   overlay.loadURL(pageUrl('/pets'));
-  overlay.once('ready-to-show', () => { overlayReady = true; if (settings.petsVisible) overlay.showInactive(); });
+  overlay.once('ready-to-show', () => { overlayReady = true; showOverlay(); });
 }
 
-const placeOverlay = () => overlay && overlay.setBounds(targetDisplay().workArea);
+// A full-screen transparent window costs the compositor even when empty: keep it hidden while no pet is out.
+function showOverlay() {
+  if (!overlay || overlay.isDestroyed() || !overlayReady) return;
+  const want = settings.petsVisible && rects.length > 0;
+  if (want && !overlay.isVisible()) overlay.showInactive();
+  else if (!want && overlay.isVisible()) { overlay.hide(); interactive = false; overlay.setIgnoreMouseEvents(true); }
+}
+
+// Only a strip along the chosen edge, tall enough for a pet, its card and a few bubble lanes:
+// the compositor redraws this window while pets walk, so every pixel it does not cover is saved work.
+function overlayBounds() {
+  const wa = targetDisplay().workArea, h = Math.min(wa.height, Math.round(settings.size * 1.5) + 320);
+  return { x: wa.x, width: wa.width, height: h, y: settings.edge === 'top' ? wa.y : wa.y + wa.height - h };
+}
+const placeOverlay = () => overlay && !overlay.isDestroyed() && overlay.setBounds(overlayBounds());
 
 // The overlay ignores the mouse except over a pet: poll the cursor, compare with the pets' rects from the page.
 function trackMouse() {
-  if (!overlay || !overlay.isVisible()) return;
+  if (!overlay || overlay.isDestroyed() || !overlay.isVisible()) return;
   const p = screen.getCursorScreenPoint(), b = overlay.getBounds();
   const x = p.x - b.x, y = p.y - b.y;
   const over = rects.some(r => x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]);
@@ -201,8 +215,8 @@ async function updateSettings(patch) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 300); // sliders send a stream of changes
   if (settings.autostart !== prev.autostart) { try { autostart.set(app, settings.autostart); } catch (err) { console.error('[bobix] autostart:', err.message); } }
-  if (settings.display !== prev.display) placeOverlay();
-  if (settings.petsVisible !== prev.petsVisible && overlay) settings.petsVisible ? overlay.showInactive() : overlay.hide();
+  if (['display', 'edge', 'size'].some(k => settings[k] !== prev[k])) placeOverlay();
+  if (settings.petsVisible !== prev.petsVisible) showOverlay();
   if (['petsVisible', 'paused', 'language'].some(k => settings[k] !== prev[k])) buildTray();
   broadcastSettings();
   return settings;
@@ -257,7 +271,7 @@ function ipc() {
   handle('hooks:test', () => testEvent());
   handle('open-session', id => openSession(id, true));
   ipcMain.on('pet-click', (e, id) => fromUs(e) && openSession(id));
-  ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); });
+  ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); showOverlay(); } });
 }
 
 // The app used to be called Session Guild: carry its settings and start-at-login over once.
@@ -337,12 +351,12 @@ async function smoke(dir) {
 async function diagnostics() {
   const wc = overlay?.webContents;
   const page = wc ? await wc.executeJavaScript(`({ pets: document.querySelectorAll('.pet').length, labels: [...document.querySelectorAll('.pet .tag')].map(t => t.textContent.length) })`).catch(e => ({ error: e.message })) : null;
-  const { language, edge, size, opacity, showIdle, onlyAttention, petsVisible, zoneStart, zoneEnd, display, clickAction } = settings;
+  const { language, edge, size, opacity, showIdle, sleepHide, onlyAttention, petsVisible, zoneStart, zoneEnd, display, clickAction } = settings;
   const st = hooks.status();
   return {
     app: app.getVersion(), platform: process.platform, release: os.release(), arch: process.arch,
     session: process.env.XDG_SESSION_TYPE || null, wayland: WAYLAND, ozone: OZONE,
-    settings: { language, edge, size, opacity, showIdle, onlyAttention, petsVisible, zoneStart, zoneEnd, display, clickAction },
+    settings: { language, edge, size, opacity, showIdle, sleepHide, onlyAttention, petsVisible, zoneStart, zoneEnd, display, clickAction },
     hooks: { mode: st.mode, complete: st.complete, port: st.port, stale: st.stale, outdated: st.outdated, error: st.error || null }, node: !!nodePath,
     displays: screen.getAllDisplays().map(d => ({ id: d.id, bounds: d.bounds, workArea: d.workArea, scale: d.scaleFactor, primary: d.id === screen.getPrimaryDisplay().id })),
     overlay: overlay && { ready: overlayReady, visible: overlay.isVisible(), bounds: overlay.getBounds(), alwaysOnTop: overlay.isAlwaysOnTop(), page, errors: pageErrors },
@@ -381,8 +395,8 @@ app.whenReady().then(async () => {
   } catch (err) { console.error('[bobix] hook refresh:', err.message); }
   createOverlay();
   buildTray();
-  setInterval(trackMouse, 33);
-  setInterval(() => {
+  timers.push(setInterval(trackMouse, 33));
+  timers.push(setInterval(() => {
     const now = Date.now();
     let changed = false;
     for (const [id, s] of sessions) {
@@ -391,7 +405,7 @@ app.whenReady().then(async () => {
       if ((s.state === 'working' || s.state === 'waiting') && refresh(s, false, now)) changed = true;
     }
     if (changed) server.broadcast(snapshot());
-  }, 5e3);
+  }, 5e3));
   screen.on('display-metrics-changed', placeOverlay);
   screen.on('display-added', placeOverlay);
   screen.on('display-removed', placeOverlay);
@@ -399,4 +413,4 @@ app.whenReady().then(async () => {
   if (!hooks.status().events.length) showPanel({ tab: 'setup' }); // first run: help connect Claude Code
 });
 
-app.on('before-quit', () => { if (settings) saveNow(); server?.close(); });
+app.on('before-quit', () => { timers.forEach(clearInterval); if (settings) saveNow(); server?.close(); });
