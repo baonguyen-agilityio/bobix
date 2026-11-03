@@ -2,8 +2,17 @@
 
 <h1 align="center">Bobix</h1>
 
-<p align="center">Your Claude Code sessions as little pixel pets on your screen.<br>
-See who is working, who needs you, and who is done, without opening a single window.</p>
+<p align="center"><b>Your Claude Code sessions as little pixel pets on your screen.</b><br>
+See who is working, who needs you and who is done, without opening a single window.</p>
+
+<p align="center">
+  <a href="https://github.com/baonguyen-agilityio/bobix/releases"><img src="https://img.shields.io/github/v/release/baonguyen-agilityio/bobix?include_prereleases&label=release" alt="Latest release"></a>
+  <a href="https://github.com/baonguyen-agilityio/bobix/actions/workflows/smoke.yml"><img src="https://img.shields.io/github/actions/workflow/status/baonguyen-agilityio/bobix/smoke.yml?branch=main&label=smoke%20test" alt="Smoke test"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-6b7280" alt="macOS, Windows, Linux">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6b7280" alt="MIT license"></a>
+</p>
+
+<p align="center"><b>English</b> · <a href="README.vi.md">Tiếng Việt</a></p>
 
 <p align="center"><img src="docs/media/demo.gif" alt="Pets walking along the bottom of the screen: one hops with a red 'Needs you: Bash' bubble, one shows 'Done!', and the control panel lists each session grouped by what needs attention." width="860"></p>
 
@@ -11,41 +20,49 @@ See who is working, who needs you, and who is done, without opening a single win
 
 ---
 
-When you run several Claude Code sessions at once, you end up clicking through each one to see if it is still working, stuck on a permission prompt, or finished. Bobix gives each session a pet that walks along the edge of your screen and tells you at a glance:
+## Why
+
+Run a few Claude Code sessions at once and you spend your day clicking through them: still working? stuck on a permission prompt? finished? Bobix gives each session a pet that walks along the edge of your screen and answers that at a glance.
 
 | The pet… | means |
 |----------|-------|
-| walks around, with a bubble like *running a command* | Claude is working |
+| walks around, bubble like *running a command* | Claude is working |
 | hops, red bubble *Needs you: Bash* | Claude is waiting for your approval |
 | smiles, green bubble *Done!* | the session finished its turn |
-| sleeps | nothing happening |
+| sleeps | nothing happening; after a while it leaves the screen |
 
 **Click a pet to jump into that session.** Hover to see its task, status and how much context is left.
 
 ## Features
 
-- **One pet per session**, generated from the session id, named after the session's title.
+- **One pet per session**, generated from the session id and named after the session's title.
 - **Click to open** the session: straight to it in the Claude desktop app, or brings its Terminal, iTerm or VS Code window forward.
 - **Control panel** with every session grouped by what needs you, its last answer and a log of the tools it used.
-- **Notifications** when a session needs approval or finishes, with sound if you want it.
-- **Stays out of your way**: choose the screen, top or bottom edge, the part of the screen pets may use, their size and visibility. They fade when your cursor comes near, and everything that isn't a pet lets clicks through.
+- **Notifications** when a session needs approval or finishes, with optional sound.
+- **Stays out of your way**: pick the screen, the top or bottom edge, the part of the edge pets may use, their size and opacity. Pets fade when the cursor comes near, everything that isn't a pet lets clicks through, and sleeping pets leave the screen after a time you choose.
+- **Light on your machine**: about 1–2 % CPU while pets sit still, nothing redrawn while none are out, no disk writes besides your settings.
 - **macOS, Windows and Linux**, in English and Vietnamese.
 - **Private by design**: runs locally, no account, no network requests. See [Privacy](docs/privacy.md).
 
 ## Install
 
-**[Download the latest release](https://github.com/baonguyen-agilityio/bobix/releases/latest)** · current version: 0.1.0
+Download the file for your computer from the **[latest release](https://github.com/baonguyen-agilityio/bobix/releases/latest)**:
 
-| Your computer | Download |
+| Your computer | File |
 |---|---|
-| Mac with Apple chip (M1 and later) | [Bobix-0.1.0-arm64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix-0.1.0-arm64.dmg) |
-| Mac with Intel chip | [Bobix-0.1.0.dmg](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix-0.1.0.dmg) |
-| Windows 10 / 11 (64-bit) | [Bobix.Setup.0.1.0.exe](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix.Setup.0.1.0.exe) |
-| Linux x64 | [Bobix-0.1.0.AppImage](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix-0.1.0.AppImage) |
-| Linux ARM64 | [Bobix-0.1.0-arm64.AppImage](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix-0.1.0-arm64.AppImage) |
+| Mac with Apple chip (M1 and later) | `Bobix-<version>-arm64.dmg` |
+| Mac with Intel chip | `Bobix-<version>.dmg` |
+| Windows 10 / 11 (64-bit) | `Bobix.Setup.<version>.exe` |
+| Ubuntu / Debian | `bobix_<version>_amd64.deb` (ARM: `_arm64.deb`) |
+| Other Linux | `Bobix-<version>.AppImage` (ARM: `-arm64.AppImage`) |
 
-Open it, then in the app go to **Setup → Install hooks** and send a prompt in any Claude Code session.
-The builds are not signed yet, so the first launch shows a warning: the [install guide](docs/install.md) walks through it for each system, plus troubleshooting and uninstall.
+Then:
+
+1. Open the app. The builds are not code-signed yet, so the first launch shows a warning; the [install guide](docs/install.md) shows how to get past it on each system.
+2. In the control panel, go to **Setup → Install hooks**.
+3. Send a prompt in any Claude Code session. Its pet appears.
+
+The [install guide](docs/install.md) also covers troubleshooting and uninstalling.
 
 ## Screenshots
 
@@ -72,26 +89,11 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 - The forwarder sends what the pets show (tool name, file path or command, your prompt), never file contents or tool output.
 - An Esc or a denied permission ends a turn without a hook; Bobix notices it in the transcript and puts the pet to rest.
 
-## Build from source
-
-Requires Node.js 22+.
-
-```bash
-git clone https://github.com/baonguyen-agilityio/bobix.git && cd bobix
-npm install
-npm start            # run the app
-npm test             # unit tests
-npm run dist:mac     # or dist:win, dist:linux → installers in dist/
-```
-
-All three platforms can be built from a Mac. Pushing a tag such as `v0.1.0` runs [the release workflow](.github/workflows/release.yml), which builds on each OS and attaches the installers to a GitHub Release.
-`node scripts/record-demo.mjs` re-records the demo and screenshots in `docs/media/` from a separate app instance with pretend sessions.
-
 ## FAQ
 
 **Does it slow Claude down?** No. Hooks run asynchronously and the forwarder exits within a few tens of milliseconds.
 
-**Which Claude Code setups work?** The CLI in any terminal, IDE extensions and the Claude desktop app. Click-to-open goes straight to the session in the desktop app; elsewhere it brings the app forward, not a specific tab.
+**Which Claude Code setups work?** The CLI in any terminal, the IDE extensions and the Claude desktop app. Click-to-open goes straight to the session in the desktop app; elsewhere it brings the app forward, not a specific tab.
 
 **What if I don't have Node.js?** Hooks fall back to `curl` or PowerShell. Everything works except click-to-open, which then shows the session's details.
 
@@ -101,25 +103,27 @@ All three platforms can be built from a Mac. Pushing a tag such as `v0.1.0` runs
 
 ## Status and limitations
 
-- Version 0.1. Tested on macOS (Apple chip) with the Claude desktop app and the CLI. Windows and Linux builds are produced but not yet tested on real machines.
+- Version 0.1. Tested on macOS (Apple chip) and Ubuntu (Wayland) with the Claude desktop app and the CLI; Windows is built and smoke-tested on CI.
+- On Linux Wayland, Bobix runs through XWayland so pets can stay on top; bringing a terminal forward needs X11 and `xdotool`.
 - Opening a session in the Claude desktop app uses a link that app registers (`claude://code/continue`), not a documented API, so it may change.
-- Linux needs X11 for always-on-top, click-through and bringing windows forward.
 - "Context left" is estimated from token usage.
+
+## Build from source
+
+Requires Node.js 22+.
+
+```bash
+git clone https://github.com/baonguyen-agilityio/bobix.git && cd bobix
+npm install
+npm start            # run the app
+npm test             # unit tests
+npm run dist:mac     # or dist:win, dist:linux: installers in the dist folder
+```
+
+Pushing a tag such as `v0.1.0` runs [the release workflow](.github/workflows/release.yml), which builds on each OS and attaches the installers to a GitHub Release; a tag with a dash (`v0.2.0-rc.1`) makes a pre-release. `node scripts/record-demo.mjs` re-records the demo and screenshots in `docs/media/`.
 
 ## License and credits
 
 MIT, see [LICENSE](LICENSE). Fonts: Baloo 2 and Be Vietnam Pro, SIL Open Font License, bundled via Fontsource (licenses in `src/ui/fonts/`).
 
 Bobix is an independent project, not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.
-
----
-
-## Tiếng Việt
-
-Bobix biến mỗi session Claude Code thành một con thú pixel đi dọc mép màn hình. Liếc xuống là biết session nào đang làm, session nào đang chờ bạn duyệt (con vật nhảy, bong bóng đỏ), session nào vừa xong (con vật cười). **Bấm vào con vật để mở đúng session đó.**
-
-1. Tải file cài cho máy bạn ở [trang Release mới nhất](https://github.com/baonguyen-agilityio/bobix/releases/latest) (`.dmg`, `.exe` hoặc `.AppImage`) rồi mở ra. Lần đầu mở sẽ có cảnh báo vì app chưa được ký số; xem cách mở trong [hướng dẫn cài đặt](docs/install.md).
-2. Trong app, vào **Kết nối → Cài hooks**. Hooks và cài đặt khác của bạn được giữ nguyên, có lưu bản backup.
-3. Gửi một prompt trong session Claude Code bất kỳ, con vật sẽ xuất hiện.
-
-Vào **Cài đặt** để chọn màn hình, cạnh trên hoặc dưới, vùng được đi, kích thước, độ rõ, những con được hiện, tên dưới con vật và thông báo. App chạy hoàn toàn trên máy bạn, không gửi dữ liệu ra ngoài ([quyền riêng tư](docs/privacy.md)).
