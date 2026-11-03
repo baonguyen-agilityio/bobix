@@ -21,7 +21,9 @@ const WAYLAND = process.platform === 'linux' && (process.env.XDG_SESSION_TYPE ==
 const OZONE = (process.argv.find(a => a.startsWith('--ozone-platform=')) || '').split('=')[1] || 'default';
 if (WAYLAND && process.env.DISPLAY && process.env.BOBIX_WAYLAND !== '1' && OZONE === 'default') {
   // An AppImage runs from a temporary mount that disappears with this process: restart the .AppImage itself.
-  app.relaunch({ execPath: process.env.APPIMAGE || process.execPath, args: [...process.argv.slice(1), '--ozone-platform=x11'] });
+  const relaunch = { execPath: process.env.APPIMAGE || process.execPath, args: [...process.argv.slice(1), '--ozone-platform=x11'] };
+  console.log('[bobix] Wayland: restarting through XWayland', JSON.stringify({ ...relaunch, appimage: !!process.env.APPIMAGE }));
+  app.relaunch(relaunch);
   app.exit(0);
 }
 
