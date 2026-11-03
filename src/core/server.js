@@ -57,7 +57,7 @@ function startServer({ port, token, onEvent, snapshot }) {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => resolve());
   });
-  const close = () => { clearInterval(ping); for (const c of clients) c.end(); return new Promise(r => server.close(r)); };
+  const close = () => { clearInterval(ping); for (const c of clients) c.end(); const done = new Promise(r => server.close(r)); server.closeAllConnections?.(); return done; };
   return { ready, broadcast, close, server };
 }
 

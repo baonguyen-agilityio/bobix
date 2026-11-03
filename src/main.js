@@ -26,7 +26,9 @@ if (WAYLAND && process.env.DISPLAY && process.env.BOBIX_WAYLAND !== '1' && OZONE
   app.exit(0);
 }
 
-if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
+// One Bobix at a time. The copy that is opened tells the running one its version (see 'second-instance').
+const ME = { version: app.getVersion() };
+if (!app.requestSingleInstanceLock(ME)) { app.quit(); process.exit(0); }
 
 const STALE_MS = 12 * 3600e3;
 const sessions = new Map();
@@ -380,15 +382,23 @@ async function diagnostics() {
 }
 
 // ---------- boot ----------
-app.on('second-instance', () => showPanel());
+// Opening Bobix again shows the panel. Opening another version (an update installed while this one runs,
+// or an old copy started at login) would otherwise go unnoticed: say which one runs and how to switch.
+app.on('second-instance', (_e, _argv, _cwd, other) => {
+  if (!settings) return;
+  showPanel();
+  if (other?.version && other.version !== ME.version && Notification.isSupported()) {
+    new Notification({ title: tr('other.title', { v: other.version }), body: tr('other.body', { v: ME.version }) }).show();
+  }
+});
 app.on('window-all-closed', () => {}); // keep running in the tray
-app.on('activate', () => showPanel());
+app.on('activate', () => settings && showPanel());
 
 app.whenReady().then(async () => {
   if (process.platform === 'darwin') app.dock?.hide();
   migrateFromOldName();
   settings = S.load(settingsFile());
-  try { settings.autostart = autostart.get(app); } catch {}
+  try { settings.autostart = autostart.get(app); if (settings.autostart) autostart.set(app, true); } catch {} // start at login: point at this copy, not one from an old path
   token = hooks.ensureToken();
   server = startServer({ port: settings.port, token, onEvent, snapshot });
   try { await server.ready; } catch (err) {
