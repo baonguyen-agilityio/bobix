@@ -73,6 +73,19 @@ jobs:
           pkill -9 -f /opt/Bobix || true
           grep "\[bobix\]" deb.log || cut -c1-250 deb.log | tail -40
           node -e "const r = require('./smoke-out/deb/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.visible && r.pets >= 2 && !r.pageErrors.length && r.ozone === 'x11' ? 0 : 1)"
+      # Drag a pet with the real mouse in the installed .deb (X11 via the Wayland restart, as on Ubuntu).
+      - name: Drag a pet in the installed .deb (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          sudo apt-get install -y -qq xdotool > /dev/null
+          XDG_SESSION_TYPE=wayland bobix --no-sandbox --remote-debugging-port=9333 > drag.log 2>&1 &
+          sleep 3
+          node scripts/smoke-drag.mjs; code=$?
+          pkill -9 -f /opt/Bobix || true
+          [ $code = 0 ] || cut -c1-250 drag.log | grep -v dbus | tail -20
+          exit $code
       - uses: actions/upload-artifact@v4
         if: always()
         with:
