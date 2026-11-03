@@ -92,6 +92,14 @@ test('a pet hidden by hand comes back when its session needs you', () => {
   assert.equal(m.get('h2').pet, 'auto');
 });
 
+test('the app holding a session is named the way people know it', () => {
+  const { hostApp } = require('../src/core/focus');
+  assert.equal(hostApp(['claude', 'bash', 'gnome-terminal-server', 'systemd']), 'Terminal');
+  assert.equal(hostApp(['claude', 'zsh', 'tmux: server']), 'tmux');
+  assert.equal(hostApp(['claude', 'node', 'code']), 'VS Code');
+  assert.equal(hostApp(['claude', 'bash']), null);
+});
+
 test('settings sanitize', () => {
   const s = sanitize({ size: 9999, edge: 'left', opacity: 0, zoneStart: 90, zoneEnd: 91, evil: 1, sound: 'yes' });
   assert.equal(s.size, 128); assert.equal(s.edge, DEFAULTS.edge); assert.equal(s.opacity, 0.2);

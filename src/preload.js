@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('bobix', {
   onSettings: on('settings'),
   onSelect: on('select'),
   onShowTab: on('show-tab'),
+  onOpenFail: on('open-fail'),
   // overlay only
   petClick: id => ipcRenderer.send('pet-click', id),
   setRects: rects => ipcRenderer.send('rects', rects),

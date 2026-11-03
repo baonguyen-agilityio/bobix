@@ -355,11 +355,16 @@ function renderPane() {
     <ol class="log">${s.log.slice().reverse().map(l => `<li><time>${time(l.t)}</time><span>${esc(logText(l))}</span></li>`).join('')}</ol>`;
 }
 $('#showAll').addEventListener('click', () => bridge.setPet('*', 'shown'));
+// Why a session could not be brought forward, and where it is: "It runs in Terminal, in ~/app."
+function openFail(r) {
+  const where = r?.app || r?.folder ? ' ' + T(r.app ? 'pane.openFail.where' : 'pane.openFail.whereFolder', { app: r.app, folder: r.folder }) : '';
+  toast(T('pane.openFail.' + (r?.reason || 'notfound')) + where);
+}
 $('#pane').addEventListener('click', async e => {
   const act = e.target.dataset.act;
   if (act === 'close') select(null);
   if (act === 'pet') { const s = list.find(x => x.id === selected); if (s) bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden'); }
-  if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) toast(T('pane.openFail.' + (r?.reason || 'notfound'))); }
+  if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); }
 });
 function select(id) { selected = id; render(); }
 $('#board').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(li.dataset.id === selected ? null : li.dataset.id); });
@@ -588,6 +593,7 @@ $('#conn').textContent = T('conn.wait');
     state = await bridge.getState();
     bridge.onSelect(id => { showTab('sessions'); select(id); });
     bridge.onShowTab(showTab);
+    bridge.onOpenFail(openFail);
     bridge.onSettings(s => {
       if (JSON.stringify(s) === JSON.stringify(state.settings)) return; // our own save echoing back: keep the form as is (slider drag)
       const langChanged = s.language !== state.settings.language;
@@ -597,6 +603,7 @@ $('#conn').textContent = T('conn.wait');
   }
   applyLang();
   showTab(new URLSearchParams(location.search).get('tab') || 'sessions');
+  try { const f = new URLSearchParams(location.search).get('fail'); if (f) openFail(JSON.parse(f)); } catch {} // a pet click opened this window
 })();
 </script>
 </body>

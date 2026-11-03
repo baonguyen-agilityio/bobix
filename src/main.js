@@ -9,7 +9,7 @@ const { apply, refresh, publicView, setPet } = require('./core/state');
 const S = require('./core/settings');
 const hooks = require('./core/hooks');
 const autostart = require('./core/autostart');
-const { focusPids, ancestors, processNames } = require('./core/focus');
+const { focusPids, ancestors, processNames, hostApp } = require('./core/focus');
 const { startServer } = require('./core/server');
 const { bitmap } = require('./core/icon');
 const I18N = require('./ui/i18n');
@@ -80,17 +80,23 @@ function notify({ kind, id }) {
 async function openSession(id, preferFocus = settings.clickAction === 'focus') {
   const s = sessions.get(id);
   if (!s) return { ok: false, reason: 'notfound' };
-  let reason = 'notfound';
+  let reason = 'notfound', app = null;
   if (preferFocus) {
     try {
       if (s.hostSession) { await shell.openExternal(`claude://code/continue?session=${encodeURIComponent(s.hostSession)}`); return { ok: true }; }
       if (!s.claudePid) reason = 'nopid'; // hooks run without Node.js (curl / PowerShell): no process to start from
-      else if (await focusPids(await ancestors(s.claudePid))) return { ok: true };
-      else if (process.platform === 'linux') reason = WAYLAND ? 'wayland' : (await hasXdotool()) ? 'notfound' : 'xdotool';
+      else {
+        const chain = await ancestors(s.claudePid);
+        if (await focusPids(chain)) return { ok: true };
+        app = hostApp(await processNames(chain));
+        if (process.platform === 'linux') reason = WAYLAND ? 'wayland' : (await hasXdotool()) ? 'notfound' : 'xdotool';
+      }
     } catch (err) { console.error('[bobix] open session:', err.message); }
   }
-  showPanel({ select: id });
-  return { ok: false, reason };
+  // Say why, and where the session is, so you can switch to it yourself.
+  const fail = preferFocus ? { reason, app: app || '', folder: s.cwd || '' } : null;
+  showPanel({ select: id, fail });
+  return { ok: false, ...(fail || { reason }) };
 }
 const hasXdotool = () => new Promise(res => execFile('xdotool', ['version'], err => res(!err)));
 
@@ -149,10 +155,11 @@ function trackMouse() {
   if (k !== lastMouse) { lastMouse = k; overlay.webContents.send('mouse', { x, y }); }
 }
 
-function showPanel({ select, tab } = {}) {
+function showPanel({ select, tab, fail } = {}) {
   if (panel && !panel.isDestroyed()) {
     if (select) panel.webContents.send('select', select);
     if (tab) panel.webContents.send('show-tab', tab);
+    if (fail) panel.webContents.send('open-fail', fail);
     panel.show(); panel.focus();
   } else {
     panel = new BrowserWindow({
@@ -162,7 +169,7 @@ function showPanel({ select, tab } = {}) {
     panel.removeMenu();
     panel.webContents.on('will-navigate', e => e.preventDefault());
     panel.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    panel.loadURL(pageUrl('/', { ...(select && { s: select }), ...(tab && { tab }) }));
+    panel.loadURL(pageUrl('/', { ...(select && { s: select }), ...(tab && { tab }), ...(fail && { fail: JSON.stringify(fail) }) }));
     panel.on('closed', () => { panel = null; if (process.platform === 'darwin') app.dock?.hide(); });
   }
   if (process.platform === 'darwin') app.dock?.show();

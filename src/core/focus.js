@@ -59,4 +59,14 @@ async function processNames(pids, platform = process.platform) {
   return Promise.all(list.map(async p => (await out('ps', ['-o', 'comm=', '-p', String(p)])).split('/').pop() || '?'));
 }
 
-module.exports = { focusPids, ancestors, outerBundle, processNames };
+// The app that holds the session's window, named the way people know it: the first process up the
+// chain that is not claude itself, a runtime or a shell ("gnome-terminal-server" → "Terminal").
+const SKIP = /^(claude|node|bun|npx|npm|sh|bash|zsh|fish|dash|ksh|tcsh|sudo|su|login|env|script|systemd|init)$/i;
+const KNOWN = { 'gnome-terminal-server': 'Terminal', 'ptyxis-agent': 'Ptyxis', ptyxis: 'Ptyxis', kgx: 'Console', konsole: 'Konsole', 'xfce4-terminal': 'Xfce Terminal',
+  tilix: 'Tilix', terminator: 'Terminator', alacritty: 'Alacritty', kitty: 'kitty', 'wezterm-gui': 'WezTerm', ghostty: 'Ghostty', code: 'VS Code', cursor: 'Cursor', tmux: 'tmux' };
+function hostApp(names) {
+  const n = (names || []).slice(1).find(x => x && x !== '?' && !SKIP.test(x));
+  return n ? KNOWN[n.toLowerCase()] || KNOWN[n.toLowerCase().replace(/:.*$/, '')] || n : null;
+}
+
+module.exports = { focusPids, ancestors, outerBundle, processNames, hostApp };
