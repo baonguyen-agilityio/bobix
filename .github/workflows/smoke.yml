@@ -21,9 +21,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - name: Install a virtual display (Linux)
+      # A display that outlives any one process: on Wayland the app restarts itself, and xvfb-run would take
+      # its display down as soon as the first process exits.
+      - name: Start a virtual display (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+          Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
       # The app writes smoke-out/done when its checks are over; electron is then stopped here, because on CI
       # runners the process does not always exit by itself. The verdict comes from smoke-out/report.json.
       - name: Smoke
@@ -33,12 +38,12 @@ jobs:
           BOBIX_SMOKE: smoke-out
         run: |
           # XDG_SESSION_TYPE=wayland: take the same path as an Ubuntu Wayland desktop (switch to XWayland).
-          if [ "$RUNNER_OS" = Linux ]; then XDG_SESSION_TYPE=wayland xvfb-run -a -s "-screen 0 1920x1080x24" npx electron . --no-sandbox > smoke.log 2>&1 &
+          if [ "$RUNNER_OS" = Linux ]; then XDG_SESSION_TYPE=wayland npx electron . --no-sandbox > smoke.log 2>&1 &
           else npx electron . > smoke.log 2>&1 & fi
           for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done
           if [ "$RUNNER_OS" = Windows ]; then taskkill //F //T //IM electron.exe > /dev/null 2>&1 || true; else pkill -f "electron" || true; fi
           grep "\[bobix\]" smoke.log || cat smoke.log
-          node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.visible && r.pets >= 2 && !r.pageErrors.length ? 0 : 1)"
+          node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.visible && r.pets >= 2 && !r.pageErrors.length && (r.platform !== 'linux' || r.ozone === 'x11') ? 0 : 1)"
       # Same check on the packaged AppImage: on Wayland it must restart itself from the .AppImage file.
       - name: Smoke packaged AppImage (Linux)
         if: runner.os == 'Linux'
@@ -49,7 +54,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
         run: |
           npm run icon && npx electron-builder --linux AppImage --x64 --publish never > /dev/null
-          XDG_SESSION_TYPE=wayland xvfb-run -a -s "-screen 0 1920x1080x24" dist/Bobix-*.AppImage --no-sandbox > appimage.log 2>&1 &
+          XDG_SESSION_TYPE=wayland dist/Bobix-*.AppImage --no-sandbox > appimage.log 2>&1 &
           for i in $(seq 1 120); do [ -f smoke-out/appimage/done ] && break; sleep 1; done
           pkill -f Bobix || true
           grep -E "\[bobix\]|ozone|Wayland" appimage.log || tail -20 appimage.log
