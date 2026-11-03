@@ -34,13 +34,17 @@ When you run several Claude Code sessions at once, you end up clicking through e
 
 ## Install
 
-| | |
-|---|---|
-| macOS (Apple chip / Intel) | `Bobix-<version>-arm64.dmg` / `Bobix-<version>.dmg` |
-| Windows 10 / 11 | `Bobix Setup <version>.exe` |
-| Linux (x64 / ARM64) | `Bobix-<version>.AppImage` / `-arm64.AppImage` |
+**[Download the latest release](https://github.com/baonguyen-agilityio/bobix/releases/latest)** · current version: 0.1.0
 
-Download from the Releases page, open it, then in the app go to **Setup → Install hooks** and send a prompt in any Claude Code session.
+| Your computer | Download |
+|---|---|
+| Mac with Apple chip (M1 and later) | [Bobix-0.1.0-arm64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix-0.1.0-arm64.dmg) |
+| Mac with Intel chip | [Bobix-0.1.0.dmg](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix-0.1.0.dmg) |
+| Windows 10 / 11 (64-bit) | [Bobix.Setup.0.1.0.exe](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix.Setup.0.1.0.exe) |
+| Linux x64 | [Bobix-0.1.0.AppImage](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix-0.1.0.AppImage) |
+| Linux ARM64 | [Bobix-0.1.0-arm64.AppImage](https://github.com/baonguyen-agilityio/bobix/releases/download/v0.1.0/Bobix-0.1.0-arm64.AppImage) |
+
+Open it, then in the app go to **Setup → Install hooks** and send a prompt in any Claude Code session.
 The builds are not signed yet, so the first launch shows a warning: the [install guide](docs/install.md) walks through it for each system, plus troubleshooting and uninstall.
 
 ## Screenshots
@@ -73,6 +77,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 Requires Node.js 22+.
 
 ```bash
+git clone https://github.com/baonguyen-agilityio/bobix.git && cd bobix
 npm install
 npm start            # run the app
 npm test             # unit tests
@@ -113,7 +118,7 @@ Bobix is an independent project, not affiliated with or endorsed by Anthropic. "
 
 Bobix biến mỗi session Claude Code thành một con thú pixel đi dọc mép màn hình. Liếc xuống là biết session nào đang làm, session nào đang chờ bạn duyệt (con vật nhảy, bong bóng đỏ), session nào vừa xong (con vật cười). **Bấm vào con vật để mở đúng session đó.**
 
-1. Tải file cài cho máy bạn (`.dmg`, `.exe` hoặc `.AppImage`) rồi mở ra. Lần đầu mở sẽ có cảnh báo vì app chưa được ký số; xem cách mở trong [hướng dẫn cài đặt](docs/install.md).
+1. Tải file cài cho máy bạn ở [trang Release mới nhất](https://github.com/baonguyen-agilityio/bobix/releases/latest) (`.dmg`, `.exe` hoặc `.AppImage`) rồi mở ra. Lần đầu mở sẽ có cảnh báo vì app chưa được ký số; xem cách mở trong [hướng dẫn cài đặt](docs/install.md).
 2. Trong app, vào **Kết nối → Cài hooks**. Hooks và cài đặt khác của bạn được giữ nguyên, có lưu bản backup.
 3. Gửi một prompt trong session Claude Code bất kỳ, con vật sẽ xuất hiện.
 

@@ -7,13 +7,13 @@ Node.js is recommended but not required (see [Without Node.js](#without-nodejs))
 
 ## 1. Get the installer
 
-Download the file for your computer from the Releases page, or use the file someone sent you.
+Download the file for your computer from the [latest release](https://github.com/baonguyen-agilityio/bobix/releases/latest), or use the file someone sent you.
 
 | Computer | File |
 |----------|------|
 | Mac with Apple chip (M1 and later) | `Bobix-<version>-arm64.dmg` |
 | Mac with Intel chip | `Bobix-<version>.dmg` |
-| Windows (64-bit) | `Bobix Setup <version>.exe` |
+| Windows (64-bit) | `Bobix.Setup.<version>.exe` |
 | Linux x64 | `Bobix-<version>.AppImage` |
 | Linux ARM64 | `Bobix-<version>-arm64.AppImage` |
 
@@ -31,7 +31,7 @@ Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 
 ### Windows
 
-1. Run `Bobix Setup <version>.exe`. It installs for your user only, no admin rights needed.
+1. Run `Bobix.Setup.<version>.exe`. It installs for your user only, no admin rights needed.
 2. The installer is not code-signed, so SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
 3. Bobix lives in the system tray (bottom-right, maybe under the ^ arrow).
 
