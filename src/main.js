@@ -77,7 +77,8 @@ function notify({ kind, id }) {
 // Open the session itself: in Claude desktop jump straight to it, else bring its terminal / IDE forward.
 // Falls back to its details in the panel.
 // Returns { ok } or { ok: false, reason } so the panel can say why (nopid | wayland | xdotool | notfound).
-async function openSession(id, preferFocus = settings.clickAction === 'focus') {
+// tell: show the reason in the panel (pet clicks); the panel's own Open button shows it itself.
+async function openSession(id, preferFocus = settings.clickAction === 'focus', tell = true) {
   const s = sessions.get(id);
   if (!s) return { ok: false, reason: 'notfound' };
   let reason = 'notfound', app = null;
@@ -95,7 +96,7 @@ async function openSession(id, preferFocus = settings.clickAction === 'focus') {
   }
   // Say why, and where the session is, so you can switch to it yourself.
   const fail = preferFocus ? { reason, app: app || '', folder: s.cwd || '' } : null;
-  showPanel({ select: id, fail });
+  showPanel({ select: id, fail: tell ? fail : null });
   return { ok: false, ...(fail || { reason }) };
 }
 const hasXdotool = () => new Promise(res => execFile('xdotool', ['version'], err => res(!err)));
@@ -277,7 +278,7 @@ function ipc() {
   handle('hooks:install', () => installHooks());
   handle('hooks:uninstall', () => { try { return hooks.uninstall(); } catch (err) { return { error: err.message }; } });
   handle('hooks:test', () => testEvent());
-  handle('open-session', id => openSession(id, true));
+  handle('open-session', id => openSession(id, true, false));
   ipcMain.on('pet-click', (e, id) => fromUs(e) && openSession(id));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) server.broadcast(snapshot()); });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); showOverlay(); } });

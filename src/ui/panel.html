@@ -255,7 +255,9 @@ function translate() {
   document.documentElement.style.setProperty('--close', JSON.stringify(T('group.close')));
 }
 function toast(text, action) {
+  if ([...$('#toasts').children].some(t => t.dataset.text === text)) return; // already on screen (e.g. a pet clicked twice)
   const el = document.createElement('div');
+  el.dataset.text = text;
   el.className = 'toast';
   el.innerHTML = `<span style="flex:1">${esc(text)}</span>${action ? `<button class="btn" type="button">${esc(action.label)}</button>` : ''}`;
   if (action) el.querySelector('button').onclick = () => { el.remove(); action.run(); };
