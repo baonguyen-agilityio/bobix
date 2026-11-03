@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bobix</title>
+<link rel="stylesheet" href="/ui/fonts/fonts.css">
+<link rel="stylesheet" href="/ui/theme.css">
+<style>
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 var(--t-md)/1.55 var(--f-body);font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.15;margin:0;text-wrap:balance}
+
+.bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:var(--s4);min-height:64px;padding:var(--s2) var(--s6);background:var(--bg);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.bar h1{font-size:var(--t-xl)}
+.tabs{display:flex;gap:var(--s1);background:var(--n-200);padding:var(--s1);border-radius:var(--pill)}
+.tab{border:0;background:none;padding:var(--s1) var(--s4);border-radius:var(--pill);cursor:pointer;font-size:var(--t-sm);font-weight:600;color:var(--ink-2);transition:background 150ms var(--ease)}
+.tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--lift)}
+.counts{display:flex;gap:var(--s2);flex-wrap:wrap;color:var(--ink-2);font-size:var(--t-sm)}
+.counts b{font-weight:600;color:var(--ink)}
+.counts .hot b{color:var(--coral-ink)}
+.sp{flex:1}
+.conn{font-size:var(--t-sm);color:var(--ink-3)}
+.conn.lost{color:var(--coral-ink);font-weight:600}
+.btn{position:relative;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);padding:var(--s2) var(--s4);font-size:var(--t-sm);font-weight:600;cursor:pointer;box-shadow:var(--press);transition:transform 120ms var(--ease),box-shadow 120ms var(--ease)}
+.btn:hover{transform:translateY(-1px);box-shadow:0 5px 0 var(--line-strong)}
+.btn:active{transform:translateY(4px);box-shadow:0 0 0 var(--line-strong)}
+.btn:disabled{opacity:.5;cursor:default;transform:none}
+.btn.pri{background:var(--ink);color:var(--n-50);border-color:var(--ink)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+
+.app{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s6);padding:var(--s6);max-width:1440px;margin:0 auto}
+.app.has-pane{grid-template-columns:minmax(0,1fr) var(--pane)}
+.group+.group{margin-top:var(--s8)}
+.group-h{display:flex;align-items:baseline;gap:var(--s2);margin-bottom:var(--s3)}
+.group-h h2{font-size:var(--t-lg)}
+.group-h .n{font-size:var(--t-sm);color:var(--ink-3)}
+.group[data-st="waiting"] .group-h h2{color:var(--coral-ink)}
+details.group>summary{list-style:none;cursor:pointer;border-radius:var(--r-md)}
+details.group>summary::-webkit-details-marker{display:none}
+details.group>summary .group-h::after{content:var(--open);font-size:var(--t-xs);color:var(--ink-3);margin-left:var(--s2)}
+details.group[open]>summary .group-h::after{content:var(--close)}
+.rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--s2)}
+.row{width:100%;display:grid;grid-template-columns:48px minmax(0,1.7fr) minmax(0,1fr) 96px 80px;align-items:center;gap:var(--s4);padding:var(--s2) var(--s4) var(--s2) var(--s2);min-height:64px;text-align:left;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);transition:transform 150ms var(--ease),border-color 150ms var(--ease),box-shadow 150ms var(--ease)}
+.row:hover{transform:translateY(-1px);border-color:var(--line-strong);box-shadow:var(--lift)}
+.row[aria-pressed="true"]{border-color:var(--ink);box-shadow:var(--lift)}
+.row.st-waiting{background:var(--coral-soft);border-color:var(--coral)}
+.sprite{display:grid;place-items:center;width:48px;height:48px;border-radius:var(--r-md);background:var(--n-100)}
+.st-waiting .sprite{background:var(--surface)}
+.main{min-width:0;display:flex;flex-direction:column}
+.title{display:flex;gap:var(--s2);align-items:baseline;min-width:0}
+.title strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv,.folder{font-size:var(--t-xs);color:var(--ink-3);flex:none}
+.quest{font-size:var(--t-sm);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{min-width:0}
+.pill{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px var(--s3);border-radius:var(--pill);font-size:var(--t-sm);font-weight:500;background:var(--n-100);color:var(--ink-2)}
+.st-working .pill{background:var(--sky-soft);color:var(--ink)}
+.st-waiting .pill{background:var(--coral);color:var(--n-900);font-weight:600}
+.st-done .pill{background:var(--mint-soft);color:var(--ink)}
+.ctx{display:flex;flex-direction:column;gap:var(--s1);font-size:var(--t-xs);color:var(--ink-3)}
+.meter{height:8px;border-radius:var(--pill);background:var(--n-200);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--ink-2);transform-origin:left;transform:scaleX(var(--v));transition:transform 250ms var(--ease)}
+.meter.low i{background:var(--coral)}
+.meter.unk i{background:var(--n-300)}
+.ago{font-size:var(--t-sm);color:var(--ink-3);text-align:right;white-space:nowrap}
+.eye{transform-box:fill-box;transform-origin:center}
+.st-working .eye{animation:blink 4.2s infinite}
+.st-waiting .sprite svg{animation:hop 900ms var(--ease) infinite}
+@keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.15)}}
+@keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s6)}
+.empty{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s6);align-items:center;max-width:640px;margin:var(--s12) 0}
+.empty h2{font-size:var(--t-xl);margin-bottom:var(--s2)}
+.empty p{margin:0 0 var(--s3);color:var(--ink-2);max-width:52ch}
+code{font:500 var(--t-sm)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--n-100);border:1px solid var(--line);border-radius:8px;padding:2px var(--s2);overflow-wrap:anywhere}
+
+.pane{position:sticky;top:88px;align-self:start;max-height:calc(100dvh - 112px);overflow:auto}
+.pane-top{display:flex;gap:var(--s4);align-items:center}
+.pane-top .sprite{width:96px;height:96px;border-radius:var(--r-lg);flex:none}
+.pane-top h2{font-size:var(--t-2xl);overflow-wrap:anywhere}
+.pane-top .lv{font-size:var(--t-sm)}
+.pane-acts{display:flex;gap:var(--s2);margin-top:var(--s4);flex-wrap:wrap}
+.meta{margin:var(--s4) 0 0;font-size:var(--t-xs);color:var(--ink-3);overflow-wrap:anywhere}
+.pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
+.pane p{margin:0}
+.ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-md);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
+.ask strong{color:var(--coral-ink)}
+.report{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--t-sm);background:var(--mint-soft);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
+.log{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
+.log li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
+.log time{color:var(--ink-3)}
+.log span{overflow-wrap:anywhere;color:var(--ink-2)}
+.note{font-size:var(--t-sm);color:var(--ink-2)}
+.note.err{color:var(--coral-ink);font-weight:600}
+
+/* settings */
+.set-wrap{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:var(--s8);max-width:1180px;margin:0 auto;padding:var(--s6)}
+.set-side{position:sticky;top:88px;align-self:start;display:flex;flex-direction:column;gap:var(--s3)}
+.set-side h2{font-size:var(--t-lg)}
+.set-side .note{font-size:var(--t-sm)}
+.preview{position:relative;aspect-ratio:16/10;border-radius:var(--r-lg);background:var(--n-200);border:1px solid var(--line-strong);overflow:hidden}
+.preview .pv-bar{position:absolute;left:0;right:0;top:0;height:7%;background:var(--n-300)}
+.preview .pv-dock{position:absolute;left:28%;right:28%;bottom:3%;height:8%;border-radius:var(--r-md);background:var(--n-300)}
+.preview .pv-work{position:absolute;left:0;right:0;top:7%;bottom:13%}
+.preview .band{position:absolute;left:var(--zs);width:calc(var(--ze) - var(--zs));bottom:0;height:calc(var(--ps) + 12px);background:var(--sky-soft);border:1px dashed var(--sky);border-radius:var(--r-md) var(--r-md) 0 0;transition:left 200ms var(--ease),width 200ms var(--ease)}
+.preview.top .band{bottom:auto;top:0;border-radius:0 0 var(--r-md) var(--r-md)}
+.preview .mini{position:absolute;bottom:6px;width:var(--ps);height:var(--ps);opacity:var(--op);transition:left 200ms var(--ease)}
+.preview.top .mini{bottom:auto;top:6px}
+.preview .mini svg{width:100%;height:100%}
+.preview .hidden{position:absolute;inset:0;display:grid;place-items:center;font-weight:600;color:var(--ink-2);background:oklch(96% 0.01 262 / .7)}
+.saved{align-self:flex-start;font-size:var(--t-sm);font-weight:600;color:var(--ink-2);padding:2px var(--s3);border-radius:var(--pill);background:var(--mint-soft);opacity:0;transition:opacity 200ms var(--ease)}
+.saved.on{opacity:1}
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s2) var(--s6) var(--s2)}
+.sec+.sec{margin-top:var(--s6)}
+.sec h2{font-size:var(--t-lg);padding:var(--s4) 0 var(--s3)}
+.opt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s3) var(--s6);align-items:center;padding:var(--s4) 0;border-top:1px solid var(--line)}
+.opt.wide{grid-template-columns:minmax(0,1fr)}
+.opt .lbl{font-weight:600}
+.opt .desc{font-size:var(--t-sm);color:var(--ink-3);margin-top:2px;max-width:60ch}
+.opt.dim .lbl,.opt.dim .desc{opacity:.45}
+.ctl{display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.opt.wide .ctl{justify-content:flex-start}
+select,input[type=number]{min-height:40px;padding:0 var(--s3);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);font-size:var(--t-md)}
+input[type=number]{width:104px}
+.sw{appearance:none;-webkit-appearance:none;margin:0;width:44px;height:26px;border-radius:var(--pill);background:var(--n-300);position:relative;cursor:pointer;flex:none;transition:background 150ms var(--ease)}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--n-50);box-shadow:0 1px 2px oklch(30% 0.04 262 / .3);transition:transform 150ms var(--ease)}
+.sw:checked{background:var(--ink)}
+.sw:checked::after{transform:translateX(18px)}
+.sw:disabled{opacity:.45;cursor:default}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;background:var(--n-200);padding:3px;border-radius:var(--pill)}
+.seg button{border:0;background:none;padding:6px var(--s4);min-height:36px;border-radius:var(--pill);font-size:var(--t-sm);font-weight:600;color:var(--ink-2);cursor:pointer;transition:background 150ms var(--ease),color 150ms var(--ease)}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-checked="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--lift)}
+.rng-row{display:flex;align-items:center;gap:var(--s3)}
+.rng{appearance:none;-webkit-appearance:none;width:min(260px,52vw);height:6px;border-radius:var(--pill);background:linear-gradient(var(--ink),var(--ink)) 0 0 / var(--fill, 50%) 100% no-repeat,var(--n-200);cursor:pointer}
+.rng::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--n-50);border:2px solid var(--ink);box-shadow:var(--lift)}
+.val{min-width:56px;text-align:right;font-size:var(--t-sm);font-weight:600;color:var(--ink-2)}
+.zone{display:flex;flex-direction:column;gap:var(--s3);width:100%}
+.chips{display:flex;gap:var(--s2);flex-wrap:wrap}
+.chip{border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);padding:4px var(--s3);min-height:32px;font-size:var(--t-sm);cursor:pointer;transition:border-color 150ms var(--ease)}
+.chip[aria-pressed="true"]{border-color:var(--ink);background:var(--n-100);font-weight:600}
+.zone .pair{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--s3);align-items:center}
+.zone .pair label{font-size:var(--t-sm);color:var(--ink-2);min-width:40px}
+.zone .rng{width:100%}
+.btn.danger{color:var(--coral-ink)}
+.acts{display:flex;gap:var(--s3);flex-wrap:wrap;margin-top:var(--s4)}
+
+/* setup */
+.setup-wrap{max-width:860px;margin:0 auto;padding:var(--s6);display:flex;flex-direction:column;gap:var(--s6)}
+.hero{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s6);align-items:center}
+.hero .sprite{width:88px;height:88px;border-radius:var(--r-lg)}
+.hero h2{font-size:var(--t-xl);margin-bottom:var(--s1)}
+.hero .note{margin:0 0 var(--s3)}
+.state{display:inline-flex;align-items:center;gap:var(--s2);padding:4px var(--s3);border-radius:var(--pill);font-weight:600;font-size:var(--t-sm)}
+.state.ok{background:var(--mint-soft)}.state.bad{background:var(--coral-soft);color:var(--coral-ink)}
+.card h2{font-size:var(--t-lg);margin-bottom:var(--s2)}
+.steps{list-style:none;margin:0;padding:0}
+.steps li{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:var(--s4);align-items:center;padding:var(--s4) 0;border-top:1px solid var(--line)}
+.steps .num{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:var(--t-sm);background:var(--n-200)}
+.steps li.done .num{background:var(--ink);color:var(--n-50)}
+.steps .lbl{font-weight:600}
+.steps .desc{font-size:var(--t-sm);color:var(--ink-3)}
+.kv{display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr);gap:var(--s3) var(--s4);align-items:center;font-size:var(--t-sm);margin-top:var(--s2)}
+.kv dt{color:var(--ink-3)}.kv dd{margin:0;display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap}
+.card .note{margin-top:var(--s3)}
+
+.toasts{position:fixed;right:var(--s6);bottom:var(--s6);z-index:40;display:flex;flex-direction:column;gap:var(--s2);width:min(360px,calc(100vw - 32px))}
+.toast{display:flex;gap:var(--s3);align-items:center;padding:var(--s3);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--lift);font-size:var(--t-sm);text-align:left;animation:toast-in 250ms var(--ease)}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}}
+
+@media (max-width:980px){
+  .set-wrap{grid-template-columns:minmax(0,1fr)}
+  .set-side{position:static}
+  .app.has-pane{grid-template-columns:minmax(0,1fr)}
+  .pane{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:30;max-height:78dvh;border-radius:var(--r-lg) var(--r-lg) 0 0;box-shadow:0 -8px 32px oklch(30% 0.04 262 / .18)}
+}
+@media (max-width:720px){
+  .bar{padding:var(--s3) var(--s4)}
+  .counts{order:3;width:100%}
+  .app{padding:var(--s4)}
+  .row{grid-template-columns:48px minmax(0,1fr) auto;gap:var(--s1) var(--s3)}
+  .row .status{grid-column:2/4;grid-row:2}
+  .row .ctx{grid-column:2/4;grid-row:3;flex-direction:row;align-items:center;gap:var(--s2)}
+  .row .ctx .meter{flex:1}
+  .row .sprite{grid-row:1/3;align-self:start}
+  .ago{grid-column:3;grid-row:1}
+  .empty{grid-template-columns:1fr}
+  .opt{grid-template-columns:1fr}
+  .ctl{justify-content:flex-start}
+  .kv{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1 data-t="app.name"></h1>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="sessions" data-t="tab.sessions"></button>
+    <button class="tab" role="tab" data-tab="settings" data-t="tab.settings"></button>
+    <button class="tab" role="tab" data-tab="setup" data-t="tab.setup"></button>
+  </nav>
+  <div class="counts" id="counts"></div>
+  <span class="sp"></span>
+  <span class="conn lost" id="conn" role="status"></span>
+</header>
+
+<section id="tab-sessions">
+  <div class="app" id="app">
+    <main id="board">
+      <div class="card empty" id="empty">
+        <span class="sprite" id="egg" style="width:96px;height:96px"></span>
+        <div><h2 data-t="empty.title"></h2><p data-t="empty.body"></p></div>
+      </div>
+      <section class="group" data-st="waiting" hidden><div class="group-h"><h2 data-t="group.waiting"></h2><span class="n"></span></div><ol class="rows"></ol></section>
+      <section class="group" data-st="working" hidden><div class="group-h"><h2 data-t="group.working"></h2><span class="n"></span></div><ol class="rows"></ol></section>
+      <section class="group" data-st="done" hidden><div class="group-h"><h2 data-t="group.done"></h2><span class="n"></span></div><ol class="rows"></ol></section>
+      <details class="group" data-st="idle" hidden><summary><div class="group-h"><h2 data-t="group.idle"></h2><span class="n"></span></div></summary><ol class="rows"></ol></details>
+    </main>
+    <aside class="card pane" id="pane" hidden aria-live="polite"></aside>
+  </div>
+</section>
+
+<section id="tab-settings" hidden><div class="set-wrap" id="settings"></div></section>
+<section id="tab-setup" hidden><div class="setup-wrap" id="setup"></div></section>
+<div class="toasts" id="toasts"></div>
+
+<script src="/ui/i18n.js"></script>
+<script src="/ui/creature.js"></script>
+<script>
+const IDLE_AFTER = 10 * 60e3;
+const $ = s => document.querySelector(s);
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
+const bridge = window.bobix; // only inside the app
+let lang = navigator.language, state = null; // state = app state (settings, hooks, displays) when in the app
+const T = (k, v) => I18N.t(lang, k, v);
+
+function translate() {
+  document.documentElement.lang = I18N.pick(lang);
+  document.querySelectorAll('[data-t]').forEach(e => { e.textContent = T(e.dataset.t); });
+  document.documentElement.style.setProperty('--open', JSON.stringify(T('group.open')));
+  document.documentElement.style.setProperty('--close', JSON.stringify(T('group.close')));
+}
+function toast(text, action) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span style="flex:1">${esc(text)}</span>${action ? `<button class="btn" type="button">${esc(action.label)}</button>` : ''}`;
+  if (action) el.querySelector('button').onclick = () => { el.remove(); action.run(); };
+  $('#toasts').prepend(el);
+  setTimeout(() => el.remove(), action ? 10000 : 6000);
+}
+
+// ---------- tabs ----------
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  for (const n of ['sessions', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
+  if (name === 'setup') renderSetup();
+}
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+// ---------- sessions board ----------
+function ago(t) {
+  const m = Math.floor((Date.now() - t) / 60e3);
+  return m < 1 ? T('ago.now') : m < 60 ? T('ago.min', { n: m }) : m < 1440 ? T('ago.h', { n: Math.floor(m / 60) }) : T('ago.d', { n: Math.floor(m / 1440) });
+}
+function statusText(s, st) {
+  if (st === 'working') return s.tool ? T('status.working', { tool: I18N.toolLabel(lang, s.tool) }) : T('status.thinking');
+  if (st === 'waiting') return s.askTool ? T('status.waitingTool', { tool: s.askTool }) : T('status.waiting');
+  return T(`status.${st}`);
+}
+const line2 = (s, st) => st === 'done' && s.summary ? T('line.report') + s.summary : s.quest || T('line.noQuest');
+function logText(l) {
+  if (l.kind === 'tool') return T('log.tool', { tool: I18N.toolLabel(lang, l.tool), x: l.text });
+  return T(`log.${l.kind}`, { x: l.text });
+}
+function rowHTML(s, st) {
+  const hp = s.ctx;
+  return `<span class="sprite">${creature(s.id, st)}</span>
+    <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}</span>
+      <span class="quest">${esc(line2(s, st))}</span></span>
+    <span class="status"><span class="pill">${esc(statusText(s, st))}</span></span>
+    <span class="ctx" title="${T('ctx')}"><span class="meter ${hp == null ? 'unk' : hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></span><span>${hp == null ? T('ctx.unknown') : `${T('ctx')} ${hp}%`}</span></span>
+    <span class="ago" data-t-ago="${s.since}">${ago(s.since)}</span>`;
+}
+
+let list = [], selected = new URLSearchParams(location.search).get('s');
+const ORDER_IN = { waiting: (a, b) => a.since - b.since, working: (a, b) => b.updated - a.updated, done: (a, b) => b.since - a.since, idle: (a, b) => b.updated - a.updated };
+
+function render() {
+  const by = { waiting: [], working: [], done: [], idle: [] };
+  for (const s of list) by[look(s)].push(s);
+  for (const st in by) {
+    const g = document.querySelector(`.group[data-st="${st}"]`), ol = g.querySelector('.rows'), items = by[st].sort(ORDER_IN[st]);
+    g.hidden = !items.length;
+    g.querySelector('.n').textContent = items.length;
+    const keep = new Set();
+    items.forEach((s, i) => {
+      let li = [...ol.children].find(c => c.dataset.id === s.id) || [...document.querySelectorAll('li[data-id]')].find(c => c.dataset.id === s.id);
+      if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
+      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, lang]);
+      if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
+      btn.setAttribute('aria-pressed', String(s.id === selected));
+      if (ol.children[i] !== li) ol.insertBefore(li, ol.children[i] || null);
+      keep.add(li);
+    });
+    [...ol.children].forEach(li => keep.has(li) || li.remove());
+  }
+  $('#empty').hidden = list.length > 0;
+  const n = st => by[st].length;
+  $('#counts').innerHTML = ['waiting', 'working', 'done', 'idle'].map(st => `<span class="${st === 'waiting' && n(st) ? 'hot' : ''}"><b>${n(st)}</b> ${T('count.' + st)}</span>`).join('');
+  document.title = n('waiting') ? `(${n('waiting')}) ${T('app.name')}` : T('app.name');
+  document.querySelectorAll('[data-t-ago]').forEach(e => e.textContent = ago(+e.dataset.tAgo));
+  renderPane();
+}
+
+function renderPane() {
+  const pane = $('#pane'), s = list.find(x => x.id === selected);
+  $('#app').classList.toggle('has-pane', !!s);
+  pane.hidden = !s;
+  if (!s) return;
+  const st = look(s);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, lang]);
+  if (pane.dataset.key === key) return;
+  pane.dataset.key = key;
+  const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  pane.innerHTML = `
+    <div class="pane-top st-${st}">
+      <span class="sprite">${creature(s.id, st)}</span>
+      <div><h2>${esc(s.title || s.name)}</h2><span class="lv">${T('pet.lv', { n: s.lv })} · ${esc(statusText(s, st))}</span></div>
+    </div>
+    <div class="pane-acts">
+      ${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>` : ''}
+      <button class="btn" type="button" data-act="close">${T('pane.close')}</button>
+    </div>
+    <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
+    ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${T('pane.askHint')}</div>` : ''}
+    <h3>${T('pane.quest')}</h3><p>${esc(s.quest || T('line.noQuest'))}</p>
+    ${s.summary ? `<h3>${T('pane.report')}</h3><div class="report">${esc(s.summary)}</div>` : ''}
+    <h3>${T('pane.log')}</h3>
+    <ol class="log">${s.log.slice().reverse().map(l => `<li><time>${time(l.t)}</time><span>${esc(logText(l))}</span></li>`).join('')}</ol>`;
+}
+$('#pane').addEventListener('click', async e => {
+  const act = e.target.dataset.act;
+  if (act === 'close') select(null);
+  if (act === 'open' && !(await bridge.openSession(selected))) toast(T('pane.openFail'));
+});
+function select(id) { selected = id; render(); }
+$('#board').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(li.dataset.id === selected ? null : li.dataset.id); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && selected) select(null); });
+
+// ---------- settings ----------
+const has = k => (I18N.STR[I18N.pick(lang)][k] ?? I18N.STR.en[k]) !== undefined;
+const pct = v => Math.round(v * 100) + '%';
+// "Which pets" is one choice in the UI, two flags in settings.
+const SHOW = { all: { showIdle: true, onlyAttention: false }, active: { showIdle: false, onlyAttention: false }, attention: { showIdle: true, onlyAttention: true } };
+const showOf = s => (s.onlyAttention ? 'attention' : s.showIdle ? 'all' : 'active');
+const ZONES = { full: [0, 100], left: [0, 50], right: [50, 100], corner: [70, 100] };
+const opts = (keys, prefix) => () => keys.map(v => [v, T(prefix + v)]);
+const SECTIONS = [
+  ['set.section.place', [
+    { k: 'petsVisible', type: 'switch' },
+    { k: 'display', type: 'select', opts: () => [['primary', T('set.display.primary')], ...(state.displays || []).map(d => [String(d.id), d.label])] },
+    { k: 'edge', type: 'seg', opts: opts(['bottom', 'top'], 'set.edge.') },
+    { k: 'zone', type: 'zone', wide: true },
+  ]],
+  ['set.section.look', [
+    { k: 'size', type: 'range', min: 32, max: 128, step: 4, fmt: v => v + ' px' },
+    { k: 'opacity', type: 'range', min: 0.2, max: 1, step: 0.05, fmt: pct },
+    { k: 'fadeNearCursor', type: 'switch' },
+    { k: 'show', type: 'seg', opts: opts(['all', 'active', 'attention'], 'set.show.'), get: showOf, set: v => SHOW[v] },
+    { k: 'label', type: 'seg', opts: opts(['title', 'folder', 'both'], 'set.label.') },
+    { k: 'clickAction', type: 'seg', opts: opts(['focus', 'panel'], 'set.click.') },
+  ]],
+  ['set.section.notify', [
+    { k: 'paused', type: 'switch' },
+    { k: 'notifyWaiting', type: 'switch', dim: s => s.paused },
+    { k: 'notifyDone', type: 'switch', dim: s => s.paused },
+    { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
+  ]],
+  ['set.section.app', [
+    { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
+    { k: 'autostart', type: 'switch' },
+  ]],
+  ['set.section.advanced', [{ k: 'port', type: 'port' }, { k: 'reset', type: 'reset' }]],
+];
+const ROWS = SECTIONS.flatMap(x => x[1]);
+const fill = (r, v) => `${((v - r.min) / (r.max - r.min)) * 100}%`;
+
+function control(r, s) {
+  const v = r.get ? r.get(s) : s[r.k], id = `f-${r.k}`;
+  if (r.type === 'switch') return `<input type="checkbox" role="switch" class="sw" id="${id}" data-k="${r.k}" ${v ? 'checked' : ''}>`;
+  if (r.type === 'select') return `<select id="${id}" data-k="${r.k}">${r.opts().map(([o, l]) => `<option value="${esc(o)}" ${String(v) === o ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  if (r.type === 'seg') return `<div class="seg" role="radiogroup" aria-labelledby="l-${r.k}">${r.opts().map(([o, l]) =>
+    `<button type="button" role="radio" aria-checked="${String(v) === o}" data-k="${r.k}" data-v="${esc(o)}">${esc(l)}</button>`).join('')}</div>`;
+  if (r.type === 'range') return `<div class="rng-row"><input type="range" class="rng" id="${id}" data-k="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${v}" style="--fill:${fill(r, v)}"><output class="val" for="${id}" data-val="${r.k}">${r.fmt(v)}</output></div>`;
+  if (r.type === 'zone') {
+    const z = { min: 0, max: 100 }, cur = Object.entries(ZONES).find(([, [a, b]]) => a === s.zoneStart && b === s.zoneEnd)?.[0];
+    return `<div class="zone">
+      <div class="chips">${Object.keys(ZONES).map(n => `<button type="button" class="chip" aria-pressed="${n === cur}" data-zone="${n}">${T('set.zone.' + n)}</button>`).join('')}</div>
+      ${['zoneStart', 'zoneEnd'].map((k, i) => `<div class="pair"><label for="f-${k}">${T(i ? 'set.zone.to' : 'set.zone.from')}</label>
+        <input type="range" class="rng" id="f-${k}" data-k="${k}" min="0" max="100" step="5" value="${s[k]}" style="--fill:${fill(z, s[k])}"><output class="val" for="f-${k}" data-val="${k}">${s[k]}%</output></div>`).join('')}
+    </div>`;
+  }
+  if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
+  return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
+}
+
+function renderSettings() {
+  const box = $('#settings');
+  if (!bridge) { box.innerHTML = `<div class="card"><p class="note">${T('set.onlyInApp')}</p></div>`; return; }
+  const s = state.settings;
+  box.innerHTML = `
+    <aside class="set-side">
+      <h2>${T('set.preview')}</h2>
+      <div class="preview" id="preview"></div>
+      <p class="note">${T('set.preview.desc')}</p>
+      <span class="saved" id="saved" role="status">${T('set.saved')}</span>
+    </aside>
+    <div>${SECTIONS.map(([title, rows]) => `<section class="sec"><h2>${T(title)}</h2>${rows.map(r => `
+      <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}">
+        <div><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`)}</div>` : ''}</div>
+        <div class="ctl">${control(r, s)}</div>
+      </div>`).join('')}</section>`).join('')}</div>`;
+  renderPreview();
+}
+
+// Mini screen: work area, the band pets may use, a few pets at real scale and visibility.
+function renderPreview() {
+  const box = $('#preview');
+  if (!box || !state) return;
+  const s = state.settings, W = state.screen?.width || 1920, w = box.clientWidth || 340;
+  // Drawn 3x larger than true scale: a real 56 px pet on a 1920 px screen would be a 10 px speck here.
+  const ps = Math.round(Math.min(48, Math.max(12, s.size * w / W * 3)));
+  const ids = [...list.map(x => x.id), 'bobix-a', 'bobix-b', 'bobix-c'].slice(0, Math.max(3, Math.min(4, list.length)));
+  const span = s.zoneEnd - s.zoneStart;
+  const pets = ids.map((id, i) => {
+    const left = s.zoneStart + span * (i + 0.5) / ids.length;
+    return `<span class="mini" style="left:calc(${left}% - ${ps / 2}px)">${creature(id, i === 0 ? 'waiting' : 'working')}</span>`;
+  }).join('');
+  box.className = 'preview' + (s.edge === 'top' ? ' top' : '');
+  box.style.cssText = `--zs:${s.zoneStart}%;--ze:${s.zoneEnd}%;--ps:${ps}px;--op:${s.opacity}`;
+  box.innerHTML = `<div class="pv-bar"></div><div class="pv-work"><div class="band"></div>${s.petsVisible ? pets : ''}</div><div class="pv-dock"></div>${s.petsVisible ? '' : `<div class="hidden">${T('set.preview.hidden')}</div>`}`;
+}
+
+let savedTimer;
+function flashSaved() {
+  const el = $('#saved'); if (!el) return;
+  el.classList.add('on'); clearTimeout(savedTimer); savedTimer = setTimeout(() => el.classList.remove('on'), 1400);
+}
+async function save(patch, { rerender = true } = {}) {
+  const r = await bridge.setSettings(patch);
+  if (r.error) { toast(T('setup.error', { x: r.error })); renderSettings(); return false; }
+  const langChanged = 'language' in patch && r.language !== state.settings.language;
+  state.settings = r;
+  if (langChanged) applyLang(); else if (rerender) renderSettings(); else renderPreview();
+  flashSaved();
+  return true;
+}
+
+$('#settings').addEventListener('input', e => {
+  const k = e.target.dataset.k;
+  if (!k || e.target.type !== 'range') return;
+  let v = Number(e.target.value);
+  const r = ROWS.find(x => x.k === k) || { min: 0, max: 100, fmt: x => x + '%' };
+  if (k === 'zoneStart' && v > state.settings.zoneEnd - 5) v = e.target.value = state.settings.zoneEnd - 5;
+  if (k === 'zoneEnd' && v < state.settings.zoneStart + 5) v = e.target.value = state.settings.zoneStart + 5;
+  e.target.style.setProperty('--fill', fill(r, v));
+  $(`[data-val="${k}"]`).textContent = r.fmt(v);
+  save({ [k]: v }, { rerender: false });
+});
+$('#settings').addEventListener('change', e => {
+  const k = e.target.dataset.k;
+  if (!k || e.target.type === 'range') return;
+  save({ [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+});
+$('#settings').addEventListener('click', async e => {
+  const t = e.target.closest('button');
+  if (!t) return;
+  if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
+  if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
+  if (t.dataset.act === 'port') {
+    const v = Number($('#f-port').value);
+    if (v === state.settings.port) return;
+    if (!Number.isInteger(v) || v < 1024 || v > 65535) return toast(T('setup.error', { x: '1024 – 65535' }));
+    return save({ port: v });
+  }
+  if (t.dataset.act === 'reset') {
+    const before = { ...state.settings };
+    state.settings = await bridge.resetSettings();
+    applyLang();
+    toast(T('set.reset.done'), { label: T('set.undo'), run: () => save(before) });
+  }
+});
+
+// ---------- setup ----------
+async function renderSetup(note) {
+  const box = $('#setup');
+  if (!bridge) { box.innerHTML = `<div class="card"><p class="note">${T('set.onlyInApp')}</p></div>`; return; }
+  state = await bridge.getState();
+  const h = state.hooks, ok = h.complete && !h.error && !h.stale;
+  const stateText = h.error ? T('setup.error', { x: h.error }) : h.stale ? T('setup.stale') : h.complete ? T('setup.ok') : T(h.events.length ? 'setup.partial' : 'setup.none');
+  const steps = [
+    ['setup.step1', ok, `<button class="btn ${ok ? '' : 'pri'}" type="button" data-act="install">${T(h.events.length ? 'setup.reinstall' : 'setup.install')}</button>`],
+    ['setup.step2', ok && !!state.lastEventAt, `<button class="btn" type="button" data-act="test" ${ok ? '' : 'disabled'}>${T('setup.test')}</button>`],
+    ['setup.step3', false, ''],
+  ];
+  const linuxNote = state.platform === 'linux' ? `<p class="note">${esc(T('setup.focusNote.linux'))}</p>` : '';
+  box.innerHTML = `
+    <div class="card hero">
+      <span class="sprite">${creature('bobix', ok ? 'done' : 'idle')}</span>
+      <div><h2>${T('setup.title')}</h2><p class="note">${T('setup.body')}</p><span class="state ${ok ? 'ok' : 'bad'}" role="status">${esc(stateText)}</span></div>
+    </div>
+    <div class="card"><h2>${T('setup.steps')}</h2><ol class="steps">${steps.map(([k, done, act], i) => `
+      <li class="${done ? 'done' : ''}"><span class="num" aria-hidden="true">${i + 1}</span>
+        <div><div class="lbl">${T(k)}</div><div class="desc">${T(k + '.desc')}</div></div><div>${act}</div></li>`).join('')}</ol>
+      ${note ? `<p class="note ${note.err ? 'err' : ''}">${esc(note.text)}</p>` : ''}
+    </div>
+    <div class="card"><h2>${T('setup.details')}</h2>
+      <dl class="kv">
+        <dt>${T('setup.mode')}</dt><dd>${h.mode ? T('setup.mode.' + h.mode) : '–'}</dd>
+        <dt>${T('setup.port')}</dt><dd>${h.port ?? '–'}</dd>
+        <dt>${T('setup.last')}</dt><dd>${state.lastEventAt ? ago(state.lastEventAt) : T('setup.never')}</dd>
+        <dt>${T('setup.file')}</dt><dd><code>${esc(h.file)}</code><button class="btn" type="button" data-act="reveal">${T('setup.reveal')}</button></dd>
+      </dl>
+      ${!state.nodePath ? `<p class="note">${T('setup.noNode', { mode: state.platform === 'win32' ? 'PowerShell' : 'curl' })}</p>` : ''}
+      ${linuxNote}
+    </div>
+    ${h.events.length ? `<div class="card"><h2>${T('setup.remove.title')}</h2><p class="note">${T('setup.remove.body')}</p>
+      <div class="acts"><button class="btn danger" type="button" data-act="uninstall">${T('setup.uninstall')}</button></div></div>` : ''}`;
+}
+$('#setup').addEventListener('click', async e => {
+  const act = e.target.closest('button')?.dataset.act;
+  if (!act) return;
+  if (act === 'reveal') return bridge.revealSettings();
+  e.target.disabled = true;
+  const r = await bridge[{ install: 'installHooks', uninstall: 'uninstallHooks', test: 'testEvent' }[act]]();
+  const text = r.error ? T('setup.error', { x: r.error }) : [r.backup && T('setup.backup', { file: r.backup }), act === 'install' && T('setup.newSessions')].filter(Boolean).join(' ');
+  renderSetup(text ? { text, err: !!r.error } : null);
+  if (act === 'test' && !r.error) showTab('sessions');
+});
+
+// ---------- boot ----------
+function applyLang() {
+  lang = !state || state.settings.language === 'auto' ? navigator.language : state.settings.language;
+  translate();
+  $('#conn').textContent = T(es.readyState === 1 ? 'conn.ok' : es.readyState === 0 ? 'conn.wait' : 'conn.lost');
+  render();
+  renderSettings();
+  if (!$('#tab-setup').hidden) renderSetup();
+}
+$('#egg').innerHTML = creature('bobix', 'idle');
+const es = new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || ''));
+es.onopen = () => { $('#conn').textContent = T('conn.ok'); $('#conn').className = 'conn'; };
+es.onerror = () => { $('#conn').textContent = T('conn.lost'); $('#conn').className = 'conn lost'; };
+es.onmessage = m => {
+  const d = JSON.parse(m.data);
+  const firstIds = list.slice(0, 4).map(x => x.id).join();
+  list = d.sessions || [];
+  if (selected && !list.some(s => s.id === selected)) selected = null;
+  render();
+  if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();
+};
+setInterval(render, 15e3);
+$('#conn').textContent = T('conn.wait');
+(async () => {
+  if (bridge) {
+    state = await bridge.getState();
+    bridge.onSelect(id => { showTab('sessions'); select(id); });
+    bridge.onShowTab(showTab);
+    bridge.onSettings(s => {
+      if (JSON.stringify(s) === JSON.stringify(state.settings)) return; // our own save echoing back: keep the form as is (slider drag)
+      const langChanged = s.language !== state.settings.language;
+      state.settings = s;
+      langChanged ? applyLang() : renderSettings(); // e.g. toggled from the tray
+    });
+  }
+  applyLang();
+  showTab(new URLSearchParams(location.search).get('tab') || 'sessions');
+})();
+</script>
+</body>
+</html>

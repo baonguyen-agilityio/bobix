@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bobix pets</title>
+<link rel="stylesheet" href="/ui/fonts/fonts.css">
+<link rel="stylesheet" href="/ui/theme.css">
+<style>
+/* Runs inside a transparent, click-through window covering the screen's work area. */
+html{--size:56px}
+html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 var(--t-sm)/1.45 var(--f-body);color:var(--ink);font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none}
+.pet{position:absolute;left:0;bottom:var(--s1);width:var(--size);cursor:pointer;transition:opacity 150ms var(--ease)}
+.edge-top .pet{bottom:auto;top:var(--s1)}
+.spr{width:var(--size);height:var(--size);display:grid;place-items:center}
+.spr svg{width:100%;height:100%;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))}
+.tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;padding:0 var(--s2);border-radius:var(--pill);background:var(--surface);border:1px solid var(--line-strong);font-size:var(--t-xs);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-waiting .tag{background:var(--coral);border-color:var(--coral);color:var(--n-900)}
+.st-idle .spr{opacity:.75}
+.say,.card{position:absolute;bottom:calc(100% + var(--s2) + var(--lane, 0) * 36px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--lift)}
+.edge-top .say,.edge-top .card{bottom:auto;top:calc(100% + var(--s2) + var(--lane, 0) * 36px)}
+.edge-l .say,.edge-l .card{left:0;transform:none}
+.edge-r .say,.edge-r .card{left:auto;right:0;transform:none}
+.say{padding:var(--s1) var(--s3);white-space:nowrap;font-weight:500;animation:pop 200ms var(--ease)}
+.say.waiting{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink);font-weight:600}
+.say.done{background:var(--mint-soft)}
+.card{width:272px;padding:var(--s3) var(--s4);z-index:2;animation:pop 150ms var(--ease)}
+.card h2{font:700 var(--t-lg)/1.15 var(--f-display);margin:0;overflow-wrap:anywhere}
+.card .sub{font-size:var(--t-xs);color:var(--ink-3);margin:0 0 var(--s2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .q{color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:0 0 var(--s2)}
+.card .row{display:flex;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3)}
+.card .st{font-weight:600;color:var(--ink)}
+.st-waiting .card .st{color:var(--coral-ink)}
+.meter{height:6px;border-radius:var(--pill);background:var(--n-200);overflow:hidden;margin:var(--s1) 0 var(--s2)}
+.meter i{display:block;height:100%;background:var(--ink-2);transform-origin:left;transform:scaleX(var(--v))}
+.meter.low i{background:var(--coral)}
+.card .hint{font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--line);padding-top:var(--s2);margin-top:var(--s1)}
+.zz{position:absolute;left:70%;top:-6px;font:700 var(--t-sm) var(--f-display);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
+.eye{transform-box:fill-box;transform-origin:center}
+.st-working .eye{animation:blink 4.2s infinite}
+.walking .spr svg{animation:step 320ms steps(2) infinite}
+.st-waiting .spr svg{animation:hop 900ms var(--ease) infinite}
+@keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.15)}}
+@keyframes step{to{transform:translateY(-3px)}}
+@keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
+@keyframes pop{from{opacity:0;translate:0 4px}}
+@keyframes zz{0%{opacity:0;translate:0 0}40%{opacity:1}100%{opacity:0;translate:8px -12px}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important}}
+</style>
+</head>
+<body>
+<script src="/ui/i18n.js"></script>
+<script src="/ui/creature.js"></script>
+<script>
+const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
+const bridge = window.bobix; // present inside the app (preload); absent in a plain browser tab
+
+let cfg = { size: 56, edge: 'bottom', zoneStart: 0, zoneEnd: 100, opacity: 1, fadeNearCursor: true, showIdle: true, onlyAttention: false, label: 'title', clickAction: 'focus', language: 'auto' };
+let lang = navigator.language;
+const T = (k, v) => I18N.t(lang, k, v);
+
+const pets = new Map(); // id -> { el, s, x, dir, walking, next, actAt, hover, key, goal, lane }
+let mouse = { x: -1, y: -1 };
+
+const visible = s => { const st = look(s); return cfg.onlyAttention ? st === 'waiting' || st === 'done' : cfg.showIdle || st !== 'idle'; };
+function labelOf(s) {
+  const title = s.title || s.name;
+  return cfg.label === 'folder' ? s.name : cfg.label === 'both' && s.title ? `${s.title} · ${s.name}` : title;
+}
+function statusText(s, st) {
+  if (st === 'working') return s.tool ? T('status.working', { tool: I18N.toolLabel(lang, s.tool) }) : T('status.thinking');
+  if (st === 'waiting') return s.askTool ? T('status.waitingTool', { tool: s.askTool }) : T('status.waiting');
+  return T(`status.${st}`);
+}
+function sayText(p, st, now) {
+  const s = p.s;
+  if (st === 'waiting') return ['waiting', s.askTool ? T('pet.waiting', { tool: s.askTool }) : T('pet.waitingPlain')];
+  if (st === 'done' && now - s.since < DONE_BUBBLE) return ['done', T('pet.done')];
+  if (st === 'working' && s.tool && now - p.actAt < ACT_BUBBLE) return ['', I18N.toolLabel(lang, s.tool)];
+  return null;
+}
+
+function paint(p, now) {
+  const s = p.s, st = look(s), say = p.hover ? null : sayText(p, st, now);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.edge, cfg.label, cfg.clickAction, lang]);
+  if (p.key === key) return;
+  p.key = key;
+  const hp = s.ctx;
+  p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''} ${p.edge}`;
+  p.el.innerHTML = `
+    ${p.hover ? `<div class="card">
+        <h2>${esc(s.title || s.name)}</h2>
+        <p class="sub">${esc(s.cwd)}</p>
+        <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
+        <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
+        <div class="row"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
+        <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></div>
+        <div class="hint">${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</div></div>` : ''}
+    ${say ? `<div class="say ${say[0]}">${esc(say[1])}</div>` : ''}
+    ${st === 'idle' ? '<span class="zz">z</span>' : ''}
+    <div class="spr">${creature(s.id, st)}</div>
+    <div class="tag">${esc(labelOf(s))}</div>`;
+}
+
+function sync(list) {
+  const seen = new Set();
+  for (const s of list) {
+    if (!visible(s)) continue;
+    seen.add(s.id);
+    let p = pets.get(s.id);
+    if (!p) {
+      const el = document.createElement('div');
+      el.onclick = () => bridge ? bridge.petClick(s.id) : open('/?s=' + encodeURIComponent(s.id));
+      document.body.appendChild(el);
+      const { min, max } = zone();
+      p = { el, x: min + (hashStr(s.id) % 1000) / 1000 * (max - min), dir: hashStr(s.id) & 1 ? 1 : -1, walking: true, next: 0, actAt: 0, edge: '' };
+      pets.set(s.id, p);
+    }
+    if (p.s && s.tool !== p.s.tool && s.hits !== p.s.hits) p.actAt = Date.now();
+    p.s = s;
+  }
+  for (const [id, p] of pets) if (!seen.has(id)) { p.el.remove(); pets.delete(id); }
+}
+
+const zone = () => ({ min: innerWidth * cfg.zoneStart / 100, max: Math.max(innerWidth * cfg.zoneStart / 100, innerWidth * cfg.zoneEnd / 100 - cfg.size) });
+const spacing = () => Math.max(88, cfg.size * 1.6);
+const rank = p => hashStr(p.s.id);
+
+// Nearest spot at least `spacing` away from every other standing pet. Of two crowded pets only the later-ranked one moves.
+function freeSpot(p, all) {
+  const gap = spacing(), { min, max } = zone();
+  const still = all.filter(q => q !== p && look(q.s) !== 'working').map(q => ({ x: q.goal ?? q.x, r: rank(q) }));
+  if (!still.some(q => Math.abs(q.x - p.x) < gap && q.r < rank(p))) return null;
+  for (let k = 1; k * gap <= innerWidth; k++) for (const x of [p.x + k * gap, p.x - k * gap]) {
+    if (x >= min && x <= max && still.every(q => Math.abs(q.x - x) >= gap)) return x;
+  }
+  return null;
+}
+
+// Bubbles that touch are lifted one lane: they never overlap, even when pets cross.
+function stackBubbles(all) {
+  const items = all.map(p => ({ p, b: p.el.querySelector('.say') })).filter(o => o.b)
+    .map(o => ({ ...o, r: o.b.getBoundingClientRect() })).sort((a, b) => a.r.left - b.r.left);
+  const ends = [];
+  for (const o of items) {
+    let lane = ends.findIndex(end => end + 8 <= o.r.left);
+    if (lane < 0) { lane = ends.length; ends.push(0); }
+    ends[lane] = o.r.right;
+    if (o.p.lane !== lane) { o.p.lane = lane; o.p.el.style.setProperty('--lane', lane); }
+  }
+}
+
+const inRect = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+let last = performance.now(), rectAt = 0, lastRects = '';
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000), now = Date.now(), speed = cfg.size * 0.75;
+  last = t;
+  const all = [...pets.values()], { min, max } = zone();
+  for (const p of all) {
+    const st = look(p.s), r = p.el.getBoundingClientRect(), card = p.el.querySelector('.card');
+    // A short grace period lets the cursor cross the gap between the pet and its card.
+    if (inRect(r, mouse.x, mouse.y) || (card && inRect(card.getBoundingClientRect(), mouse.x, mouse.y))) p.hoverUntil = now + 250;
+    p.hover = now < (p.hoverUntil || 0);
+    p.stepping = false;
+    if (p.x < min || p.x > max) { p.goal = Math.min(max, Math.max(min, p.x)); }
+    if (p.hover) {
+      // stand still while being read
+    } else if (st === 'working' && p.goal == null) {
+      if (now > p.next) { p.walking = Math.random() < 0.7; if (Math.random() < 0.3) p.dir *= -1; p.next = now + 1500 + Math.random() * 3500; }
+      if (p.walking) {
+        p.x += p.dir * speed * dt;
+        if (p.x < min) { p.x = min; p.dir = 1; }
+        if (p.x > max) { p.x = max; p.dir = -1; }
+        p.stepping = true;
+      }
+    } else {
+      if (st !== 'working') p.goal ??= freeSpot(p, all);
+      if (p.goal != null) {
+        const d = p.goal - p.x, step = speed * 1.5 * dt;
+        if (Math.abs(d) <= step) { p.x = p.goal; p.goal = null; } else { p.x += Math.sign(d) * step; p.stepping = true; }
+      }
+    }
+    p.edge = p.x < 140 ? 'edge-l' : p.x > innerWidth - 200 ? 'edge-r' : '';
+    p.el.style.transform = `translateX(${p.x}px)`;
+    // Fade when the cursor is near (but not on) the pet, so it never hides what you are pointing at.
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2, near = Math.hypot(mouse.x - cx, mouse.y - cy) < cfg.size * 2.2;
+    p.el.style.opacity = cfg.fadeNearCursor && near && !p.hover ? cfg.opacity * 0.25 : cfg.opacity;
+    paint(p, now);
+  }
+  stackBubbles(all);
+  if (bridge && t - rectAt > 100) {
+    rectAt = t;
+    const rects = [];
+    for (const { el } of pets.values()) for (const n of [el, el.querySelector('.tag'), el.querySelector('.card,.say')]) {
+      if (!n) continue;
+      const b = n.getBoundingClientRect();
+      rects.push([b.left, b.top, b.width, b.height].map(Math.round));
+    }
+    const j = JSON.stringify(rects);
+    if (j !== lastRects) { lastRects = j; bridge.setRects(rects); }
+  }
+  requestAnimationFrame(frame);
+}
+
+function applySettings(s) {
+  cfg = { ...cfg, ...s };
+  lang = cfg.language === 'auto' ? navigator.language : cfg.language;
+  document.body.classList.toggle('edge-top', cfg.edge === 'top');
+  document.documentElement.style.setProperty('--size', cfg.size + 'px');
+  for (const p of pets.values()) p.key = null;
+  if (lastList) sync(lastList);
+}
+
+let lastList = null;
+addEventListener('mousemove', e => { mouse = { x: e.clientX, y: e.clientY }; });
+addEventListener('mouseleave', () => { mouse = { x: -1, y: -1 }; });
+if (bridge) {
+  bridge.onMouse(m => { mouse = m; });            // the window is click-through most of the time, so the app feeds us the cursor
+  bridge.onSettings(applySettings);
+  bridge.getState().then(st => applySettings(st.settings));
+}
+new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || '')).onmessage = m => { lastList = JSON.parse(m.data).sessions || []; sync(lastList); };
+setInterval(() => lastList && sync(lastList), 15e3); // "done" turns into "resting" by time alone
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

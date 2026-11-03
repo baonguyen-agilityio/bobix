@@ -1,0 +1,26 @@
+/* Design tokens shared by the Bobix panel and the desktop pets */
+:root{
+  /* neutral ramp, tinted toward hue 262 */
+  --n-50:oklch(98.4% 0.005 262);--n-100:oklch(96.6% 0.009 262);--n-200:oklch(92.5% 0.013 262);
+  --n-300:oklch(86% 0.017 262);--n-500:oklch(52% 0.03 262);--n-700:oklch(38% 0.035 264);--n-900:oklch(24% 0.035 266);
+  /* chalky pastels: creature bodies + state tints */
+  --sky:oklch(84% 0.075 235);--mint:oklch(86% 0.085 162);--lilac:oklch(83% 0.075 300);
+  --peach:oklch(86% 0.075 55);--butter:oklch(90% 0.095 98);--rose:oklch(84% 0.075 5);
+  --sky-soft:oklch(95.5% 0.028 235);--mint-soft:oklch(95.5% 0.032 162);
+  /* the one pop: "needs you" */
+  --coral:oklch(66% 0.175 33);--coral-ink:oklch(46% 0.14 33);--coral-soft:oklch(95% 0.035 33);
+
+  --bg:var(--n-100);--surface:var(--n-50);--line:var(--n-200);--line-strong:var(--n-300);
+  --ink:var(--n-900);--ink-2:var(--n-700);--ink-3:var(--n-500);
+
+  --f-display:"Baloo 2","Be Vietnam Pro",sans-serif;
+  --f-body:"Be Vietnam Pro",sans-serif;
+  --t-xs:.75rem;--t-sm:.875rem;--t-md:1rem;--t-lg:1.2rem;--t-xl:1.44rem;--t-2xl:1.75rem;
+
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--s12:48px;
+  --r-md:12px;--r-lg:16px;--pill:999px;
+  --press:0 4px 0 var(--line-strong);
+  --lift:0 1px 2px oklch(30% 0.04 262 / .05),0 4px 12px oklch(30% 0.04 262 / .06);
+  --ease:cubic-bezier(0.25,1,0.5,1);
+  --pane:400px;
+}
