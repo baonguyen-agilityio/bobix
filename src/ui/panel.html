@@ -347,7 +347,7 @@ function renderPane() {
 $('#pane').addEventListener('click', async e => {
   const act = e.target.dataset.act;
   if (act === 'close') select(null);
-  if (act === 'open' && !(await bridge.openSession(selected))) toast(T('pane.openFail'));
+  if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) toast(T('pane.openFail.' + (r?.reason || 'notfound'))); }
 });
 function select(id) { selected = id; render(); }
 $('#board').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(li.dataset.id === selected ? null : li.dataset.id); });

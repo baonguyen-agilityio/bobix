@@ -14,6 +14,11 @@ const { startServer } = require('./core/server');
 const { bitmap } = require('./core/icon');
 const I18N = require('./ui/i18n');
 
+// Linux on Wayland: apps may not keep a window on top or position it, so the pets overlay would sit behind
+// whatever you work in. Run through XWayland (X11) when it is there; BOBIX_WAYLAND=1 keeps native Wayland.
+const WAYLAND = process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
+if (WAYLAND && process.env.DISPLAY && process.env.BOBIX_WAYLAND !== '1') app.commandLine.appendSwitch('ozone-platform', 'x11');
+
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
 const STALE_MS = 12 * 3600e3;
@@ -63,18 +68,23 @@ function notify({ kind, id }) {
 
 // Open the session itself: in Claude desktop jump straight to it, else bring its terminal / IDE forward.
 // Falls back to its details in the panel.
+// Returns { ok } or { ok: false, reason } so the panel can say why (nopid | wayland | xdotool | notfound).
 async function openSession(id, preferFocus = settings.clickAction === 'focus') {
   const s = sessions.get(id);
-  if (!s) return false;
+  if (!s) return { ok: false, reason: 'notfound' };
+  let reason = 'notfound';
   if (preferFocus) {
     try {
-      if (s.hostSession) { await shell.openExternal(`claude://code/continue?session=${encodeURIComponent(s.hostSession)}`); return true; }
-      if (await focusPids(await ancestors(s.claudePid))) return true;
+      if (s.hostSession) { await shell.openExternal(`claude://code/continue?session=${encodeURIComponent(s.hostSession)}`); return { ok: true }; }
+      if (!s.claudePid) reason = 'nopid'; // hooks run without Node.js (curl / PowerShell): no process to start from
+      else if (await focusPids(await ancestors(s.claudePid))) return { ok: true };
+      else if (process.platform === 'linux') reason = WAYLAND ? 'wayland' : (await hasXdotool()) ? 'notfound' : 'xdotool';
     } catch (err) { console.error('[bobix] open session:', err.message); }
   }
   showPanel({ select: id });
-  return false;
+  return { ok: false, reason };
 }
+const hasXdotool = () => new Promise(res => execFile('xdotool', ['version'], err => res(!err)));
 
 // ---------- windows ----------
 function targetDisplay() {
@@ -255,7 +265,7 @@ function migrateFromOldName() {
 async function smoke(dir) {
   const log = m => console.log(`[bobix] smoke: ${m}`);
   const within = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what} timed out after ${ms} ms`)), ms))]);
-  const report = { platform: process.platform };
+  const report = { platform: process.platform, wayland: WAYLAND, ozone: app.commandLine.getSwitchValue('ozone-platform') || 'default' };
   const write = () => fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(report, null, 2));
   fs.mkdirSync(dir, { recursive: true });
   setTimeout(() => { report.watchdog = 'gave up after 60 s'; write(); log(JSON.stringify(report)); app.exit(2); }, 60000).unref?.();
@@ -304,9 +314,8 @@ async function smoke(dir) {
     if (src) fs.writeFileSync(path.join(dir, 'screen.png'), src.thumbnail.toPNG());
   } catch (err) { report.screenShot = err.message; }
   write(); log('done ' + JSON.stringify(report));
-  const ok = report.visible && report.pets >= 2 && !report.pageErrors.length;
-  app.exit(ok ? 0 : 1);
-  setTimeout(() => process.exit(ok ? 0 : 1), 3000); // app.exit alone did not end the process on CI runners
+  fs.writeFileSync(path.join(dir, 'done'), ''); // CI waits for this, then stops the app itself
+  app.exit(report.visible && report.pets >= 2 && !report.pageErrors.length ? 0 : 1);
 }
 
 // ---------- boot ----------
