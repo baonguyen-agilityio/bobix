@@ -100,6 +100,12 @@ test('the app holding a session is named the way people know it', () => {
   assert.equal(hostApp(['claude', 'bash']), null);
 });
 
+test('process names are full names (Linux cuts ps comm to 15 characters)', async () => {
+  const { processNames } = require('../src/core/focus');
+  const [name] = await processNames([process.pid]);
+  assert.match(name, /^node(\.exe)?$/i);
+});
+
 test('settings sanitize', () => {
   const s = sanitize({ size: 9999, edge: 'left', opacity: 0, zoneStart: 90, zoneEnd: 91, evil: 1, sound: 'yes' });
   assert.equal(s.size, 128); assert.equal(s.edge, DEFAULTS.edge); assert.equal(s.opacity, 0.2);

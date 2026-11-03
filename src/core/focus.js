@@ -56,7 +56,12 @@ async function processNames(pids, platform = process.platform) {
     const names = new Map(txt.split(/\r?\n/).map(l => l.trim().split(/\s+/)).filter(a => a.length >= 2).map(([id, ...n]) => [Number(id), n.join(' ')]));
     return list.map(p => names.get(p) || '?');
   }
-  return Promise.all(list.map(async p => (await out('ps', ['-o', 'comm=', '-p', String(p)])).split('/').pop() || '?'));
+  // Linux cuts `comm` to 15 characters ("gnome-terminal-"): read the program path from the command line there.
+  const col = platform === 'linux' ? 'args=' : 'comm=';
+  return Promise.all(list.map(async p => {
+    const v = await out('ps', ['-o', col, '-p', String(p)]);
+    return (platform === 'linux' ? v.split(/\s/)[0] : v).split('/').pop().replace(/^-/, '') || '?'; // "-bash": a login shell
+  }));
 }
 
 // The app that holds the session's window, named the way people know it: the first process up the
