@@ -68,9 +68,18 @@
             "x64",
             "arm64"
           ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
-      "category": "Development"
+      "category": "Development",
+      "maintainer": "Bobix contributors"
     }
-  }
+  },
+  "homepage": "https://github.com/baonguyen-agilityio/bobix"
 }

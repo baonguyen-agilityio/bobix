@@ -14,8 +14,10 @@ Download the file for your computer from the [latest release](https://github.com
 | Mac with Apple chip (M1 and later) | `Bobix-<version>-arm64.dmg` |
 | Mac with Intel chip | `Bobix-<version>.dmg` |
 | Windows (64-bit) | `Bobix.Setup.<version>.exe` |
-| Linux x64 | `Bobix-<version>.AppImage` |
-| Linux ARM64 | `Bobix-<version>-arm64.AppImage` |
+| Ubuntu / Debian x64 | `bobix_<version>_amd64.deb` |
+| Ubuntu / Debian ARM64 | `bobix_<version>_arm64.deb` |
+| Other Linux x64 | `Bobix-<version>.AppImage` |
+| Other Linux ARM64 | `Bobix-<version>-arm64.AppImage` |
 
 Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 
@@ -37,6 +39,14 @@ Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 
 ### Linux
 
+Ubuntu / Debian: install the `.deb`, then open **Bobix** from your apps menu (or run `bobix`).
+
+```bash
+sudo apt install ./bobix_<version>_amd64.deb
+```
+
+Other distributions: run the AppImage. It needs FUSE 2 (`libfuse2`, called `libfuse2t64` on Ubuntu 24.04+); without it, add `--appimage-extract-and-run`.
+
 ```bash
 chmod +x "Bobix-<version>.AppImage"
 ./"Bobix-<version>.AppImage"
@@ -44,7 +54,7 @@ chmod +x "Bobix-<version>.AppImage"
 
 - Transparency needs a compositing desktop (GNOME, KDE, and most others do this by default).
 - To let a click on a pet bring its terminal forward, install xdotool: `sudo apt install xdotool`.
-- On Wayland, always-on-top and click-through may not work; use an X11 session if pets misbehave.
+- On Wayland, Bobix restarts itself through XWayland so the pets stay on top. Set `BOBIX_WAYLAND=1` to keep native Wayland.
 
 ## 3. Connect Claude Code
 
