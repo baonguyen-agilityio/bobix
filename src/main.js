@@ -250,25 +250,34 @@ function migrateFromOldName() {
 }
 
 // Smoke check for CI (BOBIX_SMOKE=<folder>): a pretend session, then is the pets overlay really on screen?
-// Writes report.json, overlay.png (the page) and screen.png (the real desktop), exits 0 only if pets are visible.
+// Writes report.json first, then overlay.png (the page) and screen.png (the real desktop). Every step is time-boxed
+// (a never-shown window can leave capturePage pending forever); exits 0 only if pets are visible.
 async function smoke(dir) {
+  const log = m => console.log(`[bobix] smoke: ${m}`);
+  const within = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what} timed out after ${ms} ms`)), ms))]);
+  const report = { platform: process.platform };
+  const write = () => fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(report, null, 2));
   fs.mkdirSync(dir, { recursive: true });
+  setTimeout(() => { report.watchdog = 'gave up after 60 s'; write(); log(JSON.stringify(report)); app.exit(2); }, 60000).unref?.();
   testEvent();
   await new Promise(r => setTimeout(r, 6000));
   const wc = overlay.webContents;
-  const report = {
-    platform: process.platform, readyToShow: overlayReady, visible: overlay.isVisible(), bounds: overlay.getBounds(),
-    workArea: targetDisplay().workArea, sessions: sessions.size, loadedUrl: wc.getURL().replace(/t=[^&]+/, 't=…'),
-    pets: await wc.executeJavaScript('document.querySelectorAll(".pet").length').catch(e => `error: ${e.message}`),
-    petRects: await wc.executeJavaScript('[...document.querySelectorAll(".pet")].map(p => { const r = p.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })').catch(() => null),
-  };
-  try { fs.writeFileSync(path.join(dir, 'overlay.png'), (await wc.capturePage()).toPNG()); } catch (err) { report.overlayShot = err.message; }
+  Object.assign(report, {
+    readyToShow: overlayReady, visible: overlay.isVisible(), minimized: overlay.isMinimized(), bounds: overlay.getBounds(),
+    workArea: targetDisplay().workArea, sessions: sessions.size, loading: wc.isLoading(), loadedUrl: wc.getURL().replace(/t=[^&]+/, 't=…'),
+  });
+  log('window ' + JSON.stringify(report));
+  for (const [key, js] of [['pets', 'document.querySelectorAll(".pet").length'],
+    ['petRects', '[...document.querySelectorAll(".pet")].map(p => { const r = p.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })']]) {
+    try { report[key] = await within(wc.executeJavaScript(js), 5000, key); } catch (err) { report[key] = `error: ${err.message}`; }
+  }
+  write(); log('page ' + JSON.stringify({ pets: report.pets, petRects: report.petRects }));
+  try { fs.writeFileSync(path.join(dir, 'overlay.png'), (await within(wc.capturePage(), 8000, 'capturePage')).toPNG()); } catch (err) { report.overlayShot = err.message; }
   try {
-    const [src] = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: targetDisplay().size });
+    const [src] = await within(desktopCapturer.getSources({ types: ['screen'], thumbnailSize: targetDisplay().size }), 8000, 'desktopCapturer');
     if (src) fs.writeFileSync(path.join(dir, 'screen.png'), src.thumbnail.toPNG());
   } catch (err) { report.screenShot = err.message; }
-  fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(report, null, 2));
-  console.log('[bobix] smoke', JSON.stringify(report));
+  write(); log('done ' + JSON.stringify(report));
   app.exit(report.visible && report.pets > 0 ? 0 : 1);
 }
 

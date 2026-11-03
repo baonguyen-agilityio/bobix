@@ -23,6 +23,7 @@ jobs:
       - run: npm test
       - name: Smoke (Linux, virtual display)
         if: runner.os == 'Linux'
+        timeout-minutes: 3
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
           xvfb-run -a -s "-screen 0 1920x1080x24" npx electron . --no-sandbox
@@ -30,6 +31,7 @@ jobs:
           BOBIX_SMOKE: smoke-out
       - name: Smoke
         if: runner.os != 'Linux'
+        timeout-minutes: 3
         run: npx electron .
         env:
           BOBIX_SMOKE: smoke-out
