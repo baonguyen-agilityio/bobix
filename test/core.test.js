@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
-const { apply, readTranscript, ctxLeft, refresh } = require('../src/core/state');
+const { apply, readTranscript, ctxLeft, refresh, setPet } = require('../src/core/state');
 const { sanitize, DEFAULTS } = require('../src/core/settings');
 const hooks = require('../src/core/hooks');
 const { startServer } = require('../src/core/server');
@@ -73,6 +73,23 @@ test('an interrupted turn (Esc / denied permission) puts the pet to rest', () =>
   m.get('i1').state = 'working';
   assert.equal(refresh(m.get('i1'), false, Date.now() + 6000), false, 'an unchanged transcript is not read again');
   fs.unlinkSync(f);
+});
+
+test('a pet hidden by hand comes back when its session needs you', () => {
+  const m = new Map();
+  apply(m, { session_id: 'h1', hook_event_name: 'Stop' });
+  apply(m, { session_id: 'h2', hook_event_name: 'Stop' });
+  assert.equal(setPet(m, 'h1', 'hidden'), true);
+  assert.equal(setPet(m, 'h1', 'bogus'), false);
+  assert.equal(m.get('h1').pet, 'hidden');
+  apply(m, { session_id: 'h1', hook_event_name: 'PreToolUse', tool_name: 'Read' });
+  assert.equal(m.get('h1').pet, 'hidden', 'still working on the same turn: stays hidden');
+  apply(m, { session_id: 'h1', hook_event_name: 'PermissionRequest', tool_name: 'Bash' });
+  assert.equal(m.get('h1').pet, 'auto', 'needs approval: back on screen');
+  setPet(m, '*', 'shown');
+  assert.deepEqual([...m.values()].map(s => s.pet), ['shown', 'shown']);
+  apply(m, { session_id: 'h2', hook_event_name: 'UserPromptSubmit', prompt: 'next' });
+  assert.equal(m.get('h2').pet, 'auto');
 });
 
 test('settings sanitize', () => {

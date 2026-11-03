@@ -10,6 +10,7 @@ function newSession(id, now) {
   return {
     id, name: '?', cwd: '', title: '', transcript: '', state: 'idle', since: now, updated: now,
     lv: 1, quest: '', tool: '', toolArg: '', askTool: '', ask: '', summary: '', hits: 0, ctx: null, claudePid: null, hostSession: null, log: [],
+    pet: 'auto', // auto (settings decide) | hidden | shown (stays out even past the sleep timer); back to auto when it needs you
   };
 }
 
@@ -35,6 +36,7 @@ function apply(sessions, e, now = Date.now()) {
     s.askTool = tool || s.askTool; s.ask = short(text, 160);
     log('ask', s.ask, s.askTool);
     set('waiting');
+    s.pet = 'auto';
     return first ? { kind: 'waiting', id } : null; // Notification + PermissionRequest both fire: notify once
   };
   let notice = null;
@@ -47,6 +49,7 @@ function apply(sessions, e, now = Date.now()) {
       s.quest = short(e.prompt, 240); s.hits = 0; s.summary = ''; s.ask = ''; s.askTool = ''; s.tool = ''; s.toolArg = '';
       log('prompt', short(e.prompt, 120));
       set('working');
+      s.pet = 'auto';
       break;
     case 'PreToolUse':
       s.tool = String(e.tool_name || ''); s.toolArg = toolArg(e.tool_input); s.hits++;
@@ -146,4 +149,13 @@ function refresh(s, withSummary, now = Date.now(), forcedWindow) {
 // What the outside world sees (no internal bookkeeping fields).
 const publicView = s => { const { readAt, readMark, ...rest } = s; return rest; };
 
-module.exports = { apply, readTranscript, ctxLeft, refresh, short, publicView, ID_RE };
+const PET_MODES = ['auto', 'hidden', 'shown'];
+// Hide / show one pet by hand; "all" brings every pet back (and keeps sleeping ones out).
+function setPet(sessions, id, mode) {
+  if (!PET_MODES.includes(mode)) return false;
+  const list = id === '*' ? [...sessions.values()] : [sessions.get(id)].filter(Boolean);
+  for (const s of list) s.pet = mode;
+  return list.length > 0;
+}
+
+module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, publicView, ID_RE };

@@ -54,6 +54,7 @@ details.group[open]>summary .group-h::after{content:var(--close)}
 .title{display:flex;gap:var(--s2);align-items:baseline;min-width:0}
 .title strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lv,.folder{font-size:var(--t-xs);color:var(--ink-3);flex:none}
+.folder.off{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
 .quest{font-size:var(--t-sm);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .status{min-width:0}
 .pill{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px var(--s3);border-radius:var(--pill);font-size:var(--t-sm);font-weight:500;background:var(--n-100);color:var(--ink-2)}
@@ -205,6 +206,7 @@ input[type=number]{width:104px}
     <button class="tab" role="tab" data-tab="setup" data-t="tab.setup"></button>
   </nav>
   <div class="counts" id="counts"></div>
+  <button class="btn" type="button" id="showAll" data-t="board.showAll" hidden></button>
   <span class="sp"></span>
   <span class="conn lost" id="conn" role="status"></span>
 </header>
@@ -236,6 +238,12 @@ const IDLE_AFTER = 10 * 60e3;
 const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
+// Same rule as the pets overlay: hidden by hand, or asleep past the "leave after" time.
+const offScreen = s => {
+  const mins = state.settings?.sleepHide || 0;
+  if (s.pet === 'hidden') return true;
+  return s.pet !== 'shown' && look(s) === 'idle' && mins > 0 && Date.now() - (s.state === 'done' ? s.since + IDLE_AFTER : s.since) > mins * 60e3;
+};
 const bridge = window.bobix; // only inside the app
 let lang = navigator.language, state = null; // state = app state (settings, hooks, displays) when in the app
 const T = (k, v) => I18N.t(lang, k, v);
@@ -281,7 +289,7 @@ function logText(l) {
 function rowHTML(s, st) {
   const hp = s.ctx;
   return `<span class="sprite">${creature(s.id, st)}</span>
-    <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}</span>
+    <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
       <span class="quest">${esc(line2(s, st))}</span></span>
     <span class="status"><span class="pill">${esc(statusText(s, st))}</span></span>
     <span class="ctx" title="${T('ctx')}"><span class="meter ${hp == null ? 'unk' : hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></span><span>${hp == null ? T('ctx.unknown') : `${T('ctx')} ${hp}%`}</span></span>
@@ -302,7 +310,7 @@ function render() {
     items.forEach((s, i) => {
       let li = [...ol.children].find(c => c.dataset.id === s.id) || [...document.querySelectorAll('li[data-id]')].find(c => c.dataset.id === s.id);
       if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
-      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, lang]);
+      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), lang]);
       if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
       btn.setAttribute('aria-pressed', String(s.id === selected));
       if (ol.children[i] !== li) ol.insertBefore(li, ol.children[i] || null);
@@ -311,6 +319,7 @@ function render() {
     [...ol.children].forEach(li => keep.has(li) || li.remove());
   }
   $('#empty').hidden = list.length > 0;
+  $('#showAll').hidden = !bridge || !list.some(offScreen);
   const n = st => by[st].length;
   $('#counts').innerHTML = ['waiting', 'working', 'done', 'idle'].map(st => `<span class="${st === 'waiting' && n(st) ? 'hot' : ''}"><b>${n(st)}</b> ${T('count.' + st)}</span>`).join('');
   document.title = n('waiting') ? `(${n('waiting')}) ${T('app.name')}` : T('app.name');
@@ -324,7 +333,7 @@ function renderPane() {
   pane.hidden = !s;
   if (!s) return;
   const st = look(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -334,7 +343,8 @@ function renderPane() {
       <div><h2>${esc(s.title || s.name)}</h2><span class="lv">${T('pet.lv', { n: s.lv })} · ${esc(statusText(s, st))}</span></div>
     </div>
     <div class="pane-acts">
-      ${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>` : ''}
+      ${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>
+        <button class="btn" type="button" data-act="pet">${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</button>` : ''}
       <button class="btn" type="button" data-act="close">${T('pane.close')}</button>
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
@@ -344,9 +354,11 @@ function renderPane() {
     <h3>${T('pane.log')}</h3>
     <ol class="log">${s.log.slice().reverse().map(l => `<li><time>${time(l.t)}</time><span>${esc(logText(l))}</span></li>`).join('')}</ol>`;
 }
+$('#showAll').addEventListener('click', () => bridge.setPet('*', 'shown'));
 $('#pane').addEventListener('click', async e => {
   const act = e.target.dataset.act;
   if (act === 'close') select(null);
+  if (act === 'pet') { const s = list.find(x => x.id === selected); if (s) bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden'); }
   if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) toast(T('pane.openFail.' + (r?.reason || 'notfound'))); }
 });
 function select(id) { selected = id; render(); }
@@ -373,7 +385,7 @@ const SECTIONS = [
     { k: 'opacity', type: 'range', min: 0.2, max: 1, step: 0.05, fmt: pct },
     { k: 'fadeNearCursor', type: 'switch' },
     { k: 'show', type: 'seg', opts: opts(['all', 'active', 'attention'], 'set.show.'), get: showOf, set: v => SHOW[v] },
-    { k: 'sleepHide', type: 'seg', opts: () => [['0', T('set.sleepHide.never')], ...[15, 30, 60, 120].map(n => [String(n), T('set.sleepHide.min', { n })])], set: v => ({ sleepHide: Number(v) }) },
+    { k: 'sleepHide', type: 'minutes' },
     { k: 'label', type: 'seg', opts: opts(['title', 'folder', 'both'], 'set.label.') },
     { k: 'clickAction', type: 'seg', opts: opts(['focus', 'panel'], 'set.click.') },
   ]],
@@ -398,6 +410,7 @@ function control(r, s) {
   if (r.type === 'select') return `<select id="${id}" data-k="${r.k}">${r.opts().map(([o, l]) => `<option value="${esc(o)}" ${String(v) === o ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   if (r.type === 'seg') return `<div class="seg" role="radiogroup" aria-labelledby="l-${r.k}">${r.opts().map(([o, l]) =>
     `<button type="button" role="radio" aria-checked="${String(v) === o}" data-k="${r.k}" data-v="${esc(o)}">${esc(l)}</button>`).join('')}</div>`;
+  if (r.type === 'minutes') return `<div class="rng-row"><input type="number" id="${id}" data-k="${r.k}" min="0" max="1440" step="5" value="${v}" style="width:7em"><span class="val">${T('set.minutes')}</span></div>`;
   if (r.type === 'range') return `<div class="rng-row"><input type="range" class="rng" id="${id}" data-k="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${v}" style="--fill:${fill(r, v)}"><output class="val" for="${id}" data-val="${r.k}">${r.fmt(v)}</output></div>`;
   if (r.type === 'zone') {
     const z = { min: 0, max: 100 }, cur = Object.entries(ZONES).find(([, [a, b]]) => a === s.zoneStart && b === s.zoneEnd)?.[0];

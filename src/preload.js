@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('bobix', {
   uninstallHooks: () => ipcRenderer.invoke('hooks:uninstall'),
   testEvent: () => ipcRenderer.invoke('hooks:test'),
   openSession: id => ipcRenderer.invoke('open-session', id),
+  setPet: (id, mode) => ipcRenderer.invoke('pet:set', id, mode), // mode: auto | hidden | shown; id '*' = every pet
   onSettings: on('settings'),
   onSelect: on('select'),
   onShowTab: on('show-tab'),

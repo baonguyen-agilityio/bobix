@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const net = require('net');
 const { execFile } = require('child_process');
-const { apply, refresh, publicView } = require('./core/state');
+const { apply, refresh, publicView, setPet } = require('./core/state');
 const S = require('./core/settings');
 const hooks = require('./core/hooks');
 const autostart = require('./core/autostart');
@@ -180,6 +180,7 @@ function buildTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: tr('tray.panel'), click: () => showPanel() },
     { label: tr(settings.petsVisible ? 'tray.hide' : 'tray.show'), click: () => updateSettings({ petsVisible: !settings.petsVisible }) },
+    { label: tr('tray.showAll'), click: () => { setPet(sessions, '*', 'shown'); server.broadcast(snapshot()); if (!settings.petsVisible) updateSettings({ petsVisible: true }); } },
     { label: tr('tray.pause'), type: 'checkbox', checked: settings.paused, click: m => updateSettings({ paused: m.checked }) },
     { type: 'separator' },
     { label: tr('tray.quit'), click: () => app.quit() },
@@ -271,6 +272,7 @@ function ipc() {
   handle('hooks:test', () => testEvent());
   handle('open-session', id => openSession(id, true));
   ipcMain.on('pet-click', (e, id) => fromUs(e) && openSession(id));
+  handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) server.broadcast(snapshot()); });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); showOverlay(); } });
 }
 

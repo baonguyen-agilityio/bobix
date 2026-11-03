@@ -34,7 +34,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .meter{height:6px;border-radius:var(--pill);background:var(--n-200);overflow:hidden;margin:var(--s1) 0 var(--s2)}
 .meter i{display:block;height:100%;background:var(--ink-2);transform-origin:left;transform:scaleX(var(--v))}
 .meter.low i{background:var(--coral)}
-.card .hint{font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--line);padding-top:var(--s2);margin-top:var(--s1)}
+.card .hint{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--line);padding-top:var(--s2);margin-top:var(--s1)}
+.card .hide{flex:none;font:600 var(--t-xs) var(--f-body);color:var(--ink-2);background:var(--n-100);border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2);cursor:pointer}
+.card .hide:hover{background:var(--n-200);color:var(--ink)}
 .zz{position:absolute;left:70%;top:-6px;font:700 var(--t-sm) var(--f-display);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
 .eye{transform-box:fill-box;transform-origin:center}
 .st-working .eye{animation:blink 4.2s infinite}
@@ -68,7 +70,8 @@ let mouse = { x: -1, y: -1 };
 const sleptTooLong = s => cfg.sleepHide > 0 && Date.now() - (s.state === 'done' ? s.since + IDLE_AFTER : s.since) > cfg.sleepHide * 60e3;
 const visible = s => {
   const st = look(s);
-  if (st === 'idle' && sleptTooLong(s)) return false;
+  if (s.pet === 'hidden') return false;
+  if (st === 'idle' && s.pet !== 'shown' && sleptTooLong(s)) return false;
   return cfg.onlyAttention ? st === 'waiting' || st === 'done' : cfg.showIdle || st !== 'idle';
 };
 function labelOf(s) {
@@ -103,7 +106,7 @@ function paint(p, now) {
         <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
         <div class="row"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></div>
-        <div class="hint">${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</div></div>` : ''}
+        <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${say ? `<div class="say ${say[0]}">${esc(say[1])}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${creature(s.id, st)}</div>
@@ -136,6 +139,7 @@ function draggable(p, id) {
   const el = p.el;
   el.onpointerdown = e => {
     if (e.button !== 0) return;
+    if (e.target.closest('[data-hide]')) { drag = null; bridge.setPet(id, 'hidden'); return; }
     drag = { p, dx: e.clientX - p.x, x0: e.clientX, moved: false };
     el.setPointerCapture(e.pointerId);
   };
