@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('bobix', {
   setSettings: patch => ipcRenderer.invoke('settings', patch),
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
   revealSettings: () => ipcRenderer.invoke('reveal-settings'),
+  copyDiagnostics: () => ipcRenderer.invoke('diagnostics'),
   installHooks: () => ipcRenderer.invoke('hooks:install'),
   uninstallHooks: () => ipcRenderer.invoke('hooks:uninstall'),
   testEvent: () => ipcRenderer.invoke('hooks:test'),

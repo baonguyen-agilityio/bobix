@@ -1,5 +1,5 @@
 // Bobix — Electron main process: local server for hooks, pets overlay, control panel, tray, notifications.
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -9,15 +9,21 @@ const { apply, refresh, publicView } = require('./core/state');
 const S = require('./core/settings');
 const hooks = require('./core/hooks');
 const autostart = require('./core/autostart');
-const { focusPids, ancestors } = require('./core/focus');
+const { focusPids, ancestors, processNames } = require('./core/focus');
 const { startServer } = require('./core/server');
 const { bitmap } = require('./core/icon');
 const I18N = require('./ui/i18n');
 
 // Linux on Wayland: apps may not keep a window on top or position it, so the pets overlay would sit behind
 // whatever you work in. Run through XWayland (X11) when it is there; BOBIX_WAYLAND=1 keeps native Wayland.
+// Electron picks Wayland before this script runs, so a switch set from here is too late: restart once with the flag.
 const WAYLAND = process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
-if (WAYLAND && process.env.DISPLAY && process.env.BOBIX_WAYLAND !== '1') app.commandLine.appendSwitch('ozone-platform', 'x11');
+const OZONE = (process.argv.find(a => a.startsWith('--ozone-platform=')) || '').split('=')[1] || 'default';
+if (WAYLAND && process.env.DISPLAY && process.env.BOBIX_WAYLAND !== '1' && OZONE === 'default') {
+  // An AppImage runs from a temporary mount that disappears with this process: restart the .AppImage itself.
+  app.relaunch({ execPath: process.env.APPIMAGE || process.execPath, args: [...process.argv.slice(1), '--ozone-platform=x11'] });
+  app.exit(0);
+}
 
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
@@ -26,6 +32,7 @@ const sessions = new Map();
 let settings, server, overlay, panel, tray, token, nodePath = null, lastEventAt = null;
 const shown = new Set(); // live Notification objects: a collected one loses its click handler
 let rects = [], interactive = false, lastMouse = '', overlayReady = false;
+const pageErrors = []; // last errors from the pets page, for diagnostics
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 const origin = () => `http://127.0.0.1:${settings.port}`;
@@ -104,6 +111,12 @@ function createOverlay() {
   overlay.setIgnoreMouseEvents(true);
   overlay.setBounds(targetDisplay().workArea);
   overlay.webContents.on('will-navigate', e => e.preventDefault());
+  overlay.webContents.on('console-message', (e, level, message) => {
+    const lvl = e.level ?? level, msg = String(e.message ?? message);
+    if ((lvl === 'error' || lvl === 3) && !/Electron Security Warning/.test(msg)) { pageErrors.push(msg.slice(0, 300)); if (pageErrors.length > 20) pageErrors.shift(); }
+  });
+  overlay.webContents.once('did-finish-load', () => overlay.webContents.executeJavaScript(
+    `addEventListener('error', e => console.error('uncaught: ' + e.message + ' @' + e.lineno)); addEventListener('unhandledrejection', e => console.error('rejection: ' + e.reason))`).catch(() => {}));
   overlay.loadURL(pageUrl('/pets'));
   overlay.once('ready-to-show', () => { overlayReady = true; if (settings.petsVisible) overlay.showInactive(); });
 }
@@ -237,6 +250,7 @@ function ipc() {
   // Back to defaults, except the language you read and what changes the system (port → hooks + restart, start at login).
   handle('settings:reset', () => updateSettings({ ...S.DEFAULTS, language: settings.language, port: settings.port, autostart: settings.autostart }));
   handle('reveal-settings', () => shell.showItemInFolder(hooks.status().file));
+  handle('diagnostics', async () => { const text = JSON.stringify(await diagnostics(), null, 2); clipboard.writeText(text); return text; });
   handle('hooks:install', () => installHooks());
   handle('hooks:uninstall', () => { try { return hooks.uninstall(); } catch (err) { return { error: err.message }; } });
   handle('hooks:test', () => testEvent());
@@ -265,7 +279,7 @@ function migrateFromOldName() {
 async function smoke(dir) {
   const log = m => console.log(`[bobix] smoke: ${m}`);
   const within = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what} timed out after ${ms} ms`)), ms))]);
-  const report = { platform: process.platform, wayland: WAYLAND, ozone: app.commandLine.getSwitchValue('ozone-platform') || 'default' };
+  const report = { platform: process.platform, wayland: WAYLAND, ozone: OZONE };
   const write = () => fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(report, null, 2));
   fs.mkdirSync(dir, { recursive: true });
   setTimeout(() => { report.watchdog = 'gave up after 60 s'; write(); log(JSON.stringify(report)); app.exit(2); }, 60000).unref?.();
@@ -316,6 +330,28 @@ async function smoke(dir) {
   write(); log('done ' + JSON.stringify(report));
   fs.writeFileSync(path.join(dir, 'done'), ''); // CI waits for this, then stops the app itself
   app.exit(report.visible && report.pets >= 2 && !report.pageErrors.length ? 0 : 1);
+}
+
+// "Copy diagnostics" in Setup: everything needed to debug pets / opening sessions, no prompts, tokens or full paths.
+async function diagnostics() {
+  const wc = overlay?.webContents;
+  const page = wc ? await wc.executeJavaScript(`({ pets: document.querySelectorAll('.pet').length, labels: [...document.querySelectorAll('.pet .tag')].map(t => t.textContent.length) })`).catch(e => ({ error: e.message })) : null;
+  const { language, edge, size, opacity, showIdle, onlyAttention, petsVisible, zoneStart, zoneEnd, display, clickAction } = settings;
+  const st = hooks.status();
+  return {
+    app: app.getVersion(), platform: process.platform, release: os.release(), arch: process.arch,
+    session: process.env.XDG_SESSION_TYPE || null, wayland: WAYLAND, ozone: OZONE,
+    settings: { language, edge, size, opacity, showIdle, onlyAttention, petsVisible, zoneStart, zoneEnd, display, clickAction },
+    hooks: { mode: st.mode, complete: st.complete, port: st.port, stale: st.stale, outdated: st.outdated, error: st.error || null }, node: !!nodePath,
+    displays: screen.getAllDisplays().map(d => ({ id: d.id, bounds: d.bounds, workArea: d.workArea, scale: d.scaleFactor, primary: d.id === screen.getPrimaryDisplay().id })),
+    overlay: overlay && { ready: overlayReady, visible: overlay.isVisible(), bounds: overlay.getBounds(), alwaysOnTop: overlay.isAlwaysOnTop(), page, errors: pageErrors },
+    sessions: await Promise.all([...sessions.values()].map(async s => {
+      const chain = s.claudePid ? await ancestors(s.claudePid).catch(() => []) : [];
+      return { state: s.state, sinceMin: Math.round((Date.now() - s.since) / 60000), events: s.log.length, title: !!s.title,
+        claudePid: !!s.claudePid, hostSession: !!s.hostSession, hostShape: s.diag?.hostShape ?? null, env: s.diag?.env ?? null,
+        chain: await processNames(chain).catch(() => []) };
+    })),
+  };
 }
 
 // ---------- boot ----------

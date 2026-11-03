@@ -25,6 +25,7 @@ function apply(sessions, e, now = Date.now()) {
   if (typeof e.cwd === 'string' && e.cwd) { s.cwd = e.cwd; s.name = path.basename(e.cwd) || e.cwd; }
   if (typeof e.transcript_path === 'string' && e.transcript_path.endsWith('.jsonl')) s.transcript = e.transcript_path;
   if (Number.isInteger(e.bobix_claude_pid) && e.bobix_claude_pid > 1) s.claudePid = e.bobix_claude_pid;
+  if (Array.isArray(e.bobix_env)) s.diag = { env: e.bobix_env.filter(k => typeof k === 'string').slice(0, 40), hostShape: typeof e.bobix_host_shape === 'string' ? e.bobix_host_shape.slice(0, 80) : null };
   if (typeof e.bobix_host_session === 'string' && /^local_[A-Za-z0-9-]{1,64}$/.test(e.bobix_host_session)) s.hostSession = e.bobix_host_session;
 
   const log = (kind, text = '', tool = '') => { s.log.push({ t: now, kind, text, tool }); if (s.log.length > 40) s.log.shift(); };

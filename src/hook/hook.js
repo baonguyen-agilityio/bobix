@@ -27,7 +27,11 @@ process.stdin.on('end', () => {
   // Where the session lives, so a click on its pet can open it: Claude desktop's own session id,
   // else the claude process (the app walks up from it to the terminal / IDE window). Sent every time: it's free.
   e.bobix_claude_pid = Number(process.env.CLAUDE_PID) || process.ppid;
-  if (/^local_[A-Za-z0-9-]{1,64}$/.test(process.env.CLAUDE_CODE_HOST_SESSION_ID || '')) e.bobix_host_session = process.env.CLAUDE_CODE_HOST_SESSION_ID;
+  const host = process.env.CLAUDE_CODE_HOST_SESSION_ID || '';
+  if (/^local_[A-Za-z0-9-]{1,64}$/.test(host)) e.bobix_host_session = host;
+  // For "Copy diagnostics": which CLAUDE* variables exist (names only) and the shape of the host id (letters → x).
+  e.bobix_env = Object.keys(process.env).filter(k => /^CLAUDE/.test(k)).sort().slice(0, 40);
+  e.bobix_host_shape = host ? host.replace(/[A-Za-z0-9]/g, 'x').slice(0, 80) : null;
   const body = JSON.stringify(e);
   const req = http.request({
     host: '127.0.0.1', port, path: '/event', method: 'POST', timeout: 1500, agent: false, // no keep-alive: exit right after

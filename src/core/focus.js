@@ -47,4 +47,16 @@ async function focusPids(pids, platform = process.platform) {
   return false;
 }
 
-module.exports = { focusPids, ancestors, outerBundle };
+// Names of processes, for diagnostics ("claude", "Claude", "WindowsTerminal"…).
+async function processNames(pids, platform = process.platform) {
+  const list = (pids || []).filter(p => Number.isInteger(p) && p > 1);
+  if (!list.length) return [];
+  if (platform === 'win32') {
+    const txt = await out('powershell', ['-NoProfile', '-Command', `Get-Process -Id ${list.join(',')} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id) $($_.ProcessName)" }`]);
+    const names = new Map(txt.split(/\r?\n/).map(l => l.trim().split(/\s+/)).filter(a => a.length >= 2).map(([id, ...n]) => [Number(id), n.join(' ')]));
+    return list.map(p => names.get(p) || '?');
+  }
+  return Promise.all(list.map(async p => (await out('ps', ['-o', 'comm=', '-p', String(p)])).split('/').pop() || '?'));
+}
+
+module.exports = { focusPids, ancestors, outerBundle, processNames };

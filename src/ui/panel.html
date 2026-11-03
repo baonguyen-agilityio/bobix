@@ -527,6 +527,7 @@ async function renderSetup(note) {
         <dt>${T('setup.last')}</dt><dd>${state.lastEventAt ? ago(state.lastEventAt) : T('setup.never')}</dd>
         <dt>${T('setup.file')}</dt><dd><code>${esc(h.file)}</code><button class="btn" type="button" data-act="reveal">${T('setup.reveal')}</button></dd>
       </dl>
+      <div class="acts"><button class="btn" type="button" data-act="diag">${T('setup.diag')}</button></div>
       ${!state.nodePath ? `<p class="note">${T('setup.noNode', { mode: state.platform === 'win32' ? 'PowerShell' : 'curl' })}</p>` : ''}
       ${linuxNote}
     </div>
@@ -537,6 +538,7 @@ $('#setup').addEventListener('click', async e => {
   const act = e.target.closest('button')?.dataset.act;
   if (!act) return;
   if (act === 'reveal') return bridge.revealSettings();
+  if (act === 'diag') { await bridge.copyDiagnostics(); return toast(T('setup.diag.done')); }
   e.target.disabled = true;
   const r = await bridge[{ install: 'installHooks', uninstall: 'uninstallHooks', test: 'testEvent' }[act]]();
   const text = r.error ? T('setup.error', { x: r.error }) : [r.backup && T('setup.backup', { file: r.backup }), act === 'install' && T('setup.newSessions')].filter(Boolean).join(' ');
