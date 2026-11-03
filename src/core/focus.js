@@ -3,7 +3,8 @@
 const { execFile } = require('child_process');
 
 const run = (cmd, args) => new Promise(res => execFile(cmd, args, { timeout: 4000, windowsHide: true }, err => res(!err)));
-const out = (cmd, args) => new Promise(res => execFile(cmd, args, { timeout: 4000, windowsHide: true }, (err, so) => res(err ? '' : String(so).trim())));
+// PowerShell can take several seconds to start on a cold Windows machine.
+const out = (cmd, args) => new Promise(res => execFile(cmd, args, { timeout: cmd === 'powershell' ? 15000 : 4000, windowsHide: true }, (err, so) => res(err ? '' : String(so).trim())));
 
 // macOS: the outermost app bundle in the chain is the one with the window (Terminal, iTerm, VS Code, Claude…).
 // Helpers live inside it ("…/Code.app/Contents/Frameworks/Code Helper.app/…"), so take the first ".app" of each path.
