@@ -20,10 +20,9 @@ const I18N = require('./ui/i18n');
 const WAYLAND = process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
 const OZONE = (process.argv.find(a => a.startsWith('--ozone-platform=')) || '').split('=')[1] || 'default';
 if (WAYLAND && process.env.DISPLAY && process.env.BOBIX_WAYLAND !== '1' && OZONE === 'default') {
-  // An AppImage runs from a temporary mount that disappears with this process: restart the .AppImage itself.
-  const relaunch = { execPath: process.env.APPIMAGE || process.execPath, args: [...process.argv.slice(1), '--ozone-platform=x11'] };
-  console.log('[bobix] Wayland: restarting through XWayland', JSON.stringify({ ...relaunch, appimage: !!process.env.APPIMAGE }));
-  app.relaunch(relaunch);
+  // Started directly, not with app.relaunch: an AppImage runs from a temporary mount that disappears with this
+  // process, and Electron's relaunch helper runs from that mount. Safe to overlap: this process holds no lock yet.
+  require('child_process').spawn(process.env.APPIMAGE || process.execPath, [...process.argv.slice(1), '--ozone-platform=x11'], { detached: true, stdio: 'inherit' }).unref();
   app.exit(0);
 }
 
