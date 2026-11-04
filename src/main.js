@@ -27,6 +27,11 @@ if (WAYLAND && process.env.DISPLAY && process.env.BOBIX_WAYLAND !== '1' && OZONE
   require('child_process').spawn(process.execPath, [...process.argv.slice(1), '--ozone-platform=x11'], { detached: true, stdio: 'inherit' }).unref();
   app.exit(0);
 }
+// Linux on X11 (XWayland included): the overlay's window shape lets the mouse through everywhere but over the pets.
+// XWayland only knows where the cursor is while it is over an X11 window, so polling the cursor would never see it
+// reach a pet that sits over a Wayland app (most of them), and the pets could not be clicked or dragged there.
+const SHAPED = process.platform === 'linux' && (OZONE === 'x11' || !WAYLAND);
+const XWAYLAND = WAYLAND && OZONE === 'x11';
 
 // One Bobix at a time. The copy that is opened tells the running one its version (see 'second-instance').
 const ME = { version: app.getVersion() };
@@ -253,15 +258,32 @@ function overlayBounds() {
   const wa = targetDisplay().workArea, h = Math.min(wa.height, Math.round(settings.size * 1.5) + 320);
   return { x: wa.x, width: wa.width, height: h, y: settings.edge === 'top' ? wa.y : wa.y + wa.height - h };
 }
-const placeOverlay = () => overlay && !overlay.isDestroyed() && overlay.setBounds(overlayBounds());
+const placeOverlay = () => { if (overlay && !overlay.isDestroyed()) { overlay.setBounds(overlayBounds()); shapeOverlay(); } };
+
+// SHAPED: the window is only the pets' rects, padded because the shape also clips drawing and rects arrive
+// ~10 times a second. Shape first, then take the mouse: without a shape the window would block the whole strip.
+// No rects means no pet is out and the overlay hides (showOverlay), so it never gets an empty shape, which means no shape.
+const PAD = 16;
+function shapeOverlay() {
+  if (!SHAPED || !overlay || overlay.isDestroyed()) return;
+  const { width, height } = overlay.getBounds();
+  const shape = rects.map(([x, y, w, h]) => {
+    const l = Math.max(0, Math.floor(x - PAD)), t = Math.max(0, Math.floor(y - PAD));
+    return { x: l, y: t, width: Math.min(width, Math.ceil(x + w + PAD)) - l, height: Math.min(height, Math.ceil(y + h + PAD)) - t };
+  }).filter(r => r.width > 0 && r.height > 0);
+  if (!shape.length) return;
+  overlay.setShape(shape);
+  if (!interactive) { interactive = true; overlay.setIgnoreMouseEvents(false); }
+}
 
 // The overlay ignores the mouse except over a pet: poll the cursor, compare with the pets' rects from the page.
+// SHAPED: the shape does that, the poll only feeds the cursor to the page (not on XWayland, see SHAPED).
 function trackMouse() {
   if (!overlay || overlay.isDestroyed() || !overlay.isVisible()) return;
   const p = screen.getCursorScreenPoint(), b = overlay.getBounds();
   const x = p.x - b.x, y = p.y - b.y;
   const over = rects.some(r => x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]);
-  if (over !== interactive) { interactive = over; overlay.setIgnoreMouseEvents(!over); }
+  if (!SHAPED && over !== interactive) { interactive = over; overlay.setIgnoreMouseEvents(!over); }
   const k = `${x},${y}`;
   if (k !== lastMouse) { lastMouse = k; overlay.webContents.send('mouse', { x, y }); }
 }
@@ -418,7 +440,7 @@ function ipc() {
   handle('answer', (id, choice) => answer(id, choice));
   handle('pet:image', (id, act) => (typeof id !== 'string' ? null : act === 'reset' ? resetPetImage(id) : choosePetImage(id)));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) server.broadcast(snapshot()); });
-  ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); showOverlay(); } });
+  ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); shapeOverlay(); showOverlay(); } });
 }
 
 // The app used to be called Session Guild: carry its settings and start-at-login over once.
@@ -550,7 +572,7 @@ app.whenReady().then(async () => {
   } catch (err) { console.error('[bobix] hook refresh:', err.message); }
   createOverlay();
   buildTray();
-  timers.push(setInterval(trackMouse, 33));
+  if (!XWAYLAND) timers.push(setInterval(trackMouse, 33)); // XWayland: the page's own mouse events only
   timers.push(setInterval(() => {
     const now = Date.now();
     let changed = false;

@@ -48,6 +48,7 @@ Other Linux distributions aren't packaged yet.
 - Transparency needs a compositing desktop (GNOME, KDE, and most others do this by default).
 - To let a click on a pet bring its terminal forward, install xdotool: `sudo apt install xdotool`.
 - On Wayland, Bobix restarts itself through XWayland so the pets stay on top. Set `BOBIX_WAYLAND=1` to keep native Wayland.
+- Through XWayland, Bobix sees the cursor only while it is on a pet, so **Fade when the cursor comes near** works only right next to a pet.
 
 ## 3. Connect Claude Code
 
