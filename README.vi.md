@@ -120,6 +120,8 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Có làm Claude chậm đi không?** Không. Hook chạy bất đồng bộ và bộ chuyển tiếp thoát sau vài chục mili giây.
 
+**Còn các cuộc chat trong app Claude hay trên claude.ai thì sao?** Chưa hỗ trợ được. Bobix theo dõi session của Claude Code qua hooks của Claude Code, còn chat thường không có hooks hay cách nào khác để một app trên máy bạn theo dõi. Trong app Claude desktop, hãy dùng tab Code: đó là session Claude Code nên sẽ hiện thành thú cưng.
+
 **Dùng được với những cách chạy Claude Code nào?** CLI trong mọi terminal, extension cho IDE và app Claude desktop. Bấm để mở sẽ vào thẳng session trong app desktop; ở chỗ khác thì đưa cửa sổ app lên trước, không chọn được đúng tab.
 
 **Không có Node.js thì sao?** Hook chuyển sang dùng `curl` hoặc PowerShell. Mọi thứ vẫn chạy, trừ bấm để mở: khi đó app hiện chi tiết session.

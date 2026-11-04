@@ -40,9 +40,12 @@ async function target(part) {
   return { call, run, close: () => ws.close() };
 }
 
+// A permission request waits for an answer, like the real hook, so the pet shows Allow / Deny.
 const post = ev => new Promise(res => {
   const body = JSON.stringify(ev);
-  const r = http.request({ host: '127.0.0.1', port: PORT, path: '/event', method: 'POST', headers: { 'content-type': 'application/json', 'x-bobix': token } }, x => { x.resume(); res(); });
+  const wait = ev.hook_event_name === 'PermissionRequest' ? { 'x-bobix-wait': '1' } : {};
+  const r = http.request({ host: '127.0.0.1', port: PORT, path: '/event', method: 'POST', headers: { 'content-type': 'application/json', 'x-bobix': token, ...wait } }, x => { x.resume(); res(); });
+  r.on('error', () => {});
   r.end(body);
 });
 
@@ -90,7 +93,6 @@ try {
   while (Date.now() - t0 < SECONDS * 1000) {
     const t = (Date.now() - t0) / 1000;
     while (next < SCRIPT.length && SCRIPT[next][0] <= t) SCRIPT[next++][1]();
-    // Hover over a pet near the end to show its card (the app normally feeds the real cursor position).
     // Show one pet's hover card near the end (normally the app feeds the real cursor position).
     if (t > 12.2 && t < 15.5) await pets.run(`(() => { const p = [...pets.values()].find(p => p.s.id === 'demo-ios-app'); if (p) p.hoverUntil = Date.now() + 400; })()`);
     const [strip, pane] = await Promise.all([

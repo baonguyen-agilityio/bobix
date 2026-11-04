@@ -120,6 +120,8 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Does it slow Claude down?** No. Hooks run asynchronously and the forwarder exits within a few tens of milliseconds.
 
+**What about chats in the Claude app or on claude.ai?** Not supported. Bobix follows Claude Code sessions through Claude Code's hooks, and ordinary chats have no hooks or any other way for an app on your computer to follow them. In the Claude desktop app, use the Code tab: those are Claude Code sessions and show up as pets.
+
 **Which Claude Code setups work?** The CLI in any terminal, the IDE extensions and the Claude desktop app. Click-to-open goes straight to the session in the desktop app; elsewhere it brings the app forward, not a specific tab.
 
 **What if I don't have Node.js?** Hooks fall back to `curl` or PowerShell. Everything works except click-to-open, which then shows the session's details.

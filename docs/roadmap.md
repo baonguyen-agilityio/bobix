@@ -9,6 +9,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
   - the hook never waits longer than Bobix's own wait time, and gives up after 3 s if Bobix is frozen (it could wait up to 5 minutes before);
   - `claude -p` and Agent SDK runs (`CLAUDE_CODE_ENTRYPOINT=sdk-*`) never wait;
   - the hook exits the moment an answer arrives (before, an approved request still waited out the full time).
+- **Setup wording**: says that ordinary Claude chats don't show up, and that nothing about sessions leaves the computer.
 - **Docs**: install only from release installers (fixed file names, `releases/latest/download/…` links, terminal and AI-assistant commands), building from source moved to [development.md](development.md), privacy doc updated for the update check and the waiting permission hook.
 
 Release checklist: bump `version` in `package.json` → tag `v0.1.2` → check the 5 fixed-name files are attached → add release notes.
@@ -46,12 +47,13 @@ Larger, each needs its own plan:
 - While Bobix waits for an answer (20 s by default), the terminal's permission prompt appears only after that time.
 - Approvals need the Node.js forwarder; with the curl / PowerShell fallback Bobix only watches.
 - Linux installers are `.deb` only (Ubuntu, Debian). Other distributions aren't packaged.
+- Only Claude Code sessions (terminal, IDE, the Code tab of the Claude app). Ordinary chats in the Claude app or on claude.ai have no hooks, so Bobix can't follow them.
 - Memory is about 330–400 MB (Electron).
 
 ## 5. Cleanup
 
-- [ ] Re-record the demo video and screenshots (`node scripts/record-demo.mjs`): they predate drag, hide/show, approvals and the update notice.
-- [ ] The v0.1.1 release holds both the old versioned file names and the fixed names (10 files). The old ones can go once nobody links to them.
-- [ ] Delete the merged branch `fix/pets-overlay-win-linux`.
+- [x] Re-recorded the demo video and screenshots (2026-11-04): the waiting pet now shows Allow / Deny. Drag and hide/show are not in the video.
+- [x] Removed the old versioned file names from the v0.1.1 release; only the fixed names remain.
+- [x] Deleted the merged branch `fix/pets-overlay-win-linux`.
 - [ ] The from-source Ubuntu CI smoke failed once with the pets page not yet drawn. It has passed since; watch for it.
-- [ ] On the maintainer's Mac: an old packaged build in the project's build folder is still set to start at login. Install the release into Applications and remove that login item.
+- [ ] On the maintainer's Mac: an old packaged build in the project's build folder is still set to start at login. After v0.1.2 is out, install it into Applications, then remove the old entry in System Settings → General → Login Items (turn "Start at login" on again in the new Bobix if wanted).
