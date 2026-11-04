@@ -98,7 +98,7 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .pane .open-hint{margin-top:var(--s3)}
 .pane .meta{margin:var(--s4) 0 0;font-size:var(--t-xs);line-height:1.6;color:var(--ink-3);overflow-wrap:anywhere}
 .pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
-.pane p{margin:0;font-size:var(--t-sm)}
+.pane p{margin:0}
 .ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-md);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
 .ask .acts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2)}
 .ask strong{color:var(--coral-ink)}
@@ -116,20 +116,27 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .report th,.report td{border:1px solid var(--line-strong);padding:var(--s1) var(--s2);text-align:left;vertical-align:top;overflow-wrap:break-word}
 .report hr{border:0;border-top:1px solid var(--line-strong);margin:var(--s3) 0}
 .log{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
-.log li{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:baseline;gap:var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
-.log time{font-size:var(--t-xs);color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
-.log span{overflow-wrap:anywhere;color:var(--ink-2)}
-.log li>span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:var(--s2);background:var(--n-300)}
-.log .k-prompt>span{color:var(--ink);font-weight:600}
-.log .k-prompt>span::before{background:var(--ink)}
-.log .k-ask>span{color:var(--coral-ink)}
-.log .k-ask>span::before{background:var(--coral)}
-.log .k-done>span{color:var(--ink)}
-.log .k-done>span::before{background:var(--mint)}
-.log .k-start>span::before{background:var(--sky)}
-.log.sides li>span::before{content:none}
+.log li{display:grid;grid-template-columns:max-content 8px minmax(0,1fr);align-items:baseline;gap:var(--s2) var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
+.log time{grid-column:1;grid-row:1;font-size:var(--t-xs);color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.log li::before{content:"";grid-column:2;grid-row:1;align-self:start;width:8px;height:8px;margin-top:calc(.775em - 4px);border-radius:50%;background:var(--n-300)}
+.log .msg{grid-column:3;grid-row:1;min-width:0;color:var(--ink-2)}
+.log .k-prompt .msg{color:var(--ink);font-weight:600}
+.log .k-prompt::before{background:var(--ink)}
+.log .k-ask .msg{color:var(--coral-ink)}
+.log .k-ask::before{background:var(--coral)}
+.log .k-done .msg{color:var(--ink)}
+.log .k-done::before{background:var(--mint)}
+.log .k-start::before{background:var(--sky)}
+.log.sides li{grid-template-columns:max-content minmax(0,1fr)}
+.log.sides li::before{content:none}
+.log.sides span{color:var(--ink-2)}
 .log .arg{font-family:var(--f-mono)}
 .log .n{font-size:var(--t-xs);font-weight:600;color:var(--ink-3);margin-left:var(--s1)}
+.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,2);overflow:hidden}
+.clamp.open{display:block}
+.prompt{white-space:pre-wrap;font-size:var(--t-sm);--lines:4}
+.more{display:block;border:0;background:none;padding:0;margin-top:var(--s1);font:600 var(--t-xs) var(--f-body);color:var(--ink-2);cursor:pointer}
+.more:hover{color:var(--ink);text-decoration:underline}
 .note{font-size:var(--t-sm);color:var(--ink-2)}
 .note.err{color:var(--coral-ink);font-weight:600}
 
@@ -345,10 +352,23 @@ function statusText(s, st) {
   return T(`status.${st}`);
 }
 const line2 = (s, st) => st === 'done' && s.summary ? T('line.report') + s.summary : s.quest || T('line.noQuest');
-function logHTML(l) {
+function logHTML(l, open) {
   if (l.kind !== 'tool') return esc(T(`log.${l.kind}`, { x: l.text }));
   const tool = esc(LOG.cap(I18N.toolLabel(lang, l.tool), I18N.pick(lang))), n = l.n > 1 ? `<span class="n">×${l.n}</span>` : '';
-  return (l.text ? T('log.tool', { tool, x: `<span class="arg" title="${esc(l.text)}">${esc(LOG.mid(l.text)).replace(/\//g, '/<wbr>')}</span>` }) : tool) + n;
+  return (l.text ? T('log.tool', { tool, x: `<span class="arg" title="${esc(l.text)}">${esc(open ? l.text : LOG.mid(l.text)).replace(/\//g, '/<wbr>')}</span>` }) : tool) + n;
+}
+// Clamped text with a "Show more" toggle; the toggle shows only when there is more (see showMore).
+function moreHTML(key, html, cls = '', cut = false) {
+  const open = moreOpen.has(key);
+  return `<div class="clamp${cls ? ' ' + cls : ''}${open ? ' open' : ''}" data-k="${esc(key)}">${html}</div>`
+    + `<button class="more" type="button" data-more="${esc(key)}"${cut ? ' data-cut' : ''} hidden>${T(open ? 'pane.less' : 'pane.more')}</button>`;
+}
+// After drawing: a toggle is shown for text that is open, cut by the clamp, or shortened (a long command).
+function showMore(root) {
+  root.querySelectorAll('[data-more]').forEach(b => {
+    const box = b.previousElementSibling;
+    b.hidden = !(box.classList.contains('open') || box.scrollHeight > box.clientHeight + 1 || b.hasAttribute('data-cut'));
+  });
 }
 function rowHTML(s, st) {
   const hp = s.ctx;
@@ -364,6 +384,7 @@ function rowHTML(s, st) {
 let list = [], selected = new URLSearchParams(location.search).get('s');
 let hint = null; // why a pet or notification click could not open the selected session: { id, reason, app, folder }
 let reportOpen = true; // the final report folded or not: kept while the panel is open, for every session
+const moreOpen = new Set(); // Quest and log lines opened with "Show more" (the pane is redrawn on every log line)
 const ORDER_IN = { waiting: (a, b) => a.since - b.since, working: (a, b) => b.updated - a.updated, done: (a, b) => b.since - a.since, idle: (a, b) => b.updated - a.updated };
 
 function render() {
@@ -402,7 +423,7 @@ function renderPane() {
   if (!s) return;
   const st = look(s);
   const kids = kidsOf(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -426,11 +447,13 @@ function renderPane() {
       <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
         <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
         <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T('pane.askHint')}</div>` : ''}
-    <h3>${T('pane.quest')}</h3><p>${esc(s.quest || T('line.noQuest'))}</p>
+    <h3>${T('pane.quest')}</h3>${moreHTML(`q:${s.id}`, esc(s.prompt || s.quest || T('line.noQuest')), 'prompt')}
     ${s.summary ? `<details class="fold"${reportOpen ? ' open' : ''}><summary><h3>${T('pane.report')}</h3></summary>
       <div class="report">${markdown(s.report || s.summary)}</div></details>` : ''}
     <h3>${T('pane.log')}</h3>
-    <ol class="log">${LOG.fold(s.log).map(l => `<li class="k-${esc(l.kind)}"><time title="${time(l.t)}">${hm(l.t)}</time><span>${logHTML(l)}</span></li>`).join('')}</ol>`;
+    <ol class="log">${LOG.fold(s.log).map(l => { const k = `l:${s.id}:${l.from}:${l.kind}`;
+      return `<li class="k-${esc(l.kind)}"><time title="${time(l.t)}">${hm(l.t)}</time><div class="msg">${moreHTML(k, logHTML(l, moreOpen.has(k)), '', l.kind === 'tool' && LOG.mid(l.text) !== l.text)}</div></li>`; }).join('')}</ol>`;
+  showMore(pane);
 }
 $('#showAll').addEventListener('click', () => bridge.setPet('*', 'shown'));
 // A pet or notification click that could not open its session: the panel opens on it and says where it runs, in the
@@ -449,6 +472,8 @@ $('#pane').addEventListener('click', async e => {
   if (act === 'close') select(null);
   if (act === 'goto') select(e.target.dataset.id);
   if (act === 'pic' || act === 'picReset') { const r = await bridge.petImage(selected, act === 'pic' ? 'choose' : 'reset'); if (r?.reason) toast(T('pane.petFail.' + r.reason)); }
+  const more = e.target.dataset.more;
+  if (more) { moreOpen.has(more) ? moreOpen.delete(more) : moreOpen.add(more); $('#pane').dataset.key = ''; renderPane(); }
   if (act === 'answer') { const s = list.find(x => x.id === selected); if (s?.answer) bridge.answer(s.answer.id, e.target.dataset.choice); }
   if (act === 'pet') { const s = list.find(x => x.id === selected); if (s) bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden'); }
   if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); }
