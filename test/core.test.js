@@ -217,9 +217,11 @@ test('a permission request waits for the answer from Bobix and prints it for Cla
   const ask = { session_id: 's3', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } };
   const decision = { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } };
   reply = { secs: 5, answer: new Promise(r => setTimeout(() => r(decision), 300)) };
-  assert.deepEqual(JSON.parse(await run(ask)), decision, 'the answer reaches Claude Code');
-  reply = { secs: 1, answer: new Promise(() => {}) }; // nobody answers and the app never ends the reply
   let t0 = Date.now();
+  assert.deepEqual(JSON.parse(await run(ask)), decision, 'the answer reaches Claude Code');
+  assert.ok(Date.now() - t0 < 2000, 'the hook exits as soon as the answer is in, not at the end of the wait');
+  reply = { secs: 1, answer: new Promise(() => {}) }; // nobody answers and the app never ends the reply
+  t0 = Date.now();
   assert.equal(await run(ask), '', 'no answer: nothing printed, Claude asks as usual');
   assert.ok(Date.now() - t0 < 6000, 'the hook gives up soon after the wait time');
   reply = null;

@@ -44,7 +44,7 @@ process.stdin.on('end', () => {
   }, res => {
     // The app replies at once with how long it will wait for an answer; never wait longer than that.
     const secs = Math.min(300, Number(res.headers['x-bobix-wait']) || 0);
-    if (secs) { req.setTimeout(0); setTimeout(() => req.destroy(), (secs + 3) * 1000); }
+    if (secs) { req.setTimeout(0); setTimeout(() => req.destroy(), (secs + 3) * 1000).unref(); } // unref: exit as soon as the answer is in
     let out = '';
     res.setEncoding('utf8');
     res.on('data', c => { out += c; });
