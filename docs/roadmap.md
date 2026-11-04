@@ -8,6 +8,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 - **One pet per project**: every session of a project, and of its git worktrees (Claude desktop makes one per session), has the same creature; before, each session got its own. A project can get its own picture (PNG, JPG, GIF or WebP up to 2 MB, from the panel's Change pet…; Default pet undoes it). Pictures stay in the app's data folder; GIFs stay animated.
 - **Pets take the mouse on Linux Wayland**: through XWayland, a pet could be hovered, clicked or dragged only while an X11 window (such as the panel) was under it. The pets overlay now has a window shape around the pets, so the X server hands them the mouse directly.
 - **Linux dock**: the `.deb` sets `desktopName`, so its `.desktop` entry has `StartupWMClass=bobix`, the windows' real class (it said `Bobix`).
+- **Panel on wide screens**: the details pane grows with the window (400 to 640 px) and the page may be 1,920 px wide instead of 1,440, so a full-screen panel leaves less empty space at the sides; scrollbars are thinner (10 px) and have no arrows.
 
 Everything before that is in v0.1.3 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
 
