@@ -44,7 +44,8 @@
         "LSUIElement": true
       },
       "identity": "-",
-      "hardenedRuntime": false
+      "hardenedRuntime": false,
+      "artifactName": "${productName}-mac-${arch}.${ext}"
     },
     "win": {
       "target": [
@@ -58,7 +59,8 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "${productName}-windows-${arch}.${ext}"
     },
     "linux": {
       "target": [
@@ -72,6 +74,9 @@
       ],
       "category": "Development",
       "maintainer": "Bobix contributors"
+    },
+    "deb": {
+      "artifactName": "${name}-linux-${arch}.${ext}"
     }
   },
   "homepage": "https://github.com/baonguyen-agilityio/bobix"

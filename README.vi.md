@@ -47,15 +47,15 @@ Chạy vài session Claude Code cùng lúc thì bạn sẽ phải bấm qua từ
 
 ## Cài đặt
 
-Tải file cho máy của bạn ở **[bản phát hành mới nhất](https://github.com/baonguyen-agilityio/bobix/releases/latest)**:
+Tải file cài cho máy của bạn. Các link luôn trỏ tới phiên bản mới nhất ([tất cả bản phát hành](https://github.com/baonguyen-agilityio/bobix/releases)):
 
-| Máy của bạn | File |
+| Máy của bạn | Tải về |
 |---|---|
-| Mac chip Apple (M1 trở lên) | `Bobix-<version>-arm64.dmg` |
-| Mac chip Intel | `Bobix-<version>.dmg` |
-| Windows 10 / 11 (64-bit) | `Bobix.Setup.<version>.exe` |
-| Ubuntu / Debian | `bobix_<version>_amd64.deb` (ARM: `_arm64.deb`) |
-| Linux khác | chạy từ mã nguồn, xem [Build từ mã nguồn](#build-từ-mã-nguồn) |
+| Mac chip Apple (M1 trở lên) | [Bobix-mac-arm64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-arm64.dmg) |
+| Mac chip Intel | [Bobix-mac-x64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-x64.dmg) |
+| Windows 10 / 11 (64-bit) | [Bobix-windows-x64.exe](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-windows-x64.exe) |
+| Ubuntu / Debian (x64) | [bobix-linux-x64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-x64.deb) |
+| Ubuntu / Debian (ARM64) | [bobix-linux-arm64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-arm64.deb) |
 
 Sau đó:
 
@@ -64,6 +64,31 @@ Sau đó:
 3. Gửi một prompt trong session Claude Code bất kỳ. Chú thú của nó sẽ xuất hiện.
 
 [Hướng dẫn cài đặt](docs/install.md) (tiếng Anh) có thêm phần xử lý sự cố và gỡ cài đặt.
+
+### Cài bằng terminal, hoặc nhờ trợ lý AI
+
+Hãy dùng file cài trong bản phát hành như dưới đây. Đừng clone repo này hay tự build để cài Bobix: mã nguồn dành cho người đóng góp.
+
+macOS (chip Apple; Mac chip Intel dùng `Bobix-mac-x64.dmg`). Nếu Bobix đang chạy thì thoát trước.
+
+```bash
+curl -fL -o /tmp/Bobix.dmg https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-arm64.dmg
+hdiutil attach -nobrowse -quiet -mountpoint /tmp/bobix-dmg /tmp/Bobix.dmg
+rm -rf /Applications/Bobix.app && cp -R /tmp/bobix-dmg/Bobix.app /Applications/
+hdiutil detach -quiet /tmp/bobix-dmg && xattr -cr /Applications/Bobix.app && open /Applications/Bobix.app
+```
+
+Windows (PowerShell):
+
+```powershell
+$f = "$env:TEMP\Bobix-windows-x64.exe"; Invoke-WebRequest https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-windows-x64.exe -OutFile $f; Start-Process $f
+```
+
+Ubuntu / Debian (x64; máy ARM dùng `bobix-linux-arm64.deb`), rồi mở **Bobix** từ menu ứng dụng:
+
+```bash
+curl -fL -o /tmp/bobix.deb https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-x64.deb && sudo apt install -y /tmp/bobix.deb
+```
 
 ## Ảnh chụp
 
@@ -108,23 +133,14 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 - Trên Linux Wayland, Bobix chạy qua XWayland để chú thú luôn nằm trên cùng; đưa terminal lên trước cần X11 và `xdotool`.
 - Mở session trong app Claude desktop dùng một đường link do app đó đăng ký (`claude://code/continue`), không phải API có tài liệu, nên có thể thay đổi.
 - "Context còn lại" là ước tính từ lượng token đã dùng.
-
-## Build từ mã nguồn
-
-Cần Node.js 22 trở lên.
-
-```bash
-git clone https://github.com/baonguyen-agilityio/bobix.git && cd bobix
-npm install
-npm start            # chạy app
-npm test             # unit test
-npm run dist:mac     # hoặc dist:win, dist:linux: file cài nằm trong thư mục dist
-```
-
-Đẩy một tag như `v0.1.0` sẽ chạy [workflow release](.github/workflows/release.yml), build trên từng hệ điều hành và đính kèm file cài vào GitHub Release; tag có dấu gạch (`v0.2.0-rc.1`) sẽ thành bản pre-release. `node scripts/record-demo.mjs` quay lại video demo và ảnh chụp trong `docs/media/`.
+- File cài cho Linux dành cho Ubuntu và Debian; các bản Linux khác chưa có gói cài.
 
 ## Giấy phép và ghi công
 
 MIT, xem [LICENSE](LICENSE). Font: Baloo 2 và Be Vietnam Pro, giấy phép SIL Open Font License, đóng gói qua Fontsource (giấy phép nằm trong `src/ui/fonts/`).
 
 Bobix là dự án độc lập, không liên kết với Anthropic và không được Anthropic bảo trợ. "Claude" và "Claude Code" là nhãn hiệu của Anthropic.
+
+## Phát triển Bobix
+
+Chỉ dành cho người đóng góp: build, test và phát hành nằm trong [docs/development.md](docs/development.md) (tiếng Anh). Để dùng Bobix, hãy cài từ bản phát hành như hướng dẫn ở trên.

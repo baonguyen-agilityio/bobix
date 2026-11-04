@@ -7,15 +7,15 @@ Node.js is recommended but not required (see [Without Node.js](#without-nodejs))
 
 ## 1. Get the installer
 
-Download the file for your computer from the [latest release](https://github.com/baonguyen-agilityio/bobix/releases/latest), or use the file someone sent you.
+Download the installer for your computer (the links always give the newest version), or use the file someone sent you. Install from these files: the repository's source is for contributors.
 
-| Computer | File |
-|----------|------|
-| Mac with Apple chip (M1 and later) | `Bobix-<version>-arm64.dmg` |
-| Mac with Intel chip | `Bobix-<version>.dmg` |
-| Windows (64-bit) | `Bobix.Setup.<version>.exe` |
-| Ubuntu / Debian x64 | `bobix_<version>_amd64.deb` |
-| Ubuntu / Debian ARM64 | `bobix_<version>_arm64.deb` |
+| Your computer | Download |
+|---|---|
+| Mac with Apple chip (M1 and later) | [Bobix-mac-arm64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-arm64.dmg) |
+| Mac with Intel chip | [Bobix-mac-x64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-x64.dmg) |
+| Windows 10 / 11 (64-bit) | [Bobix-windows-x64.exe](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-windows-x64.exe) |
+| Ubuntu / Debian (x64) | [bobix-linux-x64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-x64.deb) |
+| Ubuntu / Debian (ARM64) | [bobix-linux-arm64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-arm64.deb) |
 
 Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 
@@ -31,7 +31,7 @@ Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 
 ### Windows
 
-1. Run `Bobix.Setup.<version>.exe`. It installs for your user only, no admin rights needed.
+1. Run `Bobix-windows-x64.exe`. It installs for your user only, no admin rights needed.
 2. The installer is not code-signed, so SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
 3. Bobix lives in the system tray (bottom-right, maybe under the ^ arrow).
 
@@ -40,10 +40,10 @@ Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 Install the `.deb`, then open **Bobix** from your apps menu (or run `bobix`).
 
 ```bash
-sudo apt install ./bobix_<version>_amd64.deb
+sudo apt install ./bobix-linux-x64.deb
 ```
 
-Other distributions: run Bobix from source (see the README, "Build from source").
+Other Linux distributions aren't packaged yet.
 
 - Transparency needs a compositing desktop (GNOME, KDE, and most others do this by default).
 - To let a click on a pet bring its terminal forward, install xdotool: `sudo apt install xdotool`.

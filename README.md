@@ -47,15 +47,15 @@ Run a few Claude Code sessions at once and you spend your day clicking through t
 
 ## Install
 
-Download the file for your computer from the **[latest release](https://github.com/baonguyen-agilityio/bobix/releases/latest)**:
+Download the installer for your computer. The links always give the newest version ([all releases](https://github.com/baonguyen-agilityio/bobix/releases)):
 
-| Your computer | File |
+| Your computer | Download |
 |---|---|
-| Mac with Apple chip (M1 and later) | `Bobix-<version>-arm64.dmg` |
-| Mac with Intel chip | `Bobix-<version>.dmg` |
-| Windows 10 / 11 (64-bit) | `Bobix.Setup.<version>.exe` |
-| Ubuntu / Debian | `bobix_<version>_amd64.deb` (ARM: `_arm64.deb`) |
-| Other Linux | run from source, see [Build from source](#build-from-source) |
+| Mac with Apple chip (M1 and later) | [Bobix-mac-arm64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-arm64.dmg) |
+| Mac with Intel chip | [Bobix-mac-x64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-x64.dmg) |
+| Windows 10 / 11 (64-bit) | [Bobix-windows-x64.exe](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-windows-x64.exe) |
+| Ubuntu / Debian (x64) | [bobix-linux-x64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-x64.deb) |
+| Ubuntu / Debian (ARM64) | [bobix-linux-arm64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-arm64.deb) |
 
 Then:
 
@@ -64,6 +64,31 @@ Then:
 3. Send a prompt in any Claude Code session. Its pet appears.
 
 The [install guide](docs/install.md) also covers troubleshooting and uninstalling.
+
+### From a terminal, or with an AI assistant
+
+Use the release installers below. Don't clone this repository or build it to install Bobix: the source is for contributors.
+
+macOS (Apple chip; on an Intel Mac use `Bobix-mac-x64.dmg`). Quit Bobix first if it is running.
+
+```bash
+curl -fL -o /tmp/Bobix.dmg https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-arm64.dmg
+hdiutil attach -nobrowse -quiet -mountpoint /tmp/bobix-dmg /tmp/Bobix.dmg
+rm -rf /Applications/Bobix.app && cp -R /tmp/bobix-dmg/Bobix.app /Applications/
+hdiutil detach -quiet /tmp/bobix-dmg && xattr -cr /Applications/Bobix.app && open /Applications/Bobix.app
+```
+
+Windows (PowerShell):
+
+```powershell
+$f = "$env:TEMP\Bobix-windows-x64.exe"; Invoke-WebRequest https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-windows-x64.exe -OutFile $f; Start-Process $f
+```
+
+Ubuntu / Debian (x64; on ARM use `bobix-linux-arm64.deb`), then open **Bobix** from your apps menu:
+
+```bash
+curl -fL -o /tmp/bobix.deb https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-x64.deb && sudo apt install -y /tmp/bobix.deb
+```
 
 ## Screenshots
 
@@ -108,23 +133,14 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 - On Linux Wayland, Bobix runs through XWayland so pets can stay on top; bringing a terminal forward needs X11 and `xdotool`.
 - Opening a session in the Claude desktop app uses a link that app registers (`claude://code/continue`), not a documented API, so it may change.
 - "Context left" is estimated from token usage.
-
-## Build from source
-
-Requires Node.js 22+.
-
-```bash
-git clone https://github.com/baonguyen-agilityio/bobix.git && cd bobix
-npm install
-npm start            # run the app
-npm test             # unit tests
-npm run dist:mac     # or dist:win, dist:linux: installers in the dist folder
-```
-
-Pushing a tag such as `v0.1.0` runs [the release workflow](.github/workflows/release.yml), which builds on each OS and attaches the installers to a GitHub Release; a tag with a dash (`v0.2.0-rc.1`) makes a pre-release. `node scripts/record-demo.mjs` re-records the demo and screenshots in `docs/media/`.
+- Linux installers are for Ubuntu and Debian; other distributions aren't packaged yet.
 
 ## License and credits
 
 MIT, see [LICENSE](LICENSE). Fonts: Baloo 2 and Be Vietnam Pro, SIL Open Font License, bundled via Fontsource (licenses in `src/ui/fonts/`).
 
 Bobix is an independent project, not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.
+
+## Developing Bobix
+
+For contributors only: building, testing and releasing are in [docs/development.md](docs/development.md). To use Bobix, install it from the release as shown above.
