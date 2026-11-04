@@ -6,6 +6,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 - **Pets stay on top on Linux**: the pets window lost "always on top" once it had been hidden and shown again (seen on Ubuntu, Wayland through XWayland, v0.1.3: `alwaysOnTop: false` in Copy diagnostics). It is set again each time the window shows, and CI now fails if it isn't on top.
 - **One pet per project**: every session of a project, and of its git worktrees (Claude desktop makes one per session), has the same creature; before, each session got its own. A project can get its own picture (PNG, JPG, GIF or WebP up to 2 MB, from the panel's Change pet…; Default pet undoes it). Pictures stay in the app's data folder; GIFs stay animated.
+- **Pets take the mouse on Linux Wayland**: through XWayland, a pet could be hovered, clicked or dragged only while an X11 window (such as the panel) was under it. The pets overlay now has a window shape around the pets, so the X server hands them the mouse directly.
 
 Everything before that is in v0.1.3 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
 
@@ -16,8 +17,8 @@ Release checklist: bump `version` in `package.json` → tag `vX.Y.Z` → check t
 | What | Where it is tested so far | Missing |
 |---|---|---|
 | Windows: pets for real Claude Code sessions, Open session | CI smoke only | A run on real Windows with a Claude Code session (Code tab or CLI, not chat), plus **Copy diagnostics** output. The earlier "could not find that session's window" on Windows has no known cause yet. |
-| Approve from Bobix | macOS, app run from source | Windows and Ubuntu; the buttons on macOS notifications (unsigned builds may not show them) |
-| Drag a pet | macOS, CI (real mouse via xdotool) | A real Ubuntu desktop |
+| Approve from Bobix | macOS and Ubuntu (GNOME, Wayland), app run from source | Windows; the buttons on macOS notifications (unsigned builds may not show them) |
+| Drag a pet | macOS, Ubuntu (GNOME, Wayland) from source, CI (real mouse via xdotool) | The installed `.deb` on a real Ubuntu desktop |
 | Side sessions on Windows and Linux | macOS only | Where the Claude desktop app keeps `claude-code-sessions` there (assumed `%APPDATA%\\Claude` and `~/.config/Claude`) |
 | Claude desktop app on Linux (beta, Ubuntu / Debian) | Not tested | Whether a click on a pet opens its session there (the `claude://` link and the session id the hook reads), and where it keeps session metadata (needed for parent and side sessions) |
 | Choosing a pet picture | Rendering, serving and states with a picture placed by a script (macOS) | The file dialog, scaling and saving themselves; GIF; Windows and Linux |
@@ -43,6 +44,7 @@ Larger, each needs its own plan:
 
 - Builds are not code-signed: macOS and Windows warn on first launch.
 - Linux Wayland: no app may bring another app's window forward, so a click on a terminal session's pet opens it in the panel and names the terminal instead. Sessions in the Claude desktop app open directly.
+- Linux Wayland: through XWayland, Bobix sees the cursor only while it is on a pet, so fading near the cursor works only right next to a pet.
 - Opening a session in the Claude desktop app uses `claude://code/continue`, not a documented API; it may change.
 - While Bobix waits for an answer (20 s by default), the terminal's permission prompt appears only after that time.
 - Approvals need the Node.js forwarder; with the curl / PowerShell fallback Bobix only watches.
