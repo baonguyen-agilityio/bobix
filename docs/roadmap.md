@@ -1,14 +1,10 @@
 # Roadmap and open work
 
-What Bobix still lacks, what is done but not released, and what nobody has verified yet. Update this file when an item lands, ships or changes. Last updated: 2026-11-04 (v0.1.2).
+What Bobix still lacks, what is done but not released, and what nobody has verified yet. Update this file when an item lands, ships or changes. Last updated: 2026-11-04 (v0.1.3).
 
 ## 1. Done on `main`, not released yet
 
-- **Version shown in the app**: next to the name in the panel, and at the top of the tray menu.
-- **System messages aren't quests**: what Claude Code injects as a prompt (a background task ended, a reminder) shows as a short "System:" log line and no longer replaces the quest or brings back a hidden pet.
-- **Session box**: spacing under the buttons, log times on one line (24-hour).
-
-Everything before that is in v0.1.2 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.2).
+Nothing right now: v0.1.3 (2026-11-04) holds everything so far, see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
 
 Release checklist: bump `version` in `package.json` → tag `vX.Y.Z` → check the 5 fixed-name files are attached → add release notes.
 
@@ -21,7 +17,7 @@ Release checklist: bump `version` in `package.json` → tag `vX.Y.Z` → check t
 | Drag a pet | macOS, CI (real mouse via xdotool) | A real Ubuntu desktop |
 | Side sessions on Windows and Linux | macOS only | Where the Claude desktop app keeps `claude-code-sessions` there (assumed `%APPDATA%\\Claude` and `~/.config/Claude`) |
 | Claude desktop app on Linux (beta, Ubuntu / Debian) | Not tested | Whether a click on a pet opens its session there (the `claude://` link and the session id the hook reads), and where it keeps session metadata (needed for parent and side sessions) |
-| New version notice | Unit tests and the real GitHub API from a script | Seeing the notification and tray item in a packaged app (first possible when a release newer than v0.1.2 is out) |
+| New version notice | Unit tests and the real GitHub API from a script | Seeing the notification and tray item in a packaged app (possible now: v0.1.2 installed, v0.1.3 out) |
 
 ## 3. Planned features
 
