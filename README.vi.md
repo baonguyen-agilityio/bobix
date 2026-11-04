@@ -55,7 +55,7 @@ Tải file cho máy của bạn ở **[bản phát hành mới nhất](https://g
 | Mac chip Intel | `Bobix-<version>.dmg` |
 | Windows 10 / 11 (64-bit) | `Bobix.Setup.<version>.exe` |
 | Ubuntu / Debian | `bobix_<version>_amd64.deb` (ARM: `_arm64.deb`) |
-| Linux khác | `Bobix-<version>.AppImage` (ARM: `-arm64.AppImage`) |
+| Linux khác | chạy từ mã nguồn, xem [Build từ mã nguồn](#build-từ-mã-nguồn) |
 
 Sau đó:
 

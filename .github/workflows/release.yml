@@ -32,7 +32,6 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.exe
-            dist/*.AppImage
             dist/*.deb
           if-no-files-found: error
 

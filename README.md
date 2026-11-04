@@ -55,7 +55,7 @@ Download the file for your computer from the **[latest release](https://github.c
 | Mac with Intel chip | `Bobix-<version>.dmg` |
 | Windows 10 / 11 (64-bit) | `Bobix.Setup.<version>.exe` |
 | Ubuntu / Debian | `bobix_<version>_amd64.deb` (ARM: `_arm64.deb`) |
-| Other Linux | `Bobix-<version>.AppImage` (ARM: `-arm64.AppImage`) |
+| Other Linux | run from source, see [Build from source](#build-from-source) |
 
 Then:
 

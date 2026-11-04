@@ -8,9 +8,8 @@ const linuxFile = () => path.join(os.homedir(), '.config', 'autostart', 'bobix.d
 const macDevFile = () => path.join(os.homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
 const xml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-// What to run at login: the packaged executable (or AppImage), else electron + the app folder.
+// What to run at login: the packaged executable, else electron + the app folder.
 function command(app) {
-  if (process.env.APPIMAGE) return [process.env.APPIMAGE];
   return app.isPackaged ? [process.execPath] : [process.execPath, app.getAppPath()];
 }
 
