@@ -6,6 +6,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 - **Pets stay on top on Linux**: the pets window lost "always on top" once it had been hidden and shown again (seen on Ubuntu, Wayland through XWayland, v0.1.3: `alwaysOnTop: false` in Copy diagnostics). It is set again each time the window shows, and CI now fails if it isn't on top.
 - **One pet per project**: every session of a project, and of its git worktrees (Claude desktop makes one per session), has the same creature; before, each session got its own. A project can get its own picture (PNG, JPG, GIF or WebP up to 2 MB, from the panel's Change pet…; Default pet undoes it). Pictures stay in the app's data folder; GIFs stay animated.
+- **Panel layout fixes**: a session row's title, level, folder and labels wrap instead of overlapping the status column or shrinking to nothing; rows collapse by the list's width, not the window's (the title shrank to 0 px at 981–1,100 px with details open); the panel shows once its labels and first sessions are in, so the top bar no longer jumps on open, and when it wraps the connection status stays on the right; sessions that arrive before the settings no longer throw (the board was drawn in part until the settings came); a hovered pet's card sits above other pets' bubbles.
 
 Everything before that is in v0.1.3 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
 

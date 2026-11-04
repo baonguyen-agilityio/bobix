@@ -10,6 +10,7 @@
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 [hidden]{display:none!important}
+.boot{visibility:hidden}
 body{margin:0;background:var(--bg);color:var(--ink);font:400 var(--t-md)/1.55 var(--f-body);font-variant-numeric:tabular-nums}
 button,input,select{font:inherit;color:inherit}
 h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.15;margin:0;text-wrap:balance}
@@ -22,8 +23,7 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.15;margin:0;
 .counts{display:flex;gap:var(--s2);flex-wrap:wrap;color:var(--ink-2);font-size:var(--t-sm)}
 .counts b{font-weight:600;color:var(--ink)}
 .counts .hot b{color:var(--coral-ink)}
-.sp{flex:1}
-.conn{font-size:var(--t-sm);color:var(--ink-3)}
+.conn{font-size:var(--t-sm);color:var(--ink-3);margin-left:auto}
 .conn.lost{color:var(--coral-ink);font-weight:600}
 .btn{position:relative;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);padding:var(--s2) var(--s4);font-size:var(--t-sm);font-weight:600;cursor:pointer;box-shadow:var(--press);transition:transform 120ms var(--ease),box-shadow 120ms var(--ease)}
 .btn:hover{transform:translateY(-1px);box-shadow:0 5px 0 var(--line-strong)}
@@ -35,6 +35,7 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.15;margin:0;
 .app{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s6);padding:var(--s6);max-width:1440px;margin:0 auto}
 .app.has-pane{grid-template-columns:minmax(0,1fr) var(--pane)}
 .group+.group{margin-top:var(--s8)}
+#board{container-type:inline-size}
 .group-h{display:flex;align-items:baseline;gap:var(--s2);margin-bottom:var(--s3)}
 .group-h h2{font-size:var(--t-lg)}
 .group-h .n{font-size:var(--t-sm);color:var(--ink-3)}
@@ -54,9 +55,10 @@ details.group[open]>summary .group-h::after{content:var(--close)}
 .st-waiting .sprite{background:var(--surface)}
 .sprite img{width:100%;height:100%;object-fit:contain;border-radius:inherit}
 .main{min-width:0;display:flex;flex-direction:column}
-.title{display:flex;gap:var(--s2);align-items:baseline;min-width:0}
-.title strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.title{display:flex;flex-wrap:wrap;column-gap:var(--s2);align-items:baseline;min-width:0}
+.title strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .lv,.folder{font-size:var(--t-xs);color:var(--ink-3);flex:none}
+.title .folder{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ver{font-size:var(--t-xs);color:var(--ink-3);margin-left:calc(-1 * var(--s2));align-self:flex-end;padding-bottom:2px}
 .folder.off{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
 .quest{font-size:var(--t-sm);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -188,21 +190,23 @@ input[type=number]{width:104px}
   .bar{padding:var(--s3) var(--s4)}
   .counts{order:3;width:100%}
   .app{padding:var(--s4)}
+  .empty{grid-template-columns:1fr}
+  .opt{grid-template-columns:1fr}
+  .ctl{justify-content:flex-start}
+  .kv{grid-template-columns:1fr}
+}
+@container (max-width:700px){
   .row{grid-template-columns:48px minmax(0,1fr) auto;gap:var(--s1) var(--s3)}
   .row .status{grid-column:2/4;grid-row:2}
   .row .ctx{grid-column:2/4;grid-row:3;flex-direction:row;align-items:center;gap:var(--s2)}
   .row .ctx .meter{flex:1}
   .row .sprite{grid-row:1/3;align-self:start}
   .ago{grid-column:3;grid-row:1}
-  .empty{grid-template-columns:1fr}
-  .opt{grid-template-columns:1fr}
-  .ctl{justify-content:flex-start}
-  .kv{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
-<body>
+<body class="boot">
 <header class="bar">
   <h1 data-t="app.name"></h1>
   <span class="ver" id="ver" hidden></span>
@@ -213,7 +217,6 @@ input[type=number]{width:104px}
   </nav>
   <div class="counts" id="counts"></div>
   <button class="btn" type="button" id="showAll" data-t="board.showAll" hidden></button>
-  <span class="sp"></span>
   <span class="conn lost" id="conn" role="status"></span>
 </header>
 
@@ -258,7 +261,7 @@ const secsLeft = s => (s.answer ? Math.max(0, Math.ceil((s.answer.until - Date.n
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 // Same rule as the pets overlay: hidden by hand, or asleep past the "leave after" time.
 const offScreen = s => {
-  const mins = state.settings?.sleepHide || 0;
+  const mins = state?.settings?.sleepHide || 0;
   if (s.pet === 'hidden') return true;
   return s.pet !== 'shown' && look(s) === 'idle' && mins > 0 && Date.now() - (s.state === 'done' ? s.since + IDLE_AFTER : s.since) > mins * 60e3;
 };
@@ -608,6 +611,10 @@ function applyLang() {
   if (!$('#tab-setup').hidden) renderSetup();
 }
 $('#egg').innerHTML = creature('bobix', 'idle');
+// Shown once its language and the first sessions are in, so the bar doesn't jump as they arrive; at the latest after 1 s.
+const pending = new Set(['state', 'list']);
+const arrived = k => pending.delete(k) && !pending.size && document.body.classList.remove('boot');
+setTimeout(() => document.body.classList.remove('boot'), 1000);
 const es = new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || ''));
 es.onopen = () => { $('#conn').textContent = T('conn.ok'); $('#conn').className = 'conn'; };
 es.onerror = () => { $('#conn').textContent = T('conn.lost'); $('#conn').className = 'conn lost'; };
@@ -618,6 +625,7 @@ es.onmessage = m => {
   if (selected && !list.some(s => s.id === selected)) selected = null;
   render();
   if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();
+  arrived('list');
 };
 setInterval(render, 15e3);
 setInterval(() => list.some(s => s.answer) && renderPane(), 1000); // countdown of a waiting permission request
@@ -639,6 +647,7 @@ $('#conn').textContent = T('conn.wait');
   applyLang();
   showTab(new URLSearchParams(location.search).get('tab') || 'sessions');
   try { const f = new URLSearchParams(location.search).get('fail'); if (f) openFail(JSON.parse(f)); } catch {} // a pet click opened this window
+  arrived('state');
 })();
 </script>
 </body>
