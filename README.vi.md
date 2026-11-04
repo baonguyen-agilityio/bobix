@@ -132,7 +132,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 ## Tình trạng và giới hạn
 
-- Phiên bản 0.1. Đã thử trên macOS (chip Apple) và Ubuntu (Wayland) với app Claude desktop và CLI; Windows được build và chạy smoke test trên CI.
+- Phiên bản 0.1. Đã thử trên macOS (chip Apple) với app Claude desktop và CLI, và trên Ubuntu (Wayland) với CLI. Windows mới chạy smoke test trên CI; app Claude desktop cho Linux (bản beta) chưa được thử.
 - Trên Linux Wayland, Bobix chạy qua XWayland để chú thú luôn nằm trên cùng; đưa terminal lên trước cần X11 và `xdotool`.
 - Mở session trong app Claude desktop dùng một đường link do app đó đăng ký (`claude://code/continue`), không phải API có tài liệu, nên có thể thay đổi.
 - "Context còn lại" là ước tính từ lượng token đã dùng.

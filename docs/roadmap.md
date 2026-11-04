@@ -21,6 +21,7 @@ Release checklist: bump `version` in `package.json` → tag `v0.1.2` → check t
 | Windows: pets for real Claude Code sessions, Open session | CI smoke only | A run on real Windows with a Claude Code session (Code tab or CLI, not chat), plus **Copy diagnostics** output. The earlier "could not find that session's window" on Windows has no known cause yet. |
 | Approve from Bobix | macOS, app run from source | Windows and Ubuntu; the buttons on macOS notifications (unsigned builds may not show them) |
 | Drag a pet | macOS, CI (real mouse via xdotool) | A real Ubuntu desktop |
+| Claude desktop app on Linux (beta, Ubuntu / Debian) | Not tested | Whether a click on a pet opens its session there (the `claude://` link and the session id the hook reads), and where it keeps session metadata (needed for parent and side sessions) |
 | New version notice | Unit tests and the real GitHub API from a script | Seeing the notification and tray item in a packaged app (needs a release newer than the installed one) |
 
 ## 3. Planned features

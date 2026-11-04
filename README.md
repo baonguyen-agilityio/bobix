@@ -132,7 +132,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 ## Status and limitations
 
-- Version 0.1. Tested on macOS (Apple chip) and Ubuntu (Wayland) with the Claude desktop app and the CLI; Windows is built and smoke-tested on CI.
+- Version 0.1. Tested on macOS (Apple chip) with the Claude desktop app and the CLI, and on Ubuntu (Wayland) with the CLI. Windows is smoke-tested on CI only, and the Claude desktop app on Linux (beta) isn't tested yet.
 - On Linux Wayland, Bobix runs through XWayland so pets can stay on top; bringing a terminal forward needs X11 and `xdotool`.
 - Opening a session in the Claude desktop app uses a link that app registers (`claude://code/continue`), not a documented API, so it may change.
 - "Context left" is estimated from token usage.

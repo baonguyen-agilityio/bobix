@@ -2,7 +2,7 @@
 
 This guide is for anyone you share Bobix with. It takes about two minutes.
 
-**You need:** Claude Code (CLI, the Claude desktop app, or an IDE extension) on a recent macOS, Windows 10/11, or a desktop Linux with X11.
+**You need:** Claude Code (CLI, the Claude desktop app, or an IDE extension) on a recent macOS, Windows 10/11, or Ubuntu / Debian (X11 or Wayland).
 Node.js is recommended but not required (see [Without Node.js](#without-nodejs)).
 
 ## 1. Get the installer
