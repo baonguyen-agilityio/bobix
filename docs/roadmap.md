@@ -4,7 +4,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `main`, not released yet (next: v0.1.2)
 
-- **Side sessions**: a session started from another one in the Claude desktop app (Code tab) is linked to it: its pet is a smaller copy of the parent's creature, stays next to it, joined by a dashed line (coral while it needs you), its tag starts with ↳, its card says where it came from, the parent shows how many side sessions it has and how many need you, and the panel indents it under the parent when both are in the same status group, and lists them both ways. Read from the desktop app's own session file (`spawnedFrom.sessionId` only); verified on macOS.
+- **Side sessions**: a session started from another one in the Claude desktop app (Code tab) is linked to it: its pet is a smaller copy of the parent's creature, runs over and stands next to it (and follows it), its tag starts with ↳, its card says where it came from, the parent has a count badge (coral when one needs you) and its card gives the numbers, and the panel indents it under the parent when both are in the same status group, and lists them both ways. Read from the desktop app's own session file (`spawnedFrom.sessionId` only); verified on macOS.
 - **New version notice**: a daily check of GitHub's latest release, a notification once per version, a tray item to download it, and a Settings switch. Users on v0.1.1 or older won't see it until they install a version that has it.
 - **Permission hook fixes**:
   - the hook never waits longer than Bobix's own wait time, and gives up after 3 s if Bobix is frozen (it could wait up to 5 minutes before);
