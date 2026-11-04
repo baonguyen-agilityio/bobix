@@ -52,6 +52,7 @@ details.group[open]>summary .group-h::after{content:var(--close)}
 .row.st-waiting{background:var(--coral-soft);border-color:var(--coral)}
 .sprite{display:grid;place-items:center;width:48px;height:48px;border-radius:var(--r-md);background:var(--n-100)}
 .st-waiting .sprite{background:var(--surface)}
+.sprite img{width:100%;height:100%;object-fit:contain;border-radius:inherit}
 .main{min-width:0;display:flex;flex-direction:column}
 .title{display:flex;gap:var(--s2);align-items:baseline;min-width:0}
 .title strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -72,7 +73,7 @@ details.group[open]>summary .group-h::after{content:var(--close)}
 .ago{font-size:var(--t-sm);color:var(--ink-3);text-align:right;white-space:nowrap}
 .eye{transform-box:fill-box;transform-origin:center}
 .st-working .eye{animation:blink 4.2s infinite}
-.st-waiting .sprite svg{animation:hop 900ms var(--ease) infinite}
+.st-waiting .sprite svg,.st-waiting .sprite img{animation:hop 900ms var(--ease) infinite}
 @keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.15)}}
 @keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}
 
@@ -244,6 +245,8 @@ const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Side sessions started from a Claude desktop session (parent = that session's id in Bobix).
 const kidsOf = s => list.filter(x => x.parent === s.id);
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+const petArt = (s, st) => (s.image ? `<img src="/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(TOKEN)}" alt="">` : creature(s.project || s.id, st));
 // Within one group: each parent followed by its side sessions.
 function familyOrder(items) {
   const ids = new Set(items.map(s => s.id)), out = [];
@@ -305,7 +308,7 @@ function logText(l) {
 }
 function rowHTML(s, st) {
   const hp = s.ctx;
-  return `<span class="sprite">${creature(s.parent && titleOf(s.parent) ? s.parent : s.id, st)}</span>
+  return `<span class="sprite">${petArt(s.parent && list.find(x => x.id === s.parent) || s, st)}</span>
     <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${s.parent ? `<span class="folder">${esc(T('pet.from', { name: titleOf(s.parent) }))}</span>` : ''}${kidsOf(s).length ? `<span class="folder off">${esc(T('pet.kids', { n: kidsOf(s).length }))}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
       <span class="quest">${esc(line2(s, st))}</span></span>
     <span class="status"><span class="pill">${esc(statusText(s, st))}</span></span>
@@ -327,7 +330,7 @@ function render() {
     items.forEach((s, i) => {
       let li = [...ol.children].find(c => c.dataset.id === s.id) || [...document.querySelectorAll('li[data-id]')].find(c => c.dataset.id === s.id);
       if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
-      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, lang]);
+      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.image, s.project, lang]);
       if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
       li.classList.toggle('side', !!(s.parent && items.some(x => x.id === s.parent)));
       btn.setAttribute('aria-pressed', String(s.id === selected));
@@ -352,18 +355,19 @@ function renderPane() {
   if (!s) return;
   const st = look(s);
   const kids = kidsOf(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
   pane.innerHTML = `
     <div class="pane-top st-${st}">
-      <span class="sprite">${creature(s.id, st)}</span>
+      <span class="sprite">${petArt(s, st)}</span>
       <div><h2>${esc(s.title || s.name)}</h2><span class="lv">${T('pet.lv', { n: s.lv })} · ${esc(statusText(s, st))}</span></div>
     </div>
     <div class="pane-acts">
       ${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>
-        <button class="btn" type="button" data-act="pet">${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</button>` : ''}
+        <button class="btn" type="button" data-act="pet">${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</button>
+        <button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}` : ''}
       <button class="btn" type="button" data-act="close">${T('pane.close')}</button>
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
@@ -388,6 +392,7 @@ $('#pane').addEventListener('click', async e => {
   const act = e.target.dataset.act;
   if (act === 'close') select(null);
   if (act === 'goto') select(e.target.dataset.id);
+  if (act === 'pic' || act === 'picReset') { const r = await bridge.petImage(selected, act === 'pic' ? 'choose' : 'reset'); if (r?.reason) toast(T('pane.petFail.' + r.reason)); }
   if (act === 'answer') { const s = list.find(x => x.id === selected); if (s?.answer) bridge.answer(s.answer.id, e.target.dataset.choice); }
   if (act === 'pet') { const s = list.find(x => x.id === selected); if (s) bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden'); }
   if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); }

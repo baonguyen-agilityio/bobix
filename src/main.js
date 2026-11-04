@@ -1,5 +1,5 @@
 // Bobix — Electron main process: local server for hooks, pets overlay, control panel, tray, notifications.
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer, clipboard, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -13,6 +13,7 @@ const { focusPids, ancestors, processNames, hostApp } = require('./core/focus');
 const { startServer } = require('./core/server');
 const { checkLatest } = require('./core/update');
 const { parentOf } = require('./core/links');
+const { projectOf } = require('./core/project');
 const { bitmap } = require('./core/icon');
 const I18N = require('./ui/i18n');
 
@@ -45,7 +46,11 @@ const tr = (k, v) => I18N.t(lang(), k, v);
 // parent: the session (in Bobix) a Claude desktop side session was started from, when both are known.
 const snapshot = () => {
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession).map(s => [s.hostSession, s.id]));
-  return { sessions: [...sessions.values()].map(s => ({ ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null })) };
+  const pics = settings?.petImages || {};
+  return { sessions: [...sessions.values()].map(s => {
+    const project = projectOf(s.cwd);
+    return { ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null, project, image: pics[project] || null };
+  }) };
 };
 const fromUs = e => (e.senderFrame?.url || '').startsWith(origin() + '/'); // IPC only from our own pages
 const pageUrl = (p, q = {}) => `${origin()}${p}?${new URLSearchParams({ ...q, t: token })}`; // pages need the token to read /events
@@ -77,6 +82,44 @@ function findParent(s, now = Date.now()) {
   s.linkAt = now; s.linkTries = (s.linkTries || 0) + 1;
   s.parentHost = parentOf(s.hostSession);
   return !!s.parentHost;
+}
+
+// ---------- a project's own pet picture ----------
+// Chosen in the panel from a file dialog run here (pages never get file access). Stored in the app's data folder:
+// pictures are scaled to 128 px PNG; a GIF is kept as it is so it stays animated.
+const petDir = () => path.join(app.getPath('userData'), 'pets');
+async function choosePetImage(id) {
+  const s = sessions.get(id), project = s && projectOf(s.cwd);
+  if (!project) return { ok: false };
+  const win = panel && !panel.isDestroyed() ? panel : undefined;
+  const r = await dialog.showOpenDialog(win, { title: tr('pane.petPick'), properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
+  if (r.canceled || !r.filePaths[0]) return { ok: false };
+  const src = r.filePaths[0];
+  if (fs.statSync(src).size > 2 * 1024 * 1024) return { ok: false, reason: 'big' };
+  const img = nativeImage.createFromPath(src);
+  if (img.isEmpty()) return { ok: false, reason: 'bad' };
+  const gif = /\.gif$/i.test(src);
+  const data = gif ? fs.readFileSync(src) : (Math.max(img.getSize().width, img.getSize().height) > 128 ? img.resize(img.getSize().width >= img.getSize().height ? { width: 128, quality: 'best' } : { height: 128, quality: 'best' }) : img).toPNG();
+  const file = require('crypto').createHash('sha256').update(data).digest('hex').slice(0, 24) + (gif ? '.gif' : '.png');
+  fs.mkdirSync(petDir(), { recursive: true });
+  fs.writeFileSync(path.join(petDir(), file), data);
+  const old = settings.petImages[project];
+  updateSettings({ petImages: { ...settings.petImages, [project]: file } });
+  dropUnusedPicture(old);
+  server.broadcast(snapshot());
+  return { ok: true };
+}
+function resetPetImage(id) {
+  const s = sessions.get(id), project = s && projectOf(s.cwd);
+  if (!project || !settings.petImages[project]) return { ok: false };
+  const { [project]: old, ...rest } = settings.petImages;
+  updateSettings({ petImages: rest });
+  dropUnusedPicture(old);
+  server.broadcast(snapshot());
+  return { ok: true };
+}
+function dropUnusedPicture(file) {
+  if (file && !Object.values(settings.petImages).includes(file)) fs.rmSync(path.join(petDir(), file), { force: true });
 }
 
 // ---------- answering permission requests ----------
@@ -373,6 +416,7 @@ function ipc() {
   handle('open-session', id => openSession(id, true, false));
   ipcMain.on('pet-click', (e, id) => fromUs(e) && openSession(id));
   handle('answer', (id, choice) => answer(id, choice));
+  handle('pet:image', (id, act) => (typeof id !== 'string' ? null : act === 'reset' ? resetPetImage(id) : choosePetImage(id)));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) server.broadcast(snapshot()); });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); showOverlay(); } });
 }
@@ -491,7 +535,7 @@ app.whenReady().then(async () => {
   settings = S.load(settingsFile());
   try { settings.autostart = autostart.get(app); if (settings.autostart) autostart.set(app, true); } catch {} // start at login: point at this copy, not one from an old path
   token = hooks.ensureToken();
-  server = startServer({ port: settings.port, token, onEvent, snapshot });
+  server = startServer({ port: settings.port, token, onEvent, snapshot, petDir: petDir() });
   try { await server.ready; } catch (err) {
     const { dialog } = require('electron');
     dialog.showErrorBox('Bobix', `Port ${settings.port} is busy (${err.code}). Is Bobix already running?\nChange "port" in ${settingsFile()}`);

@@ -5,6 +5,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 ## 1. Done on `main`, not released yet
 
 - **Pets stay on top on Linux**: the pets window lost "always on top" once it had been hidden and shown again (seen on Ubuntu, Wayland through XWayland, v0.1.3: `alwaysOnTop: false` in Copy diagnostics). It is set again each time the window shows, and CI now fails if it isn't on top.
+- **One pet per project**: every session of a project, and of its git worktrees (Claude desktop makes one per session), has the same creature; before, each session got its own. A project can get its own picture (PNG, JPG, GIF or WebP up to 2 MB, from the panel's Change pet…; Default pet undoes it). Pictures stay in the app's data folder; GIFs stay animated.
 
 Everything before that is in v0.1.3 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
 
@@ -19,6 +20,7 @@ Release checklist: bump `version` in `package.json` → tag `vX.Y.Z` → check t
 | Drag a pet | macOS, CI (real mouse via xdotool) | A real Ubuntu desktop |
 | Side sessions on Windows and Linux | macOS only | Where the Claude desktop app keeps `claude-code-sessions` there (assumed `%APPDATA%\\Claude` and `~/.config/Claude`) |
 | Claude desktop app on Linux (beta, Ubuntu / Debian) | Not tested | Whether a click on a pet opens its session there (the `claude://` link and the session id the hook reads), and where it keeps session metadata (needed for parent and side sessions) |
+| Choosing a pet picture | Rendering, serving and states with a picture placed by a script (macOS) | The file dialog, scaling and saving themselves; GIF; Windows and Linux |
 | New version notice | Unit tests and the real GitHub API from a script | Seeing the notification and tray item in a packaged app (possible now: v0.1.2 installed, v0.1.3 out) |
 
 ## 3. Planned features

@@ -13,7 +13,7 @@ const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascrip
 const ASSETS = new Set(['theme.css', 'creature.js', 'i18n.js']);
 const FONT = /^fonts\/[a-z0-9-]+\.(woff2|css)$/;
 
-function startServer({ port, token, onEvent, snapshot }) {
+function startServer({ port, token, onEvent, snapshot, petDir }) {
   const clients = new Set();
   const okHost = h => /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(h || '');
   const okToken = t => typeof t === 'string' && t.length === token.length && crypto.timingSafeEqual(Buffer.from(t), Buffer.from(token));
@@ -53,6 +53,15 @@ function startServer({ port, token, onEvent, snapshot }) {
       clients.add(res);
       req.on('close', () => clients.delete(res));
       return;
+    }
+    // Pictures chosen for a project's pet: token required (they are the user's own files).
+    const pic = /^\/pet-image\/([a-f0-9]{24}\.(png|gif))$/.exec(url);
+    if (pic) {
+      if (!petDir || !okToken(new URL(req.url, 'http://x').searchParams.get('t'))) return res.writeHead(403).end();
+      const f = path.join(petDir, pic[1]);
+      if (!fs.existsSync(f)) return res.writeHead(404).end();
+      res.writeHead(200, { 'Content-Type': `image/${pic[2]}`, 'Cache-Control': 'no-store' });
+      return fs.createReadStream(f).pipe(res);
     }
     const rel = url.startsWith('/ui/') ? url.slice(4) : '';
     const file = PAGES[url] || (ASSETS.has(rel) || FONT.test(rel) ? rel : null);

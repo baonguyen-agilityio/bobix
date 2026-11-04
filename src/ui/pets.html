@@ -13,7 +13,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .pet.dragging{cursor:grabbing}
 .edge-top .pet{bottom:auto;top:var(--s1)}
 .spr{width:var(--size);height:var(--size);display:grid;place-items:center}
-.spr svg{width:100%;height:100%;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))}
+.spr svg,.spr img{width:100%;height:100%;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))}
+.spr img{object-fit:contain;image-rendering:auto}
 .tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;padding:0 var(--s2);border-radius:var(--pill);background:var(--surface);border:1px solid var(--line-strong);font-size:var(--t-xs);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .st-waiting .tag{background:var(--coral);border-color:var(--coral);color:var(--n-900)}
 .pet.side .spr{transform:scale(.8);transform-origin:50% 100%}
@@ -51,8 +52,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .zz{position:absolute;left:70%;top:-6px;font:700 var(--t-sm) var(--f-display);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
 .eye{transform-box:fill-box;transform-origin:center}
 .st-working .eye{animation:blink 4.2s infinite}
-.walking .spr svg{animation:step 320ms steps(2) infinite}
-.st-waiting .spr svg{animation:hop 900ms var(--ease) infinite}
+.walking .spr svg,.walking .spr img{animation:step 320ms steps(2) infinite}
+.st-waiting .spr svg,.st-waiting .spr img{animation:hop 900ms var(--ease) infinite}
 @keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.15)}}
 @keyframes step{to{transform:translateY(-3px)}}
 @keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
@@ -120,9 +121,12 @@ function kidsText(s) {
   const w = k.filter(x => look(x) === 'waiting').length;
   return [w > 0, w ? T('pet.kidsWaiting', { n: k.length, w }) : T('pet.kids', { n: k.length })];
 }
+// A project's chosen picture, else the pixel creature of that project: every session of a project looks the same.
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+const petArt = (s, st) => (s.image ? `<img src="/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(TOKEN)}" alt="">` : creature(s.project || s.id, st));
 function paint(p, now) {
   const s = p.s, st = look(s), say = p.hover ? null : sayText(p, st, now);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.dragging, p.edge, left(s, now), s.parent && byId(s.parent)?.title, kidsText(s), cfg.label, cfg.clickAction, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.dragging, p.edge, left(s, now), s.image, s.project, s.parent && byId(s.parent)?.title, kidsText(s), cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
@@ -141,7 +145,7 @@ function paint(p, now) {
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${say ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now, false) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
-    <div class="spr">${creature(parent ? parent.id : s.id, st)}</div>
+    <div class="spr">${petArt(parent || s, st)}</div>
     <div class="tag">${parent ? '↳ ' : ''}${esc(labelOf(s))}</div>
     ${kids ? `<div class="kids${kids[0] ? ' hot' : ''}">${kidsOf(s).length}</div>` : ''}`;
 }

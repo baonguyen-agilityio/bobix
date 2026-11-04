@@ -324,6 +324,41 @@ test('a Claude desktop side session knows the session it was started from', () =
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('every session of a project, git worktrees included, belongs to the same project', () => {
+  const { projectOf } = require('../src/core/project');
+  const G = '.' + 'git';
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-proj-')));
+  const repo = path.join(root, 'app'), wt = path.join(root, 'wt', 'feature-x');
+  fs.mkdirSync(path.join(repo, G, 'worktrees', 'feature-x'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'src', 'deep'), { recursive: true });
+  fs.writeFileSync(path.join(repo, G, 'worktrees', 'feature-x', 'commondir'), '../..\n');
+  fs.mkdirSync(path.join(wt, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(wt, G), `gitdir: ${path.join(repo, G, 'worktrees', 'feature-x')}\n`);
+  assert.equal(projectOf(repo), repo);
+  assert.equal(projectOf(path.join(repo, 'src', 'deep')), repo, 'a subfolder is the same project');
+  assert.equal(projectOf(path.join(wt, 'src')), repo, 'a worktree is its main repository');
+  const plain = path.join(root, 'notes');
+  fs.mkdirSync(plain);
+  assert.equal(projectOf(plain), plain, 'outside a repository: the folder itself');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('pet pictures: only valid file names are kept, and they are served with the token only', async () => {
+  assert.deepEqual(sanitize({ petImages: { '/a': '0123456789abcdef01234567.png', '/b': '../../etc/passwd', '/c': 'x.png' } }).petImages, { '/a': '0123456789abcdef01234567.png' });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-pets-'));
+  fs.writeFileSync(path.join(dir, '0123456789abcdef01234567.png'), 'png!');
+  const token = 'b'.repeat(48);
+  const srv = startServer({ port: 0, token, onEvent: () => null, snapshot: () => ({}), petDir: dir });
+  await srv.ready;
+  const port = srv.server.address().port;
+  const get = p => new Promise(res => http.get({ host: '127.0.0.1', port, path: p }, x => { let b = ''; x.on('data', c => { b += c; }); x.on('end', () => res([x.statusCode, b])); }));
+  assert.deepEqual(await get('/pet-image/0123456789abcdef01234567.png?t=' + token), [200, 'png!']);
+  assert.equal((await get('/pet-image/0123456789abcdef01234567.png'))[0], 403, 'no token');
+  assert.equal((await get('/pet-image/..%2F..%2Fsecret.png?t=' + token))[0], 404, 'no paths');
+  await srv.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('macOS focus picks the outermost app that owns the window', () => {
   const { outerBundle } = require('../src/core/focus');
   // Claude desktop: the CLI is itself bundled as an .app inside Claude.app's support folder

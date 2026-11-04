@@ -24,9 +24,11 @@ const DEFAULTS = {
   paused: false,           // do-not-disturb: no notifications
   petsVisible: true,
   autostart: false,
-  checkUpdates: true,      // once a day, ask GitHub whether a newer release exists (nothing about you is sent)
+  checkUpdates: true,
+  petImages: {},           // project folder -> picture file in the app's data folder (see main.js choosePetImage)      // once a day, ask GitHub whether a newer release exists (nothing about you is sent)
 };
 
+const PET_FILE = /^[a-f0-9]{24}\.(png|gif)$/;
 const ENUMS = { language: ['auto', 'en', 'vi'], edge: ['bottom', 'top'], label: ['title', 'folder', 'both'], clickAction: ['focus', 'panel'] };
 const RANGES = { port: [1024, 65535], zoneStart: [0, 95], zoneEnd: [5, 100], size: [32, 128], opacity: [0.2, 1], sleepHide: [0, 1440], approveWait: [0, 300] };
 
@@ -41,6 +43,10 @@ function sanitize(input, base = DEFAULTS) {
     else if (RANGES[k]) { const n = Number(v); if (Number.isFinite(n)) out[k] = Math.min(RANGES[k][1], Math.max(RANGES[k][0], k === 'opacity' ? n : Math.round(n))); }
     else if (typeof def === 'boolean') { if (typeof v === 'boolean') out[k] = v; }
     else if (k === 'display') { if (typeof v === 'string' && v.length < 40) out[k] = v; }
+    else if (k === 'petImages') {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+      out.petImages = Object.fromEntries(Object.entries(v).filter(([p, f]) => p.length < 1024 && PET_FILE.test(f)).slice(0, 200));
+    }
   }
   if (out.zoneEnd - out.zoneStart < 5) out.zoneEnd = Math.min(100, out.zoneStart + 5);
   return out;
@@ -57,4 +63,4 @@ function save(file, settings) {
   fs.renameSync(tmp, file);
 }
 
-module.exports = { DEFAULTS, sanitize, load, save };
+module.exports = { DEFAULTS, sanitize, load, save, PET_FILE };
