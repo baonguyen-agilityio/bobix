@@ -17,6 +17,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;padding:0 var(--s2);border-radius:var(--pill);background:var(--surface);border:1px solid var(--line-strong);font-size:var(--t-xs);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .st-waiting .tag{background:var(--coral);border-color:var(--coral);color:var(--n-900)}
 .pet.side .spr{transform:scale(.8);transform-origin:50% 100%}
+#links{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+#links path{fill:none;stroke:var(--ink-3);stroke-width:2;stroke-dasharray:4 4;stroke-linecap:round;opacity:.7}
+#links path.hot{stroke:var(--coral);opacity:1}
 .kids{position:relative;left:50%;transform:translateX(-50%);width:max-content;margin-top:2px;padding:0 var(--s2);border-radius:var(--pill);font-size:var(--t-xs);font-weight:600;background:var(--n-100);color:var(--ink-2);border:1px solid var(--line)}
 .kids.hot{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink)}
 .st-idle .spr{opacity:.75}
@@ -60,6 +63,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 </style>
 </head>
 <body>
+<svg id="links" aria-hidden="true"></svg>
 <script src="/ui/i18n.js"></script>
 <script src="/ui/creature.js"></script>
 <script>
@@ -138,8 +142,8 @@ function paint(p, now) {
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${say ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now, false) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
-    <div class="spr">${creature(s.id, st)}</div>
-    <div class="tag">${esc(labelOf(s))}</div>
+    <div class="spr">${creature(parent ? parent.id : s.id, st)}</div>
+    <div class="tag">${parent ? '↳ ' : ''}${esc(labelOf(s))}</div>
     ${kids ? `<div class="kids${kids[0] ? ' hot' : ''}">${esc(kids[1])}</div>` : ''}`;
 }
 
@@ -208,6 +212,24 @@ function freeSpot(p, all) {
   return null;
 }
 
+// A dashed curve from each parent pet to its side sessions (coral while the side session needs you).
+let lastLinks = '';
+function drawLinks(all) {
+  const ns = 'http://www.w3.org/2000/svg', paths = [];
+  for (const c of all) {
+    const par = c.s.parent && pets.get(c.s.parent);
+    if (!par) continue;
+    const a = par.el.querySelector('.spr').getBoundingClientRect(), b = c.el.querySelector('.spr').getBoundingClientRect();
+    const x1 = a.left + a.width / 2, y1 = a.top + a.height * 0.55, x2 = b.left + b.width / 2, y2 = b.top + b.height * 0.6;
+    const lift = Math.min(40, Math.abs(x2 - x1) * 0.35) + 10;
+    paths.push([`M${x1.toFixed(1)},${y1.toFixed(1)} Q${((x1 + x2) / 2).toFixed(1)},${(Math.min(y1, y2) - lift).toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`, look(c.s) === 'waiting']);
+  }
+  const key = JSON.stringify(paths);
+  if (key === lastLinks) return;
+  lastLinks = key;
+  const svg = document.getElementById('links');
+  svg.replaceChildren(...paths.map(([d, hot]) => { const e = document.createElementNS(ns, 'path'); e.setAttribute('d', d); if (hot) e.setAttribute('class', 'hot'); return e; }));
+}
 // Bubbles that touch are lifted one lane: they never overlap, even when pets cross.
 function stackBubbles(all) {
   const items = all.map(p => ({ p, b: p.el.querySelector('.say') })).filter(o => o.b)
@@ -262,6 +284,11 @@ function frame(t) {
         if (Math.abs(d) <= step) { p.x = p.goal; p.goal = null; } else { p.x += Math.sign(d) * step; p.stepping = true; }
       }
     }
+    const home = !p.dragging && p.s.parent && pets.get(p.s.parent);
+    if (home) {
+      const reach = spacing() * 1.6;
+      if (Math.abs(p.x - home.x) > reach) { p.x += Math.sign(home.x - p.x) * Math.min(Math.abs(p.x - home.x) - reach, speed * 3 * dt); p.stepping = true; }
+    }
     p.edge = p.x < 140 ? 'edge-l' : p.x > innerWidth - 200 ? 'edge-r' : '';
     p.el.style.transform = `translateX(${p.x}px)`;
     // Fade when the cursor is near (but not on) the pet, so it never hides what you are pointing at.
@@ -270,6 +297,7 @@ function frame(t) {
     paint(p, now);
   }
   stackBubbles(all);
+  drawLinks(all);
   if (bridge && t - rectAt > 100) {
     rectAt = t;
     const rects = [];

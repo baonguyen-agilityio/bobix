@@ -44,6 +44,8 @@ details.group>summary::-webkit-details-marker{display:none}
 details.group>summary .group-h::after{content:var(--open);font-size:var(--t-xs);color:var(--ink-3);margin-left:var(--s2)}
 details.group[open]>summary .group-h::after{content:var(--close)}
 .rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--s2)}
+.rows li.side{margin-left:var(--s6, 32px);position:relative}
+.rows li.side::before{content:'';position:absolute;left:calc(-1 * var(--s4));top:-6px;bottom:50%;width:12px;border-left:2px solid var(--line-strong);border-bottom:2px solid var(--line-strong);border-bottom-left-radius:8px}
 .row{width:100%;display:grid;grid-template-columns:48px minmax(0,1.7fr) minmax(0,1fr) 96px 80px;align-items:center;gap:var(--s4);padding:var(--s2) var(--s4) var(--s2) var(--s2);min-height:64px;text-align:left;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);transition:transform 150ms var(--ease),border-color 150ms var(--ease),box-shadow 150ms var(--ease)}
 .row:hover{transform:translateY(-1px);border-color:var(--line-strong);box-shadow:var(--lift)}
 .row[aria-pressed="true"]{border-color:var(--ink);box-shadow:var(--lift)}
@@ -240,6 +242,12 @@ const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Side sessions started from a Claude desktop session (parent = that session's id in Bobix).
 const kidsOf = s => list.filter(x => x.parent === s.id);
+// Within one group: each parent followed by its side sessions.
+function familyOrder(items) {
+  const ids = new Set(items.map(s => s.id)), out = [];
+  for (const s of items) if (!(s.parent && ids.has(s.parent))) { out.push(s); out.push(...items.filter(k => k.parent === s.id)); }
+  return out;
+}
 const titleOf = id => { const p = id && list.find(x => x.id === id); return p ? p.title || p.name : ''; };
 const secsLeft = s => (s.answer ? Math.max(0, Math.ceil((s.answer.until - Date.now()) / 1000)) : 0);
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
@@ -295,7 +303,7 @@ function logText(l) {
 }
 function rowHTML(s, st) {
   const hp = s.ctx;
-  return `<span class="sprite">${creature(s.id, st)}</span>
+  return `<span class="sprite">${creature(s.parent && titleOf(s.parent) ? s.parent : s.id, st)}</span>
     <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${s.parent ? `<span class="folder">${esc(T('pet.from', { name: titleOf(s.parent) }))}</span>` : ''}${kidsOf(s).length ? `<span class="folder off">${esc(T('pet.kids', { n: kidsOf(s).length }))}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
       <span class="quest">${esc(line2(s, st))}</span></span>
     <span class="status"><span class="pill">${esc(statusText(s, st))}</span></span>
@@ -310,7 +318,7 @@ function render() {
   const by = { waiting: [], working: [], done: [], idle: [] };
   for (const s of list) by[look(s)].push(s);
   for (const st in by) {
-    const g = document.querySelector(`.group[data-st="${st}"]`), ol = g.querySelector('.rows'), items = by[st].sort(ORDER_IN[st]);
+    const g = document.querySelector(`.group[data-st="${st}"]`), ol = g.querySelector('.rows'), items = familyOrder(by[st].sort(ORDER_IN[st]));
     g.hidden = !items.length;
     g.querySelector('.n').textContent = items.length;
     const keep = new Set();
@@ -319,6 +327,7 @@ function render() {
       if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
       const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, lang]);
       if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
+      li.classList.toggle('side', !!(s.parent && items.some(x => x.id === s.parent)));
       btn.setAttribute('aria-pressed', String(s.id === selected));
       if (ol.children[i] !== li) ol.insertBefore(li, ol.children[i] || null);
       keep.add(li);
