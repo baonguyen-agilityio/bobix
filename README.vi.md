@@ -35,7 +35,7 @@ Chạy vài session Claude Code cùng lúc thì bạn sẽ phải bấm qua từ
 
 ## Tính năng
 
-- **Mỗi session một chú thú**, tạo từ id của session, tên lấy theo tiêu đề session.
+- **Mỗi project một chú thú**: mọi session của cùng một project (kể cả git worktree) có chung một con, tên lấy theo tiêu đề session. Có thể đặt ảnh riêng cho từng project trong bảng điều khiển (Đổi pet…).
 - **Bấm để mở** session: vào thẳng session trong app Claude desktop, hoặc đưa cửa sổ Terminal, iTerm, VS Code lên trước.
 - **Session phụ** (app Claude desktop): session tách ra từ một session khác đứng cạnh session gốc, và bảng điều khiển cho biết nó tách từ đâu, còn bao nhiêu session phụ đang chạy hay cần bạn.
 - **Duyệt ngay trên Bobix**: khi Claude xin quyền, bấm Cho phép, Luôn cho phép hoặc Từ chối trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Không ai trả lời trong thời gian bạn đặt (mặc định 20 giây) thì terminal hỏi như bình thường.

@@ -19,7 +19,8 @@ The hook script drops file contents and tool output before sending anything. All
 | `~/.claude/settings.json` | Bobix's hook entries (only when you click Install hooks; removed by Remove hooks) |
 | `~/.claude/settings.json.bak-bobix-*` | a copy of that file before each change, same permissions, newest 3 kept. It contains whatever your settings file contains. |
 | `~/.claude/bobix/hook.js`, `token`, `header` | the forwarder and a random per-user token (mode 0600) |
-| The app's settings folder → `settings.json` | your Bobix preferences |
+| The app's settings folder → `settings.json` | your Bobix preferences, including which picture each project uses |
+| The app's settings folder → `pets/` | pictures you chose for projects, scaled to 128 px (GIFs copied as they are); removed when no project uses them |
 | Start at login (only if you turn it on) | a login item (macOS / Windows), a LaunchAgent (macOS, from source) or `~/.config/autostart/bobix.desktop` (Linux) |
 
 ## What it sends, and to whom
