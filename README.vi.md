@@ -37,6 +37,7 @@ Chạy vài session Claude Code cùng lúc thì bạn sẽ phải bấm qua từ
 
 - **Mỗi session một chú thú**, tạo từ id của session, tên lấy theo tiêu đề session.
 - **Bấm để mở** session: vào thẳng session trong app Claude desktop, hoặc đưa cửa sổ Terminal, iTerm, VS Code lên trước.
+- **Session phụ** (app Claude desktop): session tách ra từ một session khác đứng cạnh session gốc, và bảng điều khiển cho biết nó tách từ đâu, còn bao nhiêu session phụ đang chạy hay cần bạn.
 - **Duyệt ngay trên Bobix**: khi Claude xin quyền, bấm Cho phép, Luôn cho phép hoặc Từ chối trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Không ai trả lời trong thời gian bạn đặt (mặc định 20 giây) thì terminal hỏi như bình thường.
 - **Bảng điều khiển** liệt kê mọi session theo mức cần bạn chú ý, kèm câu trả lời cuối và nhật ký các tool đã dùng.
 - **Thông báo** khi session cần duyệt hoặc đã xong, có âm thanh nếu muốn.

@@ -37,6 +37,7 @@ Run a few Claude Code sessions at once and you spend your day clicking through t
 
 - **One pet per session**, generated from the session id and named after the session's title.
 - **Click to open** the session: straight to it in the Claude desktop app, or brings its Terminal, iTerm or VS Code window forward.
+- **Side sessions** (Claude desktop app): a session started from another one stands next to it, and the panel shows which session it came from and how many side sessions are still busy or need you.
 - **Approve from Bobix**: when Claude asks for permission, answer Allow, Always allow or Deny on the pet, in the panel or on the notification (macOS). Unanswered within the time you set (20 s by default), the terminal asks as usual.
 - **Control panel** with every session grouped by what needs you, its last answer and a log of the tools it used.
 - **Notifications** when a session needs approval or finishes, with optional sound.

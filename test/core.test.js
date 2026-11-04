@@ -289,6 +289,23 @@ test('new version check: only a newer, non-pre-release version is offered', asyn
   assert.equal(await checkLatest({ repo, current: '0.1.1', fetchImpl: async () => ({ ok: false }) }), null);
 });
 
+test('a Claude desktop side session knows the session it was started from', () => {
+  const { parentOf } = require('../src/core/links');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-ccd-'));
+  const dir = path.join(root, 'org-1', 'user-1');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'local_child-1.json'), JSON.stringify({ sessionId: 'local_child-1', title: 'secret', spawnedFrom: { sessionId: 'local_parent-1', sideSession: true } }));
+  fs.writeFileSync(path.join(dir, 'local_parent-1.json'), JSON.stringify({ sessionId: 'local_parent-1' }));
+  fs.writeFileSync(path.join(dir, 'local_weird.json'), JSON.stringify({ spawnedFrom: { sessionId: '../../etc/passwd' } }));
+  assert.equal(parentOf('local_child-1', root), 'local_parent-1');
+  assert.equal(parentOf('local_parent-1', root), null, 'a root session has no parent');
+  assert.equal(parentOf('local_weird', root), null, 'only a real session id counts');
+  assert.equal(parentOf('local_missing', root), null);
+  assert.equal(parentOf('../org-1/user-1/local_child-1', root), null, 'ids are never paths');
+  assert.equal(parentOf('local_child-1', path.join(root, 'nope')), null, 'no Claude desktop: no parent');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('macOS focus picks the outermost app that owns the window', () => {
   const { outerBundle } = require('../src/core/focus');
   // Claude desktop: the CLI is itself bundled as an .app inside Claude.app's support folder

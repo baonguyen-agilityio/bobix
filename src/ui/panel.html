@@ -238,6 +238,9 @@ input[type=number]{width:104px}
 const IDLE_AFTER = 10 * 60e3;
 const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Side sessions started from a Claude desktop session (parent = that session's id in Bobix).
+const kidsOf = s => list.filter(x => x.parent === s.id);
+const titleOf = id => { const p = id && list.find(x => x.id === id); return p ? p.title || p.name : ''; };
 const secsLeft = s => (s.answer ? Math.max(0, Math.ceil((s.answer.until - Date.now()) / 1000)) : 0);
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 // Same rule as the pets overlay: hidden by hand, or asleep past the "leave after" time.
@@ -293,7 +296,7 @@ function logText(l) {
 function rowHTML(s, st) {
   const hp = s.ctx;
   return `<span class="sprite">${creature(s.id, st)}</span>
-    <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
+    <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${s.parent ? `<span class="folder">${esc(T('pet.from', { name: titleOf(s.parent) }))}</span>` : ''}${kidsOf(s).length ? `<span class="folder off">${esc(T('pet.kids', { n: kidsOf(s).length }))}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
       <span class="quest">${esc(line2(s, st))}</span></span>
     <span class="status"><span class="pill">${esc(statusText(s, st))}</span></span>
     <span class="ctx" title="${T('ctx')}"><span class="meter ${hp == null ? 'unk' : hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></span><span>${hp == null ? T('ctx.unknown') : `${T('ctx')} ${hp}%`}</span></span>
@@ -314,7 +317,7 @@ function render() {
     items.forEach((s, i) => {
       let li = [...ol.children].find(c => c.dataset.id === s.id) || [...document.querySelectorAll('li[data-id]')].find(c => c.dataset.id === s.id);
       if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
-      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), lang]);
+      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, lang]);
       if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
       btn.setAttribute('aria-pressed', String(s.id === selected));
       if (ol.children[i] !== li) ol.insertBefore(li, ol.children[i] || null);
@@ -337,7 +340,8 @@ function renderPane() {
   pane.hidden = !s;
   if (!s) return;
   const st = look(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), lang]);
+  const kids = kidsOf(s);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -352,6 +356,8 @@ function renderPane() {
       <button class="btn" type="button" data-act="close">${T('pane.close')}</button>
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
+    ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
+    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log">${kids.map(k => `<li><span>${esc(statusText(k, look(k)))}</span><button class="btn" type="button" data-act="goto" data-id="${esc(k.id)}">${esc(k.title || k.name)}</button></li>`).join('')}</ol>` : ''}
     ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${T('pane.askWithin', { n: secsLeft(s) })}
       <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
         <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
@@ -370,6 +376,7 @@ function openFail(r) {
 $('#pane').addEventListener('click', async e => {
   const act = e.target.dataset.act;
   if (act === 'close') select(null);
+  if (act === 'goto') select(e.target.dataset.id);
   if (act === 'answer') { const s = list.find(x => x.id === selected); if (s?.answer) bridge.answer(s.answer.id, e.target.dataset.choice); }
   if (act === 'pet') { const s = list.find(x => x.id === selected); if (s) bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden'); }
   if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); }

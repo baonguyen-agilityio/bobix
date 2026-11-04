@@ -12,6 +12,7 @@ const autostart = require('./core/autostart');
 const { focusPids, ancestors, processNames, hostApp } = require('./core/focus');
 const { startServer } = require('./core/server');
 const { checkLatest } = require('./core/update');
+const { parentOf } = require('./core/links');
 const { bitmap } = require('./core/icon');
 const I18N = require('./ui/i18n');
 
@@ -41,7 +42,11 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 const origin = () => `http://127.0.0.1:${settings.port}`;
 const lang = () => (settings.language === 'auto' ? app.getLocale() : settings.language);
 const tr = (k, v) => I18N.t(lang(), k, v);
-const snapshot = () => ({ sessions: [...sessions.values()].map(publicView) });
+// parent: the session (in Bobix) a Claude desktop side session was started from, when both are known.
+const snapshot = () => {
+  const byHost = new Map([...sessions.values()].filter(s => s.hostSession).map(s => [s.hostSession, s.id]));
+  return { sessions: [...sessions.values()].map(s => ({ ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null })) };
+};
 const fromUs = e => (e.senderFrame?.url || '').startsWith(origin() + '/'); // IPC only from our own pages
 const pageUrl = (p, q = {}) => `${origin()}${p}?${new URLSearchParams({ ...q, t: token })}`; // pages need the token to read /events
 
@@ -51,6 +56,8 @@ function onEvent(e, signal) {
   lastEventAt = Date.now();
   const r = apply(sessions, e);
   if (!r) return null;
+  // Side session of another Claude desktop session? The app may write its file a moment after the first event: try a few times.
+  if (r.s?.hostSession && !r.s.parentHost && (r.s.linkTries || 0) < 3) { r.s.linkTries = (r.s.linkTries || 0) + 1; r.s.parentHost = parentOf(r.s.hostSession); }
   const answered = signal && r.s && e.hook_event_name === 'PermissionRequest' ? waitForAnswer(r.s, e, signal) : null;
   const isStop = e.hook_event_name === 'Stop', since = r.s?.since;
   const finish = () => {

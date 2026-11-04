@@ -4,6 +4,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `main`, not released yet (next: v0.1.2)
 
+- **Side sessions**: a session started from another one in the Claude desktop app (Code tab) is linked to it: its pet is smaller and stands next to the parent's, its card says where it came from, the parent shows how many side sessions it has and how many need you, and the panel lists them both ways. Read from the desktop app's own session file (`spawnedFrom.sessionId` only); verified on macOS.
 - **New version notice**: a daily check of GitHub's latest release, a notification once per version, a tray item to download it, and a Settings switch. Users on v0.1.1 or older won't see it until they install a version that has it.
 - **Permission hook fixes**:
   - the hook never waits longer than Bobix's own wait time, and gives up after 3 s if Bobix is frozen (it could wait up to 5 minutes before);
@@ -21,6 +22,7 @@ Release checklist: bump `version` in `package.json` → tag `v0.1.2` → check t
 | Windows: pets for real Claude Code sessions, Open session | CI smoke only | A run on real Windows with a Claude Code session (Code tab or CLI, not chat), plus **Copy diagnostics** output. The earlier "could not find that session's window" on Windows has no known cause yet. |
 | Approve from Bobix | macOS, app run from source | Windows and Ubuntu; the buttons on macOS notifications (unsigned builds may not show them) |
 | Drag a pet | macOS, CI (real mouse via xdotool) | A real Ubuntu desktop |
+| Side sessions on Windows and Linux | macOS only | Where the Claude desktop app keeps `claude-code-sessions` there (assumed `%APPDATA%\\Claude` and `~/.config/Claude`) |
 | Claude desktop app on Linux (beta, Ubuntu / Debian) | Not tested | Whether a click on a pet opens its session there (the `claude://` link and the session id the hook reads), and where it keeps session metadata (needed for parent and side sessions) |
 | New version notice | Unit tests and the real GitHub API from a script | Seeing the notification and tray item in a packaged app (needs a release newer than the installed one) |
 

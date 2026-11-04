@@ -7,6 +7,7 @@ Bobix runs entirely on your computer. It has no account and no analytics. Its on
 | Source | What | Why |
 |--------|------|-----|
 | Claude Code hook events | session id, project folder, your prompt, tool name and its path / command / pattern, permission requests, the claude process id, and in the Claude desktop app its session id | to show what each session is doing and open it on click |
+| The Claude desktop app's session file for a session it runs (`…/Claude/claude-code-sessions/…/<id>.json`) | only `spawnedFrom.sessionId`, the session it was started from | to show side sessions next to their parent |
 | The session transcript (`~/.claude/projects/…jsonl`) | the last ~512 KB (and the first 256 KB, for the title): the final answer, token usage, the session title | the "report" line, the context meter, the pet's name |
 
 The hook script drops file contents and tool output before sending anything. All of this is kept **in memory only** and forgotten when a session ends or the app quits.

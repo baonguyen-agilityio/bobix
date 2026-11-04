@@ -16,6 +16,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .spr svg{width:100%;height:100%;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))}
 .tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;padding:0 var(--s2);border-radius:var(--pill);background:var(--surface);border:1px solid var(--line-strong);font-size:var(--t-xs);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .st-waiting .tag{background:var(--coral);border-color:var(--coral);color:var(--n-900)}
+.pet.side .spr{transform:scale(.8);transform-origin:50% 100%}
+.kids{position:relative;left:50%;transform:translateX(-50%);width:max-content;margin-top:2px;padding:0 var(--s2);border-radius:var(--pill);font-size:var(--t-xs);font-weight:600;background:var(--n-100);color:var(--ink-2);border:1px solid var(--line)}
+.kids.hot{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink)}
 .st-idle .spr{opacity:.75}
 .say,.card{position:absolute;bottom:calc(100% + var(--s2) + var(--lane, 0) * 36px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--lift)}
 .edge-top .say,.edge-top .card{bottom:auto;top:calc(100% + var(--s2) + var(--lane, 0) * 36px)}
@@ -106,17 +109,27 @@ function answerButtons(s, now, withAlways) {
     + `<button type="button" data-answer="allow">${T('ask.allow')}</button><button type="button" data-answer="deny">${T('ask.deny')}</button>`
     + `<span class="left">${T('ask.left', { n })}</span></span>`;
 }
+// Side sessions: a side session's pet is smaller and names the session it came from; the parent counts its side sessions.
+const byId = id => (lastList || []).find(x => x.id === id);
+const kidsOf = s => (lastList || []).filter(x => x.parent === s.id);
+function kidsText(s) {
+  const k = kidsOf(s);
+  if (!k.length) return null;
+  const w = k.filter(x => look(x) === 'waiting').length;
+  return [w > 0, w ? T('pet.kidsWaiting', { n: k.length, w }) : T('pet.kids', { n: k.length })];
+}
 function paint(p, now) {
   const s = p.s, st = look(s), say = p.hover ? null : sayText(p, st, now);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.dragging, p.edge, left(s, now), cfg.label, cfg.clickAction, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.dragging, p.edge, left(s, now), s.parent && byId(s.parent)?.title, kidsText(s), cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
-  p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''} ${p.edge}`;
+  p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${s.parent ? ' side' : ''} ${p.edge}`;
+  const kids = kidsText(s), parent = s.parent && byId(s.parent);
   p.el.innerHTML = `
     ${p.hover ? `<div class="card">
         <h2>${esc(s.title || s.name)}</h2>
-        <p class="sub">${esc(s.cwd)}</p>
+        <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
         <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
         ${st === 'waiting' ? answerButtons(s, now, true) : ''}
         <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
@@ -126,7 +139,8 @@ function paint(p, now) {
     ${say ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now, false) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${creature(s.id, st)}</div>
-    <div class="tag">${esc(labelOf(s))}</div>`;
+    <div class="tag">${esc(labelOf(s))}</div>
+    ${kids ? `<div class="kids${kids[0] ? ' hot' : ''}">${esc(kids[1])}</div>` : ''}`;
 }
 
 function sync(list) {
@@ -138,8 +152,9 @@ function sync(list) {
     if (!p) {
       const el = document.createElement('div');
       document.body.appendChild(el);
-      const { min, max } = zone();
-      p = { el, x: min + (hashStr(s.id) % 1000) / 1000 * (max - min), dir: hashStr(s.id) & 1 ? 1 : -1, walking: true, next: 0, actAt: 0, edge: '' };
+      const { min, max } = zone(), near = s.parent && pets.get(s.parent); // a side session starts next to its parent
+      const x = near ? Math.min(max, Math.max(min, near.x + spacing() * 0.7)) : min + (hashStr(s.id) % 1000) / 1000 * (max - min);
+      p = { el, x, dir: hashStr(s.id) & 1 ? 1 : -1, walking: true, next: 0, actAt: 0, edge: '' };
       draggable(p, s.id);
       pets.set(s.id, p);
     }
