@@ -4,12 +4,15 @@ const path = require('path');
 
 const ID_RE = /^[\w-]{1,128}$/;
 const short = (s, n = 80) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
-const toolArg = (input = {}) => short(input.file_path || input.command || input.pattern || input.url || input.query || input.description || '', 60);
+// Like short, but keeps the lines (the final report is Markdown): only blank-line runs and trailing spaces go.
+const clip = (s, n) => { s = String(s ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+const argOf = (input = {}) => input.file_path || input.command || input.pattern || input.url || input.query || input.description || '';
+const toolArg = input => short(argOf(input), 60);
 
 function newSession(id, now) {
   return {
     id, name: '?', cwd: '', title: '', transcript: '', state: 'idle', since: now, updated: now,
-    lv: 1, quest: '', tool: '', toolArg: '', askTool: '', ask: '', summary: '', hits: 0, ctx: null, claudePid: null, hostSession: null, log: [],
+    lv: 1, quest: '', tool: '', toolArg: '', askTool: '', ask: '', summary: '', report: '', hits: 0, ctx: null, claudePid: null, hostSession: null, log: [],
     pet: 'auto', // auto (settings decide) | hidden | shown (stays out even past the sleep timer); back to auto when it needs you
   };
 }
@@ -59,7 +62,7 @@ function apply(sessions, e, now = Date.now()) {
     case 'UserPromptSubmit': {
       const sys = systemPrompt(e.prompt);
       if (sys) { s.tool = ''; s.toolArg = ''; log('system', sys); set('working'); break; } // not a new quest: keep the quest, the report and hidden pets as they are
-      s.quest = short(e.prompt, 240); s.hits = 0; s.summary = ''; s.ask = ''; s.askTool = ''; s.tool = ''; s.toolArg = '';
+      s.quest = short(e.prompt, 240); s.hits = 0; s.summary = ''; s.report = ''; s.ask = ''; s.askTool = ''; s.tool = ''; s.toolArg = '';
       log('prompt', short(e.prompt, 240));
       set('working');
       s.pet = 'auto';
@@ -68,7 +71,7 @@ function apply(sessions, e, now = Date.now()) {
     case 'PreToolUse':
       s.tool = String(e.tool_name || ''); s.toolArg = toolArg(e.tool_input); s.hits++;
       if (s.state === 'waiting') { s.ask = ''; s.askTool = ''; }
-      log('tool', s.toolArg, s.tool);
+      log('tool', short(argOf(e.tool_input), 300), s.tool); // the panel shows it whole on hover
       set('working');
       break;
     case 'PostToolUse':
@@ -152,7 +155,7 @@ function refresh(s, withSummary, now = Date.now(), forcedWindow) {
   const r = readTranscript(s.transcript);
   if (r.usage) s.ctx = ctxLeft(r.usage, forcedWindow);
   if (r.title) s.title = short(r.title, 80);
-  if (withSummary && r.text) s.summary = short(r.text, 600);
+  if (withSummary && r.text) { s.summary = short(r.text, 600); s.report = clip(r.text, 8000); }
   if (r.interrupted && (s.state === 'working' || s.state === 'waiting')) {
     s.ask = ''; s.askTool = ''; s.state = 'idle'; s.since = now;
     return true; // state changed
@@ -172,4 +175,4 @@ function setPet(sessions, id, mode) {
   return list.length > 0;
 }
 
-module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, publicView, ID_RE };
+module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, clip, publicView, ID_RE };
