@@ -59,6 +59,24 @@ test('transcript: answer, usage, newest titles', () => {
   assert.deepEqual(readTranscript('/nope/missing.jsonl'), { text: null, usage: null, title: null, interrupted: false });
 });
 
+test('messages Claude Code sends through UserPromptSubmit are not new quests', () => {
+  const m = new Map(), p = prompt => apply(m, { session_id: 'q1', hook_event_name: 'UserPromptSubmit', prompt });
+  p('Fix the login bug');
+  apply(m, { session_id: 'q1', hook_event_name: 'Stop' });
+  const s = m.get('q1');
+  s.pet = 'hidden';
+  p('<task-notification>\n<task-id>abc</task-id>\n<tool-use-id>x</tool-use-id>\n<summary>Background command "Run tests" completed</summary>\n</task-notification>');
+  assert.equal(s.quest, 'Fix the login bug', 'the quest stays');
+  assert.equal(s.pet, 'hidden', 'a hidden pet stays hidden');
+  assert.equal(s.state, 'working');
+  assert.deepEqual([s.log.at(-1).kind, s.log.at(-1).text], ['system', 'Background command "Run tests" completed']);
+  p('<system-reminder>\nsomething long\n</system-reminder>');
+  assert.deepEqual([s.log.at(-1).kind, s.log.at(-1).text], ['system', 'system reminder']);
+  p('<div>why is this HTML broken?</div>');
+  assert.equal(s.quest, '<div>why is this HTML broken?</div>', 'a prompt that starts with other tags is still the user\'s');
+  assert.equal(s.pet, 'auto');
+});
+
 test('an interrupted turn (Esc / denied permission) puts the pet to rest', () => {
   const f = path.join(os.tmpdir(), `bobix-int-${process.pid}.jsonl`);
   fs.writeFileSync(f, [

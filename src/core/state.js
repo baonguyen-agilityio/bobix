@@ -14,6 +14,17 @@ function newSession(id, now) {
   };
 }
 
+// Claude Code also sends its own messages through UserPromptSubmit (a background task ended, a reminder…).
+// They are not something the user asked: returns a short line for the log, or null for a real prompt.
+// Only these exact tags: a prompt that merely starts with some HTML is still the user's.
+const SYSTEM_PROMPT = /^\s*<(task-notification|system-reminder|side-sessions-event|ci-monitor-event|cross-session-message|local-command-caveat|local-command-stdout|command-name|command-message|bash-input|bash-stdout)[\s>]/;
+function systemPrompt(prompt) {
+  const text = String(prompt ?? ''), m = SYSTEM_PROMPT.exec(text);
+  if (!m) return null;
+  const inner = /<(?:summary|command-name)>([\s\S]*?)<\//.exec(text);
+  return short(inner ? inner[1] : m[1].replace(/-/g, ' '), 120);
+}
+
 // Returns { s, notice } | { removed } | null. notice = { kind: 'waiting' | 'done', id } for things the user should hear about.
 function apply(sessions, e, now = Date.now()) {
   const id = e && e.session_id;
@@ -45,12 +56,15 @@ function apply(sessions, e, now = Date.now()) {
     case 'SessionStart':
       log('start', e.source || 'startup');
       break;
-    case 'UserPromptSubmit':
+    case 'UserPromptSubmit': {
+      const sys = systemPrompt(e.prompt);
+      if (sys) { s.tool = ''; s.toolArg = ''; log('system', sys); set('working'); break; } // not a new quest: keep the quest, the report and hidden pets as they are
       s.quest = short(e.prompt, 240); s.hits = 0; s.summary = ''; s.ask = ''; s.askTool = ''; s.tool = ''; s.toolArg = '';
-      log('prompt', short(e.prompt, 120));
+      log('prompt', short(e.prompt, 240));
       set('working');
       s.pet = 'auto';
       break;
+    }
     case 'PreToolUse':
       s.tool = String(e.tool_name || ''); s.toolArg = toolArg(e.tool_input); s.hits++;
       if (s.state === 'waiting') { s.ask = ''; s.askTool = ''; }

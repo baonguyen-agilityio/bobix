@@ -5,6 +5,8 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 ## 1. Done on `main`, not released yet
 
 - **Version shown in the app**: next to the name in the panel, and at the top of the tray menu.
+- **System messages aren't quests**: what Claude Code injects as a prompt (a background task ended, a reminder) shows as a short "System:" log line and no longer replaces the quest or brings back a hidden pet.
+- **Session box**: spacing under the buttons, log times on one line (24-hour).
 
 Everything before that is in v0.1.2 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.2).
 

@@ -88,7 +88,7 @@ code{font:500 var(--t-sm)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;backgr
 .pane-top h2{font-size:var(--t-2xl);overflow-wrap:anywhere}
 .pane-top .lv{font-size:var(--t-sm)}
 .pane-acts{display:flex;gap:var(--s2);margin-top:var(--s4);flex-wrap:wrap}
-.meta{margin:var(--s4) 0 0;font-size:var(--t-xs);color:var(--ink-3);overflow-wrap:anywhere}
+.pane .meta{margin:var(--s4) 0 0;font-size:var(--t-xs);line-height:1.6;color:var(--ink-3);overflow-wrap:anywhere}
 .pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
 .pane p{margin:0}
 .ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-md);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
@@ -97,7 +97,7 @@ code{font:500 var(--t-sm)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;backgr
 .report{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--t-sm);background:var(--mint-soft);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
 .log{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
 .log li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
-.log time{color:var(--ink-3)}
+.log time{color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
 .log span{overflow-wrap:anywhere;color:var(--ink-2)}
 .note{font-size:var(--t-sm);color:var(--ink-2)}
 .note.err{color:var(--coral-ink);font-weight:600}
@@ -355,7 +355,7 @@ function renderPane() {
   const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
-  const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
   pane.innerHTML = `
     <div class="pane-top st-${st}">
       <span class="sprite">${creature(s.id, st)}</span>
