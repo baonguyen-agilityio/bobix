@@ -10,7 +10,7 @@ const path = require('path');
 const UI = path.join(__dirname, '..', 'ui');
 const PAGES = { '/': 'panel.html', '/pets': 'pets.html' };
 const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.woff2': 'font/woff2' };
-const ASSETS = new Set(['theme.css', 'creature.js', 'i18n.js']);
+const ASSETS = new Set(['theme.css', 'creature.js', 'i18n.js', 'markdown.js', 'log.js']);
 const FONT = /^fonts\/[a-z0-9-]+\.(woff2|css)$/;
 
 function startServer({ port, token, onEvent, snapshot, petDir }) {

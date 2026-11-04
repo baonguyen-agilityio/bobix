@@ -44,10 +44,10 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.15;margin:0;
 .group-h h2{font-size:var(--t-lg)}
 .group-h .n{font-size:var(--t-sm);color:var(--ink-3)}
 .group[data-st="waiting"] .group-h h2{color:var(--coral-ink)}
-details.group>summary{list-style:none;cursor:pointer;border-radius:var(--r-md)}
-details.group>summary::-webkit-details-marker{display:none}
-details.group>summary .group-h::after{content:var(--open);font-size:var(--t-xs);color:var(--ink-3);margin-left:var(--s2)}
-details.group[open]>summary .group-h::after{content:var(--close)}
+details.group>summary,.fold>summary{list-style:none;cursor:pointer;border-radius:var(--r-md)}
+details.group>summary::-webkit-details-marker,.fold>summary::-webkit-details-marker{display:none}
+details.group>summary .group-h::after,.fold>summary h3::after{content:var(--open);font-size:var(--t-xs);font-weight:400;color:var(--ink-3);margin-left:var(--s2)}
+details.group[open]>summary .group-h::after,.fold[open]>summary h3::after{content:var(--close)}
 .rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--s2)}
 .rows li.side{margin-left:var(--s6, 32px);position:relative}
 .rows li.side::before{content:'';position:absolute;left:calc(-1 * var(--s4));top:-6px;bottom:50%;width:12px;border-left:2px solid var(--line-strong);border-bottom:2px solid var(--line-strong);border-bottom-left-radius:8px}
@@ -66,7 +66,7 @@ details.group[open]>summary .group-h::after{content:var(--close)}
 .ver{font-size:var(--t-xs);color:var(--ink-3);margin-left:calc(-1 * var(--s2));align-self:flex-end;padding-bottom:2px}
 .folder.off{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
 .quest{font-size:var(--t-sm);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.status{min-width:0}
+.status{min-width:0;display:flex}
 .pill{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px var(--s3);border-radius:var(--pill);font-size:var(--t-sm);font-weight:500;background:var(--n-100);color:var(--ink-2)}
 .st-working .pill{background:var(--sky-soft);color:var(--ink)}
 .st-waiting .pill{background:var(--coral);color:var(--n-900);font-weight:600}
@@ -76,7 +76,7 @@ details.group[open]>summary .group-h::after{content:var(--close)}
 .meter i{display:block;height:100%;background:var(--ink-2);transform-origin:left;transform:scaleX(var(--v));transition:transform 250ms var(--ease)}
 .meter.low i{background:var(--coral)}
 .meter.unk i{background:var(--n-300)}
-.ago{font-size:var(--t-sm);color:var(--ink-3);text-align:right;white-space:nowrap}
+.ago{font-size:var(--t-xs);color:var(--ink-3);text-align:right;white-space:nowrap}
 .eye{transform-box:fill-box;transform-origin:center}
 .st-working .eye{animation:blink 4.2s infinite}
 .st-waiting .sprite svg,.st-waiting .sprite img{animation:hop 900ms var(--ease) infinite}
@@ -84,28 +84,52 @@ details.group[open]>summary .group-h::after{content:var(--close)}
 @keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}
 
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s6)}
+.card h2{font-size:var(--t-lg);margin-bottom:var(--s2)}
 .empty{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s6);align-items:center;max-width:640px;margin:var(--s12) 0}
 .empty h2{font-size:var(--t-xl);margin-bottom:var(--s2)}
-.empty p{margin:0 0 var(--s3);color:var(--ink-2);max-width:52ch}
-code{font:500 var(--t-sm)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--n-100);border:1px solid var(--line);border-radius:8px;padding:2px var(--s2);overflow-wrap:anywhere}
+.empty p{margin:0 0 var(--s3);font-size:var(--t-sm);color:var(--ink-2);max-width:52ch}
+code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px solid var(--line);border-radius:8px;padding:2px var(--s2);overflow-wrap:anywhere}
 
-.pane{position:sticky;top:88px;align-self:start;max-height:calc(100dvh - 112px);overflow:auto}
+.pane{position:sticky;top:88px;align-self:start;max-height:calc(100dvh - 112px);overflow:hidden auto;overflow-wrap:anywhere}
 .pane-top{display:flex;gap:var(--s4);align-items:center}
 .pane-top .sprite{width:96px;height:96px;border-radius:var(--r-lg);flex:none}
-.pane-top h2{font-size:var(--t-2xl);overflow-wrap:anywhere}
+.pane-top h2{font-size:var(--t-xl);overflow-wrap:anywhere}
 .pane-top .lv{font-size:var(--t-sm)}
 .pane-acts{display:flex;gap:var(--s2);margin-top:var(--s4);flex-wrap:wrap}
 .pane .meta{margin:var(--s4) 0 0;font-size:var(--t-xs);line-height:1.6;color:var(--ink-3);overflow-wrap:anywhere}
 .pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
-.pane p{margin:0}
+.pane p{margin:0;font-size:var(--t-sm)}
 .ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-md);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
 .ask .acts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2)}
 .ask strong{color:var(--coral-ink)}
-.report{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--t-sm);background:var(--mint-soft);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
+.report{overflow-wrap:anywhere;font-size:var(--t-sm);background:var(--mint-soft);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
+.report p,.report ul,.report ol,.report pre,.report table{margin:0 0 var(--s2)}
+.report>:last-child{margin-bottom:0}
+.report h4{font-size:var(--t-sm);font-weight:700;margin:var(--s3) 0 var(--s1)}
+.report>h4:first-child{margin-top:0}
+.report ul,.report ol{padding-left:var(--s6)}
+.report li+li{margin-top:var(--s1)}
+.report code{padding:0 var(--s1)}
+.report pre{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s2) var(--s3)}
+.report pre code{background:none;border:0;padding:0;overflow-wrap:normal}
+.report table{display:block;overflow-x:auto;border-collapse:collapse}
+.report th,.report td{border:1px solid var(--line-strong);padding:var(--s1) var(--s2);text-align:left;vertical-align:top;overflow-wrap:break-word}
+.report hr{border:0;border-top:1px solid var(--line-strong);margin:var(--s3) 0}
 .log{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
-.log li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
-.log time{color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.log li{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:baseline;gap:var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
+.log time{font-size:var(--t-xs);color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
 .log span{overflow-wrap:anywhere;color:var(--ink-2)}
+.log li>span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:var(--s2);background:var(--n-300)}
+.log .k-prompt>span{color:var(--ink);font-weight:600}
+.log .k-prompt>span::before{background:var(--ink)}
+.log .k-ask>span{color:var(--coral-ink)}
+.log .k-ask>span::before{background:var(--coral)}
+.log .k-done>span{color:var(--ink)}
+.log .k-done>span::before{background:var(--mint)}
+.log .k-start>span::before{background:var(--sky)}
+.log.sides li>span::before{content:none}
+.log .arg{font-family:var(--f-mono)}
+.log .n{font-size:var(--t-xs);font-weight:600;color:var(--ink-3);margin-left:var(--s1)}
 .note{font-size:var(--t-sm);color:var(--ink-2)}
 .note.err{color:var(--coral-ink);font-weight:600}
 
@@ -136,7 +160,7 @@ code{font:500 var(--t-sm)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;backgr
 .opt.dim .lbl,.opt.dim .desc{opacity:.45}
 .ctl{display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .opt.wide .ctl{justify-content:flex-start}
-select,input[type=number]{min-height:40px;padding:0 var(--s3);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);font-size:var(--t-md)}
+select,input[type=number]{min-height:40px;padding:0 var(--s3);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);font-size:var(--t-sm)}
 input[type=number]{width:104px}
 .sw{appearance:none;-webkit-appearance:none;margin:0;width:44px;height:26px;border-radius:var(--pill);background:var(--n-300);position:relative;cursor:pointer;flex:none;transition:background 150ms var(--ease)}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--n-50);box-shadow:0 1px 2px oklch(30% 0.04 262 / .3);transition:transform 150ms var(--ease)}
@@ -169,7 +193,6 @@ input[type=number]{width:104px}
 .hero .note{margin:0 0 var(--s3)}
 .state{display:inline-flex;align-items:center;gap:var(--s2);padding:4px var(--s3);border-radius:var(--pill);font-weight:600;font-size:var(--t-sm)}
 .state.ok{background:var(--mint-soft)}.state.bad{background:var(--coral-soft);color:var(--coral-ink)}
-.card h2{font-size:var(--t-lg);margin-bottom:var(--s2)}
 .steps{list-style:none;margin:0;padding:0}
 .steps li{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:var(--s4);align-items:center;padding:var(--s4) 0;border-top:1px solid var(--line)}
 .steps .num{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:var(--t-sm);background:var(--n-200)}
@@ -246,6 +269,8 @@ input[type=number]{width:104px}
 
 <script src="/ui/i18n.js"></script>
 <script src="/ui/creature.js"></script>
+<script src="/ui/markdown.js"></script>
+<script src="/ui/log.js"></script>
 <script>
 const IDLE_AFTER = 10 * 60e3;
 const $ = s => document.querySelector(s);
@@ -309,9 +334,10 @@ function statusText(s, st) {
   return T(`status.${st}`);
 }
 const line2 = (s, st) => st === 'done' && s.summary ? T('line.report') + s.summary : s.quest || T('line.noQuest');
-function logText(l) {
-  if (l.kind === 'tool') return T('log.tool', { tool: I18N.toolLabel(lang, l.tool), x: l.text });
-  return T(`log.${l.kind}`, { x: l.text });
+function logHTML(l) {
+  if (l.kind !== 'tool') return esc(T(`log.${l.kind}`, { x: l.text }));
+  const tool = esc(LOG.cap(I18N.toolLabel(lang, l.tool), I18N.pick(lang))), n = l.n > 1 ? `<span class="n">×${l.n}</span>` : '';
+  return (l.text ? T('log.tool', { tool, x: `<span class="arg" title="${esc(l.text)}">${esc(LOG.mid(l.text)).replace(/\//g, '/<wbr>')}</span>` }) : tool) + n;
 }
 function rowHTML(s, st) {
   const hp = s.ctx;
@@ -324,6 +350,7 @@ function rowHTML(s, st) {
 }
 
 let list = [], selected = new URLSearchParams(location.search).get('s');
+let reportOpen = true; // the final report folded or not: kept while the panel is open, for every session
 const ORDER_IN = { waiting: (a, b) => a.since - b.since, working: (a, b) => b.updated - a.updated, done: (a, b) => b.since - a.since, idle: (a, b) => b.updated - a.updated };
 
 function render() {
@@ -362,10 +389,11 @@ function renderPane() {
   if (!s) return;
   const st = look(s);
   const kids = kidsOf(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+  const hm = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); // seconds on hover
   pane.innerHTML = `
     <div class="pane-top st-${st}">
       <span class="sprite">${petArt(s, st)}</span>
@@ -379,15 +407,16 @@ function renderPane() {
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
     ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
-    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log">${kids.map(k => `<li><span>${esc(statusText(k, look(k)))}</span><button class="btn" type="button" data-act="goto" data-id="${esc(k.id)}">${esc(k.title || k.name)}</button></li>`).join('')}</ol>` : ''}
+    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><span>${esc(statusText(k, look(k)))}</span><button class="btn" type="button" data-act="goto" data-id="${esc(k.id)}">${esc(k.title || k.name)}</button></li>`).join('')}</ol>` : ''}
     ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${T('pane.askWithin', { n: secsLeft(s) })}
       <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
         <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
         <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T('pane.askHint')}</div>` : ''}
     <h3>${T('pane.quest')}</h3><p>${esc(s.quest || T('line.noQuest'))}</p>
-    ${s.summary ? `<h3>${T('pane.report')}</h3><div class="report">${esc(s.summary)}</div>` : ''}
+    ${s.summary ? `<details class="fold"${reportOpen ? ' open' : ''}><summary><h3>${T('pane.report')}</h3></summary>
+      <div class="report">${markdown(s.report || s.summary)}</div></details>` : ''}
     <h3>${T('pane.log')}</h3>
-    <ol class="log">${s.log.slice().reverse().map(l => `<li><time>${time(l.t)}</time><span>${esc(logText(l))}</span></li>`).join('')}</ol>`;
+    <ol class="log">${LOG.fold(s.log).map(l => `<li class="k-${esc(l.kind)}"><time title="${time(l.t)}">${hm(l.t)}</time><span>${logHTML(l)}</span></li>`).join('')}</ol>`;
 }
 $('#showAll').addEventListener('click', () => bridge.setPet('*', 'shown'));
 // Why a session could not be brought forward, and where it is: "It runs in Terminal, in ~/app."
@@ -395,6 +424,7 @@ function openFail(r) {
   const where = r?.app || r?.folder ? ' ' + T(r.app ? 'pane.openFail.where' : 'pane.openFail.whereFolder', { app: r.app, folder: r.folder }) : '';
   toast(T('pane.openFail.' + (r?.reason || 'notfound')) + where);
 }
+$('#pane').addEventListener('toggle', e => { if (e.target.matches('.fold')) reportOpen = e.target.open; }, true); // toggle does not bubble
 $('#pane').addEventListener('click', async e => {
   const act = e.target.dataset.act;
   if (act === 'close') select(null);

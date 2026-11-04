@@ -9,6 +9,8 @@ const { apply, readTranscript, ctxLeft, refresh, setPet } = require('../src/core
 const { sanitize, DEFAULTS } = require('../src/core/settings');
 const hooks = require('../src/core/hooks');
 const { startServer } = require('../src/core/server');
+const markdown = require('../src/ui/markdown');
+const LOG = require('../src/ui/log');
 
 test('session lifecycle', () => {
   const m = new Map(), base = { session_id: 'abc', cwd: '/x/my-app' };
@@ -91,6 +93,54 @@ test('an interrupted turn (Esc / denied permission) puts the pet to rest', () =>
   m.get('i1').state = 'working';
   assert.equal(refresh(m.get('i1'), false, Date.now() + 6000), false, 'an unchanged transcript is not read again');
   fs.unlinkSync(f);
+});
+
+test('the final report keeps its lines; the one-line summary stays short', () => {
+  const f = path.join(os.tmpdir(), `bobix-rep-${process.pid}.jsonl`);
+  const text = `## Done\n\n- one\n- two\n\n\n\n${'x'.repeat(9000)}`;
+  fs.writeFileSync(f, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }));
+  const m = new Map();
+  apply(m, { session_id: 'r1', hook_event_name: 'UserPromptSubmit', prompt: 'go', transcript_path: f });
+  refresh(m.get('r1'), true);
+  const s = m.get('r1');
+  assert.ok(s.report.startsWith('## Done\n\n- one\n- two\n\nxxx'), 'lines kept, blank-line runs cut to one');
+  assert.equal(s.report.length, 8000);
+  assert.ok(s.report.endsWith('…'));
+  assert.equal(s.summary.length, 600);
+  assert.ok(!s.summary.includes('\n'));
+  apply(m, { session_id: 'r1', hook_event_name: 'UserPromptSubmit', prompt: 'again' });
+  assert.equal(s.report, '', 'a new prompt clears the old report');
+  fs.unlinkSync(f);
+});
+
+test('markdown: the report as safe HTML', () => {
+  assert.equal(markdown('Hi <b>"x"</b> & `<i>` **bold** [docs](https://x.y)'),
+    '<p>Hi &lt;b&gt;&quot;x&quot;&lt;/b&gt; &amp; <code>&lt;i&gt;</code> <strong>bold</strong> docs</p>');
+  assert.equal(markdown('## Title\nline one\nline two'), '<h4>Title</h4><p>line one<br>line two</p>');
+  assert.equal(markdown('- a\n  more\n- b\n\n3. c\n4. d'), '<ul><li>a more</li><li>b</li></ul><ol start="3"><li>c</li><li>d</li></ol>');
+  assert.equal(markdown('| A | B |\n|---|---|\n| `1` | 2 |'),
+    '<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td><code>1</code></td><td>2</td></tr></tbody></table>');
+  assert.equal(markdown('```bash\nnpm test && echo "<ok>"\n```\n---'), '<pre><code>npm test &amp;&amp; echo &quot;&lt;ok&gt;&quot;</code></pre><hr>');
+  assert.equal(markdown('```\ncut off'), '<pre><code>cut off</code></pre>', 'an unclosed fence (report cut) still ends');
+  assert.equal(markdown(''), '');
+});
+
+test('log: newest first, repeats folded, long arguments keep their end', () => {
+  const m = new Map(), long = `node /tmp/${'d'.repeat(200)}/run.js`;
+  apply(m, { session_id: 'l1', hook_event_name: 'UserPromptSubmit', prompt: 'go' });
+  for (const tool_name of ['mcp__b__batch', 'mcp__b__batch', 'mcp__b__batch', 'Read']) apply(m, { session_id: 'l1', hook_event_name: 'PreToolUse', tool_name });
+  apply(m, { session_id: 'l1', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: long } });
+  const s = m.get('l1');
+  assert.equal(s.log.at(-1).text, long, 'the log keeps the whole argument');
+  assert.equal(s.toolArg.length, 60, 'the bubble keeps a short one');
+  assert.deepEqual(LOG.fold(s.log).map(l => [l.kind, l.tool, l.n]),
+    [['tool', 'Bash', 1], ['tool', 'Read', 1], ['tool', 'mcp__b__batch', 3], ['prompt', '', 1]]);
+  assert.deepEqual(LOG.fold([{ kind: 'tool', tool: 'Read', text: 'a' }, { kind: 'tool', tool: 'Read', text: 'b' }]).map(l => l.n), [1, 1], 'other files are other lines');
+  const short = LOG.mid(long);
+  assert.equal(short.length, 60);
+  assert.ok(short.startsWith('node /tmp/') && short.endsWith('/run.js') && short.includes('…'));
+  assert.equal(LOG.mid('ls'), 'ls');
+  assert.equal(LOG.cap('running a command'), 'Running a command'); assert.equal(LOG.cap('đọc file', 'vi'), 'Đọc file'); assert.equal(LOG.cap(''), '');
 });
 
 test('a pet hidden by hand comes back when its session needs you', () => {
