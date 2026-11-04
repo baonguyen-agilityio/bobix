@@ -11,6 +11,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 - **Panel on wide screens**: the details pane grows with the window (400 to 640 px) and the page may be 1,920 px wide instead of 1,440, so a full-screen panel leaves less empty space at the sides; scrollbars are thinner (10 px) and have no arrows.
 - **Panel layout fixes**: a session row's title, level, folder and labels wrap instead of overlapping the status column or shrinking to nothing; rows collapse by the list's width, not the window's (the title shrank to 0 px at 981–1,100 px with details open); the panel shows once its labels and first sessions are in, so the top bar no longer jumps on open, and when it wraps the connection status stays on the right; sessions that arrive before the settings no longer throw (the board was drawn in part until the settings came); a hovered pet's card sits above other pets' bubbles.
 - **Panel**: the final report shows the answer's Markdown (lists, tables, code) and keeps up to 8,000 characters instead of 600 on one line, and folds away with a click; status pills sit in the middle of their row; the log puts the time on one line, marks each kind of event, folds repeats ("×3") and shortens long commands in the middle (whole on hover); details never scroll sideways; text of the same kind has one size (the session's title in its details had lost its size to the Setup cards' heading rule).
+- **Open session**: a CLI in the Claude app's own terminal brings the Claude app forward, also on Wayland, and is named "Claude" (it was "claude-desktop" and could not be opened).
 
 Everything before that is in v0.1.3 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
 
@@ -49,6 +50,7 @@ Larger, each needs its own plan:
 - Builds are not code-signed: macOS and Windows warn on first launch.
 - Linux Wayland: no app may bring another app's window forward, so a click on a terminal session's pet opens it in the panel and names the terminal instead. Sessions in the Claude desktop app open directly.
 - Linux Wayland: through XWayland, Bobix sees the cursor only while it is on a pet, so fading near the cursor works only right next to a pet.
+- Linux Wayland: no app may bring another app's window forward, so a click on a terminal session's pet opens it in the panel and names the terminal instead. Sessions in the Claude desktop app open directly, and a CLI in the Claude app's own terminal brings the app forward (not its terminal tab).
 - Opening a session in the Claude desktop app uses `claude://code/continue`, not a documented API; it may change.
 - While Bobix waits for an answer (20 s by default), the terminal's permission prompt appears only after that time.
 - Approvals need the Node.js forwarder; with the curl / PowerShell fallback Bobix only watches.

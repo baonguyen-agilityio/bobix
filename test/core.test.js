@@ -165,6 +165,7 @@ test('the app holding a session is named the way people know it', () => {
   assert.equal(hostApp(['claude', 'bash', 'gnome-terminal-server', 'systemd']), 'Terminal');
   assert.equal(hostApp(['claude', 'zsh', 'tmux: server']), 'tmux');
   assert.equal(hostApp(['claude', 'node', 'code']), 'VS Code');
+  assert.equal(hostApp(['claude', 'bash', 'claude-desktop', 'claude-desktop']), 'Claude', 'the Claude app\'s own terminal');
   assert.equal(hostApp(['claude', 'bash']), null);
 });
 
