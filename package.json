@@ -3,6 +3,7 @@
   "version": "0.1.4-rc.1",
   "description": "Your Claude Code sessions as pixel pets on your desktop, with a control panel and notifications.",
   "main": "src/main.js",
+  "desktopName": "bobix.desktop",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -73,7 +74,8 @@
         }
       ],
       "category": "Development",
-      "maintainer": "Bobix contributors"
+      "maintainer": "Bobix contributors",
+      "syncDesktopName": true
     },
     "deb": {
       "artifactName": "${name}-linux-${arch}.${ext}"

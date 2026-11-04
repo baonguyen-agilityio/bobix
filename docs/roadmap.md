@@ -6,6 +6,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 - **Pets stay on top on Linux**: the pets window lost "always on top" once it had been hidden and shown again (seen on Ubuntu, Wayland through XWayland, v0.1.3: `alwaysOnTop: false` in Copy diagnostics). It is set again each time the window shows, and CI now fails if it isn't on top.
 - **One pet per project**: every session of a project, and of its git worktrees (Claude desktop makes one per session), has the same creature; before, each session got its own. A project can get its own picture (PNG, JPG, GIF or WebP up to 2 MB, from the panel's Change pet…; Default pet undoes it). Pictures stay in the app's data folder; GIFs stay animated.
+- **Linux dock**: the `.deb` sets `desktopName`, so its `.desktop` entry has `StartupWMClass=bobix`, the windows' real class (it said `Bobix`).
 
 Everything before that is in v0.1.3 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
 
