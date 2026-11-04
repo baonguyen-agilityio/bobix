@@ -195,7 +195,12 @@ function createOverlay() {
 function showOverlay() {
   if (!overlay || overlay.isDestroyed() || !overlayReady) return;
   const want = settings.petsVisible && rects.length > 0;
-  if (want && !overlay.isVisible()) overlay.showInactive();
+  if (want && !overlay.isVisible()) {
+    overlay.showInactive();
+    // Linux drops "always on top" when a window is hidden and shown again: set it every time.
+    overlay.setAlwaysOnTop(true, 'floating');
+    overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
   else if (!want && overlay.isVisible()) { overlay.hide(); interactive = false; overlay.setIgnoreMouseEvents(true); }
 }
 
@@ -426,7 +431,7 @@ async function smoke(dir) {
   report.chain = await ancestors(process.pid).catch(e => `error: ${e.message}`);
   report.focus = await within(focusPids(Array.isArray(report.chain) ? report.chain : []), 8000, 'focus').catch(e => `error: ${e.message}`);
   Object.assign(report, {
-    readyToShow: overlayReady, visible: overlay.isVisible(), minimized: overlay.isMinimized(), bounds: overlay.getBounds(),
+    readyToShow: overlayReady, visible: overlay.isVisible(), onTop: overlay.isAlwaysOnTop(), minimized: overlay.isMinimized(), bounds: overlay.getBounds(),
     workArea: targetDisplay().workArea, sessions: sessions.size, loading: wc.isLoading(), loadedUrl: wc.getURL().replace(/t=[^&]+/, 't=…'),
   });
   log('window ' + JSON.stringify(report));
@@ -442,7 +447,7 @@ async function smoke(dir) {
   } catch (err) { report.screenShot = err.message; }
   write(); log('done ' + JSON.stringify(report));
   fs.writeFileSync(path.join(dir, 'done'), ''); // CI waits for this, then stops the app itself
-  app.exit(report.visible && report.pets >= 2 && !report.pageErrors.length ? 0 : 1);
+  app.exit(report.visible && report.onTop && report.pets >= 2 && !report.pageErrors.length ? 0 : 1);
 }
 
 // "Copy diagnostics" in Setup: everything needed to debug pets / opening sessions, no prompts, tokens or full paths.

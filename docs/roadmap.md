@@ -4,7 +4,9 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `main`, not released yet
 
-Nothing right now: v0.1.3 (2026-11-04) holds everything so far, see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
+- **Pets stay on top on Linux**: the pets window lost "always on top" once it had been hidden and shown again (seen on Ubuntu, Wayland through XWayland, v0.1.3: `alwaysOnTop: false` in Copy diagnostics). It is set again each time the window shows, and CI now fails if it isn't on top.
+
+Everything before that is in v0.1.3 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.3).
 
 Release checklist: bump `version` in `package.json` → tag `vX.Y.Z` → check the 5 fixed-name files are attached → add release notes.
 
