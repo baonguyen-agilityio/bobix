@@ -48,6 +48,8 @@ Larger, each needs its own plan:
 - Approvals need the Node.js forwarder; with the curl / PowerShell fallback Bobix only watches.
 - Linux installers are `.deb` only (Ubuntu, Debian). Other distributions aren't packaged.
 - Only Claude Code sessions (terminal, IDE, the Code tab of the Claude app). Ordinary chats in the Claude app or on claude.ai have no hooks, so Bobix can't follow them.
+  - Checked on 2026-11-04 on macOS while a chat answered: Claude desktop's logs (`~/Library/Logs/Claude`) record nothing about chats, and the only chat-related writes are to claude.ai's internal IndexedDB, which keep happening after the answer ends, so they can't serve as a status. Reading that database would mean reading private chat data in an undocumented format.
+  - Not tried, decided against for now: reading the app's UI through the Accessibility API (e.g. whether a "Stop" button is showing; needs the Accessibility permission and breaks when the UI changes), and a browser extension for claude.ai on the web (does not cover the desktop app).
 - Memory is about 330–400 MB (Electron).
 
 ## 5. Cleanup
