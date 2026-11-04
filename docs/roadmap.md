@@ -4,7 +4,9 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `main`, not released yet
 
-Nothing right now: v0.1.2 (2026-11-04) holds everything so far, see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.2).
+- **Version shown in the app**: next to the name in the panel, and at the top of the tray menu.
+
+Everything before that is in v0.1.2 (2026-11-04), see its [release notes](https://github.com/baonguyen-agilityio/bobix/releases/tag/v0.1.2).
 
 Release checklist: bump `version` in `package.json` → tag `vX.Y.Z` → check the 5 fixed-name files are attached → add release notes.
 
@@ -54,4 +56,4 @@ Larger, each needs its own plan:
 - [x] Removed the old versioned file names from the v0.1.1 release; only the fixed names remain.
 - [x] Deleted the merged branch `fix/pets-overlay-win-linux`.
 - [ ] The from-source Ubuntu CI smoke failed once with the pets page not yet drawn. It has passed since; watch for it.
-- [ ] On the maintainer's Mac: an old packaged build in the project's build folder is still set to start at login. Install v0.1.2 into Applications, then remove the old entry in System Settings → General → Login Items (turn "Start at login" on again in the new Bobix if wanted).
+- [x] On the maintainer's Mac: v0.1.2 installed in Applications, login item moved to it, old build folder in the Trash (2026-11-04).

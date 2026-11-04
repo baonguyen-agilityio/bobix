@@ -268,6 +268,8 @@ function buildTray() {
   tray ??= new Tray(nativeImage.createFromBitmap(bitmap(32, 0, 'bgra'), { width: 32, height: 32, scaleFactor: 2 }));
   tray.setToolTip('Bobix');
   tray.setContextMenu(Menu.buildFromTemplate([
+    { label: `Bobix ${app.getVersion()}`, enabled: false },
+    { type: 'separator' },
     { label: tr('tray.panel'), click: () => showPanel() },
     { label: tr(settings.petsVisible ? 'tray.hide' : 'tray.show'), click: () => updateSettings({ petsVisible: !settings.petsVisible }) },
     { label: tr('tray.showAll'), click: () => { setPet(sessions, '*', 'shown'); server.broadcast(snapshot()); if (!settings.petsVisible) updateSettings({ petsVisible: true }); } },
@@ -351,7 +353,7 @@ function testEvent() {
 function ipc() {
   const handle = (ch, fn) => ipcMain.handle(ch, (e, ...a) => (fromUs(e) ? fn(...a) : null));
   handle('state', () => ({
-    settings, platform: process.platform, nodePath, lastEventAt, hooks: hooks.status(),
+    settings, version: app.getVersion(), platform: process.platform, nodePath, lastEventAt, hooks: hooks.status(),
     screen: (({ width, height }) => ({ width, height }))(targetDisplay().workArea),
     displays: screen.getAllDisplays().map((d, i) => ({ id: d.id, label: `${d.label || `#${i + 1}`} (${d.size.width}×${d.size.height})` })),
   }));
