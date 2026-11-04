@@ -1,5 +1,7 @@
 # Developing Bobix
 
+What is missing, unreleased or unverified: [roadmap.md](roadmap.md).
+
 For contributors. To **use** Bobix, install it from the [latest release](https://github.com/baonguyen-agilityio/bobix/releases/latest) as the [README](../README.md#install) shows; don't build it from source for that.
 
 ## Run and test

@@ -144,4 +144,4 @@ Bobix là dự án độc lập, không liên kết với Anthropic và không �
 
 ## Phát triển Bobix
 
-Chỉ dành cho người đóng góp: build, test và phát hành nằm trong [docs/development.md](docs/development.md) (tiếng Anh). Để dùng Bobix, hãy cài từ bản phát hành như hướng dẫn ở trên.
+Chỉ dành cho người đóng góp: build, test và phát hành nằm trong [docs/development.md](docs/development.md); việc còn dang dở nằm trong [docs/roadmap.md](docs/roadmap.md) (tiếng Anh). Để dùng Bobix, hãy cài từ bản phát hành như hướng dẫn ở trên.

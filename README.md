@@ -144,4 +144,4 @@ Bobix is an independent project, not affiliated with or endorsed by Anthropic. "
 
 ## Developing Bobix
 
-For contributors only: building, testing and releasing are in [docs/development.md](docs/development.md). To use Bobix, install it from the release as shown above.
+For contributors only: building, testing and releasing are in [docs/development.md](docs/development.md); open work is in [docs/roadmap.md](docs/roadmap.md). To use Bobix, install it from the release as shown above.
