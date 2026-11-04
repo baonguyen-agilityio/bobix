@@ -6,6 +6,17 @@ const ID_RE = /^[\w-]{1,128}$/;
 const short = (s, n = 80) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 // Like short, but keeps the lines (the final report is Markdown): only blank-line runs and trailing spaces go.
 const clip = (s, n) => { s = String(s ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+// The answer's Markdown as plain text, for one-line previews and notifications (the panel renders the report itself).
+const plain = s => String(s ?? '')
+  .replace(/^[ \t]*```.*$/gm, '')
+  .replace(/^[ \t]*\|?[ \t]*:?-{3,}[-|: \t]*$/gm, '')
+  .replace(/^[ \t]*([-*_])([ \t]*\1){2,}[ \t]*$/gm, '')
+  .replace(/^[ \t]*\|(.*)\|[ \t]*$/gm, (_, row) => row.split('|').map(c => c.trim()).join(' · '))
+  .replace(/^[ \t]*(#{1,6}|[-*+]|\d+[.)]|>)[ \t]+/gm, '')
+  .replace(/!?\[([^\]]*)\]\([^)\s]*\)/g, '$1')
+  .replace(/(\*\*|~~|\*)(?=\S)(.+?)(?<=\S)\1/g, '$2')
+  .replace(/(?<!\w)(__|_)(?=\S)(.+?)(?<=\S)\1(?!\w)/g, '$2')
+  .replace(/\*\*|`/g, '');
 const argOf = (input = {}) => input.file_path || input.command || input.pattern || input.url || input.query || input.description || '';
 const toolArg = input => short(argOf(input), 60);
 
@@ -155,7 +166,7 @@ function refresh(s, withSummary, now = Date.now(), forcedWindow) {
   const r = readTranscript(s.transcript);
   if (r.usage) s.ctx = ctxLeft(r.usage, forcedWindow);
   if (r.title) s.title = short(r.title, 80);
-  if (withSummary && r.text) { s.summary = short(r.text, 600); s.report = clip(r.text, 8000); }
+  if (withSummary && r.text) { s.summary = short(plain(r.text), 600); s.report = clip(r.text, 8000); }
   if (r.interrupted && (s.state === 'working' || s.state === 'waiting')) {
     s.ask = ''; s.askTool = ''; s.state = 'idle'; s.since = now;
     return true; // state changed
@@ -175,4 +186,4 @@ function setPet(sessions, id, mode) {
   return list.length > 0;
 }
 
-module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, clip, publicView, ID_RE };
+module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, clip, plain, publicView, ID_RE };

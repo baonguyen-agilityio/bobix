@@ -95,6 +95,7 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .pane-top h2{font-size:var(--t-xl);overflow-wrap:anywhere}
 .pane-top .lv{font-size:var(--t-sm)}
 .pane-acts{display:flex;gap:var(--s2);margin-top:var(--s4);flex-wrap:wrap}
+.pane .open-hint{margin-top:var(--s3)}
 .pane .meta{margin:var(--s4) 0 0;font-size:var(--t-xs);line-height:1.6;color:var(--ink-3);overflow-wrap:anywhere}
 .pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
 .pane p{margin:0;font-size:var(--t-sm)}
@@ -314,7 +315,7 @@ function translate() {
   document.documentElement.style.setProperty('--close', JSON.stringify(T('group.close')));
 }
 function toast(text, action) {
-  if ([...$('#toasts').children].some(t => t.dataset.text === text)) return; // already on screen (e.g. a pet clicked twice)
+  if ([...$('#toasts').children].some(t => t.dataset.text === text)) return; // already on screen (e.g. Open session clicked twice)
   const el = document.createElement('div');
   el.dataset.text = text;
   el.className = 'toast';
@@ -361,6 +362,7 @@ function rowHTML(s, st) {
 }
 
 let list = [], selected = new URLSearchParams(location.search).get('s');
+let hint = null; // why a pet or notification click could not open the selected session: { id, reason, app, folder }
 let reportOpen = true; // the final report folded or not: kept while the panel is open, for every session
 const ORDER_IN = { waiting: (a, b) => a.since - b.since, working: (a, b) => b.updated - a.updated, done: (a, b) => b.since - a.since, idle: (a, b) => b.updated - a.updated };
 
@@ -400,7 +402,7 @@ function renderPane() {
   if (!s) return;
   const st = look(s);
   const kids = kidsOf(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -417,6 +419,7 @@ function renderPane() {
       <button class="btn" type="button" data-act="close">${T('pane.close')}</button>
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
+    ${hint?.id === s.id ? `<p class="note open-hint">${esc(hintText(hint))}</p>` : ''}
     ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
     ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><span>${esc(statusText(k, look(k)))}</span><button class="btn" type="button" data-act="goto" data-id="${esc(k.id)}">${esc(k.title || k.name)}</button></li>`).join('')}</ol>` : ''}
     ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${T('pane.askWithin', { n: secsLeft(s) })}
@@ -430,6 +433,11 @@ function renderPane() {
     <ol class="log">${LOG.fold(s.log).map(l => `<li class="k-${esc(l.kind)}"><time title="${time(l.t)}">${hm(l.t)}</time><span>${logHTML(l)}</span></li>`).join('')}</ol>`;
 }
 $('#showAll').addEventListener('click', () => bridge.setPet('*', 'shown'));
+// A pet or notification click that could not open its session: the panel opens on it and says where it runs, in the
+// session's details rather than as an error toast on every click.
+function showHint(r) { hint = r && selected ? { ...r, id: selected } : null; renderPane(); }
+const hintText = r => [r.app || r.folder ? T(r.app ? 'pane.hint.where' : 'pane.hint.whereFolder', { app: r.app, folder: r.folder }) : '',
+  T(r.reason === 'wayland' || r.reason === 'xdotool' ? 'pane.hint.' + r.reason : 'pane.openFail.' + (r.reason || 'notfound'))].filter(Boolean).join(' ');
 // Why a session could not be brought forward, and where it is: "It runs in Terminal, in ~/app."
 function openFail(r) {
   const where = r?.app || r?.folder ? ' ' + T(r.app ? 'pane.openFail.where' : 'pane.openFail.whereFolder', { app: r.app, folder: r.folder }) : '';
@@ -445,7 +453,7 @@ $('#pane').addEventListener('click', async e => {
   if (act === 'pet') { const s = list.find(x => x.id === selected); if (s) bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden'); }
   if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); }
 });
-function select(id) { selected = id; render(); }
+function select(id) { if (hint?.id !== id) hint = null; selected = id; render(); }
 $('#board').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(li.dataset.id === selected ? null : li.dataset.id); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && selected) select(null); });
 
@@ -724,7 +732,7 @@ $('#conn').textContent = T('conn.wait');
     $('#ver').textContent = 'v' + state.version; $('#ver').hidden = false;
     bridge.onSelect(id => { showTab('sessions'); select(id); });
     bridge.onShowTab(showTab);
-    bridge.onOpenFail(openFail);
+    bridge.onOpenFail(showHint);
     bridge.onSettings(s => {
       if (JSON.stringify(s) === JSON.stringify(state.settings)) return; // our own save echoing back: keep the form as is (slider drag)
       const langChanged = s.language !== state.settings.language;
@@ -734,7 +742,7 @@ $('#conn').textContent = T('conn.wait');
   }
   applyLang();
   showTab(new URLSearchParams(location.search).get('tab') || 'sessions');
-  try { const f = new URLSearchParams(location.search).get('fail'); if (f) openFail(JSON.parse(f)); } catch {} // a pet click opened this window
+  try { const f = new URLSearchParams(location.search).get('fail'); if (f) showHint(JSON.parse(f)); } catch {} // a pet or notification click opened this window
   arrived('state');
 })();
 </script>

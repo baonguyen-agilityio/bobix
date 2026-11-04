@@ -83,7 +83,7 @@ The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl`
 | Pets stopped reacting after a Node.js update | Setup shows **Node.js moved**. Click **Reinstall**. (The app also repairs this itself at launch when it can.) |
 | Setup says settings.json is invalid | The file has a JSON syntax error. Bobix never overwrites a file it cannot read; fix the file (or restore a backup), then click **Install hooks**. |
 | Nothing at all on a company laptop | Your organization may allow only managed hooks (`allowManagedHooksOnly`). User hooks don't run there, so Bobix receives nothing. Ask your admin. |
-| A click doesn't open the session | In Claude desktop the session opens directly. For Terminal / iTerm / VS Code the app is brought forward, not a specific tab. On Linux install xdotool. |
+| A click doesn't open the session | In Claude desktop the session opens directly. For Terminal / iTerm / VS Code the app is brought forward, not a specific tab. On Linux install xdotool. Where Bobix can't bring it forward (a terminal on Wayland), the panel opens on the session and says where it runs. |
 
 ## Uninstall
 
