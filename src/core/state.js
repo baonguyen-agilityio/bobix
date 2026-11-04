@@ -147,7 +147,7 @@ function refresh(s, withSummary, now = Date.now(), forcedWindow) {
 }
 
 // What the outside world sees (no internal bookkeeping fields).
-const publicView = s => { const { readAt, readMark, parentHost, linkTries, ...rest } = s; return rest; };
+const publicView = s => { const { readAt, readMark, parentHost, linkTries, linkAt, ...rest } = s; return rest; };
 
 const PET_MODES = ['auto', 'hidden', 'shown'];
 // Hide / show one pet by hand; "all" brings every pet back (and keeps sleeping ones out).

@@ -56,8 +56,7 @@ function onEvent(e, signal) {
   lastEventAt = Date.now();
   const r = apply(sessions, e);
   if (!r) return null;
-  // Side session of another Claude desktop session? The app may write its file a moment after the first event: try a few times.
-  if (r.s?.hostSession && !r.s.parentHost && (r.s.linkTries || 0) < 3) { r.s.linkTries = (r.s.linkTries || 0) + 1; r.s.parentHost = parentOf(r.s.hostSession); }
+  if (r.s) findParent(r.s);
   const answered = signal && r.s && e.hook_event_name === 'PermissionRequest' ? waitForAnswer(r.s, e, signal) : null;
   const isStop = e.hook_event_name === 'Stop', since = r.s?.since;
   const finish = () => {
@@ -69,6 +68,15 @@ function onEvent(e, signal) {
   };
   isStop ? setTimeout(finish, 300) : finish(); // let Claude flush the final answer to the transcript first
   return answered;
+}
+
+// Side session of another Claude desktop session? That app writes the link into its session file some time after
+// the session starts (seen: after its first events), so look again every 5 s, for up to 10 minutes.
+function findParent(s, now = Date.now()) {
+  if (!s.hostSession || s.parentHost || (s.linkTries || 0) >= 120 || now - (s.linkAt || 0) < 5000) return false;
+  s.linkAt = now; s.linkTries = (s.linkTries || 0) + 1;
+  s.parentHost = parentOf(s.hostSession);
+  return !!s.parentHost;
 }
 
 // ---------- answering permission requests ----------
@@ -499,6 +507,7 @@ app.whenReady().then(async () => {
       if (now - s.updated > STALE_MS) { sessions.delete(id); changed = true; continue; }
       // Esc / a denied permission ends the turn without any hook: notice it in the transcript.
       if ((s.state === 'working' || s.state === 'waiting') && refresh(s, false, now)) changed = true;
+      if (findParent(s, now)) changed = true;
     }
     if (changed) server.broadcast(snapshot());
   }, 5e3));
