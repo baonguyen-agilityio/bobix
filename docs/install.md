@@ -14,7 +14,7 @@ Download the installer for your computer (the links always give the newest versi
 | Mac with Apple chip (M1 and later) | [Bobix-mac-arm64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-arm64.dmg) |
 | Mac with Intel chip | [Bobix-mac-x64.dmg](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-mac-x64.dmg) |
 | Windows 10 / 11 (64-bit) | [Bobix-windows-x64.exe](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/Bobix-windows-x64.exe) |
-| Ubuntu / Debian (x64) | [bobix-linux-x64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-x64.deb) |
+| Ubuntu / Debian (amd64) | [bobix-linux-amd64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-amd64.deb) |
 | Ubuntu / Debian (ARM64) | [bobix-linux-arm64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-arm64.deb) |
 
 Not sure which Mac you have? Apple menu → About This Mac → "Chip".
@@ -40,7 +40,7 @@ Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 Install the `.deb`, then open **Bobix** from your apps menu (or run `bobix`).
 
 ```bash
-sudo apt install ./bobix-linux-x64.deb
+sudo apt install ./bobix-linux-amd64.deb
 ```
 
 Other Linux distributions aren't packaged yet.

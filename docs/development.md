@@ -32,7 +32,7 @@ A copy run from source and an installed Bobix share the same port and lock: quit
 npm run dist:mac     # or dist:win, dist:linux; installers land in the dist folder
 ```
 
-Installers have fixed names (`Bobix-mac-arm64.dmg`, `Bobix-mac-x64.dmg`, `Bobix-windows-x64.exe`, `bobix-linux-x64.deb`, `bobix-linux-arm64.deb`), so `releases/latest/download/<name>` always serves the newest version. Keep the names in `package.json` (`artifactName`) and the links in the READMEs and `docs/install.md` in step.
+Installers have fixed names (`Bobix-mac-arm64.dmg`, `Bobix-mac-x64.dmg`, `Bobix-windows-x64.exe`, `bobix-linux-amd64.deb`, `bobix-linux-arm64.deb`), so `releases/latest/download/<name>` always serves the newest version. Keep the names in `package.json` (`artifactName`) and the links in the READMEs and `docs/install.md` in step.
 
 ## Release
 

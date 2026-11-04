@@ -55,7 +55,7 @@ jobs:
         env:
           BOBIX_SMOKE: smoke-out/deb
         run: |
-          sudo apt-get install -y -qq ./dist/bobix-linux-x64.deb > /dev/null
+          sudo apt-get install -y -qq ./dist/bobix-linux-amd64.deb > /dev/null
           XDG_SESSION_TYPE=wayland bobix --no-sandbox > deb.log 2>&1 &
           for i in $(seq 1 120); do [ -f smoke-out/deb/done ] && break; sleep 1; done
           pkill -9 -f /opt/Bobix || true
