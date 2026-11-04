@@ -24,6 +24,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .say{padding:var(--s1) var(--s3);white-space:nowrap;font-weight:500;animation:pop 200ms var(--ease)}
 .say.waiting{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink);font-weight:600}
 .say.done{background:var(--mint-soft)}
+.answer{display:inline-flex;align-items:center;gap:var(--s1);margin-left:var(--s2)}
+.answer button{font:600 var(--t-xs) var(--f-body);border-radius:var(--pill);padding:0 var(--s2);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);cursor:pointer}
+.answer button[data-answer="allow"],.answer button[data-answer="always"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.answer button:hover{filter:brightness(1.1)}
+.answer .left{font-weight:500;color:var(--ink-3)}
+.card .answer{display:flex;flex-wrap:wrap;margin:0 0 var(--s2)}
 .card{width:272px;padding:var(--s3) var(--s4);z-index:2;animation:pop 150ms var(--ease)}
 .card h2{font:700 var(--t-lg)/1.15 var(--f-display);margin:0;overflow-wrap:anywhere}
 .card .sub{font-size:var(--t-xs);color:var(--ink-3);margin:0 0 var(--s2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -91,9 +97,18 @@ function sayText(p, st, now) {
   return null;
 }
 
+// Allow / Deny while a permission request waits for Bobix (seconds left, then the terminal asks).
+const left = (s, now) => (s.answer ? Math.max(0, Math.ceil((s.answer.until - now) / 1000)) : 0);
+function answerButtons(s, now, withAlways) {
+  const n = left(s, now);
+  if (!n || !bridge) return '';
+  return `<span class="answer">${withAlways && s.answer.always ? `<button type="button" data-answer="always">${T('ask.always')}</button>` : ''}`
+    + `<button type="button" data-answer="allow">${T('ask.allow')}</button><button type="button" data-answer="deny">${T('ask.deny')}</button>`
+    + `<span class="left">${T('ask.left', { n })}</span></span>`;
+}
 function paint(p, now) {
   const s = p.s, st = look(s), say = p.hover ? null : sayText(p, st, now);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.dragging, p.edge, cfg.label, cfg.clickAction, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, p.stepping, p.dragging, p.edge, left(s, now), cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
@@ -103,11 +118,12 @@ function paint(p, now) {
         <h2>${esc(s.title || s.name)}</h2>
         <p class="sub">${esc(s.cwd)}</p>
         <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
+        ${st === 'waiting' ? answerButtons(s, now, true) : ''}
         <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
         <div class="row"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></div>
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
-    ${say ? `<div class="say ${say[0]}">${esc(say[1])}</div>` : ''}
+    ${say ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now, false) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${creature(s.id, st)}</div>
     <div class="tag">${esc(labelOf(s))}</div>`;
@@ -140,6 +156,8 @@ function draggable(p, id) {
   el.onpointerdown = e => {
     if (e.button !== 0) return;
     if (e.target.closest('[data-hide]')) { drag = null; bridge.setPet(id, 'hidden'); return; }
+    const a = e.target.closest('[data-answer]');
+    if (a) { drag = null; if (p.s.answer) bridge.answer(p.s.answer.id, a.dataset.answer); return; }
     drag = { p, dx: e.clientX - p.x, x0: e.clientX, moved: false };
     el.setPointerCapture(e.pointerId);
   };

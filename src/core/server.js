@@ -27,9 +27,18 @@ function startServer({ port, token, onEvent, snapshot }) {
       let body = '', size = 0;
       req.setEncoding('utf8'); // decode across chunk boundaries (non-ASCII prompts)
       req.on('data', c => { size += c.length; if (size > 8e6) req.destroy(); else body += c; });
-      req.on('end', () => {
-        res.writeHead(204).end();
-        try { onEvent(JSON.parse(body)); } catch (err) { console.error('[bobix] bad event:', err.message); }
+      // x-bobix-wait: the hook waits for an answer (PermissionRequest). onEvent returns a promise of the
+      // hook output, or null for "no answer"; the request closing (Claude moved on) cancels the wait.
+      const wait = req.headers['x-bobix-wait'] === '1';
+      const gone = new AbortController();
+      res.on('close', () => gone.abort());
+      req.on('end', async () => {
+        let out = null;
+        try { out = onEvent(JSON.parse(body), wait ? gone.signal : null); } catch (err) { console.error('[bobix] bad event:', err.message); }
+        if (!wait) return res.writeHead(204).end();
+        try { out = await out; } catch { out = null; }
+        if (res.writableEnded || gone.signal.aborted) return;
+        out && typeof out === 'object' ? res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out)) : res.writeHead(204).end();
       });
       return;
     }

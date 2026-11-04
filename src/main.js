@@ -46,10 +46,12 @@ const fromUs = e => (e.senderFrame?.url || '').startsWith(origin() + '/'); // IP
 const pageUrl = (p, q = {}) => `${origin()}${p}?${new URLSearchParams({ ...q, t: token })}`; // pages need the token to read /events
 
 // ---------- hook events ----------
-function onEvent(e) {
+// signal: set when the hook waits for an answer (PermissionRequest); returns a promise of the hook output then.
+function onEvent(e, signal) {
   lastEventAt = Date.now();
   const r = apply(sessions, e);
-  if (!r) return;
+  if (!r) return null;
+  const answered = signal && r.s && e.hook_event_name === 'PermissionRequest' ? waitForAnswer(r.s, e, signal) : null;
   const isStop = e.hook_event_name === 'Stop', since = r.s?.since;
   const finish = () => {
     // A new prompt may land inside the Stop delay: then this Stop is stale (no old answer, no "finished" ping).
@@ -59,18 +61,60 @@ function onEvent(e) {
     if (r.notice && !stale) notify(r.notice);
   };
   isStop ? setTimeout(finish, 300) : finish(); // let Claude flush the final answer to the transcript first
+  return answered;
+}
+
+// ---------- answering permission requests ----------
+// A permission request waits up to settings.approveWait seconds for Allow / Deny from a pet, the panel or the
+// notification; then the hook gets no answer and Claude asks in the terminal as usual. Answers come only over
+// IPC from our own pages (and the notification), never over HTTP.
+const pending = new Map(); // answer id -> { suggestions, done }
+const DECISIONS = {
+  allow: () => ({ behavior: 'allow' }),
+  always: p => ({ behavior: 'allow', updatedPermissions: p.suggestions }), // Claude's own "don't ask again" rules
+  deny: () => ({ behavior: 'deny', message: 'Denied from Bobix.' }),
+};
+function waitForAnswer(s, e, signal) {
+  const secs = settings.approveWait;
+  if (!secs || signal.aborted) return null;
+  if (s.answer) pending.get(s.answer.id)?.done(null); // one open request per session
+  const id = require('crypto').randomUUID();
+  const suggestions = Array.isArray(e.permission_suggestions) ? e.permission_suggestions : [];
+  return new Promise(resolve => {
+    const done = decision => {
+      if (!pending.delete(id)) return;
+      clearTimeout(timer);
+      if (s.answer?.id === id) s.answer = null;
+      if (decision) { s.ask = ''; s.askTool = ''; s.state = 'working'; s.since = Date.now(); }
+      server.broadcast(snapshot());
+      resolve(decision && { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
+    };
+    const timer = setTimeout(() => done(null), secs * 1000);
+    signal.addEventListener('abort', () => done(null), { once: true }); // Claude moved on (Esc, session closed)
+    pending.set(id, { suggestions, done });
+    s.answer = { id, until: Date.now() + secs * 1000, always: suggestions.length > 0 };
+  });
+}
+function answer(id, choice) {
+  const p = typeof id === 'string' && pending.get(id);
+  if (!p || !Object.hasOwn(DECISIONS, choice)) return false;
+  p.done(DECISIONS[choice](p));
+  return true;
 }
 
 function notify({ kind, id }) {
   const s = sessions.get(id);
   if (!s || settings.paused || !Notification.isSupported()) return;
   if ((kind === 'waiting' && !settings.notifyWaiting) || (kind === 'done' && !settings.notifyDone)) return;
+  const aid = kind === 'waiting' && process.platform === 'darwin' ? s.answer?.id : null; // action buttons: macOS only
   const n = new Notification({
     title: tr(`notify.${kind}`, { name: s.title || s.name }),
     body: kind === 'waiting' ? s.ask : (s.summary || s.quest),
     silent: !settings.sound,
+    ...(aid && { actions: [{ type: 'button', text: tr('ask.allow') }, { type: 'button', text: tr('ask.deny') }] }),
   });
   shown.add(n);
+  if (aid) n.on('action', (_e, i) => { shown.delete(n); answer(aid, i === 0 ? 'allow' : 'deny'); });
   n.on('click', () => { shown.delete(n); openSession(id, true); });
   n.on('close', () => shown.delete(n));
   n.show();
@@ -282,6 +326,7 @@ function ipc() {
   handle('hooks:test', () => testEvent());
   handle('open-session', id => openSession(id, true, false));
   ipcMain.on('pet-click', (e, id) => fromUs(e) && openSession(id));
+  handle('answer', (id, choice) => answer(id, choice));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) server.broadcast(snapshot()); });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); showOverlay(); } });
 }

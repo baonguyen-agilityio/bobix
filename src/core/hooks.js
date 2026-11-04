@@ -7,6 +7,9 @@ const crypto = require('crypto');
 const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'Stop', 'SessionEnd'];
 const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'PermissionRequest']);
 const MARK = 'bobix';
+// PermissionRequest waits for an answer from Bobix (node forwarder only), so it can't run in the background.
+// The app decides how long it waits (Settings); this is only the hard cap Claude Code enforces.
+const ANSWER_EVENT = 'PermissionRequest', ANSWER_TIMEOUT = 330;
 const KEEP_BACKUPS = 3;
 
 const claudeDir = (home = os.homedir()) => path.join(home, '.claude');
@@ -46,9 +49,13 @@ const markOf = h => {
 const isOurs = h => markOf(h) !== null;
 
 // Exec form (command + args, no shell) works the same in bash, zsh, PowerShell and cmd.
-function hookEntry({ port, nodePath, platform = process.platform, home }) {
+function hookEntry({ port, nodePath, platform = process.platform, home, event }) {
   const base = { type: 'command', async: true, timeout: 5 };
-  if (nodePath) return { ...base, command: nodePath, args: [hookTarget(home), String(port)] };
+  if (nodePath) {
+    const entry = { ...base, command: nodePath, args: [hookTarget(home), String(port)] };
+    if (event === ANSWER_EVENT) { delete entry.async; entry.timeout = ANSWER_TIMEOUT; }
+    return entry;
+  }
   const url = `http://127.0.0.1:${port}/event`;
   if (platform === 'win32') {
     // No node: PowerShell forwards stdin as UTF-8 (no window lookup, so "focus" falls back to the panel).
@@ -122,10 +129,10 @@ function install({ port, nodePath, hookSource, home }) {
   }
   ensureToken(home);
   if (nodePath) fs.copyFileSync(hookSource, hookTarget(home)); // stable path: survives app updates and moves
-  const entry = hookEntry({ port, nodePath, home });
   settings.hooks ??= {};
   for (const ev of EVENTS) {
     if (settings.hooks[ev] !== undefined && !Array.isArray(settings.hooks[ev])) throw new Error(`hooks.${ev} in settings.json is not a list; fix it by hand first`);
+    const entry = hookEntry({ port, nodePath, home, event: ev });
     const group = TOOL_EVENTS.has(ev) ? { matcher: '*', hooks: [entry] } : { hooks: [entry] };
     settings.hooks[ev] = [...groupsOf(settings.hooks, ev), group];
   }
@@ -153,7 +160,9 @@ function status({ home } = {}) {
     const port = !one ? null : mode === 'node' ? Number(one.args[1]) || null : Number((JSON.stringify(one).match(/127\.0\.0\.1:(\d+)/) || [])[1]) || null;
     // node mode records an absolute node path: it goes stale when nvm / Homebrew remove that version.
     const stale = mode === 'node' && !fs.existsSync(one.command);
-    const outdated = !!one && markOf(one) !== MARK; // installed by the old Session Guild build
+    // Installed by the old Session Guild build, or before Bobix could answer permission requests.
+    const ask = groupsOf(hooks, ANSWER_EVENT).flatMap(entriesOf).find(isOurs);
+    const outdated = !!one && (markOf(one) !== MARK || (mode === 'node' && !!ask?.async));
     return { file, events, complete: events.length === EVENTS.length, mode, port, nodePath: mode === 'node' ? one.command : null, stale, outdated };
   } catch (err) {
     return { file, error: `settings.json: ${err.message}`, events: [], complete: false, mode: null, port: null, stale: false };

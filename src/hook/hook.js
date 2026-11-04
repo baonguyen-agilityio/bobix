@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Claude Code hook for Bobix: reads the hook event (JSON on stdin) and posts a trimmed copy
 // to the local app. No dependencies, never fails the hook. Usage: node hook.js <port>
+// On PermissionRequest it waits for Bobix's answer (Allow / Deny) and prints it for Claude Code;
+// no answer (Bobix not running, turned off, or nobody clicked in time) prints nothing: Claude asks as usual.
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
@@ -33,10 +35,20 @@ process.stdin.on('end', () => {
   e.bobix_env = Object.keys(process.env).filter(k => /^CLAUDE/.test(k)).sort().slice(0, 40);
   e.bobix_host_shape = host ? host.replace(/[A-Za-z0-9]/g, 'x').slice(0, 80) : null;
   const body = JSON.stringify(e);
+  const ask = e.hook_event_name === 'PermissionRequest';
   const req = http.request({
-    host: '127.0.0.1', port, path: '/event', method: 'POST', timeout: 1500, agent: false, // no keep-alive: exit right after
-    headers: { 'content-type': 'application/json', 'x-bobix': token, 'content-length': Buffer.byteLength(body) },
-  }, res => res.resume());
+    host: '127.0.0.1', port, path: '/event', method: 'POST', agent: false, // no keep-alive: exit right after
+    timeout: ask ? 320e3 : 1500, // the app answers within its own wait time, at most 5 minutes
+    headers: { 'content-type': 'application/json', 'x-bobix': token, 'content-length': Buffer.byteLength(body), ...(ask && { 'x-bobix-wait': '1' }) },
+  }, res => {
+    let out = '';
+    res.setEncoding('utf8');
+    res.on('data', c => { out += c; });
+    res.on('end', () => {
+      if (!ask || res.statusCode !== 200) return;
+      try { const d = JSON.parse(out).hookSpecificOutput; if (d?.hookEventName === 'PermissionRequest') process.stdout.write(JSON.stringify({ hookSpecificOutput: d })); } catch {}
+    });
+  });
   req.on('error', () => {});
   req.on('timeout', () => req.destroy());
   req.end(body);

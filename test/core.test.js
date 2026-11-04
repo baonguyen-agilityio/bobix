@@ -205,6 +205,42 @@ test('hook.js forwards a trimmed event', async () => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('a permission request waits for the answer from Bobix and prints it for Claude Code', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-home-'));
+  const token = hooks.ensureToken(home);
+  let reply = null;
+  const srv = startServer({ port: 0, token, onEvent: (e, signal) => (signal ? reply : null), snapshot: () => ({}) });
+  await srv.ready;
+  const { execFile } = require('child_process');
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const run = ev => new Promise(res => execFile(process.execPath, [path.join(__dirname, '..', 'src', 'hook', 'hook.js'), String(srv.server.address().port)], { env }, (err, out) => res(out)).stdin.end(JSON.stringify(ev)));
+  const ask = { session_id: 's3', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } };
+  const decision = { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } };
+  reply = new Promise(r => setTimeout(() => r(decision), 300));
+  assert.deepEqual(JSON.parse(await run(ask)), decision, 'the answer reaches Claude Code');
+  reply = null;
+  const t0 = Date.now();
+  assert.equal(await run(ask), '', 'no answer: nothing printed, Claude asks as usual');
+  assert.ok(Date.now() - t0 < 1000);
+  assert.equal(await run({ ...ask, hook_event_name: 'PreToolUse' }), '', 'other events never print');
+  await srv.close();
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('the permission hook runs in the foreground; an old background one counts as outdated', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-home-'));
+  const src = path.join(__dirname, '..', 'src', 'hook', 'hook.js');
+  hooks.install({ port: 4747, nodePath: process.execPath, hookSource: src, home });
+  const file = hooks.settingsPath(home), cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const ask = cfg.hooks.PermissionRequest[0].hooks[0], tool = cfg.hooks.PreToolUse[0].hooks[0];
+  assert.equal(ask.async, undefined); assert.ok(ask.timeout >= 300);
+  assert.equal(tool.async, true);
+  assert.equal(hooks.status({ home }).outdated, false);
+  ask.async = true; fs.writeFileSync(file, JSON.stringify(cfg));
+  assert.equal(hooks.status({ home }).outdated, true, 'installed before answers: reinstall');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('macOS focus picks the outermost app that owns the window', () => {
   const { outerBundle } = require('../src/core/focus');
   // Claude desktop: the CLI is itself bundled as an .app inside Claude.app's support folder

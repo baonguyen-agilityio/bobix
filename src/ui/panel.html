@@ -89,6 +89,7 @@ code{font:500 var(--t-sm)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;backgr
 .pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
 .pane p{margin:0}
 .ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-md);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
+.ask .acts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2)}
 .ask strong{color:var(--coral-ink)}
 .report{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--t-sm);background:var(--mint-soft);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
 .log{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
@@ -237,6 +238,7 @@ input[type=number]{width:104px}
 const IDLE_AFTER = 10 * 60e3;
 const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const secsLeft = s => (s.answer ? Math.max(0, Math.ceil((s.answer.until - Date.now()) / 1000)) : 0);
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 // Same rule as the pets overlay: hidden by hand, or asleep past the "leave after" time.
 const offScreen = s => {
@@ -335,7 +337,7 @@ function renderPane() {
   pane.hidden = !s;
   if (!s) return;
   const st = look(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.summary, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -350,7 +352,10 @@ function renderPane() {
       <button class="btn" type="button" data-act="close">${T('pane.close')}</button>
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
-    ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${T('pane.askHint')}</div>` : ''}
+    ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${T('pane.askWithin', { n: secsLeft(s) })}
+      <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
+        <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
+        <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T('pane.askHint')}</div>` : ''}
     <h3>${T('pane.quest')}</h3><p>${esc(s.quest || T('line.noQuest'))}</p>
     ${s.summary ? `<h3>${T('pane.report')}</h3><div class="report">${esc(s.summary)}</div>` : ''}
     <h3>${T('pane.log')}</h3>
@@ -365,6 +370,7 @@ function openFail(r) {
 $('#pane').addEventListener('click', async e => {
   const act = e.target.dataset.act;
   if (act === 'close') select(null);
+  if (act === 'answer') { const s = list.find(x => x.id === selected); if (s?.answer) bridge.answer(s.answer.id, e.target.dataset.choice); }
   if (act === 'pet') { const s = list.find(x => x.id === selected); if (s) bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden'); }
   if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); }
 });
@@ -392,12 +398,13 @@ const SECTIONS = [
     { k: 'opacity', type: 'range', min: 0.2, max: 1, step: 0.05, fmt: pct },
     { k: 'fadeNearCursor', type: 'switch' },
     { k: 'show', type: 'seg', opts: opts(['all', 'active', 'attention'], 'set.show.'), get: showOf, set: v => SHOW[v] },
-    { k: 'sleepHide', type: 'minutes' },
+    { k: 'sleepHide', type: 'number', min: 0, max: 1440, step: 5, unit: 'set.minutes' },
     { k: 'label', type: 'seg', opts: opts(['title', 'folder', 'both'], 'set.label.') },
     { k: 'clickAction', type: 'seg', opts: opts(['focus', 'panel'], 'set.click.') },
   ]],
   ['set.section.notify', [
     { k: 'paused', type: 'switch' },
+    { k: 'approveWait', type: 'number', min: 0, max: 300, step: 5, unit: 'set.seconds' },
     { k: 'notifyWaiting', type: 'switch', dim: s => s.paused },
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
@@ -417,7 +424,7 @@ function control(r, s) {
   if (r.type === 'select') return `<select id="${id}" data-k="${r.k}">${r.opts().map(([o, l]) => `<option value="${esc(o)}" ${String(v) === o ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   if (r.type === 'seg') return `<div class="seg" role="radiogroup" aria-labelledby="l-${r.k}">${r.opts().map(([o, l]) =>
     `<button type="button" role="radio" aria-checked="${String(v) === o}" data-k="${r.k}" data-v="${esc(o)}">${esc(l)}</button>`).join('')}</div>`;
-  if (r.type === 'minutes') return `<div class="rng-row"><input type="number" id="${id}" data-k="${r.k}" min="0" max="1440" step="5" value="${v}" style="width:7em"><span class="val">${T('set.minutes')}</span></div>`;
+  if (r.type === 'number') return `<div class="rng-row"><input type="number" id="${id}" data-k="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${v}" style="width:7em"><span class="val">${T(r.unit)}</span></div>`;
   if (r.type === 'range') return `<div class="rng-row"><input type="range" class="rng" id="${id}" data-k="${r.k}" min="${r.min}" max="${r.max}" step="${r.step}" value="${v}" style="--fill:${fill(r, v)}"><output class="val" for="${id}" data-val="${r.k}">${r.fmt(v)}</output></div>`;
   if (r.type === 'zone') {
     const z = { min: 0, max: 100 }, cur = Object.entries(ZONES).find(([, [a, b]]) => a === s.zoneStart && b === s.zoneEnd)?.[0];
@@ -589,6 +596,7 @@ es.onmessage = m => {
   if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();
 };
 setInterval(render, 15e3);
+setInterval(() => list.some(s => s.answer) && renderPane(), 1000); // countdown of a waiting permission request
 $('#conn').textContent = T('conn.wait');
 (async () => {
   if (bridge) {
