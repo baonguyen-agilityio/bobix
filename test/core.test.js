@@ -270,6 +270,25 @@ test('the permission hook runs in the foreground; an old background one counts a
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('new version check: only a newer, non-pre-release version is offered', async () => {
+  const { isNewer, checkLatest } = require('../src/core/update');
+  assert.equal(isNewer('v0.1.2', '0.1.1'), true);
+  assert.equal(isNewer('v0.1.1', '0.1.1'), false);
+  assert.equal(isNewer('v0.1.0', '0.1.1'), false);
+  assert.equal(isNewer('v0.2.0', '0.1.9'), true);
+  assert.equal(isNewer('v0.1.1', '0.1.1-rc.3'), true, 'the release beats its own release candidates');
+  assert.equal(isNewer('garbage', '0.1.1'), false);
+  const reply = body => async (url, opts) => { assert.match(opts.headers['User-Agent'], /^Bobix\//); return { ok: true, json: async () => body }; };
+  const repo = 'baonguyen-agilityio/bobix';
+  assert.deepEqual(await checkLatest({ repo, current: '0.1.1', fetchImpl: reply({ tag_name: 'v0.1.2', html_url: `https://github.com/${repo}/releases/tag/v0.1.2` }) }),
+    { version: '0.1.2', url: `https://github.com/${repo}/releases/tag/v0.1.2` });
+  assert.equal((await checkLatest({ repo, current: '0.1.1', fetchImpl: reply({ tag_name: 'v0.1.2', html_url: 'https://evil.example/x' }) })).url,
+    `https://github.com/${repo}/releases/latest`, 'only opens the project\'s own release page');
+  assert.equal(await checkLatest({ repo, current: '0.1.1', fetchImpl: reply({ tag_name: 'v0.1.2', prerelease: true }) }), null);
+  assert.equal(await checkLatest({ repo, current: '0.1.1', fetchImpl: async () => { throw new Error('offline'); } }), null, 'offline: quiet');
+  assert.equal(await checkLatest({ repo, current: '0.1.1', fetchImpl: async () => ({ ok: false }) }), null);
+});
+
 test('macOS focus picks the outermost app that owns the window', () => {
   const { outerBundle } = require('../src/core/focus');
   // Claude desktop: the CLI is itself bundled as an .app inside Claude.app's support folder

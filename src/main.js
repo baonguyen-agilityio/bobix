@@ -11,6 +11,7 @@ const hooks = require('./core/hooks');
 const autostart = require('./core/autostart');
 const { focusPids, ancestors, processNames, hostApp } = require('./core/focus');
 const { startServer } = require('./core/server');
+const { checkLatest } = require('./core/update');
 const { bitmap } = require('./core/icon');
 const I18N = require('./ui/i18n');
 
@@ -226,6 +227,26 @@ const broadcastSettings = () => {
   for (const w of [overlay, panel]) if (w && !w.isDestroyed()) w.webContents.send('settings', settings);
 };
 
+// ---------- new version ----------
+// Once at start and then daily: ask GitHub for the latest release (see core/update.js). A newer one shows a
+// notification once per version and a tray item that opens its release page.
+const REPO = 'baonguyen-agilityio/bobix';
+let update = null, updateTold = null;
+async function checkForUpdate() {
+  if (!settings.checkUpdates) return;
+  const u = await checkLatest({ repo: REPO, current: app.getVersion() });
+  if (!u || u.version === update?.version) return;
+  update = u;
+  buildTray();
+  if (updateTold === u.version || !Notification.isSupported()) return;
+  updateTold = u.version;
+  const n = new Notification({ title: tr('update.title', { v: u.version }), body: tr('update.body', { v: app.getVersion() }) });
+  shown.add(n);
+  n.on('click', () => { shown.delete(n); shell.openExternal(u.url); });
+  n.on('close', () => shown.delete(n));
+  n.show();
+}
+
 // ---------- tray ----------
 function buildTray() {
   // 32 px drawn for a 16 pt slot (2x), straight from pixels: no image file to ship.
@@ -236,6 +257,7 @@ function buildTray() {
     { label: tr(settings.petsVisible ? 'tray.hide' : 'tray.show'), click: () => updateSettings({ petsVisible: !settings.petsVisible }) },
     { label: tr('tray.showAll'), click: () => { setPet(sessions, '*', 'shown'); server.broadcast(snapshot()); if (!settings.petsVisible) updateSettings({ petsVisible: true }); } },
     { label: tr('tray.pause'), type: 'checkbox', checked: settings.paused, click: m => updateSettings({ paused: m.checked }) },
+    ...(update ? [{ type: 'separator' }, { label: tr('tray.update', { v: update.version }), click: () => shell.openExternal(update.url) }] : []),
     { type: 'separator' },
     { label: tr('tray.quit'), click: () => app.quit() },
   ]));
@@ -273,6 +295,8 @@ async function updateSettings(patch) {
   if (['display', 'edge', 'size'].some(k => settings[k] !== prev[k])) placeOverlay();
   if (settings.petsVisible !== prev.petsVisible) showOverlay();
   if (['petsVisible', 'paused', 'language'].some(k => settings[k] !== prev[k])) buildTray();
+  if (settings.checkUpdates && !prev.checkUpdates) checkForUpdate();
+  if (!settings.checkUpdates && update) { update = null; buildTray(); }
   broadcastSettings();
   return settings;
 }
@@ -475,6 +499,8 @@ app.whenReady().then(async () => {
   screen.on('display-added', placeOverlay);
   screen.on('display-removed', placeOverlay);
   if (process.env.BOBIX_SMOKE) return smoke(process.env.BOBIX_SMOKE);
+  setTimeout(checkForUpdate, 15e3);
+  timers.push(setInterval(checkForUpdate, 24 * 3600e3));
   if (!hooks.status().events.length) showPanel({ tab: 'setup' }); // first run: help connect Claude Code
 });
 

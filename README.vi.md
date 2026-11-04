@@ -43,7 +43,8 @@ Chạy vài session Claude Code cùng lúc thì bạn sẽ phải bấm qua từ
 - **Không che việc của bạn**: chọn màn hình, mép trên hoặc dưới, đoạn mép được đi, kích thước và độ rõ. Chú thú mờ đi khi chuột lại gần, mọi chỗ không phải chú thú đều cho click xuyên qua, con ngủ quá lâu sẽ rời màn hình sau khoảng thời gian bạn chọn.
 - **Nhẹ máy**: khoảng 1–2 % CPU khi các chú thú đứng yên, không vẽ gì khi không có con nào, không ghi ổ đĩa ngoài file cài đặt.
 - **macOS, Windows và Linux**, tiếng Anh và tiếng Việt.
-- **Riêng tư**: chạy hoàn toàn trên máy bạn, không cần tài khoản, không gửi gì ra mạng. Xem [Quyền riêng tư](docs/privacy.md).
+- **Riêng tư**: chạy hoàn toàn trên máy bạn, không cần tài khoản, không gửi gì về bạn hay các session ra ngoài. Yêu cầu mạng duy nhất là mỗi ngày hỏi GitHub có bản mới chưa, và bạn tắt được. Xem [Quyền riêng tư](docs/privacy.md).
+- **Báo khi có bản mới**: có phiên bản mới thì hiện thông báo và mục trong khay để tải về.
 
 ## Cài đặt
 

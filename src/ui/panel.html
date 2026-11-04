@@ -408,6 +408,7 @@ const SECTIONS = [
     { k: 'notifyWaiting', type: 'switch', dim: s => s.paused },
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
+    { k: 'checkUpdates', type: 'switch' },
   ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },

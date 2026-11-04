@@ -24,6 +24,7 @@ const DEFAULTS = {
   paused: false,           // do-not-disturb: no notifications
   petsVisible: true,
   autostart: false,
+  checkUpdates: true,      // once a day, ask GitHub whether a newer release exists (nothing about you is sent)
 };
 
 const ENUMS = { language: ['auto', 'en', 'vi'], edge: ['bottom', 'top'], label: ['title', 'folder', 'both'], clickAction: ['focus', 'panel'] };

@@ -1,6 +1,6 @@
 # Privacy and security
 
-Bobix runs entirely on your computer. It has no account, no analytics, and makes no network requests.
+Bobix runs entirely on your computer. It has no account and no analytics. Its only network request asks GitHub, once a day, whether a newer version exists; you can turn that off.
 
 ## What it reads
 
@@ -23,13 +23,14 @@ The hook script drops file contents and tool output before sending anything. All
 
 ## What it sends, and to whom
 
-- **Nothing leaves your computer.** Fonts and images are bundled. The app makes no requests to the internet.
+- **Nothing about you or your sessions leaves your computer.** Fonts and images are bundled.
+- **New version check** (Settings → "Tell me about new versions", on by default): once a day the app reads `https://api.github.com/repos/baonguyen-agilityio/bobix/releases/latest`, GitHub's public page of the latest release. It sends no data, only the request itself, so GitHub sees what any web page sees: your IP address and `Bobix/<version>` as the program name. No account or token is used.
 - Hooks talk to the app over `127.0.0.1` only. The server checks the Host header (blocks DNS rebinding) and requires the per-user token on every event and on the state stream, so web pages and other users on the same machine can neither feed it nor read it.
 - **Notifications** show a session's request or the start of its final answer through your operating system. They can appear while you share your screen; turn them off or use **Pause notifications** in Settings.
 
 ## What it runs
 
-- `node ~/.claude/bobix/hook.js <port>` on each Claude Code hook event (asynchronously, so Claude never waits for it). Fallbacks without Node.js: `curl` or PowerShell.
+- `node ~/.claude/bobix/hook.js <port>` on each Claude Code hook event, in the background so Claude never waits for it. The one exception is a permission request: there the hook waits for your answer in Bobix (Settings → "Approve from Bobix", 20 s by default, 0 = off), then Claude asks in the terminal as usual. Runs without a person at Bobix (`claude -p`, Agent SDK apps) never wait. Answers come only from Bobix's own windows and notifications, never over the network. Fallbacks without Node.js: `curl` or PowerShell (no approvals).
 - When you click a pet: `open -a <app>` (macOS), `WScript.Shell.AppActivate` via PowerShell (Windows) or `xdotool` (Linux) to bring the session's window forward, and `ps` / `Get-CimInstance` to find that window's process. In the Claude desktop app it opens `claude://code/continue?session=<id>`, a link that app registers. It is not a documented public API and may change; if it stops working, the click falls back to the session's details.
 - Arguments are always passed as lists, never through a shell.
 

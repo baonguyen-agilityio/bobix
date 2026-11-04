@@ -43,7 +43,8 @@ Run a few Claude Code sessions at once and you spend your day clicking through t
 - **Stays out of your way**: pick the screen, the top or bottom edge, the part of the edge pets may use, their size and opacity. Pets fade when the cursor comes near, everything that isn't a pet lets clicks through, and sleeping pets leave the screen after a time you choose.
 - **Light on your machine**: about 1–2 % CPU while pets sit still, nothing redrawn while none are out, no disk writes besides your settings.
 - **macOS, Windows and Linux**, in English and Vietnamese.
-- **Private by design**: runs locally, no account, no network requests. See [Privacy](docs/privacy.md).
+- **Private by design**: runs locally, no account, nothing about you or your sessions sent anywhere. The only request it makes is a daily check on GitHub for a new version, which you can turn off. See [Privacy](docs/privacy.md).
+- **Tells you about updates**: when a new version is out, a notification and the tray menu link to it.
 
 ## Install
 
