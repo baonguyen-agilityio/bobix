@@ -53,8 +53,10 @@ async function processNames(pids, platform = process.platform) {
   const list = (pids || []).filter(p => Number.isInteger(p) && p > 1);
   if (!list.length) return [];
   if (platform === 'win32') {
-    const txt = await out('powershell', ['-NoProfile', '-Command', `Get-Process -Id ${list.join(',')} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id) $($_.ProcessName)" }`]);
-    const names = new Map(txt.split(/\r?\n/).map(l => l.trim().split(/\s+/)).filter(a => a.length >= 2).map(([id, ...n]) => [Number(id), n.join(' ')]));
+    // tasklist ships with Windows and answers in well under a second; PowerShell can take over 15 s to start cold.
+    // CSV rows: "node.exe","5936","Console","1","45,000 K". Names lose ".exe", as PowerShell's ProcessName did.
+    const txt = await out('tasklist', ['/FO', 'CSV', '/NH']);
+    const names = new Map(txt.split(/\r?\n/).map(l => /^"([^"]*)","(\d+)"/.exec(l.trim())).filter(Boolean).map(m => [Number(m[2]), m[1].replace(/\.exe$/i, '')]));
     return list.map(p => names.get(p) || '?');
   }
   // Linux cuts `comm` to 15 characters ("gnome-terminal-"): read the program path from the command line there.
