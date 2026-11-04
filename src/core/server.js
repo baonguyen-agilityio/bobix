@@ -27,18 +27,21 @@ function startServer({ port, token, onEvent, snapshot }) {
       let body = '', size = 0;
       req.setEncoding('utf8'); // decode across chunk boundaries (non-ASCII prompts)
       req.on('data', c => { size += c.length; if (size > 8e6) req.destroy(); else body += c; });
-      // x-bobix-wait: the hook waits for an answer (PermissionRequest). onEvent returns a promise of the
-      // hook output, or null for "no answer"; the request closing (Claude moved on) cancels the wait.
+      // x-bobix-wait: the hook waits for an answer (PermissionRequest). onEvent returns { secs, answer } (a promise
+      // of the hook output, or of null for "no answer") or null when it won't wait. The reply's headers go out at
+      // once with the wait time, so the hook knows when to give up; the request closing (Claude moved on) cancels.
       const wait = req.headers['x-bobix-wait'] === '1';
       const gone = new AbortController();
       res.on('close', () => gone.abort());
       req.on('end', async () => {
         let out = null;
         try { out = onEvent(JSON.parse(body), wait ? gone.signal : null); } catch (err) { console.error('[bobix] bad event:', err.message); }
-        if (!wait) return res.writeHead(204).end();
-        try { out = await out; } catch { out = null; }
-        if (res.writableEnded || gone.signal.aborted) return;
-        out && typeof out === 'object' ? res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out)) : res.writeHead(204).end();
+        if (!wait || !out?.answer) return res.writeHead(204).end();
+        res.writeHead(200, { 'Content-Type': 'application/json', 'x-bobix-wait': String(out.secs) });
+        res.flushHeaders();
+        let answer = null;
+        try { answer = await out.answer; } catch {}
+        if (!res.writableEnded && !gone.signal.aborted) res.end(answer ? JSON.stringify(answer) : '');
       });
       return;
     }

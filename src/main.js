@@ -45,7 +45,7 @@ const fromUs = e => (e.senderFrame?.url || '').startsWith(origin() + '/'); // IP
 const pageUrl = (p, q = {}) => `${origin()}${p}?${new URLSearchParams({ ...q, t: token })}`; // pages need the token to read /events
 
 // ---------- hook events ----------
-// signal: set when the hook waits for an answer (PermissionRequest); returns a promise of the hook output then.
+// signal: set when the hook waits for an answer (PermissionRequest); returns { secs, answer } then (see waitForAnswer).
 function onEvent(e, signal) {
   lastEventAt = Date.now();
   const r = apply(sessions, e);
@@ -79,7 +79,7 @@ function waitForAnswer(s, e, signal) {
   if (s.answer) pending.get(s.answer.id)?.done(null); // one open request per session
   const id = require('crypto').randomUUID();
   const suggestions = Array.isArray(e.permission_suggestions) ? e.permission_suggestions : [];
-  return new Promise(resolve => {
+  const answer = new Promise(resolve => {
     const done = decision => {
       if (!pending.delete(id)) return;
       clearTimeout(timer);
@@ -93,6 +93,7 @@ function waitForAnswer(s, e, signal) {
     pending.set(id, { suggestions, done });
     s.answer = { id, until: Date.now() + secs * 1000, always: suggestions.length > 0 };
   });
+  return { secs, answer };
 }
 function answer(id, choice) {
   const p = typeof id === 'string' && pending.get(id);

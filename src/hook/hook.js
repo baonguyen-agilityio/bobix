@@ -35,12 +35,16 @@ process.stdin.on('end', () => {
   e.bobix_env = Object.keys(process.env).filter(k => /^CLAUDE/.test(k)).sort().slice(0, 40);
   e.bobix_host_shape = host ? host.replace(/[A-Za-z0-9]/g, 'x').slice(0, 80) : null;
   const body = JSON.stringify(e);
-  const ask = e.hook_event_name === 'PermissionRequest';
+  // Headless runs (claude -p, Agent SDK apps) have nobody at Bobix to answer, or their own UI: don't hold them up.
+  const ask = e.hook_event_name === 'PermissionRequest' && !/^sdk/.test(process.env.CLAUDE_CODE_ENTRYPOINT || '');
   const req = http.request({
     host: '127.0.0.1', port, path: '/event', method: 'POST', agent: false, // no keep-alive: exit right after
-    timeout: ask ? 320e3 : 1500, // the app answers within its own wait time, at most 5 minutes
+    timeout: ask ? 3000 : 1500, // until the app replies; a frozen app can't hold Claude up
     headers: { 'content-type': 'application/json', 'x-bobix': token, 'content-length': Buffer.byteLength(body), ...(ask && { 'x-bobix-wait': '1' }) },
   }, res => {
+    // The app replies at once with how long it will wait for an answer; never wait longer than that.
+    const secs = Math.min(300, Number(res.headers['x-bobix-wait']) || 0);
+    if (secs) { req.setTimeout(0); setTimeout(() => req.destroy(), (secs + 3) * 1000); }
     let out = '';
     res.setEncoding('utf8');
     res.on('data', c => { out += c; });

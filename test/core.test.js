@@ -216,14 +216,41 @@ test('a permission request waits for the answer from Bobix and prints it for Cla
   const run = ev => new Promise(res => execFile(process.execPath, [path.join(__dirname, '..', 'src', 'hook', 'hook.js'), String(srv.server.address().port)], { env }, (err, out) => res(out)).stdin.end(JSON.stringify(ev)));
   const ask = { session_id: 's3', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } };
   const decision = { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } };
-  reply = new Promise(r => setTimeout(() => r(decision), 300));
+  reply = { secs: 5, answer: new Promise(r => setTimeout(() => r(decision), 300)) };
   assert.deepEqual(JSON.parse(await run(ask)), decision, 'the answer reaches Claude Code');
-  reply = null;
-  const t0 = Date.now();
+  reply = { secs: 1, answer: new Promise(() => {}) }; // nobody answers and the app never ends the reply
+  let t0 = Date.now();
   assert.equal(await run(ask), '', 'no answer: nothing printed, Claude asks as usual');
+  assert.ok(Date.now() - t0 < 6000, 'the hook gives up soon after the wait time');
+  reply = null;
+  t0 = Date.now();
+  assert.equal(await run(ask), '', 'the app does not wait (turned off): nothing printed');
   assert.ok(Date.now() - t0 < 1000);
   assert.equal(await run({ ...ask, hook_event_name: 'PreToolUse' }), '', 'other events never print');
   await srv.close();
+  // A frozen app (accepts the connection, never replies) holds the hook only briefly.
+  const net = require('net');
+  const frozen = net.createServer(() => {}).listen(0, '127.0.0.1');
+  await new Promise(r => frozen.once('listening', r));
+  t0 = Date.now();
+  const out = await new Promise(res => execFile(process.execPath, [path.join(__dirname, '..', 'src', 'hook', 'hook.js'), String(frozen.address().port)], { env }, (err, o) => res(o)).stdin.end(JSON.stringify(ask)));
+  assert.equal(out, ''); assert.ok(Date.now() - t0 < 5000, 'frozen app: the hook gives up after a few seconds');
+  frozen.close();
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('headless runs (claude -p, Agent SDK) are never held for an answer', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-home-'));
+  const token = hooks.ensureToken(home);
+  const waited = [];
+  const srv = startServer({ port: 0, token, onEvent: (e, signal) => { waited.push(!!signal); return null; }, snapshot: () => ({}) });
+  await srv.ready;
+  const { execFile } = require('child_process');
+  const env = { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' };
+  await new Promise(res => execFile(process.execPath, [path.join(__dirname, '..', 'src', 'hook', 'hook.js'), String(srv.server.address().port)], { env }, res)
+    .stdin.end(JSON.stringify({ session_id: 's4', hook_event_name: 'PermissionRequest', tool_name: 'Bash' })));
+  await srv.close();
+  assert.deepEqual(waited, [false], 'the event still arrives, without asking the app to wait');
   fs.rmSync(home, { recursive: true, force: true });
 });
 
