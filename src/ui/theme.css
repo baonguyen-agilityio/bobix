@@ -22,5 +22,5 @@
   --press:0 4px 0 var(--line-strong);
   --lift:0 1px 2px oklch(30% 0.04 262 / .05),0 4px 12px oklch(30% 0.04 262 / .06);
   --ease:cubic-bezier(0.25,1,0.5,1);
-  --pane:400px;
+  --pane:clamp(400px,30vw,640px);
 }
