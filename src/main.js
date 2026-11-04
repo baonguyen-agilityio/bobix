@@ -194,7 +194,11 @@ async function openSession(id, preferFocus = settings.clickAction === 'focus', t
       else {
         const chain = await ancestors(s.claudePid);
         if (await focusPids(chain)) return { ok: true };
-        app = hostApp(await processNames(chain));
+        const names = await processNames(chain);
+        app = hostApp(names);
+        // A CLI in the Claude app's own terminal: the app's link brings its window forward, also on Wayland (no window
+        // is raised by Bobix itself). Its tab is not chosen: there is no session id to send for it.
+        if (names.includes('claude-desktop')) { await shell.openExternal('claude://'); return { ok: true }; }
         if (process.platform === 'linux') reason = WAYLAND ? 'wayland' : (await hasXdotool()) ? 'notfound' : 'xdotool';
       }
     } catch (err) { console.error('[bobix] open session:', err.message); }
