@@ -272,6 +272,8 @@ input[type=number]{width:104px}
 <script src="/ui/markdown.js"></script>
 <script src="/ui/log.js"></script>
 <script>
+// The panel shows after 1 s at the latest. Set first, so an error further down cannot leave it hidden (body.boot).
+setTimeout(() => document.body.classList.remove('boot'), 1000);
 const IDLE_AFTER = 10 * 60e3;
 const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -645,10 +647,9 @@ function applyLang() {
   if (!$('#tab-setup').hidden) renderSetup();
 }
 $('#egg').innerHTML = creature('bobix', 'idle');
-// Shown once its language and the first sessions are in, so the bar doesn't jump as they arrive; at the latest after 1 s.
+// Shown once its language and the first sessions are in, so the bar doesn't jump as they arrive (fallback: top of this script).
 const pending = new Set(['state', 'list']);
 const arrived = k => pending.delete(k) && !pending.size && document.body.classList.remove('boot');
-setTimeout(() => document.body.classList.remove('boot'), 1000);
 const es = new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || ''));
 es.onopen = () => { $('#conn').textContent = T('conn.ok'); $('#conn').className = 'conn'; };
 es.onerror = () => { $('#conn').textContent = T('conn.lost'); $('#conn').className = 'conn lost'; };
