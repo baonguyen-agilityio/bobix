@@ -60,7 +60,7 @@ function startServer({ port, token, onEvent, snapshot, petDir }) {
       if (!petDir || !okToken(new URL(req.url, 'http://x').searchParams.get('t'))) return res.writeHead(403).end();
       const f = path.join(petDir, pic[1]);
       if (!fs.existsSync(f)) return res.writeHead(404).end();
-      res.writeHead(200, { 'Content-Type': `image/${pic[2]}`, 'Cache-Control': 'no-store' });
+      res.writeHead(200, { 'Content-Type': `image/${pic[2]}`, 'Cache-Control': 'private, max-age=31536000, immutable' });
       return fs.createReadStream(f).pipe(res);
     }
     const rel = url.startsWith('/ui/') ? url.slice(4) : '';

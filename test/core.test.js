@@ -410,6 +410,61 @@ test('pet pictures: only valid file names are kept, and they are served with the
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('an uploaded picture becomes the big head of the same project\'s creature', () => {
+  const ctx = {};
+  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
+  const faced = ctx.creature('some project', 'working', '/pet-image/a.png?t=x');
+  assert.doesNotMatch(faced, /class="eye"/, 'the picture is the face');
+  assert.match(faced, /<image href="\/pet-image\/a\.png\?t=x" x="4\.5" y="4\.5" width="13" height="13"/, 'it takes 13 of 22 units');
+  assert.ok(faced.indexOf('<image') < faced.lastIndexOf('<rect '), 'the outline trims the corners of the picture');
+  assert.equal(faced, ctx.creature('some project', 'done', '/pet-image/a.png?t=x'), 'the same project keeps its shape');
+  const shapes = new Set(['a', 'b', 'c', 'd', 'e', 'f'].map(id => ctx.creature(id, 'working', '/x.png').replace(/var\(--[a-z]+\)/g, '')));
+  assert.ok(shapes.size > 1, 'projects differ in shape');
+});
+
+test('feedback carries no folders, tokens or session names, and fits in a link', () => {
+  const { redact, summarize, issueUrl, MAX_URL } = require('../src/core/feedback');
+  const home = '/Users/Jo Doe';
+  assert.equal(redact('failed /Users/Jo Doe/work/acme-secret/a.js', home), 'failed .../a.js');
+  assert.equal(redact('failed /home/sam/acme/a.js'), 'failed .../a.js');
+  assert.equal(redact('failed C:\\Users\\sam\\acme\\a.js'), 'failed .../a.js');
+  assert.equal(redact('http://x/y?t=abc&z=1'), 'http:/.../y?t=[redacted]&z=1');
+  assert.equal(redact('key ' + 'a'.repeat(48)), 'key [redacted]');
+  const d = { app: '1.0', platform: 'linux', release: '6', arch: 'x64', settings: {}, hooks: { mode: 'node', error: 'bad /Users/Jo Doe/.claude/x.json' }, displays: [{ id: 9, bounds: { x: 1 }, scale: 2, primary: true }],
+    overlay: { ready: true, visible: true, alwaysOnTop: true, page: { pets: 1, labels: [3] }, errors: ['secret in overlay'] },
+    sessions: [{ state: 'working', sinceMin: 2, title: true, chain: ['/Users/Jo Doe/acme/run'], env: ['ACME_SECRET'] }], somethingNew: 'never listed' };
+  const info = summarize(d, ['boom /Users/Jo Doe/acme/a.js'], home), text = [...info.lines, ...info.errs].join('\n');
+  for (const leak of ['Jo Doe', 'acme', 'ACME_SECRET', 'never listed', 'secret in overlay']) assert.ok(!text.includes(leak), leak);
+  assert.match(text, /Sessions: working 2m/);
+  const short = issueUrl({ repo: 'o/r', kind: 'bug', title: 'Pets & co', description: 'hi', info });
+  assert.ok(short.url.startsWith('https://github.com/o/r/issues/new?title=%5BBug%5D%20Pets%20%26%20co&body='));
+  const idea = decodeURIComponent(issueUrl({ repo: 'o/r', kind: 'idea', title: 'Themes', description: 'nice', info: null }).url);
+  assert.match(idea, /title=\[Idea\] Themes&body=## The idea\nnice$/, 'an idea carries no technical details');
+  assert.equal(short.truncated, false);
+  assert.match(decodeURIComponent(short.url), /## Recent errors\n- boom \.\.\.\/a\.js/);
+  const long = issueUrl({ repo: 'o/r', kind: 'bug', title: 't', description: 'đ'.repeat(5000), info: { lines: ['- l'], errs: ['- e'.repeat(90)] } });
+  assert.ok(long.url.length <= MAX_URL && long.truncated, 'cut to fit');
+  assert.match(decodeURIComponent(long.url), /## Technical details/, 'the details survive');
+});
+
+test('sessions of one project share a shape; colours tell them apart', () => {
+  const ctx = {};
+  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
+  const fill = svg => [...new Set((svg.match(/fill="var\(--[a-z]+\)"/g) || []))].join();
+  const shape = svg => svg.replace(/fill="[^"]*"/g, '');
+  const list = [{ id: 'a', project: '/p' }, { id: 'b', project: '/p' }, { id: 'c', project: '/q' },
+    ...['k1', 'k2', 'k3'].map(id => ({ id, project: '/p', parent: 'a' }))];
+  const art = s => ctx.creature((list.find(x => x.id === s.parent) || s).project, 'working', null, ctx.petColor(s, list));
+  const [A, B, K1, K2] = ['a', 'b', 'k1', 'k2'].map(id => art(list.find(x => x.id === id)));
+  assert.equal(shape(A), shape(B), 'same project, same shape');
+  assert.notEqual(fill(A), fill(B), 'two sessions of a project differ in colour');
+  assert.equal(shape(K1), shape(A), 'a side session has its parent\'s shape');
+  assert.notEqual(fill(K1), fill(A), 'never its parent\'s colour');
+  assert.notEqual(fill(K1), fill(K2), 'neighbours differ');
+  assert.notEqual(fill(K1), fill(B), 'a side session never looks like another session of the project');
+  assert.equal(ctx.petColor(list[2], list), ctx.petColor({ id: 'c', project: '/q' }, [{ id: 'c', project: '/q' }]), 'alone in its project: the project\'s colour');
+});
+
 test('macOS focus picks the outermost app that owns the window', () => {
   const { outerBundle } = require('../src/core/focus');
   // Claude desktop: the CLI is itself bundled as an .app inside Claude.app's support folder
@@ -444,3 +499,4 @@ test('upgrading from the old Session Guild name replaces its hooks and folder', 
   assert.ok(!fs.existsSync(oldDir), 'old folder cleaned up');
   fs.rmSync(home, { recursive: true, force: true });
 });
+

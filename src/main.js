@@ -14,6 +14,7 @@ const { startServer } = require('./core/server');
 const { checkLatest } = require('./core/update');
 const { parentOf } = require('./core/links');
 const { projectOf } = require('./core/project');
+const feedback = require('./core/feedback');
 const { bitmap } = require('./core/icon');
 const I18N = require('./ui/i18n');
 
@@ -43,6 +44,9 @@ let settings, server, overlay, panel, tray, token, nodePath = null, lastEventAt 
 const shown = new Set(); // live Notification objects: a collected one loses its click handler
 let rects = [], interactive = false, lastMouse = '', overlayReady = false, timers = [];
 const pageErrors = []; // last errors from the pets page, for diagnostics
+const mainErrors = []; // last errors of this process, kept in memory for feedback
+const logError = console.error;
+console.error = (...a) => { mainErrors.push(a.join(' ').slice(0, 300)); if (mainErrors.length > 20) mainErrors.shift(); logError(...a); };
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 const origin = () => `http://127.0.0.1:${settings.port}`;
@@ -348,6 +352,7 @@ function buildTray() {
     { label: tr(settings.petsVisible ? 'tray.hide' : 'tray.show'), click: () => updateSettings({ petsVisible: !settings.petsVisible }) },
     { label: tr('tray.showAll'), click: () => { setPet(sessions, '*', 'shown'); server.broadcast(snapshot()); if (!settings.petsVisible) updateSettings({ petsVisible: true }); } },
     { label: tr('tray.pause'), type: 'checkbox', checked: settings.paused, click: m => updateSettings({ paused: m.checked }) },
+    { label: tr('tray.feedback'), click: () => showPanel({ tab: 'feedback' }) },
     ...(update ? [{ type: 'separator' }, { label: tr('tray.update', { v: update.version }), click: () => shell.openExternal(update.url) }] : []),
     { type: 'separator' },
     { label: tr('tray.quit'), click: () => app.quit() },
@@ -436,6 +441,8 @@ function ipc() {
   handle('settings:reset', () => updateSettings({ ...S.DEFAULTS, language: settings.language, port: settings.port, autostart: settings.autostart }));
   handle('reveal-settings', () => shell.showItemInFolder(hooks.status().file));
   handle('diagnostics', async () => { const text = JSON.stringify(await diagnostics(), null, 2); clipboard.writeText(text); return text; });
+  handle('feedback:info', () => feedbackInfo());
+  handle('feedback:send', v => sendFeedback(v));
   handle('hooks:install', () => installHooks());
   handle('hooks:uninstall', () => { try { return hooks.uninstall(); } catch (err) { return { error: err.message }; } });
   handle('hooks:test', () => testEvent());
@@ -518,6 +525,18 @@ async function smoke(dir) {
   write(); log('done ' + JSON.stringify(report));
   fs.writeFileSync(path.join(dir, 'done'), ''); // CI waits for this, then stops the app itself
   app.exit(report.visible && report.onTop && report.pets >= 2 && !report.pageErrors.length ? 0 : 1);
+}
+
+// The Feedback button: what a bug report will say, and opening GitHub's form.
+async function feedbackInfo() {
+  return feedback.summarize(await diagnostics(), [...pageErrors, ...mainErrors], os.homedir());
+}
+async function sendFeedback({ kind, title, description } = {}) {
+  if (typeof title !== 'string' || !title.trim()) return { ok: false };
+  const idea = kind === 'idea';
+  const { url, truncated } = feedback.issueUrl({ repo: REPO, kind: idea ? 'idea' : 'bug', title, description: typeof description === 'string' ? description.slice(0, 5000) : '', info: idea ? null : await feedbackInfo() });
+  await shell.openExternal(url);
+  return { ok: true, truncated };
 }
 
 // "Copy diagnostics" in Setup: everything needed to debug pets / opening sessions, no prompts, tokens or full paths.

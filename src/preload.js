@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('bobix', {
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
   revealSettings: () => ipcRenderer.invoke('reveal-settings'),
   copyDiagnostics: () => ipcRenderer.invoke('diagnostics'),
+  feedbackInfo: () => ipcRenderer.invoke('feedback:info'),
+  sendFeedback: v => ipcRenderer.invoke('feedback:send', v), // opens GitHub's form; the person submits it there
   installHooks: () => ipcRenderer.invoke('hooks:install'),
   uninstallHooks: () => ipcRenderer.invoke('hooks:uninstall'),
   testEvent: () => ipcRenderer.invoke('hooks:test'),

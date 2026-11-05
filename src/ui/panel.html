@@ -57,7 +57,6 @@ details.group[open]>summary .group-h::after,.fold[open]>summary h3::after{conten
 .row.st-waiting{background:var(--coral-soft);border-color:var(--coral)}
 .sprite{display:grid;place-items:center;width:48px;height:48px;border-radius:var(--r-md);background:var(--n-100)}
 .st-waiting .sprite{background:var(--surface)}
-.sprite img{width:100%;height:100%;object-fit:contain;border-radius:inherit}
 .main{min-width:0;display:flex;flex-direction:column}
 .title{display:flex;flex-wrap:wrap;column-gap:var(--s2);align-items:baseline;min-width:0}
 .title strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
@@ -79,7 +78,7 @@ details.group[open]>summary .group-h::after,.fold[open]>summary h3::after{conten
 .ago{font-size:var(--t-xs);color:var(--ink-3);text-align:right;white-space:nowrap}
 .eye{transform-box:fill-box;transform-origin:center}
 .st-working .eye{animation:blink 4.2s infinite}
-.st-waiting .sprite svg,.st-waiting .sprite img{animation:hop 900ms var(--ease) infinite}
+.st-waiting .sprite svg{animation:hop 900ms var(--ease) infinite}
 @keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.15)}}
 @keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}
 
@@ -162,6 +161,16 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .opt.wide .ctl{justify-content:flex-start}
 select,input[type=number]{min-height:40px;padding:0 var(--s3);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);font-size:var(--t-sm)}
 input[type=number]{width:104px}
+.fb{width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 32px);box-sizing:border-box;padding:var(--s6);border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);color:var(--ink);box-shadow:var(--lift)}
+.fb::backdrop{background:oklch(30% 0.04 262 / .35)}
+.fb h2{font-size:var(--t-lg);margin-bottom:var(--s2)}
+.fb .seg{margin-top:var(--s3)}
+.fb label{display:block;margin:var(--s3) 0 var(--s1);font-size:var(--t-sm);font-weight:600}
+.fb input,.fb textarea{width:100%;box-sizing:border-box;padding:var(--s2) var(--s3);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font:inherit}
+.fb textarea{min-height:96px;resize:vertical}
+.fb details{margin-top:var(--s3);font-size:var(--t-sm);color:var(--ink-2)}
+.fb summary{cursor:pointer}
+.fb pre{margin:var(--s2) 0 0;padding:var(--s3);max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--n-100);border-radius:var(--r-md);font-size:var(--t-xs)}
 .sw{appearance:none;-webkit-appearance:none;margin:0;width:44px;height:26px;border-radius:var(--pill);background:var(--n-300);position:relative;cursor:pointer;flex:none;transition:background 150ms var(--ease)}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--n-50);box-shadow:0 1px 2px oklch(30% 0.04 262 / .3);transition:transform 150ms var(--ease)}
 .sw:checked{background:var(--ink)}
@@ -245,7 +254,9 @@ input[type=number]{width:104px}
   <div class="counts" id="counts"></div>
   <button class="btn" type="button" id="showAll" data-t="board.showAll" hidden></button>
   <span class="conn lost" id="conn" role="status"></span>
+  <button class="btn" type="button" id="fb-open" data-t="fb.title"></button>
 </header>
+<dialog id="fb-dialog" class="fb" aria-labelledby="fb-heading"></dialog>
 
 <section id="tab-sessions">
   <div class="app" id="app">
@@ -277,8 +288,6 @@ const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Side sessions started from a Claude desktop session (parent = that session's id in Bobix).
 const kidsOf = s => list.filter(x => x.parent === s.id);
-const TOKEN = new URLSearchParams(location.search).get('t') || '';
-const petArt = (s, st) => (s.image ? `<img src="/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(TOKEN)}" alt="">` : creature(s.project || s.id, st));
 // Within one group: each parent followed by its side sessions.
 function familyOrder(items) {
   const ids = new Set(items.map(s => s.id)), out = [];
@@ -317,6 +326,7 @@ function toast(text, action) {
 
 // ---------- tabs ----------
 function showTab(name) {
+  if (name === 'feedback') return openFeedback(); // from the tray, over whichever tab is open
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   for (const n of ['sessions', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
   if (name === 'setup') renderSetup();
@@ -341,7 +351,8 @@ function logHTML(l) {
 }
 function rowHTML(s, st) {
   const hp = s.ctx;
-  return `<span class="sprite">${petArt(s.parent && list.find(x => x.id === s.parent) || s, st)}</span>
+  const par = s.parent && list.find(x => x.id === s.parent);
+  return `<span class="sprite">${petArt(par || s, st, petColor(s, list))}</span>
     <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${s.parent ? `<span class="folder">${esc(T('pet.from', { name: titleOf(s.parent) }))}</span>` : ''}${kidsOf(s).length ? `<span class="folder off">${esc(T('pet.kids', { n: kidsOf(s).length }))}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
       <span class="quest">${esc(line2(s, st))}</span></span>
     <span class="status"><span class="pill">${esc(statusText(s, st))}</span></span>
@@ -396,7 +407,7 @@ function renderPane() {
   const hm = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); // seconds on hover
   pane.innerHTML = `
     <div class="pane-top st-${st}">
-      <span class="sprite">${petArt(s, st)}</span>
+      <span class="sprite">${petArt(list.find(x => x.id === s.parent) || s, st, petColor(s, list))}</span>
       <div><h2>${esc(s.title || s.name)}</h2><span class="lv">${T('pet.lv', { n: s.lv })} · ${esc(statusText(s, st))}</span></div>
     </div>
     <div class="pane-acts">
@@ -584,6 +595,49 @@ $('#settings').addEventListener('click', async e => {
     applyLang();
     toast(T('set.reset.done'), { label: T('set.undo'), run: () => save(before) });
   }
+});
+
+// ---------- feedback ----------
+const fb = { kind: 'bug', title: '', description: '' }; // what was typed is still there if the dialog is closed and opened again
+function paintFeedback() {
+  const k = fb.kind;
+  document.querySelectorAll('#fb-kind button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.kind === k)));
+  $('#fb-title-label').textContent = T(`fb.${k}.title`);
+  $('#fb-desc').placeholder = T(`fb.${k}.hint`);
+  $('#fb-details').hidden = k !== 'bug';
+  $('#fb-public').textContent = T(`fb.${k}.public`);
+}
+async function openFeedback() {
+  const box = $('#fb-dialog');
+  if (!bridge || box.open) return;
+  const info = await bridge.feedbackInfo();
+  box.innerHTML = `<h2 id="fb-heading">${T('fb.title')}</h2><p class="note">${T('fb.body')}</p>
+    <div class="seg" id="fb-kind" role="radiogroup" aria-labelledby="fb-heading">
+      <button type="button" role="radio" data-kind="bug">${T('fb.bug')}</button><button type="button" role="radio" data-kind="idea">${T('fb.idea')}</button>
+    </div>
+    <label for="fb-title" id="fb-title-label"></label><input id="fb-title" type="text" maxlength="200" value="${esc(fb.title)}">
+    <label for="fb-desc">${T('fb.field.desc')}</label><textarea id="fb-desc" maxlength="5000">${esc(fb.description)}</textarea>
+    <details id="fb-details"><summary>${T('fb.preview')}</summary><pre>${esc([...info.lines, ...info.errs].join('\n'))}</pre></details>
+    <p class="note" id="fb-public"></p>
+    <div class="acts"><button class="btn pri" type="button" data-act="send">${T('fb.send')}</button><button class="btn" type="button" data-act="close">${T('pane.close')}</button></div>`;
+  paintFeedback();
+  box.showModal();
+  $('#fb-title').focus();
+}
+$('#fb-open').onclick = openFeedback;
+$('#fb-dialog').addEventListener('input', e => {
+  if (e.target.id === 'fb-title') fb.title = e.target.value;
+  if (e.target.id === 'fb-desc') fb.description = e.target.value;
+});
+$('#fb-dialog').addEventListener('click', async e => {
+  const box = e.currentTarget, btn = e.target.closest('button');
+  if (btn?.dataset.kind) { fb.kind = btn.dataset.kind; return paintFeedback(); }
+  if (btn?.dataset.act === 'close') return box.close();
+  if (btn?.dataset.act !== 'send') return;
+  const title = $('#fb-title');
+  if (!fb.title.trim()) { title.setCustomValidity(T('fb.needTitle')); title.reportValidity(); title.setCustomValidity(''); return; }
+  const r = await bridge.sendFeedback(fb);
+  if (r?.ok) { fb.kind = 'bug'; fb.title = fb.description = ''; box.close(); toast(T(r.truncated ? 'fb.sentCut' : 'fb.sent')); }
 });
 
 // ---------- setup ----------

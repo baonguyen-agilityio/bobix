@@ -25,8 +25,9 @@ The hook script drops file contents and tool output before sending anything. All
 
 ## What it sends, and to whom
 
-- **Nothing about you or your sessions leaves your computer.** Fonts and images are bundled.
+- **Nothing about you or your sessions leaves your computer**, unless you send feedback yourself (below). Fonts and images are bundled.
 - **New version check** (Settings → "Tell me about new versions", on by default): once a day the app reads `https://api.github.com/repos/baonguyen-agilityio/bobix/releases/latest`, GitHub's public page of the latest release. It sends no data, only the request itself, so GitHub sees what any web page sees: your IP address and `Bobix/<version>` as the program name. No account or token is used.
+- **Feedback** (the Feedback button at the top of the panel, only when you use it): opens GitHub's new-issue form in your browser with your text filled in. Nothing is sent until you submit it there, with your GitHub account, and the issue is public. A bug report also fills in technical details: the app version, operating system, hook state, some settings, session states and recent errors with folders and tokens removed. You can read them before opening the form. No prompts, code, project names or tokens. An idea carries no technical details.
 - Hooks talk to the app over `127.0.0.1` only. The server checks the Host header (blocks DNS rebinding) and requires the per-user token on every event and on the state stream, so web pages and other users on the same machine can neither feed it nor read it.
 - **Notifications** show a session's request or the start of its final answer through your operating system. They can appear while you share your screen; turn them off or use **Pause notifications** in Settings.
 
