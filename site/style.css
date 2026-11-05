@@ -1,0 +1,124 @@
+/* Palette from src/ui/theme.css, so the pets look as they do in the app. */
+:root {
+  --n-50: oklch(98.4% 0.005 262); --n-100: oklch(96.6% 0.009 262); --n-200: oklch(92.5% 0.013 262);
+  --n-300: oklch(86% 0.017 262); --n-500: oklch(52% 0.03 262); --n-700: oklch(38% 0.035 264); --n-900: oklch(24% 0.035 266);
+  --sky: oklch(84% 0.075 235); --mint: oklch(86% 0.085 162); --lilac: oklch(83% 0.075 300);
+  --peach: oklch(86% 0.075 55); --butter: oklch(90% 0.095 98); --rose: oklch(84% 0.075 5);
+  --bg: var(--n-100); --surface: var(--n-50); --line: var(--n-200); --ink: var(--n-900); --ink-2: var(--n-700); --ink-3: var(--n-500);
+  --accent: oklch(52% 0.13 255); --warn: oklch(62% 0.17 30); --ok: oklch(58% 0.13 160);
+  --code-bg: var(--n-900); --code-ink: var(--n-100);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: oklch(20% 0.03 266); --surface: oklch(24% 0.035 266); --line: oklch(32% 0.035 266);
+    --ink: var(--n-100); --ink-2: var(--n-300); --ink-3: oklch(70% 0.025 262);
+    --accent: oklch(78% 0.1 245); --warn: oklch(75% 0.14 35); --ok: oklch(78% 0.12 160);
+    --code-bg: oklch(15% 0.03 266);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+a { color: var(--accent); }
+img { max-width: 100%; height: auto; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+:not(pre) > code { background: var(--line); padding: .1em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); color: var(--code-ink); padding: 14px 16px; border-radius: 10px; overflow-x: auto; line-height: 1.5; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; color: var(--ink); text-decoration: none; }
+.brand img { width: 32px; height: 32px; image-rendering: pixelated; }
+nav.top { display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: .95rem; }
+nav.top a { color: var(--ink-2); text-decoration: none; }
+nav.top a:hover { color: var(--accent); }
+
+.hero { padding: 32px 0 8px; text-align: center; }
+.hero h1 { font-size: clamp(1.8rem, 5vw, 2.8rem); line-height: 1.2; margin: 0 0 12px; }
+.hero p.lead { font-size: 1.15rem; color: var(--ink-2); max-width: 640px; margin: 0 auto 24px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-block; padding: 10px 18px; border-radius: 10px; font-weight: 600; text-decoration: none;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn:hover { filter: brightness(1.05); }
+
+/* The bottom edge of a screen, with pets on it. */
+.screen {
+  position: relative; margin: 32px auto 0; height: 150px; max-width: 760px; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 14px 14px 0 0; border-bottom: 6px solid var(--ink-3);
+  background: linear-gradient(var(--surface), var(--bg));
+}
+.pet { position: absolute; bottom: 4px; width: 56px; height: 56px; }
+.pet svg { width: 100%; height: 100%; display: block; }
+.pet .bubble {
+  position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  font-size: .8rem; font-weight: 600; padding: 3px 9px; border-radius: 9px; background: var(--surface); color: var(--ink);
+  border: 2px solid var(--ink-3);
+}
+.pet .bubble.wait { border-color: var(--warn); color: var(--warn); }
+.pet .bubble.done { border-color: var(--ok); color: var(--ok); }
+.balloon {
+  position: absolute; bottom: 44px; right: -8px; width: 18px; height: 18px; border-radius: 4px;
+  display: grid; place-items: center; font: 700 12px/1 system-ui, sans-serif; color: var(--n-50);
+}
+.balloon.wait { background: var(--warn); }
+.balloon.done { background: var(--ok); }
+.p1 { left: 6%; animation: walk 9s ease-in-out infinite alternate; }
+.p2 { left: 30%; animation: hop 1s ease-in-out infinite; }
+.p3 { left: 52%; }
+.p3b { left: calc(52% + 58px); }
+.p4 { left: 82%; }
+@keyframes walk { to { transform: translateX(90px); } }
+@keyframes hop { 50% { transform: translateY(-10px); } }
+@media (max-width: 560px) {
+  .screen { height: 130px; }
+  .pet { width: 42px; height: 42px; }
+  .p3b { left: calc(50% + 44px); }
+  .pet .bubble { bottom: 46px; font-size: .7rem; padding: 2px 6px; }
+  .p1 .bubble { left: 0; transform: none; bottom: 74px; }
+  .p4 .bubble { left: auto; right: 0; transform: none; bottom: 74px; }
+  .p1 { left: 2%; } .p2 { left: 24%; } .p3 { left: 50%; } .p4 { left: 84%; }
+  @keyframes walk { to { transform: translateX(30px); } }
+}
+@media (prefers-reduced-motion: reduce) { .pet { animation: none !important; } }
+
+section { padding: 40px 0 8px; }
+section h2 { font-size: 1.6rem; margin: 0 0 16px; }
+h3 { margin: 24px 0 8px; font-size: 1.15rem; }
+.demo { display: block; margin: 0 auto; border-radius: 12px; border: 1px solid var(--line); }
+.caption { text-align: center; color: var(--ink-3); font-size: .9rem; }
+
+table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.card p { margin: 0; color: var(--ink-2); }
+.tag { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--butter); color: var(--n-900); vertical-align: 2px; margin-left: 4px; }
+
+.dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin: 12px 0; }
+.dl a {
+  display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border-radius: 12px; text-decoration: none;
+  background: var(--surface); border: 1px solid var(--line); color: var(--ink);
+}
+.dl a:hover { border-color: var(--accent); }
+.dl a b { font-size: 1rem; }
+.dl a span { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; color: var(--accent); overflow-wrap: anywhere; }
+.note { border-left: 4px solid var(--butter); background: var(--surface); padding: 10px 14px; border-radius: 0 10px 10px 0; color: var(--ink-2); }
+ol li, ul li { margin: 4px 0; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.shots figure { margin: 0; }
+.shots img { border-radius: 10px; border: 1px solid var(--line); display: block; }
+.shots figcaption { color: var(--ink-3); font-size: .9rem; margin-top: 6px; }
+
+footer { margin-top: 48px; padding: 24px 0 40px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: .9rem; }
+footer a { color: var(--ink-2); }
