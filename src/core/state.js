@@ -23,7 +23,7 @@ const toolArg = input => short(argOf(input), 60);
 function newSession(id, now) {
   return {
     id, name: '?', cwd: '', title: '', transcript: '', state: 'idle', since: now, updated: now,
-    lv: 1, quest: '', tool: '', toolArg: '', askTool: '', ask: '', summary: '', report: '', hits: 0, ctx: null, claudePid: null, hostSession: null, log: [],
+    lv: 1, quest: '', prompt: '', tool: '', toolArg: '', askTool: '', ask: '', summary: '', report: '', hits: 0, ctx: null, claudePid: null, hostSession: null, log: [],
     pet: 'auto', // auto (settings decide) | hidden | shown (stays out even past the sleep timer); back to auto when it needs you
   };
 }
@@ -73,7 +73,7 @@ function apply(sessions, e, now = Date.now()) {
     case 'UserPromptSubmit': {
       const sys = systemPrompt(e.prompt);
       if (sys) { s.tool = ''; s.toolArg = ''; log('system', sys); set('working'); break; } // not a new quest: keep the quest, the report and hidden pets as they are
-      s.quest = short(e.prompt, 240); s.hits = 0; s.summary = ''; s.report = ''; s.ask = ''; s.askTool = ''; s.tool = ''; s.toolArg = '';
+      s.quest = short(e.prompt, 240); s.prompt = clip(e.prompt, 4000); s.hits = 0; s.summary = ''; s.report = ''; s.ask = ''; s.askTool = ''; s.tool = ''; s.toolArg = '';
       log('prompt', short(e.prompt, 240));
       set('working');
       s.pet = 'auto';

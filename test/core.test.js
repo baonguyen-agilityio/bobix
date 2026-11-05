@@ -132,6 +132,19 @@ test('markdown: the report as safe HTML', () => {
   assert.equal(markdown(''), '');
 });
 
+test('the whole prompt is kept for the details; quest and log lines stay short', () => {
+  const m = new Map(), prompt = `Line one\n\nLine two ${'p'.repeat(5000)}`;
+  apply(m, { session_id: 'p1', hook_event_name: 'UserPromptSubmit', prompt });
+  const s = m.get('p1');
+  assert.ok(s.prompt.startsWith('Line one\n\nLine two'), 'lines kept');
+  assert.equal(s.prompt.length, 4000);
+  assert.equal(s.quest.length, 240);
+  assert.ok(!s.quest.includes('\n'));
+  assert.equal(s.log.at(-1).text.length, 240);
+  apply(m, { session_id: 'p1', hook_event_name: 'UserPromptSubmit', prompt: '<task-notification> done' });
+  assert.ok(s.prompt.startsWith('Line one'), 'a turn Claude Code starts itself keeps the prompt too');
+});
+
 test('log: newest first, repeats folded, long arguments keep their end', () => {
   const m = new Map(), long = `node /tmp/${'d'.repeat(200)}/run.js`;
   apply(m, { session_id: 'l1', hook_event_name: 'UserPromptSubmit', prompt: 'go' });
@@ -143,6 +156,8 @@ test('log: newest first, repeats folded, long arguments keep their end', () => {
   assert.deepEqual(LOG.fold(s.log).map(l => [l.kind, l.tool, l.n]),
     [['tool', 'Bash', 1], ['tool', 'Read', 1], ['tool', 'mcp__b__batch', 3], ['prompt', '', 1]]);
   assert.deepEqual(LOG.fold([{ kind: 'tool', tool: 'Read', text: 'a' }, { kind: 'tool', tool: 'Read', text: 'b' }]).map(l => l.n), [1, 1], 'other files are other lines');
+  const run = [1, 2, 3].map(t => ({ t, kind: 'tool', tool: 'Bash', text: 'npm test' }));
+  assert.deepEqual(LOG.fold(run).map(l => [l.t, l.from, l.n]), [[3, 1, 3]], 'shown at the newest repeat, keyed by the first');
   const short = LOG.mid(long);
   assert.equal(short.length, 60);
   assert.ok(short.startsWith('node /tmp/') && short.endsWith('/run.js') && short.includes('…'));

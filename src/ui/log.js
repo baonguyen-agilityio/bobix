@@ -1,12 +1,13 @@
 // A session's log as the panel lists it. Works in the browser (window.LOG) and in Node (require).
 (function (root) {
-  // Newest first; the same tool on the same thing several times in a row is one line with a count.
+  // Newest first; the same tool on the same thing several times in a row is one line with a count, timed by its newest
+  // repeat (`from` keeps the first one's time, which stays the same as repeats come in).
   function fold(log) {
     const out = [];
     for (const l of log || []) {
       const prev = out[out.length - 1];
       if (prev && l.kind === 'tool' && prev.kind === 'tool' && l.tool === prev.tool && l.text === prev.text) { prev.n++; prev.t = l.t; }
-      else out.push({ ...l, n: 1 });
+      else out.push({ ...l, n: 1, from: l.t });
     }
     return out.reverse();
   }
