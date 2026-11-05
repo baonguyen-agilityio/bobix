@@ -11,15 +11,14 @@ html{--size:56px}
 html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 var(--t-sm)/1.45 var(--f-body);color:var(--ink);font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none}
 .pet{position:absolute;left:0;bottom:var(--s1);width:var(--size);cursor:pointer;touch-action:none;transform-origin:50% 100%;transition:opacity 150ms var(--ease),scale 250ms var(--ease),translate 250ms var(--ease),filter 250ms var(--ease)}
 .pet.dragging{cursor:grabbing}
-.pet.hover{z-index:3}
+.pet.hover,.pet.open{z-index:3}
+.pet:not(.parent):not(.side){z-index:1} /* a pet on its own stays above a family it walks past, name tag included */
 .edge-top .pet{bottom:auto;top:var(--s1)}
 .spr{position:relative;width:var(--size);height:var(--size);display:grid;place-items:center}
 .spr svg{width:100%;height:100%;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))}
 .tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;padding:0 var(--s2);border-radius:var(--pill);background:var(--surface);border:1px solid var(--line-strong);font-size:var(--t-xs);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .st-waiting .tag{background:var(--coral);border-color:var(--coral);color:var(--n-900)}
 .pet.side .spr{transform:scale(.8);transform-origin:50% 100%}
-.kids{display:none;position:absolute;top:-4px;right:-6px;min-width:18px;height:18px;line-height:18px;padding:0 4px;box-sizing:border-box;text-align:center;border-radius:var(--pill);font-size:var(--t-xs);font-weight:700;background:var(--ink);color:var(--surface)}
-.kids.hot{background:var(--coral);color:var(--n-900)}
 .tag.ghost{visibility:hidden}
 .tag{max-width:none;transform:none;overflow:visible;display:flex;justify-content:center;align-items:center;gap:var(--s1);box-sizing:border-box}
 .tag .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center}
@@ -30,11 +29,17 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .say.sum{cursor:pointer}
 .bb{position:absolute;left:50%;bottom:calc(100% - var(--size) * .08);width:calc(var(--size) * .5);translate:-50% 0;cursor:pointer;animation:bob 2.6s var(--ease) infinite;transform-origin:50% 100%}
 .pet.side .bb{width:calc(var(--size) * .42)}
+/* Top edge: the balloon floats below the pet's name tag, its string up (balloonSVG draws it upside down there). */
+.edge-top .bb{bottom:auto;top:calc(100% + 2px)}
+.edge-top .tag .more .bb{bottom:auto;top:calc(100% + 2px)}
 .bb svg{display:block;width:100%;height:auto;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .2))}
 .tag .more.hot{color:var(--coral-ink)}
 @keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-4px) rotate(2deg)}}
 .say .who{font-weight:700}
 .card.group{width:340px;max-height:260px;overflow:auto}
+/* One bubble lane further out than the summary bubble, so that bubble stays visible and closes the card again. */
+.say~.card.group{bottom:calc(100% + var(--s2) + (var(--lane, 0) + 1) * 36px)}
+.edge-top .say~.card.group{bottom:auto;top:calc(100% + var(--s2) + (var(--lane, 0) + 1) * 36px)}
 .card.group .gr{display:flex;align-items:center;gap:var(--s2);padding:var(--s1) 0;border-top:1px solid var(--line);font-size:var(--t-xs)}
 .card.group .gr:first-of-type{border-top:0}
 .card.group .gr .mini{flex:none;width:22px;height:22px}
@@ -147,7 +152,9 @@ const attached = s => !!(s.parent && pets.has(s.parent)); // stands next to its 
 const rootOf = s => (attached(s) ? byId(s.parent) || s : s);
 const balloonsFor = (root, now) => familyReports(root, now).filter(r => r.kind).length <= BALLOONS_UP_TO;
 // A party balloon in the pets' pixel style: orange with "!" waits for you, green with a tick is done. Its string hangs to the pet.
+// On the top edge it floats below the pet: balloon and string are flipped, the "!" / tick and the shine are not.
 function balloonSVG(kind) {
+  const down = cfg.edge === 'top';
   const W = 11, rows = ['...xxxxx...', '..xxxxxxx..', '.xxxxxxxxx.', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx',
     '.xxxxxxxxx.', '.xxxxxxxxx.', '..xxxxxxx..', '...xxxxx...', '....xxx....', '.....x.....'];
   const on = new Set(); rows.forEach((r, y) => [...r].forEach((c, x) => c === 'x' && on.add(`${x},${y}`)));
@@ -156,9 +163,10 @@ function balloonSVG(kind) {
   const shine = [[3, 2], [2, 3], [2, 4]], px = (x, y, f) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${f}"/>`;
   let out = '';
   for (const k of on) { const [x, y] = k.split(',').map(Number); const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => !on.has(`${x + a},${y + b}`)); out += px(x, y, edge ? line : fill); }
-  out += shine.map(([x, y]) => px(x, y, 'oklch(98% 0.01 90 / .85)')).join('') + icon.map(([x, y]) => px(x, y, 'var(--n-900)')).join('');
   out += [5, 5, 6, 6, 5, 5, 4, 4, 5].map((x, i) => px(x, 13 + i, 'var(--ink-3)')).join(''); // the string
-  return `<svg viewBox="0 0 ${W} 22" shape-rendering="crispEdges" aria-hidden="true">${out}</svg>`;
+  // Flipped, body row y shows at 21 - y; the upright marks shift by 11 so they land on the same part of the body.
+  const marks = shine.map(([x, y]) => px(x, y + (down ? 11 : 0), 'oklch(98% 0.01 90 / .85)')).join('') + icon.map(([x, y]) => px(x, y + (down ? 11 : 0), 'var(--n-900)')).join('');
+  return `<svg viewBox="0 0 ${W} 22" shape-rendering="crispEdges" aria-hidden="true">${down ? `<g transform="matrix(1 0 0 -1 0 22)">${out}</g>` : out}${marks}</svg>`;
 }
 const shortName = s => { const n = s.title || s.name || ''; return n.length > 18 ? n.slice(0, 17) + '…' : n; };
 // Everyone in a family that has something to say to you: waiting and done for all, tool activity for the parent only.
@@ -193,20 +201,21 @@ function paint(p, now) {
   const balloon = useBalloons && mine && !p.hover ? mine.kind : '';
   let say = null; // [kind, text or null, one report or null]
   if (!p.hover && !kid) {
-    if (!useBalloons && fam && reports.length === 1) say = [reports[0].kind, null, reports[0]];
-    else if (!useBalloons && reports.length > 1) say = [reports.some(r => r.kind === 'waiting') ? 'waiting' : 'done', summaryText(reports), null];
+    if (!useBalloons && reports.length > 1) say = [reports.some(r => r.kind === 'waiting') ? 'waiting' : 'done', summaryText(reports), null];
     else if (!fam && !useBalloons) { const t = sayText(p, st, now); say = t && [t[0], t[1], null]; }
     else if (useBalloons && st === 'working' && !fam) { const t = sayText(p, st, now); say = t && t[0] === '' ? [t[0], t[1], null] : null; } // tool activity, only on its own
   }
   const hidden = kid ? [] : kidsOf(s).filter(k => visible(k) && !pets.has(k.id)), extra = hidden.length;
-  const extraHot = hidden.some(k => look(k) === 'waiting') ? 'waiting' : hidden.some(k => look(k) === 'done') ? 'done' : '';
-  const groupOpen = !!p.groupOpen && (reports.length > 1 || extra > 0);
+  // Same rule as the side sessions' own balloons: "done" shows for DONE_BUBBLE, not until the pet falls asleep.
+  const extraHot = hidden.some(k => look(k) === 'waiting') ? 'waiting' : hidden.some(k => look(k) === 'done' && now - k.since < DONE_BUBBLE) ? 'done' : '';
+  if (p.groupOpen && !(reports.length > 1 || extra > 0)) p.groupOpen = false; // nothing left to list: closed, not reopened later
+  const groupOpen = !!p.groupOpen;
   const famKey = JSON.stringify(familyReports(root, now).map(r => [r.s.id, r.kind, r.text, left(r.s, now) > 0, petColor(r.s, lastList || [])]));
   const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.project, petColor(s, lastList || []), s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
-  p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''} ${p.edge}`;
+  p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${groupOpen ? ' open' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''} ${p.edge}`;
   const kids = kidsText(s), parent = s.parent && byId(s.parent);
   p.el.innerHTML = `
     ${p.hover ? `<div class="card">
@@ -217,18 +226,17 @@ function paint(p, now) {
         <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
         <div class="row"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
-        <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></div>
+        <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${say && say[2] ? `<div class="say ${say[0]}">${whoHTML(say[2], s)}${esc(say[2].text)}${say[0] === 'waiting' ? answerButtons(say[2].s, now, false) : ''}</div>` : ''}
     ${say && !say[2] && say[1] && reports.length > 1 && !useBalloons ? `<div class="say sum ${say[0]}" data-group>${esc(say[1])} ▸</div>` : ''}
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon)}</div>` : ''}
     ${say && !say[2] && !(reports.length > 1 && !useBalloons) && say[1] ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now, false) : ''}</div>` : ''}
-    ${groupOpen ? `<div class="card group">${reports.length ? '' : ''}${[s, ...kidsOf(s).filter(k => visible(k)).sort(byUrgency)].map(m => { const ms = look(m);
+    ${groupOpen ? `<div class="card group">${[s, ...kidsOf(s).filter(k => visible(k)).sort(byUrgency)].map(m => { const ms = look(m);
       return `<div class="gr ${ms}"><span class="mini">${petArt(m.parent ? s : m, ms, petColor(m, lastList || []))}</span><span class="nm">${esc(shortName(m))}</span><span class="stx">${esc(statusText(m, ms))}</span>${ms === 'waiting' ? answerButtons(m, now, false) : ''}<button class="open" type="button" data-open="${esc(m.id)}">${T('fam.open')}</button></div>`; }).join('')}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(parent || s, st, petColor(s, lastList || []))}</div>
-    ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${extra ? `<span class="more${extraHot ? ' hot' : ''}" data-group title="${esc(T('fam.more', { n: extra }))}">+${extra}${extraHot && !p.hover ? `<span class="bb ${extraHot}">${balloonSVG(extraHot)}</span>` : ''}</span>` : ''}</div>`}
-    ${kids ? `<div class="kids${kids[0] ? ' hot' : ''}">${kidsOf(s).length}</div>` : ''}`;
+    ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${extra ? `<span class="more${extraHot ? ' hot' : ''}" data-group title="${esc(T('fam.more', { n: extra }))}">+${extra}${extraHot && !p.hover ? `<span class="bb ${extraHot}">${balloonSVG(extraHot)}</span>` : ''}</span>` : ''}</div>`}`;
 }
 
 function sync(list) {
@@ -309,7 +317,9 @@ const rank = p => p.droppedAt ? -p.droppedAt : hashStr(p.s.id); // a pet just dr
 // Nearest spot at least `spacing` away from every other standing pet. Of two crowded pets only the later-ranked one moves.
 function freeSpot(p, all) {
   const gap = spacing(), { min, max } = zone();
-  const still = all.filter(q => q !== p && q.s.parent !== p.s.id && look(q.s) !== 'working').map(q => ({ x: q.goal ?? q.x, r: rank(q) }));
+  // Another family's side sessions count even while they work: they stand by their parent and never make room.
+  const still = all.filter(q => q !== p && q.s.parent !== p.s.id && (look(q.s) !== 'working' || attached(q.s)))
+    .map(q => ({ x: q.goal ?? q.x, r: attached(q.s) ? -Infinity : rank(q) }));
   if (!still.some(q => Math.abs(q.x - p.x) < gap && q.r < rank(p))) return null;
   for (let k = 1; k * gap <= innerWidth; k++) for (const x of [p.x + k * gap, p.x - k * gap]) {
     if (x >= min && x <= max && still.every(q => Math.abs(q.x - x) >= gap)) return x;
@@ -339,8 +349,9 @@ function groundTags(all) {
     if (!tg) continue;
     const reach = sideFirst() + KID_MAX * sideStep() + 8;
     const kids = all.filter(q => q.s.parent === p.s.id && Math.abs(q.x - p.x) <= reach), xs = [p.x, ...kids.map(q => q.x)];
-    const l = Math.min(...xs), r = Math.max(...xs) + cfg.size, kl = kids.some(q => q.x < p.x);
-    const g = `${Math.round(l - p.x - 8)}|${Math.round(r - l + 16)}|${kl}`;
+    const kl = kids.some(q => q.x < p.x);
+    const l = Math.max(0, Math.min(...xs) - 8), r = Math.min(innerWidth, Math.max(...xs) + cfg.size + 8); // never past the screen's ends
+    const g = `${Math.round(l - p.x)}|${Math.round(r - l)}|${kl}`;
     if (tg.dataset.g === g) continue;
     tg.dataset.g = g;
     const [left, width] = g.split('|');
@@ -438,7 +449,8 @@ function frame(t) {
     const rects = [];
     // While dragging, the whole window takes the mouse, or the drag would end as soon as the cursor leaves the pet.
     if (drag?.moved) rects.push([0, 0, innerWidth, innerHeight]);
-    else for (const { el } of pets.values()) for (const n of [el, el.querySelector('.tag'), el.querySelector('.card,.say'), el.querySelector('.bb')]) {
+    // Every card, bubble and balloon a pet shows (its family card, the "+N" balloon), not just the first of each.
+    else for (const { el } of pets.values()) for (const n of [el, el.querySelector('.tag'), ...el.querySelectorAll('.card,.say,.bb')]) {
       if (!n) continue;
       const b = n.getBoundingClientRect();
       rects.push([b.left, b.top, b.width, b.height].map(Math.round));
