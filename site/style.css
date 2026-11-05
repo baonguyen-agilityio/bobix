@@ -239,3 +239,9 @@ footer .sleep b { font: 700 var(--t-md)/1 var(--f-display); color: var(--night-i
 footer p { max-width: 72ch; }
 footer p a { color: var(--night-ink); }
 .dl a b small { font: 400 var(--t-sm)/1 var(--f-body); color: var(--ink-3); }
+
+/* Peek: with site/peek.js the pet strip is pinned to the bottom of the screen and scales with the scroll (--small). */
+.peek .edge { position: fixed; z-index: 10; border-bottom: 0; transform-origin: 50% 100%; transform: translateY(var(--drop, 0px)) scale(calc(1 - var(--small, 0) * .55)); }
+.peek .edge .bub { opacity: calc(1 - var(--small, 0) * 2.5); }
+.peek .hero { min-height: 100vh; min-height: 100svh; }
+.peek footer { padding-bottom: 168px; }
