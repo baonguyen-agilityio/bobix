@@ -1116,3 +1116,40 @@ test('a session keeps its project while Claude works in a folder outside every g
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('"until I answer": the setting is validated, is the default, and the hook cap outlasts any wait', () => {
+  const S = require('../src/core/settings');
+  strict.equal(DEFAULTS.approveWait, -1);
+  strict.equal(sanitize({}).approveWait, -1, 'a settings file without the key gets the default');
+  strict.equal(sanitize({ approveWait: 45 }).approveWait, 45, 'a value set earlier is kept');
+  strict.equal(sanitize({ approveWait: -1 }).approveWait, S.UNTIL_ANSWER);
+  strict.equal(sanitize({ approveWait: '-1' }).approveWait, S.UNTIL_ANSWER, 'the select sends a string');
+  strict.equal(sanitize({ approveWait: -5 }).approveWait, 0, 'any other negative number means off, never "until I answer"');
+  strict.equal(sanitize({ approveWait: 9999 }).approveWait, 300);
+  strict.equal(sanitize({ approveWait: 'x' }, { ...DEFAULTS, approveWait: 20 }).approveWait, 20, 'junk keeps the current value');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-wait-')), src = path.join(home, 'hook.js');
+  fs.writeFileSync(src, '// hook');
+  hooks.install({ port: 5000, nodePath: process.execPath, hookSource: src, home });
+  const file = hooks.settingsPath(home), written = JSON.parse(fs.readFileSync(file, 'utf8')).hooks;
+  strict.equal(written.PermissionRequest[0].hooks[0].timeout, 86400, 'a day, in seconds');
+  strict.equal(written.PermissionRequest[0].hooks[0].async, undefined, 'it must block until answered');
+  strict.equal(written.Stop[0].hooks[0].timeout, 5, 'the other events stay quick');
+  strict.equal(hooks.status({ home }).outdated, false);
+  const old = JSON.parse(fs.readFileSync(file, 'utf8'));
+  old.hooks.PermissionRequest[0].hooks[0].timeout = 330; // installed by an earlier build
+  fs.writeFileSync(file, JSON.stringify(old));
+  strict.equal(hooks.status({ home }).outdated, true, 'a cap shorter than a day is reinstalled at start');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('a permission request is held only where the person can see it', () => {
+  const { holdSecs } = require('../src/core/settings');
+  const on = { ...DEFAULTS, approveWait: 60 }, pet = { pet: 'auto' };
+  strict.equal(holdSecs(on, pet), 60);
+  strict.equal(holdSecs({ ...on, approveWait: -1 }, pet), Infinity);
+  strict.equal(holdSecs({ ...on, approveWait: 0 }, pet), 0, 'off');
+  strict.equal(holdSecs({ ...on, approveWait: -1, paused: true }, pet), 0, 'paused');
+  strict.equal(holdSecs({ ...on, approveWait: -1, petsVisible: false }, pet), 0, 'pets hidden');
+  strict.equal(holdSecs({ ...on, approveWait: -1 }, { pet: 'hidden' }), 0, 'this pet is hidden');
+  strict.equal(holdSecs({ ...on, approveWait: -1 }, { pet: 'shown' }), Infinity);
+  strict.equal(holdSecs({ ...on, approveWait: 60, petsVisible: false }, pet), 0, 'a timed wait too');
+});

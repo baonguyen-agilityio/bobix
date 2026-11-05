@@ -245,8 +245,9 @@ const petImageActs = {
 };
 
 // ---------- answering permission requests ----------
-// A permission request waits up to settings.approveWait seconds for Allow / Deny from a pet, the panel or the
-// notification; then the hook gets no answer and Claude asks in the terminal as usual. Answers come only over
+// A permission request waits up to settings.approveWait seconds (or until answered) for Allow / Deny from a pet, the
+// panel or the notification; then the hook gets no answer and Claude asks in the terminal as usual. It is never held
+// while the person can't see it (S.holdSecs). Answers come only over
 // IPC from our own pages (and the notification), never over HTTP.
 const pending = new Map(); // answer id -> { suggestions, done }
 const DECISIONS = {
@@ -255,7 +256,7 @@ const DECISIONS = {
   deny: () => ({ behavior: 'deny', message: 'Denied from Bobix.' }),
 };
 function waitForAnswer(s, e, signal) {
-  const secs = settings.approveWait;
+  const secs = S.holdSecs(settings, s);
   if (!secs || signal.aborted) return null;
   if (s.answer) pending.get(s.answer.id)?.done(null); // one open request per session
   const id = require('crypto').randomUUID();
@@ -269,13 +270,15 @@ function waitForAnswer(s, e, signal) {
       server.broadcast(snapshot());
       resolve(decision && { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
     };
-    const timer = setTimeout(() => done(null), secs * 1000);
+    const timer = secs === Infinity ? null : setTimeout(() => done(null), secs * 1000);
     signal.addEventListener('abort', () => done(null), { once: true }); // Claude moved on (Esc, session closed)
     pending.set(id, { suggestions, done });
-    s.answer = { id, until: Date.now() + secs * 1000, always: suggestions.length > 0 };
+    s.answer = { id, until: secs === Infinity ? null : Date.now() + secs * 1000, always: suggestions.length > 0 }; // until: null = no countdown
   });
-  return { secs, answer };
+  return { secs: secs === Infinity ? 'forever' : secs, answer };
 }
+// A held request whose pet is now hidden (or the pets paused / off) goes back to Claude, so it asks in its own UI.
+function releaseUnseen() { for (const s of sessions.values()) if (s.answer && !S.holdSecs(settings, s)) pending.get(s.answer.id)?.done(null); }
 function answer(id, choice) {
   const p = typeof id === 'string' && pending.get(id);
   if (!p || !Object.hasOwn(DECISIONS, choice)) return false;
@@ -504,6 +507,7 @@ async function updateSettings(patch) {
   if (['display', 'edge', 'size'].some(k => settings[k] !== prev[k])) placeOverlay();
   if (settings.petsVisible !== prev.petsVisible) showOverlay();
   if (['petsVisible', 'paused', 'language'].some(k => settings[k] !== prev[k])) buildTray();
+  releaseUnseen();
   if (settings.checkUpdates && !prev.checkUpdates) checkForUpdate();
   if (!settings.checkUpdates && update) { update = null; buildTray(); }
   broadcastSettings();
@@ -564,7 +568,7 @@ function ipc() {
   ipcMain.on('pet-click', (e, id) => fromUs(e) && openSession(id));
   handle('answer', (id, choice) => answer(id, choice));
   handle('pet:image', (id, act, opts) => (typeof id !== 'string' || !Object.hasOwn(petImageActs, act) ? null : petImageActs[act](id, opts && typeof opts === 'object' ? opts : undefined)));
-  handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) server.broadcast(snapshot()); });
+  handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) { releaseUnseen(); server.broadcast(snapshot()); } });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); shapeOverlay(); showOverlay(); } });
 }
 

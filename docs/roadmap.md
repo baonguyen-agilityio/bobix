@@ -59,7 +59,7 @@ Larger, each needs its own plan:
 - Linux Wayland: through XWayland, Bobix sees the cursor only while it is on a pet, so fading near the cursor works only right next to a pet.
 - Linux Wayland: no app may bring another app's window forward, so a click on a terminal session's pet opens it in the panel and names the terminal instead. Sessions in the Claude desktop app open directly, and a CLI in the Claude app's own terminal brings the app forward (not its terminal tab).
 - Opening a session in the Claude desktop app uses `claude://code/continue`, not a documented API; it may change.
-- While Bobix waits for an answer (20 s by default), the terminal's permission prompt appears only after that time.
+- While Bobix waits for an answer (by default until you answer; a time limit can be set), the terminal's permission prompt appears only after that time.
 - Approvals need the Node.js forwarder; with the curl / PowerShell fallback Bobix only watches.
 - Linux installers are `.deb` only (Ubuntu, Debian). Other distributions aren't packaged.
 - Only Claude Code sessions (terminal, IDE, the Code tab of the Claude app). Ordinary chats in the Claude app or on claude.ai have no hooks, so Bobix can't follow them.
