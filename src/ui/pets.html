@@ -149,6 +149,8 @@ const BALLOONS_UP_TO = 2;
 const KID_MAX = 10, URGENT = { waiting: 0, done: 1, working: 2, idle: 3 };
 const byUrgency = (a, b) => (URGENT[look(a)] - URGENT[look(b)]) || (b.since - a.since) || (a.id < b.id ? -1 : 1);
 const attached = s => !!(s.parent && pets.has(s.parent)); // stands next to its parent pet
+// A pet walks while its session works; a parent also while any side session beside it works (the family walks together).
+const walks = p => look(p.s) === 'working' || kidsOf(p.s).some(k => pets.has(k.id) && look(k) === 'working');
 const rootOf = s => (attached(s) ? byId(s.parent) || s : s);
 const balloonsFor = (root, now) => familyReports(root, now).filter(r => r.kind).length <= BALLOONS_UP_TO;
 // A party balloon in the pets' pixel style: orange with "!" waits for you, green with a tick is done. Its string hangs to the pet.
@@ -318,7 +320,7 @@ const rank = p => p.droppedAt ? -p.droppedAt : hashStr(p.s.id); // a pet just dr
 function freeSpot(p, all) {
   const gap = spacing(), { min, max } = zone();
   // Another family's side sessions count even while they work: they stand by their parent and never make room.
-  const still = all.filter(q => q !== p && q.s.parent !== p.s.id && (look(q.s) !== 'working' || attached(q.s)))
+  const still = all.filter(q => q !== p && q.s.parent !== p.s.id && (!walks(q) || attached(q.s)))
     .map(q => ({ x: q.goal ?? q.x, r: attached(q.s) ? -Infinity : rank(q) }));
   if (!still.some(q => Math.abs(q.x - p.x) < gap && q.r < rank(p))) return null;
   for (let k = 1; k * gap <= innerWidth; k++) for (const x of [p.x + k * gap, p.x - k * gap]) {
@@ -402,7 +404,7 @@ function frame(t) {
       p.goal = null;
       const d = home - p.x, step = Math.max(speed * 4, Math.abs(d) * 1.5) * dt; // far away it sprints: there in a few seconds on any screen
       if (Math.abs(d) <= step) p.x = home; else { p.x += Math.sign(d) * step; p.stepping = true; }
-    } else if (st === 'working' && p.goal == null) {
+    } else if (walks(p) && p.goal == null) {
       // A parent keeps room on both sides for its side sessions and turns round only at the ends of that range
       // (never at random): they trail behind it and cross over to the other side just once per turn.
       const n = kidsOf(p.s).filter(k => pets.has(k.id)).length, room = n ? sideFirst() + (n - 1) * sideStep() : 0;
@@ -417,7 +419,7 @@ function frame(t) {
         p.stepping = true;
       }
     } else {
-      if (st !== 'working') p.goal ??= freeSpot(p, all);
+      if (!walks(p)) p.goal ??= freeSpot(p, all);
       if (p.goal != null) {
         const d = p.goal - p.x, step = speed * 1.5 * dt;
         if (Math.abs(d) <= step) { p.x = p.goal; p.goal = null; } else { p.x += Math.sign(d) * step; p.stepping = true; }
