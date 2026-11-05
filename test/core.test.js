@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
-const { apply, readTranscript, ctxLeft, refresh, setPet } = require('../src/core/state');
+const { apply, readTranscript, ctxLeft, refresh, setPet, plain } = require('../src/core/state');
 const { sanitize, DEFAULTS } = require('../src/core/settings');
 const hooks = require('../src/core/hooks');
 const { startServer } = require('../src/core/server');
@@ -108,9 +108,16 @@ test('the final report keeps its lines; the one-line summary stays short', () =>
   assert.ok(s.report.endsWith('…'));
   assert.equal(s.summary.length, 600);
   assert.ok(!s.summary.includes('\n'));
+  assert.ok(s.summary.startsWith('Done one two xxx'), 'previews carry no Markdown');
   apply(m, { session_id: 'r1', hook_event_name: 'UserPromptSubmit', prompt: 'again' });
   assert.equal(s.report, '', 'a new prompt clears the old report');
   fs.unlinkSync(f);
+});
+
+test('plain: Markdown markers go, the words stay', () => {
+  assert.equal(plain('## Done\n- **Fix** `a | b` in [docs](https://x.y)\n1. one\n---\n| A | B |\n|---|---|\n| 1 | 2 |\n```bash\nnpm test\n```').replace(/\s+/g, ' ').trim(),
+    'Done Fix a | b in docs one A · B 1 · 2 npm test');
+  assert.equal(plain('![logo](a.png) *one* _two_ __three__ ~~four~~ snake_case_name 2 * 3 * 4'), 'logo one two three four snake_case_name 2 * 3 * 4');
 });
 
 test('markdown: the report as safe HTML', () => {
