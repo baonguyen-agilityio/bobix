@@ -22,7 +22,8 @@ A copy run from source and an installed Bobix share the same port and lock: quit
 | Path | What it is |
 |---|---|
 | `src/main.js` | Electron main process: server, pets overlay, control panel, tray, notifications |
-| `src/core/` | State, settings, hooks installer, window focus, local server |
+| `src/core/` | State, settings, hooks installer, window focus, local server, pet pictures as pixel art (`pixelate.js`) |
+| `src/core/gif/` | GIF code copied unchanged from gifenc and gifuct-js (MIT, licenses next to it): Bobix has no runtime dependencies |
 | `src/hook/hook.js` | The forwarder Claude Code runs on each hook event (copied to `~/.claude/bobix/`) |
 | `src/ui/` | Pages: `pets.html` (overlay), `panel.html` (control panel), strings in `i18n.js` |
 | `test/core.test.js` | Unit tests (`node --test`) |

@@ -1,6 +1,7 @@
 // Bobix — Electron main process: local server for hooks, pets overlay, control panel, tray, notifications.
 const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer, clipboard, dialog } = require('electron');
 const path = require('path');
+const { Worker } = require('worker_threads');
 const fs = require('fs');
 const os = require('os');
 const net = require('net');
@@ -15,6 +16,7 @@ const { checkLatest } = require('./core/update');
 const { parentOf } = require('./core/links');
 const feedback = require('./core/feedback');
 const { bitmap } = require('./core/icon');
+const petstore = require('./core/petstore');
 const I18N = require('./ui/i18n');
 
 // Linux on Wayland: apps may not keep a window on top or position it, so the pets overlay would sit behind
@@ -56,8 +58,8 @@ const snapshot = () => {
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession).map(s => [s.hostSession, s.id]));
   const pics = settings?.petImages || {};
   return { sessions: [...sessions.values()].map(s => {
-    const project = s.project || '';
-    return { ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null, project, image: pics[project] || null };
+    const project = s.project || '', pic = pics[project];
+    return { ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null, project, image: petstore.served(pic), pixel: !!pic && typeof pic === 'object', whole: !!pic?.opts?.whole };
   }) };
 };
 const fromUs = e => (e.senderFrame?.url || '').startsWith(origin() + '/'); // IPC only from our own pages
@@ -93,27 +95,133 @@ function findParent(s, now = Date.now()) {
 }
 
 // ---------- a project's own pet picture ----------
-// Chosen in the panel from a file dialog run here (pages never get file access). Stored in the app's data folder:
-// pictures are scaled to 128 px PNG; a GIF is kept as it is so it stays animated.
+// Chosen in the panel from a file dialog run here (pages never get file access). The picture is turned into pixel art
+// (core/pixelate.js, in a worker thread) with options the person adjusts in a preview; only Save writes anything.
+// The original is kept next to the result, so the picture can be adjusted again later (core/petstore.js).
 const petDir = () => path.join(app.getPath('userData'), 'pets');
+const MAX_PICTURE = 2 * 1024 * 1024, DECODE_SIDE = 1024; // bytes of the file; long side before the pixel art shrinks it
+const PIXEL_WAIT_MS = 20e3, WEBP_WAIT_MS = 15e3; // longer than this, a decoder is stuck on a broken file
+let importing = null; // the one import being adjusted: { project, original, kind, input, token }
+
+// One worker for the import in progress; it is stopped when the import ends, so it holds no memory in between.
+let worker = null, workerToken = null, workerReq = 0;
+function pixelWorker() {
+  if (worker) return worker;
+  const w = worker = new Worker(path.join(__dirname, 'core', 'pixelate-worker.js'));
+  w.waiting = new Map(); // request id -> { resolve, reject, timer }; of this worker only, a stopped one must not fail the next
+  const ended = err => {
+    if (worker === w) { worker = null; workerToken = null; }
+    for (const r of w.waiting.values()) { clearTimeout(r.timer); r.reject(err); }
+    w.waiting.clear();
+  };
+  w.on('message', m => { const r = w.waiting.get(m.id); if (!r) return; w.waiting.delete(m.id); clearTimeout(r.timer); m.error ? r.reject(new Error(m.error)) : r.resolve(m); });
+  w.on('error', err => ended(err));
+  w.on('exit', () => ended(new Error('pixel worker stopped')));
+  return w;
+}
+const stopWorker = () => { const w = worker; worker = null; workerToken = null; w?.terminate(); };
+// A hung worker (a broken file in a decoder) is stopped after PIXEL_WAIT_MS, which rejects every request waiting on it.
+const runPixel = msg => new Promise((resolve, reject) => {
+  const w = pixelWorker(), id = ++workerReq;
+  w.waiting.set(id, { resolve, reject, timer: setTimeout(() => w.terminate(), PIXEL_WAIT_MS) });
+  w.postMessage({ ...msg, id });
+});
+
+// A WebP: nativeImage cannot read it, a page can. First frame only, drawn at no more than DECODE_SIDE.
+async function decodeWebp(buf) {
+  const win = new BrowserWindow({ show: false, width: 1, height: 1, webPreferences: { sandbox: true, contextIsolation: true } });
+  try {
+    await win.loadURL('about:blank');
+    const b64 = await Promise.race([win.webContents.executeJavaScript(`(async () => {
+      const bmp = await createImageBitmap(await (await fetch('data:image/webp;base64,${buf.toString('base64')}')).blob());
+      const k = Math.min(1, ${DECODE_SIDE} / Math.max(bmp.width, bmp.height)), w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+      const c = new OffscreenCanvas(w, h), g = c.getContext('2d');
+      g.drawImage(bmp, 0, 0, w, h);
+      const d = g.getImageData(0, 0, w, h).data;
+      let s = '';
+      for (let i = 0; i < d.length; i += 0x8000) s += String.fromCharCode(...d.subarray(i, i + 0x8000));
+      return [w, h, btoa(s)];
+    })()`), new Promise((_, no) => setTimeout(() => no(new Error('webp decode timed out')), WEBP_WAIT_MS))]);
+    return { kind: 'rgba', width: b64[0], height: b64[1], data: Buffer.from(b64[2], 'base64') };
+  } finally { win.destroy(); }
+}
+
+// What the worker needs to decode a picture; null when it cannot be read.
+async function importInput(buf, kind) {
+  if (kind === 'gif') return { kind: 'gif', data: buf };
+  if (kind === 'webp') return decodeWebp(buf);
+  let img = nativeImage.createFromBuffer(buf);
+  if (img.isEmpty()) return null;
+  const { width, height } = img.getSize();
+  if (Math.max(width, height) > DECODE_SIDE) img = img.resize(width >= height ? { width: DECODE_SIDE, quality: 'best' } : { height: DECODE_SIDE, quality: 'best' });
+  return { kind: 'bgra', ...img.getSize(), data: img.toBitmap() };
+}
+
+// Runs the pixel art on the import in progress. `reply` answers the panel with a Preview (see 'pet:image'); `result`,
+// the encoded picture, comes with it when reply.ok.
+async function runImport(p, opts) {
+  let r;
+  try {
+    const first = workerToken !== p.token;
+    r = await runPixel({ token: p.token, input: first ? p.input : undefined, opts });
+    if (r.gone) return { reply: { ok: false, reason: 'gone' } };
+    workerToken = p.token;
+  } catch (err) {
+    if (importing !== p) return { reply: { ok: false, reason: 'gone' } }; // its worker was stopped by a newer import or a cancel
+    console.error('[bobix] pet picture:', err.message); return { reply: { ok: false, reason: 'bad' } };
+  }
+  if (importing !== p) return { reply: { ok: false, reason: 'gone' } }; // cancelled or replaced while it ran
+  const result = { data: Buffer.from(r.data.buffer, r.data.byteOffset, r.data.length), ext: r.ext };
+  return { result, reply: { ok: true, preview: `data:image/${r.ext};base64,${result.data.toString('base64')}`, opts: r.opts, opaque: r.opaque, animated: r.frames > 1, frames: r.frames, ms: r.ms } };
+}
+const importReply = async (p, opts) => (await runImport(p, opts)).reply;
+function endImport() { importing = null; stopWorker(); }
+
+// choose and edit: make `original` the import in progress of this project and answer with its first Preview.
+async function startImport(project, original, opts) {
+  const kind = petstore.kindOf(original);
+  if (!kind) return { ok: false, reason: 'bad' };
+  let input;
+  try { input = await importInput(original, kind); } catch (err) { console.error('[bobix] pet picture:', err.message); }
+  if (!input) return { ok: false, reason: 'bad' };
+  endImport();
+  const p = importing = { project, original, kind, input, token: Math.random().toString(36).slice(2) };
+  const r = await importReply(p, opts);
+  if (!r.ok && importing === p) endImport();
+  return r;
+}
 async function choosePetImage(id) {
   const s = sessions.get(id), project = s?.project;
   if (!project) return { ok: false };
   const win = panel && !panel.isDestroyed() ? panel : undefined;
   const r = await dialog.showOpenDialog(win, { title: tr('pane.petPick'), properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
   if (r.canceled || !r.filePaths[0]) return { ok: false };
-  const src = r.filePaths[0];
-  if (fs.statSync(src).size > 2 * 1024 * 1024) return { ok: false, reason: 'big' };
-  const img = nativeImage.createFromPath(src);
-  if (img.isEmpty()) return { ok: false, reason: 'bad' };
-  const gif = /\.gif$/i.test(src);
-  const data = gif ? fs.readFileSync(src) : (Math.max(img.getSize().width, img.getSize().height) > 128 ? img.resize(img.getSize().width >= img.getSize().height ? { width: 128, quality: 'best' } : { height: 128, quality: 'best' }) : img).toPNG();
-  const file = require('crypto').createHash('sha256').update(data).digest('hex').slice(0, 24) + (gif ? '.gif' : '.png');
-  fs.mkdirSync(petDir(), { recursive: true });
-  fs.writeFileSync(path.join(petDir(), file), data);
-  const old = settings.petImages[project];
-  updateSettings({ petImages: { ...settings.petImages, [project]: file } });
-  dropUnusedPicture(old);
+  let original;
+  try {
+    if (fs.statSync(r.filePaths[0]).size > MAX_PICTURE) return { ok: false, reason: 'big' };
+    original = fs.readFileSync(r.filePaths[0]);
+  } catch { return { ok: false, reason: 'bad' }; } // gone or unreadable since the dialog closed
+  return startImport(project, original);
+}
+function editPetImage(id) {
+  const s = sessions.get(id), project = s?.project;
+  const stored = project && petstore.readOriginal(petDir(), settings.petImages[project]);
+  return stored ? startImport(project, stored.original, stored.opts) : { ok: false, reason: 'gone' };
+}
+async function savePetImage(id, opts) {
+  const s = sessions.get(id), p = importing;
+  if (!p || !s || p.project !== s.project) return { ok: false, reason: 'gone' };
+  const { reply, result } = await runImport(p, opts);
+  if (!reply.ok) return reply;
+  const old = settings.petImages[p.project];
+  let petImages;
+  try {
+    petImages = petstore.saveImport(petDir(), settings.petImages, p.project, { original: p.original, kind: p.kind, result, opts: reply.opts });
+  } catch (err) { console.error('[bobix] pet picture:', err.message); return { ok: false, reason: 'save' }; }
+  endImport();
+  updateSettings({ petImages });
+  saveNow(); // before the old files go: settings on disk still naming them would show a lost picture after a crash or kill
+  petstore.release(petDir(), petImages, old);
   server.broadcast(snapshot());
   return { ok: true };
 }
@@ -122,13 +230,19 @@ function resetPetImage(id) {
   if (!project || !settings.petImages[project]) return { ok: false };
   const { [project]: old, ...rest } = settings.petImages;
   updateSettings({ petImages: rest });
-  dropUnusedPicture(old);
+  saveNow(); // as in savePetImage
+  petstore.release(petDir(), rest, old);
   server.broadcast(snapshot());
   return { ok: true };
 }
-function dropUnusedPicture(file) {
-  if (file && !Object.values(settings.petImages).includes(file)) fs.rmSync(path.join(petDir(), file), { force: true });
-}
+const petImageActs = {
+  choose: id => choosePetImage(id),
+  edit: id => editPetImage(id),
+  preview: (id, opts) => { const s = sessions.get(id); return importing && s && importing.project === s.project ? importReply(importing, opts) : { ok: false, reason: 'gone' }; },
+  save: (id, opts) => savePetImage(id, opts),
+  cancel: () => { endImport(); return { ok: true }; },
+  reset: id => resetPetImage(id),
+};
 
 // ---------- answering permission requests ----------
 // A permission request waits up to settings.approveWait seconds for Allow / Deny from a pet, the panel or the
@@ -449,7 +563,7 @@ function ipc() {
   handle('open-session', id => openSession(id, true, false));
   ipcMain.on('pet-click', (e, id) => fromUs(e) && openSession(id));
   handle('answer', (id, choice) => answer(id, choice));
-  handle('pet:image', (id, act) => (typeof id !== 'string' ? null : act === 'reset' ? resetPetImage(id) : choosePetImage(id)));
+  handle('pet:image', (id, act, opts) => (typeof id !== 'string' || !Object.hasOwn(petImageActs, act) ? null : petImageActs[act](id, opts && typeof opts === 'object' ? opts : undefined)));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) server.broadcast(snapshot()); });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); shapeOverlay(); showOverlay(); } });
 }
@@ -516,6 +630,12 @@ async function smoke(dir) {
     ['petRects', '[...document.querySelectorAll(".pet")].map(p => { const r = p.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })']]) {
     try { report[key] = await within(wc.executeJavaScript(js), 5000, key); } catch (err) { report[key] = `error: ${err.message}`; }
   }
+  // The pet picture worker must start from where the app is installed (inside app.asar when packaged).
+  try {
+    const r = await within(runPixel({ token: 'smoke', input: { kind: 'bgra', width: 8, height: 8, data: Buffer.alloc(8 * 8 * 4, 255) } }), 10000, 'pixel worker');
+    report.pixel = r.ext === 'png' && r.data.length ? 'ok' : 'unexpected result';
+  } catch (err) { report.pixel = `error: ${err.message}`; }
+  stopWorker();
   write(); log('page ' + JSON.stringify({ pets: report.pets, petRects: report.petRects }));
   try { fs.writeFileSync(path.join(dir, 'overlay.png'), (await within(wc.capturePage(), 8000, 'capturePage')).toPNG()); } catch (err) { report.overlayShot = err.message; }
   try {
@@ -524,7 +644,7 @@ async function smoke(dir) {
   } catch (err) { report.screenShot = err.message; }
   write(); log('done ' + JSON.stringify(report));
   fs.writeFileSync(path.join(dir, 'done'), ''); // CI waits for this, then stops the app itself
-  app.exit(report.visible && report.onTop && report.pets >= 2 && !report.pageErrors.length ? 0 : 1);
+  app.exit(report.visible && report.onTop && report.pets >= 2 && !report.pageErrors.length && report.pixel === 'ok' ? 0 : 1);
 }
 
 // The Feedback button: what a bug report will say, and opening GitHub's form.

@@ -35,7 +35,7 @@ Run a few Claude Code sessions at once and you spend your day clicking through t
 
 ## Features
 
-- **A pet per session, shaped by its project**: every session of a project (git worktrees included) has the same creature in its own colour, named after the session's title. Give a project your own picture as the pet's face from the panel (Change pet…). Side sessions stand next to the session they came from.
+- **A pet per session, shaped by its project**: every session of a project (git worktrees included) has the same creature in its own colour, named after the session's title. Give a project your own picture as the pet's face from the panel (Change pet); Bobix turns it into pixel art and lets you tune it, as the pet's face or as the whole pet. Side sessions stand next to the session they came from.
 - **Click to open** the session: straight to it in the Claude desktop app, or brings its Terminal, iTerm or VS Code window forward.
 - **Side sessions** (Claude desktop app): a session started from another one stands next to it, and the panel shows which session it came from and how many side sessions are still busy or need you.
 - **Approve from Bobix**: when Claude asks for permission, answer Allow, Always allow or Deny on the pet, in the panel or on the notification (macOS). Unanswered within the time you set (20 s by default), the terminal asks as usual.
@@ -141,7 +141,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 ## License and credits
 
-MIT, see [LICENSE](LICENSE). Fonts: Baloo 2 and Be Vietnam Pro, SIL Open Font License, bundled via Fontsource (licenses in `src/ui/fonts/`).
+MIT, see [LICENSE](LICENSE). Fonts: Baloo 2 and Be Vietnam Pro, SIL Open Font License, bundled via Fontsource (licenses in `src/ui/fonts/`). GIF code: [gifenc](https://github.com/mattdesl/gifenc) by Matt DesLauriers and the LZW decoder and deinterlacer of [gifuct-js](https://github.com/matt-way/gifuct-js) by Matt Way, MIT, copied into `src/core/gif/` with their licenses.
 
 Bobix is an independent project, not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.
 
