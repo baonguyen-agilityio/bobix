@@ -291,6 +291,17 @@ function draggable(p, id) {
     else if (e.type === 'pointerup') bridge ? bridge.petClick(id) : open('/?s=' + encodeURIComponent(id));
   };
 }
+// A drag whose pet went away mid-drag (its session ended) never hears its own pointerup, and while a drag lasts the
+// whole strip takes the mouse: end any drag still open once the button comes up anywhere in the window.
+addEventListener('pointerup', endStaleDrag);
+addEventListener('pointercancel', endStaleDrag);
+function endStaleDrag() {
+  if (!drag) return;
+  const lead = drag.p;
+  drag = null;
+  lead.dragging = false; lead.walking = false; lead.droppedAt = lead.next = Date.now(); lead.next += 4000;
+  rectAt = 0; wake();
+}
 const zone = () => ({ min: innerWidth * cfg.zoneStart / 100, max: Math.max(innerWidth * cfg.zoneStart / 100, innerWidth * cfg.zoneEnd / 100 - cfg.size) });
 const spacing = () => Math.max(88, cfg.size * 1.6);
 const rank = p => p.droppedAt ? -p.droppedAt : hashStr(p.s.id); // a pet just dropped keeps its spot; the others make room
