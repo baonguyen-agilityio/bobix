@@ -573,3 +573,28 @@ test('upgrading from the old Session Guild name replaces its hooks and folder', 
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('a session keeps its project while Claude works in a folder outside every git repository', () => {
+  const { pinProject } = require('../src/core/state');
+  const G = '.' + 'git';
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-pin-')));
+  const repo = path.join(root, 'app'), other = path.join(root, 'lib'), scratch = path.join(root, 'scratchpad'), plain = path.join(root, 'notes');
+  for (const d of [path.join(repo, G), path.join(repo, 'src'), path.join(other, G), path.join(scratch, 'probe'), path.join(plain, 'dist')]) fs.mkdirSync(d, { recursive: true });
+  const s = { cwd: path.join(repo, 'src') }, at = cwd => { s.cwd = cwd; return pinProject(s); };
+  assert.equal(pinProject(s), repo);
+  assert.equal(at(scratch), repo, 'a scratch folder outside git: still the repository (its picture stays)');
+  assert.equal(at(path.join(scratch, 'probe')), repo);
+  assert.equal(at(other), other, 'another repository: that project');
+  assert.equal(at(repo), repo);
+  // a project outside git: its first folder, through its own subfolders
+  const n = { cwd: plain };
+  assert.equal(pinProject(n), plain);
+  n.cwd = path.join(plain, 'dist');
+  assert.equal(pinProject(n), plain);
+  // first seen outside git (Bobix started while Claude was there): that folder, until a repository
+  const f = { cwd: scratch };
+  assert.equal(pinProject(f), scratch);
+  f.cwd = repo;
+  assert.equal(pinProject(f), repo);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
