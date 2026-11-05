@@ -201,8 +201,8 @@ function paint(p, now) {
   const hidden = kid ? [] : kidsOf(s).filter(k => visible(k) && !pets.has(k.id)), extra = hidden.length;
   const extraHot = hidden.some(k => look(k) === 'waiting') ? 'waiting' : hidden.some(k => look(k) === 'done') ? 'done' : '';
   const groupOpen = !!p.groupOpen && (reports.length > 1 || extra > 0);
-  const famKey = JSON.stringify(familyReports(root, now).map(r => [r.s.id, r.kind, r.text, left(r.s, now) > 0]));
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.project, s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
+  const famKey = JSON.stringify(familyReports(root, now).map(r => [r.s.id, r.kind, r.text, left(r.s, now) > 0, petColor(r.s, lastList || [])]));
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.project, petColor(s, lastList || []), s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;

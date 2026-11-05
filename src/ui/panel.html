@@ -398,7 +398,7 @@ function render() {
     items.forEach((s, i) => {
       let li = [...ol.children].find(c => c.dataset.id === s.id) || [...document.querySelectorAll('li[data-id]')].find(c => c.dataset.id === s.id);
       if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
-      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.image, s.project, lang]);
+      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.image, s.project, petColor(s, list), lang]);
       if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
       li.classList.toggle('side', !!(s.parent && items.some(x => x.id === s.parent)));
       btn.setAttribute('aria-pressed', String(s.id === selected));
@@ -423,7 +423,7 @@ function renderPane() {
   if (!s) return;
   const st = look(s);
   const kids = kidsOf(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), petColor(s, list), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
