@@ -14,7 +14,7 @@ Liếc xuống là biết session nào đang làm, session nào cần bạn, ses
 
 <p align="center"><a href="README.md">English</a> · <b>Tiếng Việt</b></p>
 
-<p align="center"><img src="docs/media/demo.gif" alt="Các chú thú đi dọc mép dưới màn hình: một con nhảy với bong bóng đỏ 'Cần bạn duyệt: Bash', một con hiện 'Xong quest!', bảng điều khiển liệt kê các session theo mức cần chú ý." width="860"></p>
+<p align="center"><img src="docs/media/demo.gif" alt="Các chú thú đi dọc mép dưới màn hình: một con nhảy với bong bóng đỏ 'Cần bạn duyệt: Bash', một con hiện 'Xong nhiệm vụ!', bảng điều khiển liệt kê các session theo mức cần chú ý." width="860"></p>
 
 <p align="center"><a href="docs/media/demo.mp4">Xem video demo chất lượng đầy đủ (16 giây)</a></p>
 
@@ -28,16 +28,16 @@ Chạy vài session Claude Code cùng lúc thì bạn sẽ phải bấm qua từ
 |----------|----------|
 | đi lại, bong bóng kiểu *đang chạy lệnh* | Claude đang làm |
 | nhảy, bong bóng đỏ *Cần bạn duyệt: Bash* | Claude đang chờ bạn duyệt |
-| cười, bong bóng xanh *Xong quest!* | session đã xong lượt |
+| cười, bong bóng xanh *Xong nhiệm vụ!* | session đã xong lượt |
 | ngủ | không có gì xảy ra; ngủ lâu thì tạm rời màn hình |
 
 **Bấm vào chú thú để mở đúng session đó.** Rê chuột lên để xem việc đang làm, trạng thái và lượng context còn lại.
 
 ## Tính năng
 
-- **Mỗi session một chú thú, dáng theo project**: mọi session của cùng một project (kể cả git worktree) có chung dáng nhưng mỗi session một màu, tên lấy theo tiêu đề session. Có thể đặt ảnh riêng làm mặt pet cho từng project trong bảng điều khiển (Đổi pet); Bobix biến ảnh thành pixel art và cho bạn chỉnh lại, dùng làm mặt pet hoặc thay cả pet. Session phụ đứng cạnh session đã tách ra nó.
+- **Mỗi session một chú thú, dáng theo project**: mọi session của cùng một project (kể cả git worktree) có chung dáng nhưng mỗi session một màu, tên lấy theo tiêu đề session. Có thể đặt ảnh riêng làm mặt thú cưng cho từng project trong bảng điều khiển (Đổi thú cưng); Bobix biến ảnh thành pixel art và cho bạn chỉnh lại, dùng làm mặt thú cưng hoặc thay cả thú cưng. Session phụ đứng cạnh session đã tách ra nó.
 - **Bấm để mở** session: vào thẳng session trong app Claude desktop, hoặc đưa cửa sổ Terminal, iTerm, VS Code lên trước.
-- **Session phụ** (app Claude desktop): session tách ra từ một session khác đứng cạnh session gốc, và bảng điều khiển cho biết nó tách từ đâu, còn bao nhiêu session phụ đang chạy hay cần bạn.
+- **Phiên phụ** (app Claude desktop): session tách ra từ một session khác đứng cạnh session gốc, và bảng điều khiển cho biết nó tách từ đâu, còn bao nhiêu session phụ đang chạy hay cần bạn.
 - **Duyệt ngay trên Bobix**: khi Claude xin quyền, bấm Cho phép, Luôn cho phép hoặc Từ chối trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Mặc định Bobix giữ yêu cầu cho tới khi bạn trả lời ở đó; đặt giới hạn thời gian trong Cài đặt nếu muốn terminal tự hỏi khi hết giờ. Khi các chú thú đang ẩn hoặc thông báo đang tạm dừng thì Bobix không giữ yêu cầu.
 - **Bảng điều khiển** liệt kê mọi session theo mức cần bạn chú ý, kèm câu trả lời cuối và nhật ký các tool đã dùng.
 - **Thông báo** khi session cần duyệt hoặc đã xong, có âm thanh nếu muốn.
@@ -136,7 +136,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 - Phiên bản 0.1. Đã thử trên macOS (chip Apple) với app Claude desktop và CLI, và trên Ubuntu (Wayland) với CLI. Windows mới chạy smoke test trên CI; app Claude desktop cho Linux (bản beta) chưa được thử.
 - Trên Linux Wayland, Bobix chạy qua XWayland để chú thú luôn nằm trên cùng; đưa terminal lên trước cần X11 và `xdotool`.
 - Mở session trong app Claude desktop dùng một đường link do app đó đăng ký (`claude://code/continue`), không phải API có tài liệu, nên có thể thay đổi.
-- "Context còn lại" là ước tính từ lượng token đã dùng.
+- "Ngữ cảnh còn lại" là ước tính từ lượng token đã dùng.
 - File cài cho Linux dành cho Ubuntu và Debian; các bản Linux khác chưa có gói cài.
 
 ## Giấy phép và ghi công
