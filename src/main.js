@@ -319,11 +319,10 @@ async function openSession(id, preferFocus = settings.clickAction === 'focus', t
       else {
         const chain = await ancestors(s.claudePid);
         if (await focusPids(chain)) return { ok: true };
-        const names = await processNames(chain);
-        app = hostApp(names);
+        app = hostApp(await processNames(chain));
         // A CLI in the Claude app's own terminal: the app's link brings its window forward, also on Wayland (no window
         // is raised by Bobix itself). Its tab is not chosen: there is no session id to send for it.
-        if (names.includes('claude-desktop')) { await shell.openExternal('claude://'); return { ok: true }; }
+        if (app === 'Claude') { await shell.openExternal('claude://'); return { ok: true }; }
         if (process.platform === 'linux') reason = WAYLAND ? 'wayland' : (await hasXdotool()) ? 'notfound' : 'xdotool';
       }
     } catch (err) { console.error('[bobix] open session:', err.message); }
@@ -702,7 +701,9 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin') app.dock?.hide();
   migrateFromOldName();
   settings = S.load(settingsFile());
-  try { settings.autostart = autostart.get(app); if (settings.autostart) autostart.set(app, true); } catch {} // start at login: point at this copy, not one from an old path
+  // Start at login: point at this copy, not one from an old path. Run from a clone, a missing login entry of its own
+  // doesn't mean "off": the installed app shares this settings file and owns the setting, so leave it as stored.
+  try { const on = autostart.get(app); if (app.isPackaged || on) settings.autostart = on; if (on) autostart.set(app, true); } catch {}
   token = hooks.ensureToken();
   server = startServer({ port: settings.port, token, onEvent, snapshot, petDir: petDir() });
   try { await server.ready; } catch (err) {
