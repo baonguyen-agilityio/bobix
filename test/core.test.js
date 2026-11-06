@@ -355,7 +355,7 @@ test('a permission request waits for the answer from Bobix and prints it for Cla
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-home-'));
   const token = hooks.ensureToken(home);
   let reply = null;
-  const srv = startServer({ port: 0, token, onEvent: (e, signal) => (signal ? reply : null), snapshot: () => ({}) });
+  const srv = startServer({ port: 0, token, onEvent: (e, signal) => (signal || reply?.output ? reply : null), snapshot: () => ({}) });
   await srv.ready;
   const { execFile } = require('child_process');
   const env = { ...process.env, HOME: home, USERPROFILE: home };
@@ -375,6 +375,10 @@ test('a permission request waits for the answer from Bobix and prints it for Cla
   assert.equal(await run(ask), '', 'the app does not wait (turned off): nothing printed');
   assert.ok(Date.now() - t0 < 1000);
   assert.equal(await run({ ...ask, hook_event_name: 'PreToolUse' }), '', 'other events never print');
+  const titled = { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: 'shop-app #27 Fix it' } };
+  reply = { output: titled };
+  assert.deepEqual(JSON.parse(await run({ session_id: 's5', hook_event_name: 'SessionStart', source: 'startup' })), titled, 'a session title reaches Claude Code');
+  assert.equal(await run({ session_id: 's5', hook_event_name: 'UserPromptSubmit' }), '', 'only on the event it answers');
   await srv.close();
   // A frozen app (accepts the connection, never replies) holds the hook only briefly.
   const net = require('net');
@@ -402,7 +406,7 @@ test('headless runs (claude -p, Agent SDK) are never held for an answer', async 
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('the permission hook runs in the foreground; an old background one counts as outdated', () => {
+test('the permission and SessionStart hooks run in the foreground; old background ones count as outdated', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-home-'));
   const src = path.join(__dirname, '..', 'src', 'hook', 'hook.js');
   hooks.install({ port: 4747, nodePath: process.execPath, hookSource: src, home });
@@ -411,7 +415,11 @@ test('the permission hook runs in the foreground; an old background one counts a
   assert.equal(ask.async, undefined); assert.ok(ask.timeout >= 300);
   assert.equal(tool.async, true);
   assert.equal(hooks.status({ home }).outdated, false);
-  ask.async = true; fs.writeFileSync(file, JSON.stringify(cfg));
+  const start = cfg.hooks.SessionStart[0].hooks[0];
+  assert.equal(start.async, undefined); assert.equal(start.timeout, 5);
+  start.async = true; fs.writeFileSync(file, JSON.stringify(cfg));
+  assert.equal(hooks.status({ home }).outdated, true, 'installed before session titles: reinstall');
+  start.async = undefined; ask.async = true; fs.writeFileSync(file, JSON.stringify(cfg));
   assert.equal(hooks.status({ home }).outdated, true, 'installed before answers: reinstall');
   fs.rmSync(home, { recursive: true, force: true });
 });
@@ -1270,4 +1278,11 @@ test('transcript: every gitBranch the session was on, oldest first', () => {
   const f = path.join(os.tmpdir(), `bobix-branches-${process.pid}.jsonl`);
   fs.writeFileSync(f, [{ type: 'user', gitBranch: 'main' }, { type: 'assistant', gitBranch: '29-fix', message: { content: [] } }, { type: 'user', gitBranch: '29-fix' }, { type: 'user', gitBranch: 'feat/31-x' }, { type: 'user' }].map(l => JSON.stringify(l)).join('\n'));
   try { strict.deepEqual(readTranscript(f).branches, ['main', '29-fix', 'feat/31-x']); } finally { fs.rmSync(f, { force: true }); }
+});
+
+test('work: a session started from an issue is named "<project> #<iid> <short title>"', () => {
+  strict.equal(work.sessionTitleFor('team/shop-app', 27, '[Bug] Buy - Back leaves without "Leave without saving?" and typed values are lost'), 'shop-app #27 Buy - Back leaves without "Leave without…');
+  strict.equal(work.sessionTitleFor('g/sub/api', 3, 'Fix login'), 'api #3 Fix login');
+  strict.equal(work.sessionTitleFor('g/api', 4, ''), 'api #4');
+  strict.ok(work.sessionTitleFor('g/api', 5, 'x'.repeat(200)).length <= 52);
 });

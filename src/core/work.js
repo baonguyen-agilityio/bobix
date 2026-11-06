@@ -66,6 +66,14 @@ const issueOfBranch = branch => { const m = /(?:^|\/)(\d+)-/.exec(branch || '');
 
 const START_WINDOW = 10 * 60e3;
 
+// The name of a session started from an issue: "<project> #<iid> <short title>", e.g. "shop-app #27 Back leaves without…".
+// Leading tags such as "[Bug]" go; the title is cut at a word near 40 characters.
+function sessionTitleFor(path, iid, title) {
+  let d = String(title || '').replace(/^(\s*\[[^\]]*\])+/, '').replace(/\s+/g, ' ').trim();
+  if (d.length > 40) d = d.slice(0, 41).replace(/\s+\S*$/, '').replace(/[\s,.;:-]+$/, '') + '…';
+  return `${String(path).split('/').pop()} #${iid}${d ? ' ' + d : ''}`;
+}
+
 // The issue a session works on: the one it was started for from the Work tab (New), else the newest of its branches
 // (the transcript's gitBranch values, oldest first, then the branch it is on now) that names one. s: { path, started, branches }.
 function issueOfSession(s) {
@@ -121,4 +129,4 @@ async function fetchIssues(glab, host) {
   return { ok: false, reason: 'error', detail: 'unexpected answer from GitLab' };
 }
 
-module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, claimStart, START_WINDOW, slimIssue, groupIssues, fetchIssues };
+module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, claimStart, START_WINDOW, sessionTitleFor, slimIssue, groupIssues, fetchIssues };

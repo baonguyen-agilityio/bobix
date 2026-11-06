@@ -11,6 +11,9 @@ const MARK = 'bobix';
 // The app decides how long it waits (Settings, up to "until I answer"); this is only the hard cap Claude Code enforces:
 // a day, since the docs give `timeout` in seconds with no maximum.
 const ANSWER_EVENT = 'PermissionRequest', ANSWER_TIMEOUT = 86400;
+// SessionStart runs in the foreground (still 5 s at most) so Bobix can name a session started from an issue: Claude
+// ignores output of hooks that run in the background. Claude lets you type while SessionStart hooks run.
+const TITLE_EVENT = 'SessionStart';
 const KEEP_BACKUPS = 3;
 
 const claudeDir = (home = os.homedir()) => path.join(home, '.claude');
@@ -55,6 +58,7 @@ function hookEntry({ port, nodePath, platform = process.platform, home, event })
   if (nodePath) {
     const entry = { ...base, command: nodePath, args: [hookTarget(home), String(port)] };
     if (event === ANSWER_EVENT) { delete entry.async; entry.timeout = ANSWER_TIMEOUT; }
+    if (event === TITLE_EVENT) delete entry.async;
     return entry;
   }
   const url = `http://127.0.0.1:${port}/event`;
@@ -163,7 +167,8 @@ function status({ home } = {}) {
     const stale = mode === 'node' && !fs.existsSync(one.command);
     // Installed by the old Session Guild build, before Bobix could answer permission requests, or with a cap too short for "until I answer".
     const ask = groupsOf(hooks, ANSWER_EVENT).flatMap(entriesOf).find(isOurs);
-    const outdated = !!one && (markOf(one) !== MARK || (mode === 'node' && !!ask && (!!ask.async || !(ask.timeout >= ANSWER_TIMEOUT))));
+    const start = groupsOf(hooks, TITLE_EVENT).flatMap(entriesOf).find(isOurs); // in the background before Bobix named sessions
+    const outdated = !!one && (markOf(one) !== MARK || (mode === 'node' && ((!!ask && (!!ask.async || !(ask.timeout >= ANSWER_TIMEOUT))) || (!!start && !!start.async))));
     return { file, events, complete: events.length === EVENTS.length, mode, port, nodePath: mode === 'node' ? one.command : null, stale, outdated };
   } catch (err) {
     return { file, error: `settings.json: ${err.message}`, events: [], complete: false, mode: null, port: null, stale: false };

@@ -75,7 +75,8 @@ function onEvent(e, signal) {
   const isNew = typeof e?.session_id === 'string' && !sessions.has(e.session_id);
   const r = apply(sessions, e);
   if (!r) return null;
-  if (r.s) { pinProject(r.s); findParent(r.s); if (isNew) claimStart(r.s); refreshGit(r.s, e.hook_event_name === 'Stop' || e.hook_event_name === 'SessionStart'); }
+  const started = r.s && isNew ? claimStart(r.s) : null;
+  if (r.s) { pinProject(r.s); findParent(r.s); refreshGit(r.s, e.hook_event_name === 'Stop' || e.hook_event_name === 'SessionStart'); }
   const answered = signal && r.s && e.hook_event_name === 'PermissionRequest' ? waitForAnswer(r.s, e, signal) : null;
   const isStop = e.hook_event_name === 'Stop', since = r.s?.since;
   const finish = () => {
@@ -86,6 +87,10 @@ function onEvent(e, signal) {
     if (r.notice && !stale) notify(r.notice);
   };
   isStop ? setTimeout(finish, 300) : finish(); // let Claude flush the final answer to the transcript first
+  // A session started from an issue gets its name from Bobix, the way /rename names it; one that has a name keeps it.
+  if (started && e.hook_event_name === 'SessionStart' && ['startup', 'resume', 'fork'].includes(e.source) && !e.session_title) {
+    return { output: { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(started.path, started.iid, started.title) } } };
+  }
   return answered;
 }
 
@@ -112,14 +117,17 @@ function findParent(s, now = Date.now()) {
 const gitCache = new Map(); // folder -> { at, busy, git }
 const remotesOf = new Map(); // repository top folder -> its remote URLs (kept here, never sent to the pages: they may hold credentials)
 let glabPath = null, issues = { status: 'off' }, issuesBusy = false;
-// New on an issue: { dir, path, iid, at }. The first session that appears in that repository within 10 minutes is started for
-// the issue (kept on the session, in memory only). Bobix never names the session: its title stays Claude's own.
+// New on an issue: { dir, path, iid, title, at }. The first session that appears in that repository within 10 minutes is started for
+// the issue (kept on the session, in memory only) and named "<project> #<iid> <short title>" through its SessionStart
+// hook (sessionTitle, like /rename). Other sessions keep the name Claude gives them.
 let pendingStarts = [];
 function claimStart(s) {
+  pinProject(s);
   const p = s.project && work.claimStart(pendingStarts, s.project, Date.now());
-  if (!p) return;
+  if (!p) return null;
   s.started = { path: p.path, iid: p.iid };
   pendingStarts = pendingStarts.filter(x => x !== p);
+  return p;
 }
 async function refreshGit(s, force = false) {
   const dir = s.cwd;
@@ -182,7 +190,7 @@ async function startIssue(path, iid) {
   const id = i.sessions.map(x => sessions.get(x)).filter(Boolean).sort((a, b) => b.updated - a.updated)[0]?.id;
   if (id) return { mode: 'resume', ...(await openSession(id, true, false)) };
   const now = Date.now();
-  pendingStarts = [...pendingStarts.filter(x => now - x.at < work.START_WINDOW), { dir: g.dir, path, iid, at: now }];
+  pendingStarts = [...pendingStarts.filter(x => now - x.at < work.START_WINDOW), { dir: g.dir, path, iid, title: i.title, at: now }];
   try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(g.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
   return { ok: true, mode: 'new' };
 }
