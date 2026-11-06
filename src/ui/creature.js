@@ -66,6 +66,9 @@ function picturePet(href) {
     + `<image href="${href}" width="1" height="1" preserveAspectRatio="xMidYMax meet" style="image-rendering:pixelated"/></svg>`;
 }
 
+// Where to answer a permission request Bobix can't answer: the Claude app asks in its own card for its sessions.
+const approveWhere = s => (s.hostSession ? 'ask.whereApp' : 'pane.askHint');
+
 // The pet of a session: its project's creature, wearing the picture chosen for that project if there is one, or the
 // picture itself when the person chose it to be the whole pet.
 function petArt(s, st, color) {

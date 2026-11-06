@@ -357,7 +357,7 @@ function familyOrder(items) {
   return out;
 }
 const titleOf = id => { const p = id && list.find(x => x.id === id); return p ? p.title || p.name : ''; };
-const secsLeft = s => (s.answer ? Math.max(0, Math.ceil((s.answer.until - Date.now()) / 1000)) : 0);
+const secsLeft = s => (!s.answer ? 0 : s.answer.until == null ? Infinity : Math.max(0, Math.ceil((s.answer.until - Date.now()) / 1000))); // Infinity: waits until answered
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 // Same rule as the pets overlay: hidden by hand, or asleep past the "leave after" time.
 const offScreen = s => {
@@ -498,10 +498,10 @@ function renderPane() {
     ${hint?.id === s.id ? `<p class="note open-hint">${esc(hintText(hint))}</p>` : ''}
     ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
     ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><span>${esc(statusText(k, look(k)))}</span><button class="btn" type="button" data-act="goto" data-id="${esc(k.id)}">${esc(k.title || k.name)}</button></li>`).join('')}</ol>` : ''}
-    ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${T('pane.askWithin', { n: secsLeft(s) })}
+    ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${secsLeft(s) === Infinity ? T('pane.askUntil') : T('pane.askWithin', { n: secsLeft(s) })}
       <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
         <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
-        <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T('pane.askHint')}</div>` : ''}
+        <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T(approveWhere(s))}</div>` : ''}
     <h3>${T('pane.quest')}</h3>${moreHTML(`q:${s.id}`, markdown(s.prompt || s.quest || T('line.noQuest')), 'prompt md')}
     ${s.summary ? `<details class="fold"${reportOpen ? ' open' : ''}><summary><h3>${T('pane.report')}</h3></summary>
       <div class="report md">${markdown(s.report || s.summary)}</div></details>` : ''}
@@ -545,6 +545,9 @@ const pct = v => Math.round(v * 100) + '%';
 const SHOW = { all: { showIdle: true, onlyAttention: false }, active: { showIdle: false, onlyAttention: false }, attention: { showIdle: true, onlyAttention: true } };
 const showOf = s => (s.onlyAttention ? 'attention' : s.showIdle ? 'all' : 'active');
 const ZONES = { full: [0, 100], left: [0, 50], right: [50, 100], corner: [70, 100] };
+// Off, 20 s … until I answer; a value set earlier (any number of seconds) stays listed.
+const WAITS = [[0, 'set.approveWait.off'], [20, 'set.approveWait.s20'], [60, 'set.approveWait.s60'], [120, 'set.approveWait.m2'], [300, 'set.approveWait.m5'], [-1, 'set.approveWait.until']];
+const waitOpts = cur => [...WAITS, ...(WAITS.some(w => w[0] === cur) ? [] : [[cur, null]])].sort((a, b) => (a[0] < 0 ? 1 : b[0] < 0 ? -1 : a[0] - b[0])).map(([v, k]) => [String(v), k ? T(k) : T('set.approveWait.custom', { n: v })]);
 const opts = (keys, prefix) => () => keys.map(v => [v, T(prefix + v)]);
 const SECTIONS = [
   ['set.section.place', [
@@ -564,7 +567,7 @@ const SECTIONS = [
   ]],
   ['set.section.notify', [
     { k: 'paused', type: 'switch' },
-    { k: 'approveWait', type: 'number', min: 0, max: 300, step: 5, unit: 'set.seconds' },
+    { k: 'approveWait', type: 'select', opts: () => waitOpts(state.settings.approveWait), get: s => String(s.approveWait) },
     { k: 'notifyWaiting', type: 'switch', dim: s => s.paused },
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },

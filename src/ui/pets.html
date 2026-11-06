@@ -57,6 +57,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .say{padding:var(--s1) var(--s3);white-space:nowrap;font-weight:500;animation:pop 200ms var(--ease)}
 .say.waiting{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink);font-weight:600}
 .say.done{background:var(--mint-soft)}
+.where{display:block;font-size:var(--t-xs);font-weight:500}
 .answer{display:inline-flex;align-items:center;gap:var(--s1);margin-left:var(--s2)}
 .answer button{font:600 var(--t-xs) var(--f-body);border-radius:var(--pill);padding:0 var(--s2);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);cursor:pointer}
 .answer button[data-answer="allow"],.answer button[data-answer="always"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
@@ -132,15 +133,15 @@ function sayText(p, st, now) {
   return null;
 }
 
-// Allow / Deny while a permission request waits for Bobix (seconds left, then the terminal asks).
-const left = (s, now) => (s.answer ? Math.max(0, Math.ceil((s.answer.until - now) / 1000)) : 0);
+// Allow / Deny while a permission request waits for Bobix (seconds left, then the terminal asks; Infinity: no countdown).
+const left = (s, now) => (!s.answer ? 0 : s.answer.until == null ? Infinity : Math.max(0, Math.ceil((s.answer.until - now) / 1000)));
 function answerButtons(s, now, withAlways) {
   const n = left(s, now);
-  if (!n || !bridge) return '';
+  if (!n || !bridge) return `<span class="where">${T(approveWhere(s))}</span>`; // Bobix can't answer it: say where it can be
   const sid = `data-sid="${esc(s.id)}"`;
   return `<span class="answer">${withAlways && s.answer.always ? `<button type="button" ${sid} data-answer="always">${T('ask.always')}</button>` : ''}`
     + `<button type="button" ${sid} data-answer="allow">${T('ask.allow')}</button><button type="button" ${sid} data-answer="deny">${T('ask.deny')}</button>`
-    + `<span class="left" data-sid="${esc(s.id)}">${T('ask.left', { n })}</span></span>`;
+    + (n === Infinity ? '' : `<span class="left" data-sid="${esc(s.id)}">${T('ask.left', { n })}</span>`) + '</span>';
 }
 // Side sessions: a side session's pet is smaller and names the session it came from; the parent counts its side sessions.
 // How a family (a parent and its side sessions) tells you things: while at most two of its pets need you, each holds
@@ -200,10 +201,13 @@ function paint(p, now) {
   const s = p.s, st = look(s), kid = attached(s), root = rootOf(s), useBalloons = balloonsFor(root, now);
   const reports = !kid ? familyReports(s, now) : [], fam = !kid && kidsOf(s).some(k => visible(k));
   const mine = familyReports(root, now).find(r => r.s.id === s.id && r.kind);
+  // A pet asking for permission shows its request and buttons when hovered, not the card, which would cover them.
+  const card = p.hover && st !== 'waiting';
   const balloon = useBalloons && mine && !p.hover ? mine.kind : '';
   let say = null; // [kind, text or null, one report or null]
-  if (!p.hover && !kid) {
-    if (!useBalloons && reports.length > 1) say = [reports.some(r => r.kind === 'waiting') ? 'waiting' : 'done', summaryText(reports), null];
+  if (!card && !kid) {
+    if (p.hover) { const t = sayText(p, st, now); say = t && [t[0], t[1], null]; }
+    else if (!useBalloons && reports.length > 1) say = [reports.some(r => r.kind === 'waiting') ? 'waiting' : 'done', summaryText(reports), null];
     else if (!fam && !useBalloons) { const t = sayText(p, st, now); say = t && [t[0], t[1], null]; }
     else if (useBalloons && st === 'working' && !fam) { const t = sayText(p, st, now); say = t && t[0] === '' ? [t[0], t[1], null] : null; } // tool activity, only on its own
   }
@@ -213,14 +217,14 @@ function paint(p, now) {
   if (p.groupOpen && !(reports.length > 1 || extra > 0)) p.groupOpen = false; // nothing left to list: closed, not reopened later
   const groupOpen = !!p.groupOpen;
   const famKey = JSON.stringify(familyReports(root, now).map(r => [r.s.id, r.kind, r.text, left(r.s, now) > 0, petColor(r.s, lastList || [])]));
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, p.hover, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, petColor(s, lastList || []), s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, petColor(s, lastList || []), s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
   p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${groupOpen ? ' open' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''} ${p.edge}`;
   const kids = kidsText(s), parent = s.parent && byId(s.parent);
   p.el.innerHTML = `
-    ${p.hover ? `<div class="card">
+    ${card ? `<div class="card">
         <h2>${esc(s.title || s.name)}</h2>
         <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
         <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
@@ -389,8 +393,8 @@ function frame(t) {
   last = t;
   const all = [...pets.values()], { min, max } = zone();
   for (const p of all) {
-    const x0 = p.x, st = look(p.s), r = p.el.getBoundingClientRect(), card = p.el.querySelector('.card'), home = sideSpot(p, all);
-    // A short grace period lets the cursor cross the gap between the pet and its card.
+    const x0 = p.x, st = look(p.s), r = p.el.getBoundingClientRect(), card = p.el.querySelector('.card, .say.waiting'), home = sideSpot(p, all);
+    // A short grace period lets the cursor cross the gap between the pet and its card (or the request it shows instead).
     if (inRect(r, mouse.x, mouse.y) || (card && inRect(card.getBoundingClientRect(), mouse.x, mouse.y))) p.hoverUntil = now + 250;
     p.hover = now < (p.hoverUntil || 0);
     p.stepping = false;

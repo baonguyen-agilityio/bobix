@@ -33,7 +33,7 @@ The hook script drops file contents and tool output before sending anything. All
 
 ## What it runs
 
-- `node ~/.claude/bobix/hook.js <port>` on each Claude Code hook event, in the background so Claude never waits for it. The one exception is a permission request: there the hook waits for your answer in Bobix (Settings → "Approve from Bobix", 20 s by default, 0 = off), then Claude asks in the terminal as usual. Runs without a person at Bobix (`claude -p`, Agent SDK apps) never wait. Answers come only from Bobix's own windows and notifications, never over the network. Fallbacks without Node.js: `curl` or PowerShell (no approvals).
+- `node ~/.claude/bobix/hook.js <port>` on each Claude Code hook event, in the background so Claude never waits for it. The one exception is a permission request: there the hook waits for your answer in Bobix (Settings → "Approve from Bobix": by default until you answer there, or a time limit you set; off if you choose), then Claude asks in the terminal as usual. Runs without a person at Bobix (`claude -p`, Agent SDK apps) never wait. Answers come only from Bobix's own windows and notifications, never over the network. Fallbacks without Node.js: `curl` or PowerShell (no approvals).
 - When you click a pet: `open -a <app>` (macOS), `WScript.Shell.AppActivate` via PowerShell (Windows) or `xdotool` (Linux) to bring the session's window forward, and `ps` / `Get-CimInstance` to find that window's process. In the Claude desktop app it opens `claude://code/continue?session=<id>`, a link that app registers. It is not a documented public API and may change; if it stops working, the click falls back to the session's details.
 - Arguments are always passed as lists, never through a shell.
 
