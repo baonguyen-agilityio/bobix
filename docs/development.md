@@ -42,6 +42,7 @@ Installers have fixed names (`Bobix-mac-arm64.dmg`, `Bobix-mac-x64.dmg`, `Bobix-
 1. Bump `version` in `package.json` and commit on `main`.
 2. Push a tag such as `v0.1.2`. [The release workflow](../.github/workflows/release.yml) builds on macOS, Windows and Ubuntu and attaches the installers to a GitHub Release. A tag with a dash (`v0.2.0-rc.1`) makes a pre-release, which does not become "latest".
 3. Add release notes to the release.
+4. For a release with changes people should know about, rewrite `news.items` (EN and VI) and `NEWS` in `src/ui/i18n.js` before tagging: the panel shows them once to everyone updating to that version, and never to a new install.
 
 ## CI
 

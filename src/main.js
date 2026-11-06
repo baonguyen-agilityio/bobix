@@ -18,6 +18,7 @@ const feedback = require('./core/feedback');
 const { bitmap } = require('./core/icon');
 const petstore = require('./core/petstore');
 const I18N = require('./ui/i18n');
+const news = require('./core/news');
 
 // Linux on Wayland: apps may not keep a window on top or position it, so the pets overlay would sit behind
 // whatever you work in. Run through XWayland (X11) when it is there; BOBIX_WAYLAND=1 keeps native Wayland.
@@ -468,6 +469,7 @@ function buildTray() {
     { label: tr('tray.showAll'), click: () => { setPet(sessions, '*', 'shown'); server.broadcast(snapshot()); if (!settings.petsVisible) updateSettings({ petsVisible: true }); } },
     { label: tr('tray.pause'), type: 'checkbox', checked: settings.paused, click: m => updateSettings({ paused: m.checked }) },
     { label: tr('tray.feedback'), click: () => showPanel({ tab: 'feedback' }) },
+    ...(news.newsFor(settings, app.getVersion(), I18N.NEWS) ? [{ label: tr('tray.news', { v: I18N.NEWS }), click: () => showPanel({ tab: 'sessions' }) }] : []),
     ...(update ? [{ type: 'separator' }, { label: tr('tray.update', { v: update.version }), click: () => shell.openExternal(update.url) }] : []),
     { type: 'separator' },
     { label: tr('tray.quit'), click: () => app.quit() },
@@ -505,7 +507,7 @@ async function updateSettings(patch) {
   if (settings.autostart !== prev.autostart) { try { autostart.set(app, settings.autostart); } catch (err) { console.error('[bobix] autostart:', err.message); } }
   if (['display', 'edge', 'size'].some(k => settings[k] !== prev[k])) placeOverlay();
   if (settings.petsVisible !== prev.petsVisible) showOverlay();
-  if (['petsVisible', 'paused', 'language'].some(k => settings[k] !== prev[k])) buildTray();
+  if (['petsVisible', 'paused', 'language', 'seenVersion'].some(k => settings[k] !== prev[k])) buildTray();
   releaseUnseen();
   if (settings.checkUpdates && !prev.checkUpdates) checkForUpdate();
   if (!settings.checkUpdates && update) { update = null; buildTray(); }
@@ -548,14 +550,14 @@ function testEvent() {
 function ipc() {
   const handle = (ch, fn) => ipcMain.handle(ch, (e, ...a) => (fromUs(e) ? fn(...a) : null));
   handle('state', () => ({
-    settings, version: app.getVersion(), platform: process.platform, nodePath, lastEventAt, hooks: hooks.status(),
+    settings, version: app.getVersion(), news: news.newsFor(settings, app.getVersion(), I18N.NEWS), platform: process.platform, nodePath, lastEventAt, hooks: hooks.status(),
     screen: (({ width, height }) => ({ width, height }))(targetDisplay().workArea),
     displays: screen.getAllDisplays().map((d, i) => ({ id: d.id, label: `${d.label || `#${i + 1}`} (${d.size.width}×${d.size.height})` })),
   }));
   handle('settings', patch => updateSettings(patch));
   // Back to defaults, except the language you read, what changes the system (port → hooks + restart, start at login) and
   // the projects' pet pictures (chosen files, not settings: wiping them would turn pets default at their next event).
-  handle('settings:reset', () => updateSettings({ ...S.DEFAULTS, language: settings.language, port: settings.port, autostart: settings.autostart, petImages: settings.petImages }));
+  handle('settings:reset', () => updateSettings({ ...S.DEFAULTS, language: settings.language, port: settings.port, autostart: settings.autostart, petImages: settings.petImages, guideSeen: settings.guideSeen, seenVersion: settings.seenVersion }));
   handle('reveal-settings', () => shell.showItemInFolder(hooks.status().file));
   handle('diagnostics', async () => { const text = JSON.stringify(await diagnostics(), null, 2); clipboard.writeText(text); return text; });
   handle('feedback:info', () => feedbackInfo());
@@ -704,6 +706,7 @@ app.whenReady().then(async () => {
   // Start at login: point at this copy, not one from an old path. Run from a clone, a missing login entry of its own
   // doesn't mean "off": the installed app shares this settings file and owns the setting, so leave it as stored.
   try { const on = autostart.get(app); if (app.isPackaged || on) settings.autostart = on; if (on) autostart.set(app, true); } catch {}
+  { const f = news.firstStart(settings, app.getVersion(), hooks.status().events.length > 0); if (f) { settings = { ...settings, ...f }; saveNow(); } }
   token = hooks.ensureToken();
   server = startServer({ port: settings.port, token, onEvent, snapshot, petDir: petDir() });
   try { await server.ready; } catch (err) {

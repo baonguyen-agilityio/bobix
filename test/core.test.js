@@ -1153,3 +1153,22 @@ test('a permission request is held only where the person can see it', () => {
   strict.equal(holdSecs({ ...on, approveWait: -1 }, { pet: 'shown' }), Infinity);
   strict.equal(holdSecs({ ...on, approveWait: 60, petsVisible: false }, pet), 0, 'a timed wait too');
 });
+
+test('first-run guide and what\'s new', () => {
+  const { firstStart, newsFor } = require('../src/core/news');
+  // A new install: guide shown, no notes for the version it starts with.
+  const fresh = { ...DEFAULTS, ...firstStart(DEFAULTS, '0.1.4-rc.3', false) };
+  assert.equal(fresh.guideSeen, false); assert.equal(fresh.seenVersion, '0.1.4');
+  assert.equal(newsFor(fresh, '0.1.4-rc.3', '0.1.4'), null);
+  assert.equal(firstStart(fresh, '0.1.4', false), null, 'runs once');
+  // Someone updating from an older Bobix (hooks already in): no guide, the notes once.
+  const old = { ...DEFAULTS, ...firstStart(DEFAULTS, '0.1.4', true) };
+  assert.equal(old.guideSeen, true); assert.equal(old.seenVersion, '');
+  assert.equal(newsFor(old, '0.1.4', '0.1.4'), '0.1.4');
+  assert.equal(newsFor({ ...old, seenVersion: '0.1.4' }, '0.1.4', '0.1.4'), null, 'closed');
+  assert.equal(newsFor({ ...fresh }, '0.1.5', '0.1.5'), '0.1.5', 'the next release with notes');
+  assert.equal(newsFor({ ...fresh, seenVersion: '0.1.3' }, '0.1.5', '0.1.4'), null, 'notes of another version are not shown');
+  assert.equal(sanitize({ seenVersion: '0.1.4' }).seenVersion, '0.1.4');
+  assert.equal(sanitize({ seenVersion: '<b>' }).seenVersion, '');
+  assert.equal(sanitize({ guideSeen: true }).guideSeen, true);
+});

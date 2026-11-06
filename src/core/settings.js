@@ -26,6 +26,8 @@ const DEFAULTS = {
   petsVisible: true,
   autostart: false,
   checkUpdates: true,      // once a day, ask GitHub whether a newer release exists (nothing about you is sent)
+  guideSeen: false,        // the panel's "How to read the pets" card was closed (see news.js)
+  seenVersion: '',         // the last version whose "What's new" was closed, or the version first installed
   petImages: {},           // project folder -> { src, file, opts } in the app's data folder (see petstore.js), or a file name
 };
 
@@ -53,6 +55,7 @@ function sanitize(input, base = DEFAULTS) {
     else if (k === 'approveWait' && Number(v) === UNTIL_ANSWER) out[k] = UNTIL_ANSWER; // any other negative number is clamped to 0 (off) below
     else if (RANGES[k]) { const n = Number(v); if (Number.isFinite(n)) out[k] = Math.min(RANGES[k][1], Math.max(RANGES[k][0], k === 'opacity' ? n : Math.round(n))); }
     else if (typeof def === 'boolean') { if (typeof v === 'boolean') out[k] = v; }
+    else if (k === 'seenVersion') { if (v === '' || /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v)) out[k] = v; }
     else if (k === 'display') { if (typeof v === 'string' && v.length < 40) out[k] = v; }
     else if (k === 'petImages') {
       if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
