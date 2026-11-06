@@ -675,8 +675,8 @@ $('#work').addEventListener('click', async e => {
     b.disabled = true;
     const r = await bridge.startIssue(b.dataset.path, Number(b.dataset.start));
     b.disabled = false;
-    if (r?.mode === 'new' && r.ok) toast(T('work.new.done'));
-    else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
+    if (r?.mode === 'new' && r.ok) toast(T('work.new.done', { b: r.branch }));
+    else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(r.reason === 'worktree' ? T('work.new.wt', { x: r.detail }) : T('work.new.fail'));
     return;
   }
   if (b.dataset.copy) { try { await navigator.clipboard.writeText(b.dataset.copy); toast(T('work.copied')); } catch {} return; }

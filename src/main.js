@@ -72,10 +72,8 @@ const pageUrl = (p, q = {}) => `${origin()}${p}?${new URLSearchParams({ ...q, t:
 // signal: set when the hook waits for an answer (PermissionRequest); returns { secs, answer } then (see waitForAnswer).
 function onEvent(e, signal) {
   lastEventAt = Date.now();
-  const isNew = typeof e?.session_id === 'string' && !sessions.has(e.session_id);
   const r = apply(sessions, e);
   if (!r) return null;
-  const started = r.s && isNew ? claimStart(r.s) : null;
   if (r.s) { pinProject(r.s); findParent(r.s); refreshGit(r.s, e.hook_event_name === 'Stop' || e.hook_event_name === 'SessionStart'); }
   const answered = signal && r.s && e.hook_event_name === 'PermissionRequest' ? waitForAnswer(r.s, e, signal) : null;
   const isStop = e.hook_event_name === 'Stop', since = r.s?.since;
@@ -87,10 +85,8 @@ function onEvent(e, signal) {
     if (r.notice && !stale) notify(r.notice);
   };
   isStop ? setTimeout(finish, 300) : finish(); // let Claude flush the final answer to the transcript first
-  // A session started from an issue gets its name from Bobix, the way /rename names it; one that has a name keeps it.
-  if (started && e.hook_event_name === 'SessionStart' && ['startup', 'resume', 'fork'].includes(e.source) && !e.session_title) {
-    return { output: { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(started.path, started.iid, started.title) } } };
-  }
+  // A session that starts on an issue's branch gets its name from Bobix, the way /rename names it; one that has a name keeps it.
+  if (r.s && e.hook_event_name === 'SessionStart' && ['startup', 'resume', 'fork'].includes(e.source) && !e.session_title) return { output: titleFor(r.s) };
   return answered;
 }
 
@@ -117,17 +113,15 @@ function findParent(s, now = Date.now()) {
 const gitCache = new Map(); // folder -> { at, busy, git }
 const remotesOf = new Map(); // repository top folder -> its remote URLs (kept here, never sent to the pages: they may hold credentials)
 let glabPath = null, issues = { status: 'off' }, issuesBusy = false;
-// New on an issue: { dir, path, iid, title, at }. The first session that appears in that repository within 10 minutes is started for
-// the issue (kept on the session, in memory only) and named "<project> #<iid> <short title>" through its SessionStart
-// hook (sessionTitle, like /rename). Other sessions keep the name Claude gives them.
-let pendingStarts = [];
-function claimStart(s) {
-  pinProject(s);
-  const p = s.project && work.claimStart(pendingStarts, s.project, Date.now());
-  if (!p) return null;
-  s.started = { path: p.path, iid: p.iid };
-  pendingStarts = pendingStarts.filter(x => x !== p);
-  return p;
+// A session is named after an issue only when its own folder is on that issue's branch ("<iid>-…") of a repository of
+// that GitLab project, and the issue is one assigned to you. Nothing is guessed from timing; other sessions keep Claude's name.
+async function titleFor(s) {
+  const host = gitlabHost(), dir = s.cwd;
+  if (!host || !dir || !path.isAbsolute(dir)) return null;
+  const g = await work.gitStatus(dir).catch(() => null);
+  const project = g && g.remotes.map(u => work.projectPath(u, host)).find(Boolean), iid = g && work.issueOfBranch(g.branch);
+  const i = project && iid && (issues.list || []).find(x => x.project === project && x.iid === iid);
+  return i ? { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(project, iid, i.title) } } : null;
 }
 async function refreshGit(s, force = false) {
   const dir = s.cwd;
@@ -170,9 +164,12 @@ function workView() {
   const host = gitlabHost(), issueOf = new Map();
   if (!host) return { view: { status: 'off' }, issueOf };
   const pathOf = top => (remotesOf.get(top) || []).map(u => work.projectPath(u, host)).find(Boolean) || null;
+  const own = s => work.issueOfSession({ path: pathOf(s.git.top), branches: [...(s.branches || []), s.git.branch].filter(Boolean) });
+  const byHost = new Map([...sessions.values()].filter(s => s.hostSession && s.git).map(s => [s.hostSession, s]));
   const live = [...sessions.values()].filter(s => s.git).map(s => {
-    const path = pathOf(s.git.top);
-    return { id: s.id, path, dir: s.project || s.git.top, iid: work.issueOfSession({ path, started: s.started, branches: [...(s.branches || []), s.git.branch].filter(Boolean) }) };
+    const path = pathOf(s.git.top), parent = s.parentHost && byHost.get(s.parentHost);
+    const parentIid = parent && pathOf(parent.git.top) === path ? own(parent) : null; // a side session works on its parent's issue
+    return { id: s.id, path, dir: s.project || s.git.top, iid: work.issueOfSession({ path, parentIid, branches: [...(s.branches || []), s.git.branch].filter(Boolean) }) };
   });
   const list = issues.list || [];
   for (const s of live) {
@@ -182,17 +179,18 @@ function workView() {
   return { view: { status: issues.status, host, at: issues.at || null, detail: issues.detail || '', local, away }, issueOf };
 }
 // The Work tab's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
-// New opens a new Claude desktop session in the issue's repository (the link Claude documents, no prompt sent).
+// New opens a new Claude desktop session in the issue's own folder: a git worktree on its branch (see work.issueWorktree),
+// made the first time, so the session is that issue's by its branch (the link Claude documents, no prompt sent).
 async function startIssue(path, iid) {
   const { view } = workView();
   const g = view.local?.find(x => x.path === path), i = g?.issues.find(x => x.iid === iid);
   if (!g || !i) return { ok: false, reason: 'gone' };
   const id = i.sessions.map(x => sessions.get(x)).filter(Boolean).sort((a, b) => b.updated - a.updated)[0]?.id;
   if (id) return { mode: 'resume', ...(await openSession(id, true, false)) };
-  const now = Date.now();
-  pendingStarts = [...pendingStarts.filter(x => now - x.at < work.START_WINDOW), { dir: g.dir, path, iid, title: i.title, at: now }];
-  try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(g.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
-  return { ok: true, mode: 'new' };
+  const wt = await work.issueWorktree(g.dir, iid, i.title);
+  if (wt.error) return { ok: false, mode: 'new', reason: 'worktree', detail: wt.error };
+  try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(wt.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
+  return { ok: true, mode: 'new', dir: wt.dir, branch: wt.branch, created: wt.created };
 }
 // Only links to the configured GitLab open from the Work tab.
 function openIssue(url) {

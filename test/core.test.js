@@ -1257,21 +1257,38 @@ test('settings: the Work tab\'s chosen projects are GitLab paths, lower case, no
   strict.deepEqual(sanitize({ workProjects: 'team/x' }).workProjects, []);
 });
 
-test('work: a session works on the issue it was started for, else the newest branch that names one', () => {
-  const s = (branches, started, path = 'g/a') => work.issueOfSession({ path, branches, started });
+test('work: a session works on the issue its newest branch names, else its parent\'s', () => {
+  const s = (branches, parentIid, path = 'g/a') => work.issueOfSession({ path, branches, parentIid });
   strict.equal(s(['29-old', 'main', 'feat/31-new', 'main']), 31, 'any branch in the transcript, newest first');
   strict.equal(s(['main', 'HEAD']), null);
-  strict.equal(s(['29-x'], { path: 'g/a', iid: 7 }), 7, 'New wins over branches');
-  strict.equal(s(['29-x'], { path: 'g/b', iid: 7 }), 29, 'a start for another project does not count');
+  strict.equal(s(['claude/brave-otter'], 26), 26, 'a side session on a branch Claude named takes its parent\'s issue');
+  strict.equal(s(['29-x'], 26), 29, 'its own branch wins');
   strict.equal(s(['29-x'], null, null), null, 'repository not on this GitLab');
 });
 
-test('work: after New, the first session in that repository within 10 minutes takes the issue', () => {
-  const pending = [{ dir: '/src/a', path: 'g/a', iid: 1, at: 0 }, { dir: '/src/b', path: 'g/b', iid: 2, at: 10e3 }, { dir: '/src/a', path: 'g/a', iid: 3, at: 20e3 }];
-  strict.equal(work.claimStart(pending, '/src/a', 30e3).iid, 3, 'newest New for that repository');
-  strict.equal(work.claimStart(pending, '/src/b', 10e3 + 600e3).iid, 2);
-  strict.equal(work.claimStart(pending, '/src/b', 10e3 + 600e3 + 1), null, 'too late');
-  strict.equal(work.claimStart(pending, '/src/c', 30e3), null, 'another repository');
+test('work: an issue\'s branch and its own worktree, made once, local only', async () => {
+  strict.equal(work.branchFor(27, '[Bug] Buy - Back leaves without "Leave without saving?"'), '27-bug-buy-back-leaves-without-leave-without-saving');
+  strict.equal(work.branchFor(3, 'Sửa lỗi đăng nhập'), '3-sua-loi-dang-nhap');
+  strict.equal(work.branchFor(4, '!!!'), '4-issue');
+  strict.ok(work.branchFor(5, 'word '.repeat(40)).length <= 52);
+  strict.deepEqual(work.worktreesOf('worktree /r\nHEAD a\nbranch refs/heads/main\n\nworktree /r-w/27-x\nHEAD b\nbranch refs/heads/27-x\n\nworktree /d\nHEAD c\ndetached\n'),
+    [{ dir: '/r', branch: 'main' }, { dir: '/r-w/27-x', branch: '27-x' }, { dir: '/d', branch: null }]);
+  const { execFileSync } = require('child_process');
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-wt-'))), repo = path.join(root, 'shop');
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' }).toString().trim();
+  try {
+    fs.mkdirSync(repo); execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+    g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
+    const a = await work.issueWorktree(repo, 27, 'Back leaves');
+    strict.deepEqual(a, { dir: path.join(root, 'shop-worktrees', '27-back-leaves'), branch: '27-back-leaves', created: true });
+    strict.equal(g('-C', a.dir, 'branch', '--show-current'), '27-back-leaves');
+    strict.equal(g('branch', '--show-current'), 'main', 'the main checkout stays on its branch');
+    strict.deepEqual(await work.issueWorktree(repo, 27, 'Renamed title'), { ...a, created: false }, 'the same folder again');
+    g('branch', 'feat/31-from-gitlab');
+    const b = await work.issueWorktree(repo, 31, 'Other');
+    strict.equal(b.branch, 'feat/31-from-gitlab', 'an existing local branch of the issue is used');
+    strict.equal(b.dir, path.join(root, 'shop-worktrees', 'feat-31-from-gitlab'));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('transcript: every gitBranch the session was on, oldest first', () => {

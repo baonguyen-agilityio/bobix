@@ -201,7 +201,7 @@ function pinProject(s) {
 }
 
 // What the outside world sees (no internal bookkeeping fields).
-const publicView = s => { const { readAt, readMark, parentHost, linkTries, linkAt, pidChecked, pidIsClaude, branches, started, ...rest } = s; return rest; };
+const publicView = s => { const { readAt, readMark, parentHost, linkTries, linkAt, pidChecked, pidIsClaude, branches, ...rest } = s; return rest; };
 
 // A session whose claude process went away without a SessionEnd (its terminal was closed, it crashed, it was killed)
 // would stay on screen for good. claudePid is the hook's parent: the claude process itself where Claude Code runs hooks

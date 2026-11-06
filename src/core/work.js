@@ -1,6 +1,7 @@
 // Work items: a session's local git status (no network), and the GitLab issues assigned to you, read through your own
 // `glab` (Bobix keeps no token, writes nothing to GitLab). Commands get argument lists, never a shell.
 const { execFile } = require('child_process');
+const path = require('path');
 
 const run = (cmd, args, opts = {}) => new Promise(res => execFile(cmd, args, { timeout: 15000, windowsHide: true, maxBuffer: 8 * 1024 * 1024, ...opts },
   (err, out, errOut) => res({ err, out: String(out || ''), errOut: String(errOut || '') })));
@@ -64,9 +65,7 @@ function projectPath(remote, host) {
 // GitLab's "create branch" from an issue names it "<iid>-<title>", also under a prefix ("feat/<iid>-…"): the number, or null.
 const issueOfBranch = branch => { const m = /(?:^|\/)(\d+)-/.exec(branch || ''); return m ? Number(m[1]) : null; };
 
-const START_WINDOW = 10 * 60e3;
-
-// The name of a session started from an issue: "<project> #<iid> <short title>", e.g. "shop-app #27 Back leaves without…".
+// The name of a session that starts on an issue's branch: "<project> #<iid> <short title>", e.g. "shop-app #27 Back leaves without…".
 // Leading tags such as "[Bug]" go; the title is cut at a word near 40 characters.
 function sessionTitleFor(path, iid, title) {
   let d = String(title || '').replace(/^(\s*\[[^\]]*\])+/, '').replace(/\s+/g, ' ').trim();
@@ -74,21 +73,41 @@ function sessionTitleFor(path, iid, title) {
   return `${String(path).split('/').pop()} #${iid}${d ? ' ' + d : ''}`;
 }
 
-// The issue a session works on: the one it was started for from the Work tab (New), else the newest of its branches
-// (the transcript's gitBranch values, oldest first, then the branch it is on now) that names one. s: { path, started, branches }.
+// The issue a session works on: the newest of its branches (the transcript's gitBranch values, oldest first, then the
+// branch it is on now) that names one, else its parent's (a side session in a worktree of its own, on a branch Claude names).
+// s: { path, branches, parentIid }.
 function issueOfSession(s) {
   if (!s.path) return null;
-  if (s.started?.path === s.path) return s.started.iid;
   for (let i = s.branches.length - 1; i >= 0; i--) { const n = issueOfBranch(s.branches[i]); if (n) return n; }
-  return null;
+  return s.parentIid || null;
 }
 
-// After New on an issue, the first session that appears in that repository within `ms` is started for it. Claude desktop
-// reports a new session only with its first prompt (measured: nothing before it), so the window is minutes, not seconds.
-// pending: [{ dir, path, iid, at }] (newest last). Returns the entry the new session takes, or null.
-function claimStart(pending, project, now, ms = START_WINDOW) {
-  for (let i = pending.length - 1; i >= 0; i--) if (pending[i].dir === project && now - pending[i].at <= ms) return pending[i];
-  return null;
+// GitLab's branch name for an issue: "<iid>-<title in lower case, words joined by ->", about 50 characters at most.
+function branchFor(iid, title) {
+  const slug = String(title || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 50).replace(/-+$/, '');
+  return slug ? `${iid}-${slug}` : `${iid}-issue`;
+}
+
+// `git worktree list --porcelain` → [{ dir, branch }] (branch null when detached).
+const worktreesOf = text => String(text).split(/\n\n+/).map(b => ({
+  dir: (/^worktree (.+)$/m.exec(b) || [])[1], branch: ((/^branch refs\/heads\/(.+)$/m.exec(b) || [])[1]) || null,
+})).filter(w => w.dir);
+
+// A folder of its own for an issue: the worktree already on its branch, else a new worktree next to the repository
+// ("<repo>-worktrees/<branch>") on its branch, made from the local branch if there is one, else from the default branch.
+// Local only: nothing is fetched or pushed. Returns { dir, branch, created } or { error }.
+async function issueWorktree(repo, iid, title) {
+  const wts = worktreesOf((await git(repo, ['worktree', 'list', '--porcelain'])).out);
+  const have = wts.find(w => issueOfBranch(w.branch) === iid);
+  if (have) return { dir: have.dir, branch: have.branch, created: false };
+  const refs = (await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).out.split('\n').filter(Boolean);
+  const local = refs.find(b => issueOfBranch(b) === iid);
+  const branch = local || branchFor(iid, title);
+  const dir = path.join(path.dirname(repo), `${path.basename(repo)}-worktrees`, branch.replace(/\//g, '-'));
+  const base = (await git(repo, ['rev-parse', '--verify', '--quiet', 'origin/HEAD'])).err ? 'HEAD' : 'origin/HEAD';
+  const r = await git(repo, local ? ['worktree', 'add', dir, branch] : ['worktree', 'add', '-b', branch, dir, base]);
+  return r.err ? { error: (r.errOut || r.err.message).trim().slice(0, 300) } : { dir, branch, created: true };
 }
 
 // The fields Bobix shows of one issue from GitLab's API.
@@ -129,4 +148,4 @@ async function fetchIssues(glab, host) {
   return { ok: false, reason: 'error', detail: 'unexpected answer from GitLab' };
 }
 
-module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, claimStart, START_WINDOW, sessionTitleFor, slimIssue, groupIssues, fetchIssues };
+module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, branchFor, worktreesOf, issueWorktree, sessionTitleFor, slimIssue, groupIssues, fetchIssues };

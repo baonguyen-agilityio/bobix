@@ -36,7 +36,11 @@ function startServer({ port, token, onEvent, snapshot, petDir }) {
       req.on('end', async () => {
         let out = null;
         try { out = onEvent(JSON.parse(body), wait ? gone.signal : null); } catch (err) { console.error('[bobix] bad event:', err.message); }
-        if (out?.output) return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out.output)); // answered at once (a session title)
+        if (out?.output) { // a session title (SessionStart): answered as soon as it is known, well inside the hook's wait
+          let o = null;
+          try { o = await out.output; } catch {}
+          return o ? res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(o)) : res.writeHead(204).end();
+        }
         if (!wait || !out?.answer) return res.writeHead(204).end();
         res.writeHead(200, { 'Content-Type': 'application/json', 'x-bobix-wait': String(out.secs) });
         res.flushHeaders();
