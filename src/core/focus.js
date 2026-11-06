@@ -71,7 +71,8 @@ async function processNames(pids, platform = process.platform) {
 // chain that is not claude itself, a runtime or a shell ("gnome-terminal-server" → "Terminal").
 const SKIP = /^(claude|node|bun|npx|npm|sh|bash|zsh|fish|dash|ksh|tcsh|sudo|su|login|env|script|systemd|init)$/i;
 const KNOWN = { 'gnome-terminal-server': 'Terminal', 'ptyxis-agent': 'Ptyxis', ptyxis: 'Ptyxis', kgx: 'Console', konsole: 'Konsole', 'xfce4-terminal': 'Xfce Terminal',
-  tilix: 'Tilix', terminator: 'Terminator', 'claude-desktop': 'Claude', alacritty: 'Alacritty', kitty: 'kitty', 'wezterm-gui': 'WezTerm', ghostty: 'Ghostty', code: 'VS Code', cursor: 'Cursor', tmux: 'tmux' };
+  tilix: 'Tilix', terminator: 'Terminator', alacritty: 'Alacritty', kitty: 'kitty', 'wezterm-gui': 'WezTerm', ghostty: 'Ghostty', code: 'VS Code', cursor: 'Cursor', tmux: 'tmux',
+  'claude-desktop': 'Claude' };
 function hostApp(names) {
   const n = (names || []).slice(1).find(x => x && x !== '?' && !SKIP.test(x));
   return n ? KNOWN[n.toLowerCase()] || KNOWN[n.toLowerCase().replace(/:.*$/, '')] || n : null;
