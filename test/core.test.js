@@ -97,15 +97,15 @@ test('an interrupted turn (Esc / denied permission) puts the pet to rest', () =>
 
 test('the final report keeps its lines; the one-line summary stays short', () => {
   const f = path.join(os.tmpdir(), `bobix-rep-${process.pid}.jsonl`);
-  const text = `## Done\n\n- one\n- two\n\n\n\n${'x'.repeat(9000)}`;
+  const text = `## Done\n\n- one\n- two\n\n\n\n${'x'.repeat(40000)}`;
   fs.writeFileSync(f, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }));
   const m = new Map();
   apply(m, { session_id: 'r1', hook_event_name: 'UserPromptSubmit', prompt: 'go', transcript_path: f });
   refresh(m.get('r1'), true);
   const s = m.get('r1');
   assert.ok(s.report.startsWith('## Done\n\n- one\n- two\n\nxxx'), 'lines kept, blank-line runs cut to one');
-  assert.equal(s.report.length, 8000);
-  assert.ok(s.report.endsWith('…'));
+  assert.ok(s.report.length <= 32000 && s.report.length > 31000);
+  assert.ok(s.report.endsWith('x\n\n[…]'), 'the cut is marked on its own line');
   assert.equal(s.summary.length, 600);
   assert.ok(!s.summary.includes('\n'));
   assert.ok(s.summary.startsWith('Done one two xxx'), 'previews carry no Markdown');
@@ -133,16 +133,67 @@ test('markdown: the report as safe HTML', () => {
 });
 
 test('the whole prompt is kept for the details; quest and log lines stay short', () => {
-  const m = new Map(), prompt = `Line one\n\nLine two ${'p'.repeat(5000)}`;
+  const m = new Map(), prompt = `Line one\n\nLine two ${'p'.repeat(40000)}`;
   apply(m, { session_id: 'p1', hook_event_name: 'UserPromptSubmit', prompt });
   const s = m.get('p1');
   assert.ok(s.prompt.startsWith('Line one\n\nLine two'), 'lines kept');
-  assert.equal(s.prompt.length, 4000);
+  assert.ok(s.prompt.length <= 32000 && s.prompt.endsWith('p\n\n[…]'));
   assert.equal(s.quest.length, 240);
   assert.ok(!s.quest.includes('\n'));
   assert.equal(s.log.at(-1).text.length, 240);
   apply(m, { session_id: 'p1', hook_event_name: 'UserPromptSubmit', prompt: '<task-notification> done' });
   assert.ok(s.prompt.startsWith('Line one'), 'a turn Claude Code starts itself keeps the prompt too');
+});
+
+test('a pasted report of 20k characters is the whole quest; a longer one is cut at a line, its code block closed', () => {
+  const m = new Map(), row = i => `| ${i} | \`npm test\` | Mở file số ${i} |`;
+  const prompt = ['## Báo cáo', '', '| # | Lệnh | Việc |', '|---|---|---|', ...Array.from({ length: 600 }, (_, i) => row(i)), '', '1. Mở file cuối'].join('\n');
+  assert.ok(prompt.length > 20000);
+  apply(m, { session_id: 'q1', hook_event_name: 'UserPromptSubmit', prompt });
+  assert.equal(m.get('q1').prompt, prompt);
+  apply(m, { session_id: 'q1', hook_event_name: 'UserPromptSubmit', prompt: `Run:\n\`\`\`bash\n${'echo hi\n'.repeat(5000)}\`\`\`` });
+  const cut = m.get('q1').prompt;
+  assert.ok(cut.length <= 32000);
+  assert.ok(cut.endsWith('echo hi\n```\n\n[…]'), 'whole lines, the fence closed, then the mark');
+  assert.ok(markdown(cut).endsWith('echo hi</code></pre><p>[…]</p>'), 'the mark shows below the code, not inside it');
+});
+
+test('the quest line and the log show a Markdown prompt as plain words', () => {
+  const m = new Map();
+  apply(m, { session_id: 'q2', hook_event_name: 'UserPromptSubmit', prompt: '## Việc cần làm\n\n| A | B |\n|:--|--:|\n| **x** | `y \\| z` |\n\n1. Mở [docs](https://x.y)\n   - *nhanh*' });
+  const s = m.get('q2');
+  assert.equal(s.quest, 'Việc cần làm A · B x · y | z Mở docs nhanh');
+  assert.equal(s.log.at(-1).text, s.quest);
+});
+
+test('markdown: nested lists, tables with pipes in cells, quotes, italic', () => {
+  assert.equal(markdown('1. a\n   - x\n     - deep\n   - y\n2. b\n\n   more b\n3. c'),
+    '<ol><li>a<ul><li>x<ul><li>deep</li></ul></li><li>y</li></ul></li><li>b more b</li><li>c</li></ol>', 'a blank line keeps the list');
+  assert.equal(markdown('- [ ] todo\n- [x] done'), '<ul><li>☐ todo</li><li>☑ done</li></ul>');
+  assert.equal(markdown('| Cmd | Note |\n|:--|--:|\n| `a | b` | x \\| y |'),
+    '<table><thead><tr><th>Cmd</th><th>Note</th></tr></thead><tbody><tr><td><code>a | b</code></td><td>x | y</td></tr></tbody></table>');
+  assert.equal(markdown('> **Note**\n> > nested\n>>>> deep'), '<blockquote><p><strong>Note</strong><br>nested<br>deep</p></blockquote>');
+  assert.equal(markdown('*one* _two_ 2 * 3 * 4 snake_case_name __init__ ![logo](a.png) [w](https://x.y/a_(b))'),
+    '<p><em>one</em> <em>two</em> 2 * 3 * 4 snake_case_name __init__ logo w</p>');
+  assert.equal(markdown('## Plan ##\n  ~~~js\n  a();\n    b();\n  ~~~'), '<h4>Plan</h4><pre><code>a();\n  b();</code></pre>');
+});
+
+test('markdown: HTML and links in a prompt stay inert text', () => {
+  const tags = /^<\/?(p|br|h4|ul|ol|li|table|thead|tbody|tr|th|td|pre|code|strong|em|blockquote|hr)( start="\d+")?>$/;
+  const cases = {
+    '<script>alert(1)</script>': '<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>',
+    '<img src=x onerror="alert(1)">': '<p>&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</p>',
+    '[click](javascript:alert(1)) ![x](javascript:alert(1))': '<p>click x</p>',
+    '| a" onmouseover="alert(1) | `<b>` |\n|---|---|\n| \'><svg onload=alert(1)> | x |': '<table><thead><tr><th>a&quot; onmouseover=&quot;alert(1)</th><th><code>&lt;b&gt;</code></th></tr></thead>'
+      + '<tbody><tr><td>&#39;&gt;&lt;svg onload=alert(1)&gt;</td><td>x</td></tr></tbody></table>',
+    '# <i>"x"</i>\n> <a href="javascript:x">y</a>\n1) **<u>**': '<h4>&lt;i&gt;&quot;x&quot;&lt;/i&gt;</h4><blockquote><p>&lt;a href=&quot;javascript:x&quot;&gt;y&lt;/a&gt;</p></blockquote><ol><li><strong>&lt;u&gt;</strong></li></ol>',
+    '```\n</code></pre><script>x</script>\n```': '<pre><code>&lt;/code&gt;&lt;/pre&gt;&lt;script&gt;x&lt;/script&gt;</code></pre>',
+  };
+  for (const [md, html] of Object.entries(cases)) {
+    const out = markdown(md);
+    assert.equal(out, html, md);
+    assert.ok(out.match(/<[^>]*>/g).every(t => tags.test(t)), `only plain tags: ${md}`);
+  }
 });
 
 test('log: newest first, repeats folded, long arguments keep their end', () => {

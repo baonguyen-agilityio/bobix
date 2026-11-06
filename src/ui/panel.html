@@ -102,19 +102,22 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-md);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
 .ask .acts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2)}
 .ask strong{color:var(--coral-ink)}
-.report{overflow-wrap:anywhere;font-size:var(--t-sm);background:var(--mint-soft);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
-.report p,.report ul,.report ol,.report pre,.report table{margin:0 0 var(--s2)}
-.report>:last-child{margin-bottom:0}
-.report h4{font-size:var(--t-sm);font-weight:700;margin:var(--s3) 0 var(--s1)}
-.report>h4:first-child{margin-top:0}
-.report ul,.report ol{padding-left:var(--s6)}
-.report li+li{margin-top:var(--s1)}
-.report code{padding:0 var(--s1)}
-.report pre{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s2) var(--s3)}
-.report pre code{background:none;border:0;padding:0;overflow-wrap:normal}
-.report table{display:block;overflow-x:auto;border-collapse:collapse}
-.report th,.report td{border:1px solid var(--line-strong);padding:var(--s1) var(--s2);text-align:left;vertical-align:top;overflow-wrap:break-word}
-.report hr{border:0;border-top:1px solid var(--line-strong);margin:var(--s3) 0}
+.md{overflow-wrap:anywhere;font-size:var(--t-sm);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
+.report{background:var(--mint-soft)}
+.md p,.md ul,.md ol,.md pre,.md table,.md blockquote{margin:0 0 var(--s2)}
+.md>:last-child{margin-bottom:0}
+.md h4{font-size:var(--t-sm);font-weight:700;margin:var(--s3) 0 var(--s1)}
+.md>h4:first-child{margin-top:0}
+.md ul,.md ol{padding-left:var(--s6)}
+.md li+li,.md li>ul,.md li>ol{margin-top:var(--s1)}
+.md li>ul,.md li>ol{margin-bottom:0}
+.md code{padding:0 var(--s1)}
+.md pre{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s2) var(--s3)}
+.md pre code{background:none;border:0;padding:0;overflow-wrap:normal}
+.md table{display:block;overflow-x:auto;border-collapse:collapse}
+.md th,.md td{border:1px solid var(--line-strong);padding:var(--s1) var(--s2);text-align:left;vertical-align:top;overflow-wrap:break-word}
+.md hr{border:0;border-top:1px solid var(--line-strong);margin:var(--s3) 0}
+.md blockquote{padding-left:var(--s3);border-left:3px solid var(--line-strong);color:var(--ink-2)}
 .log{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
 .log li{display:grid;grid-template-columns:max-content 8px minmax(0,1fr);align-items:baseline;gap:var(--s2) var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
 .log time{grid-column:1;grid-row:1;font-size:var(--t-xs);color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -134,7 +137,10 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .log .n{font-size:var(--t-xs);font-weight:600;color:var(--ink-3);margin-left:var(--s1)}
 .clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,2);overflow:hidden}
 .clamp.open{display:block}
-.prompt{white-space:pre-wrap;font-size:var(--t-sm);--lines:4}
+/* the quest is Markdown: clamped by height, since line-clamp lays tables and lists out as flex items */
+.clamp.prompt{display:block;-webkit-line-clamp:none;max-height:10em;background:var(--bg)}
+.clamp.prompt.open{max-height:none}
+.prompt.over{-webkit-mask-image:linear-gradient(#000 65%,transparent)}
 .more{display:block;border:0;background:none;padding:0;margin-top:var(--s1);font:600 var(--t-xs) var(--f-body);color:var(--ink-2);cursor:pointer}
 .more:hover{color:var(--ink);text-decoration:underline}
 .note{font-size:var(--t-sm);color:var(--ink-2)}
@@ -368,8 +374,9 @@ function moreHTML(key, html, cls = '', cut = false) {
 // After drawing: a toggle is shown for text that is open, cut by the clamp, or shortened (a long command).
 function showMore(root) {
   root.querySelectorAll('[data-more]').forEach(b => {
-    const box = b.previousElementSibling;
-    b.hidden = !(box.classList.contains('open') || box.scrollHeight > box.clientHeight + 1 || b.hasAttribute('data-cut'));
+    const box = b.previousElementSibling, over = box.scrollHeight > box.clientHeight + 1;
+    b.hidden = !(box.classList.contains('open') || over || b.hasAttribute('data-cut'));
+    box.classList.toggle('over', over);
   });
 }
 function rowHTML(s, st) {
@@ -449,9 +456,9 @@ function renderPane() {
       <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
         <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
         <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T('pane.askHint')}</div>` : ''}
-    <h3>${T('pane.quest')}</h3>${moreHTML(`q:${s.id}`, esc(s.prompt || s.quest || T('line.noQuest')), 'prompt')}
+    <h3>${T('pane.quest')}</h3>${moreHTML(`q:${s.id}`, markdown(s.prompt || s.quest || T('line.noQuest')), 'prompt md')}
     ${s.summary ? `<details class="fold"${reportOpen ? ' open' : ''}><summary><h3>${T('pane.report')}</h3></summary>
-      <div class="report">${markdown(s.report || s.summary)}</div></details>` : ''}
+      <div class="report md">${markdown(s.report || s.summary)}</div></details>` : ''}
     <h3>${T('pane.log')}</h3>
     <ol class="log">${LOG.fold(s.log).map(l => { const k = `l:${s.id}:${l.from}:${l.kind}`;
       return `<li class="k-${esc(l.kind)}"><time title="${time(l.t)}">${hm(l.t)}</time><div class="msg">${moreHTML(k, logHTML(l, moreOpen.has(k)), '', l.kind === 'tool' && LOG.mid(l.text) !== l.text)}</div></li>`; }).join('')}</ol>`;
