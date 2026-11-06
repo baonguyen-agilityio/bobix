@@ -141,12 +141,12 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .log.sides li{display:block;padding:0;border:0}
 .log.sides li+li{margin-top:var(--s2)}
 .log.sides li::before{content:none}
-.side{display:flex;align-items:center;gap:var(--s3);width:100%;text-align:left;padding:var(--s2) var(--s3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer;transition:border-color 150ms var(--ease)}
-.side:hover{border-color:var(--line-strong)}
-.side::after{content:'›';flex:none;color:var(--ink-3);font-size:var(--t-md)}
-.side>span{pointer-events:none}
-.side .t{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.side .st{flex:none;font-size:var(--t-xs);color:var(--ink-3)}
+.sidecard{display:flex;align-items:center;gap:var(--s3);width:100%;text-align:left;padding:var(--s2) var(--s3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer;transition:border-color 150ms var(--ease)}
+.sidecard:hover{border-color:var(--line-strong)}
+.sidecard::after{content:'›';flex:none;color:var(--ink-3);font-size:var(--t-md)}
+.sidecard>span{pointer-events:none}
+.sidecard .t{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidecard .st{flex:none;font-size:var(--t-xs);color:var(--ink-3)}
 .log .arg{font-family:var(--f-mono)}
 .log .n{font-size:var(--t-xs);font-weight:600;color:var(--ink-3);margin-left:var(--s1)}
 .clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,2);overflow:hidden}
@@ -510,7 +510,7 @@ function renderPane() {
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
     ${hint?.id === s.id ? `<p class="note open-hint">${esc(hintText(hint))}</p>` : ''}
     ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
-    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><button class="side" type="button" data-act="goto" data-id="${esc(k.id)}" title="${esc(k.title || k.name)}"><span class="t">${esc(k.title || k.name)}</span><span class="st">${esc(statusText(k, look(k)))}</span></button></li>`).join('')}</ol>` : ''}
+    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><button class="sidecard" type="button" data-act="goto" data-id="${esc(k.id)}" title="${esc(k.title || k.name)}"><span class="t">${esc(k.title || k.name)}</span><span class="st">${esc(statusText(k, look(k)))}</span></button></li>`).join('')}</ol>` : ''}
     ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${secsLeft(s) === Infinity ? T('pane.askUntil') : T('pane.askWithin', { n: secsLeft(s) })}
       <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
         <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
