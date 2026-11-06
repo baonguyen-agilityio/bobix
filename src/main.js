@@ -72,9 +72,10 @@ const pageUrl = (p, q = {}) => `${origin()}${p}?${new URLSearchParams({ ...q, t:
 // signal: set when the hook waits for an answer (PermissionRequest); returns { secs, answer } then (see waitForAnswer).
 function onEvent(e, signal) {
   lastEventAt = Date.now();
+  const isNew = typeof e?.session_id === 'string' && !sessions.has(e.session_id);
   const r = apply(sessions, e);
   if (!r) return null;
-  if (r.s) { pinProject(r.s); findParent(r.s); refreshGit(r.s, e.hook_event_name === 'Stop' || e.hook_event_name === 'SessionStart'); }
+  if (r.s) { pinProject(r.s); findParent(r.s); if (isNew) claimStart(r.s); refreshGit(r.s, e.hook_event_name === 'Stop' || e.hook_event_name === 'SessionStart'); }
   const answered = signal && r.s && e.hook_event_name === 'PermissionRequest' ? waitForAnswer(r.s, e, signal) : null;
   const isStop = e.hook_event_name === 'Stop', since = r.s?.since;
   const finish = () => {
@@ -111,6 +112,15 @@ function findParent(s, now = Date.now()) {
 const gitCache = new Map(); // folder -> { at, busy, git }
 const remotesOf = new Map(); // repository top folder -> its remote URLs (kept here, never sent to the pages: they may hold credentials)
 let glabPath = null, issues = { status: 'off' }, issuesBusy = false;
+// New on an issue: { dir, path, iid, at }. The first session that appears in that repository within 10 minutes is started for
+// the issue (kept on the session, in memory only). Bobix never names the session: its title stays Claude's own.
+let pendingStarts = [];
+function claimStart(s) {
+  const p = s.project && work.claimStart(pendingStarts, s.project, Date.now());
+  if (!p) return;
+  s.started = { path: p.path, iid: p.iid };
+  pendingStarts = pendingStarts.filter(x => x !== p);
+}
 async function refreshGit(s, force = false) {
   const dir = s.cwd;
   if (!dir || !path.isAbsolute(dir)) return;
@@ -152,14 +162,29 @@ function workView() {
   const host = gitlabHost(), issueOf = new Map();
   if (!host) return { view: { status: 'off' }, issueOf };
   const pathOf = top => (remotesOf.get(top) || []).map(u => work.projectPath(u, host)).find(Boolean) || null;
-  const live = [...sessions.values()].filter(s => s.git).map(s => ({ id: s.id, path: pathOf(s.git.top), branch: s.git.branch, dir: s.project || s.git.top }));
+  const live = [...sessions.values()].filter(s => s.git).map(s => {
+    const path = pathOf(s.git.top);
+    return { id: s.id, path, dir: s.project || s.git.top, iid: work.issueOfSession({ path, started: s.started, branches: [...(s.branches || []), s.git.branch].filter(Boolean) }) };
+  });
   const list = issues.list || [];
   for (const s of live) {
-    const iid = s.path && work.issueOfBranch(s.branch);
-    if (iid) { const i = list.find(x => x.project === s.path && x.iid === iid); issueOf.set(s.id, { iid, title: i?.title || '', url: i?.url || '' }); }
+    if (s.iid) { const i = list.find(x => x.project === s.path && x.iid === s.iid); issueOf.set(s.id, { iid: s.iid, title: i?.title || '', url: i?.url || '' }); }
   }
   const { local, away } = work.groupIssues(list, live, live);
   return { view: { status: issues.status, host, at: issues.at || null, detail: issues.detail || '', local, away }, issueOf };
+}
+// The Work tab's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
+// New opens a new Claude desktop session in the issue's repository (the link Claude documents, no prompt sent).
+async function startIssue(path, iid) {
+  const { view } = workView();
+  const g = view.local?.find(x => x.path === path), i = g?.issues.find(x => x.iid === iid);
+  if (!g || !i) return { ok: false, reason: 'gone' };
+  const id = i.sessions.map(x => sessions.get(x)).filter(Boolean).sort((a, b) => b.updated - a.updated)[0]?.id;
+  if (id) return { mode: 'resume', ...(await openSession(id, true, false)) };
+  const now = Date.now();
+  pendingStarts = [...pendingStarts.filter(x => now - x.at < work.START_WINDOW), { dir: g.dir, path, iid, at: now }];
+  try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(g.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
+  return { ok: true, mode: 'new' };
 }
 // Only links to the configured GitLab open from the Work tab.
 function openIssue(url) {
@@ -647,6 +672,7 @@ function ipc() {
   handle('pet:image', (id, act, opts) => (typeof id !== 'string' || !Object.hasOwn(petImageActs, act) ? null : petImageActs[act](id, opts && typeof opts === 'object' ? opts : undefined)));
   handle('work:refresh', () => refreshIssues());
   handle('work:open', url => openIssue(url));
+  handle('work:start', (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? startIssue(path, iid) : null));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) { releaseUnseen(); server.broadcast(snapshot()); } });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); shapeOverlay(); showOverlay(); } });
 }

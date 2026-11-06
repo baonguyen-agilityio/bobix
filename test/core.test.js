@@ -62,7 +62,7 @@ test('transcript: answer, usage, newest titles', () => {
   assert.equal(r.text, 'Done: fixed it');
   assert.equal(r.title, 'Renamed', 'custom title wins and the newest one is used');
   assert.equal(ctxLeft(r.usage), 50);
-  assert.deepEqual(readTranscript('/nope/missing.jsonl'), { text: null, usage: null, title: null, interrupted: false });
+  assert.deepEqual(readTranscript('/nope/missing.jsonl'), { text: null, usage: null, title: null, interrupted: false, branches: [] });
 });
 
 test('messages Claude Code sends through UserPromptSubmit are not new quests', () => {
@@ -1208,18 +1208,19 @@ test('work: git remote URL → GitLab project path, only on the configured host'
 
 test('work: a branch named from an issue ("<iid>-…") links to that issue of the same project', () => {
   strict.equal(work.issueOfBranch('29-buy-item-list-cannot-be-used'), 29);
-  strict.equal(work.issueOfBranch('feat/29-x'), null);
+  strict.equal(work.issueOfBranch('feat/29-x'), 29, 'under a prefix');
+  strict.equal(work.issueOfBranch('v29-x'), null);
   strict.equal(work.issueOfBranch('main'), null);
   strict.equal(work.issueOfBranch(null), null);
   const issues = [{ iid: 29, project: 'g/a', title: 'x', labels: [], due: null, url: 'u' }];
-  const sessions = [{ id: 's1', path: 'g/a', branch: '29-fix' }, { id: 's2', path: 'g/b', branch: '29-fix' }, { id: 's3', path: 'g/a', branch: '290-other' }];
+  const sessions = [{ id: 's1', path: 'g/a', iid: 29 }, { id: 's2', path: 'g/b', iid: 29 }, { id: 's3', path: 'g/a', iid: 290 }];
   strict.deepEqual(work.groupIssues(issues, [], sessions).away[0].issues[0].sessions, ['s1'], 'same number in another project does not count');
 });
 
 test('work: issues grouped by project, local repositories first, the rest "not on this machine"', () => {
   const mk = (project, iid, due = null) => ({ iid, project, title: `t${iid}`, labels: [], due, url: `u${iid}` });
   const issues = [mk('g/away', 1), mk('g/here', 2, '2026-12-01'), mk('g/here', 3, '2026-11-10'), mk('g/here', 4)];
-  const r = work.groupIssues(issues, [{ dir: '/src/here', path: 'g/here' }, { dir: '/tmp/x', path: null }], [{ id: 's', path: 'g/here', branch: '4-x' }]);
+  const r = work.groupIssues(issues, [{ dir: '/src/here', path: 'g/here' }, { dir: '/tmp/x', path: null }], [{ id: 's', path: 'g/here', iid: 4 }]);
   strict.deepEqual(r.local.map(g => [g.path, g.dir]), [['g/here', '/src/here']]);
   strict.deepEqual(r.local[0].issues.map(i => i.iid), [4, 3, 2], 'in progress first, then by due date');
   strict.deepEqual(r.away.map(g => g.path), ['g/away']);
@@ -1246,4 +1247,27 @@ test('settings: the Work tab\'s chosen projects are GitLab paths, lower case, no
   strict.deepEqual(DEFAULTS.workProjects, []);
   strict.deepEqual(sanitize({ workProjects: ['Team/Shop-App', 'team/shop-app', 'g/sub/p', 'nopath', '../x', 3, 'a/b c'] }).workProjects, ['team/shop-app', 'g/sub/p']);
   strict.deepEqual(sanitize({ workProjects: 'team/x' }).workProjects, []);
+});
+
+test('work: a session works on the issue it was started for, else the newest branch that names one', () => {
+  const s = (branches, started, path = 'g/a') => work.issueOfSession({ path, branches, started });
+  strict.equal(s(['29-old', 'main', 'feat/31-new', 'main']), 31, 'any branch in the transcript, newest first');
+  strict.equal(s(['main', 'HEAD']), null);
+  strict.equal(s(['29-x'], { path: 'g/a', iid: 7 }), 7, 'New wins over branches');
+  strict.equal(s(['29-x'], { path: 'g/b', iid: 7 }), 29, 'a start for another project does not count');
+  strict.equal(s(['29-x'], null, null), null, 'repository not on this GitLab');
+});
+
+test('work: after New, the first session in that repository within 10 minutes takes the issue', () => {
+  const pending = [{ dir: '/src/a', path: 'g/a', iid: 1, at: 0 }, { dir: '/src/b', path: 'g/b', iid: 2, at: 10e3 }, { dir: '/src/a', path: 'g/a', iid: 3, at: 20e3 }];
+  strict.equal(work.claimStart(pending, '/src/a', 30e3).iid, 3, 'newest New for that repository');
+  strict.equal(work.claimStart(pending, '/src/b', 10e3 + 600e3).iid, 2);
+  strict.equal(work.claimStart(pending, '/src/b', 10e3 + 600e3 + 1), null, 'too late');
+  strict.equal(work.claimStart(pending, '/src/c', 30e3), null, 'another repository');
+});
+
+test('transcript: every gitBranch the session was on, oldest first', () => {
+  const f = path.join(os.tmpdir(), `bobix-branches-${process.pid}.jsonl`);
+  fs.writeFileSync(f, [{ type: 'user', gitBranch: 'main' }, { type: 'assistant', gitBranch: '29-fix', message: { content: [] } }, { type: 'user', gitBranch: '29-fix' }, { type: 'user', gitBranch: 'feat/31-x' }, { type: 'user' }].map(l => JSON.stringify(l)).join('\n'));
+  try { strict.deepEqual(readTranscript(f).branches, ['main', '29-fix', 'feat/31-x']); } finally { fs.rmSync(f, { force: true }); }
 });

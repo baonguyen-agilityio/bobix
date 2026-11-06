@@ -22,6 +22,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .tag.ghost{visibility:hidden}
 .tag{max-width:none;transform:none;overflow:visible;display:flex;justify-content:center;align-items:center;gap:var(--s1);box-sizing:border-box}
 .tag .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.tag .iss{flex:none;color:var(--ink-2)}
 .tag .more{position:relative;flex:none;color:var(--ink-3);cursor:pointer}
 .tag.kl .more{order:-1}
 .tag .more .bb{bottom:calc(100% + 2px);left:auto;right:calc(var(--size) * -.3);translate:none;width:calc(var(--size) * .36)}
@@ -219,7 +220,7 @@ function paint(p, now) {
   if (p.groupOpen && !(reports.length > 1 || extra > 0)) p.groupOpen = false; // nothing left to list: closed, not reopened later
   const groupOpen = !!p.groupOpen;
   const famKey = JSON.stringify(familyReports(root, now).map(r => [r.s.id, r.kind, r.text, left(r.s, now) > 0, petColor(r.s, lastList || [])]));
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, petColor(s, lastList || []), s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, petColor(s, lastList || []), s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
@@ -244,7 +245,7 @@ function paint(p, now) {
       return `<div class="gr ${ms}"><span class="mini">${petArt(m.parent ? s : m, ms, petColor(m, lastList || []))}</span><span class="nm">${esc(shortName(m))}</span><span class="stx">${esc(statusText(m, ms))}</span>${ms === 'waiting' ? answerButtons(m, now, false) : ''}<button class="open" type="button" data-open="${esc(m.id)}">${T('fam.open')}</button></div>`; }).join('')}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(parent || s, st, petColor(s, lastList || []))}</div>
-    ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${extra ? `<span class="more${extraHot ? ' hot' : ''}" data-group title="${esc(T('fam.more', { n: extra }))}">+${extra}${extraHot && !p.hover ? `<span class="bb ${extraHot}">${balloonSVG(extraHot)}</span>` : ''}</span>` : ''}</div>`}`;
+    ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}${extra ? `<span class="more${extraHot ? ' hot' : ''}" data-group title="${esc(T('fam.more', { n: extra }))}">+${extra}${extraHot && !p.hover ? `<span class="bb ${extraHot}">${balloonSVG(extraHot)}</span>` : ''}</span>` : ''}</div>`}`;
 }
 
 function sync(list) {

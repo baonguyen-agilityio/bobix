@@ -61,8 +61,27 @@ function projectPath(remote, host) {
   return p.includes('/') ? p.toLowerCase() : null;
 }
 
-// GitLab's "create branch" from an issue names it "<iid>-<title>": the issue number, or null.
-const issueOfBranch = branch => { const m = /^(\d+)-/.exec(branch || ''); return m ? Number(m[1]) : null; };
+// GitLab's "create branch" from an issue names it "<iid>-<title>", also under a prefix ("feat/<iid>-…"): the number, or null.
+const issueOfBranch = branch => { const m = /(?:^|\/)(\d+)-/.exec(branch || ''); return m ? Number(m[1]) : null; };
+
+const START_WINDOW = 10 * 60e3;
+
+// The issue a session works on: the one it was started for from the Work tab (New), else the newest of its branches
+// (the transcript's gitBranch values, oldest first, then the branch it is on now) that names one. s: { path, started, branches }.
+function issueOfSession(s) {
+  if (!s.path) return null;
+  if (s.started?.path === s.path) return s.started.iid;
+  for (let i = s.branches.length - 1; i >= 0; i--) { const n = issueOfBranch(s.branches[i]); if (n) return n; }
+  return null;
+}
+
+// After New on an issue, the first session that appears in that repository within `ms` is started for it. Claude desktop
+// reports a new session only with its first prompt (measured: nothing before it), so the window is minutes, not seconds.
+// pending: [{ dir, path, iid, at }] (newest last). Returns the entry the new session takes, or null.
+function claimStart(pending, project, now, ms = START_WINDOW) {
+  for (let i = pending.length - 1; i >= 0; i--) if (pending[i].dir === project && now - pending[i].at <= ms) return pending[i];
+  return null;
+}
 
 // The fields Bobix shows of one issue from GitLab's API.
 const slimIssue = i => ({
@@ -71,13 +90,14 @@ const slimIssue = i => ({
   labels: Array.isArray(i.labels) ? i.labels.slice(0, 10).map(String) : [], due: i.due_date || null,
 });
 
-// Issues by project. repos: [{ dir, path }] (local repositories and their GitLab project path); sessions: [{ id, path, branch }].
+// Issues by project. repos: [{ dir, path }] (local repositories and their GitLab project path); sessions: [{ id, path, iid }]
+// (iid: the issue the session works on, see issueOfSession).
 // Returns { local: [{ path, dir, issues }], away: [{ path, issues }] }; each issue gets `sessions`: the ids working on it.
 function groupIssues(issues, repos, sessions) {
   const dirOf = new Map(repos.filter(r => r.path).map(r => [r.path, r.dir]));
   const groups = new Map();
   for (const i of issues) {
-    const working = sessions.filter(s => s.path === i.project && issueOfBranch(s.branch) === i.iid).map(s => s.id);
+    const working = sessions.filter(s => s.path === i.project && s.iid === i.iid).map(s => s.id);
     if (!groups.has(i.project)) groups.set(i.project, { path: i.project, dir: dirOf.get(i.project) || null, issues: [] });
     groups.get(i.project).issues.push({ ...i, sessions: working });
   }
@@ -101,4 +121,4 @@ async function fetchIssues(glab, host) {
   return { ok: false, reason: 'error', detail: 'unexpected answer from GitLab' };
 }
 
-module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, slimIssue, groupIssues, fetchIssues };
+module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, claimStart, START_WINDOW, slimIssue, groupIssues, fetchIssues };

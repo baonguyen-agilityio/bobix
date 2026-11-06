@@ -621,13 +621,13 @@ function pickerHTML(groups) {
     ${sel.filter(p => !groups.some(g => g.path === p)).map(p => `<label><input type="checkbox" data-pick="${esc(p)}" checked> ${esc(p)}<span class="n">0</span></label>`).join('')}</div></details>`;
 }
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-function issueHTML(i) {
+function issueHTML(i, g) {
   const doing = i.sessions.map(id => list.find(x => x.id === id)).filter(Boolean);
   const due = i.due ? `<span class="${i.due < today() ? 'overdue' : ''}">${esc(T(i.due < today() ? 'work.overdue' : 'work.due', { d: i.due }))}</span>` : '';
   return `<li class="issue${doing.length ? ' doing' : ''}"><div>
       <div class="i-t"><span class="i-n">#${i.iid}</span>${esc(i.title)}</div>
-      <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}</div></div>
-    <div class="i-acts">${doing.map(s => `<button class="btn" type="button" data-goto="${esc(s.id)}" title="${esc(T('work.inProgress'))}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}
+      <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}${doing.map(s => `<button class="lnk" type="button" data-goto="${esc(s.id)}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}</div></div>
+    <div class="i-acts">${bridge && g.dir ? `<button class="btn${doing.length ? ' pri' : ''}" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T(doing.length ? 'work.resume.desc' : 'work.new.desc'))}">${T(doing.length ? 'work.resume' : 'work.new')}</button>` : ''}
       ${bridge ? `<button class="btn" type="button" data-url="${esc(i.url)}">${T('work.open')}</button>` : ''}</div></li>`;
 }
 function renderWork() {
@@ -650,7 +650,7 @@ function renderWork() {
   const problem = w.status === 'noglab' ? `<div class="card"><p class="note err">${esc(T('work.noglab'))}</p>${login}</div>`
     : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth', { host: w.host }))}</p>${login}</div>`
     : w.status === 'error' ? `<div class="card"><p class="note err">${esc(T('work.error', { host: w.host, x: w.detail }))}</p></div>` : '';
-  const group = (g, away) => `<section class="card wgroup"><h2>${esc(g.path)} <span class="n">${g.issues.length}</span>${g.dir ? `<span class="dir">${esc(g.dir)}</span>` : ''}</h2><ol class="issues">${g.issues.map(issueHTML).join('')}</ol></section>`;
+  const group = (g, away) => `<section class="card wgroup"><h2>${esc(g.path)} <span class="n">${g.issues.length}</span>${g.dir ? `<span class="dir">${esc(g.dir)}</span>` : ''}</h2><ol class="issues">${g.issues.map(i => issueHTML(i, g)).join('')}</ol></section>`;
   box.innerHTML = top + problem
     + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: w.host }))}</p></div>` : '')
     + local.map(g => group(g)).join('')
@@ -671,6 +671,14 @@ $('#work').addEventListener('click', async e => {
   if (b.dataset.tabGo) return showTab(b.dataset.tabGo);
   if (b.dataset.goto) { showTab('sessions'); return select(b.dataset.goto); }
   if (b.dataset.url) return bridge.openIssue(b.dataset.url);
+  if (b.dataset.start) {
+    b.disabled = true;
+    const r = await bridge.startIssue(b.dataset.path, Number(b.dataset.start));
+    b.disabled = false;
+    if (r?.mode === 'new' && r.ok) toast(T('work.new.done'));
+    else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
+    return;
+  }
   if (b.dataset.copy) { try { await navigator.clipboard.writeText(b.dataset.copy); toast(T('work.copied')); } catch {} return; }
   if (b.dataset.act === 'refresh') { b.disabled = true; await bridge.refreshWork(); }
 });

@@ -39,6 +39,7 @@ The hook script drops file contents and tool output before sending anything. All
 - When you click a pet: `open -a <app>` (macOS), `WScript.Shell.AppActivate` via PowerShell (Windows) or `xdotool` (Linux) to bring the session's window forward, and `ps` / `Get-CimInstance` to find that window's process. In the Claude desktop app it opens `claude://code/continue?session=<id>`, a link that app registers. It is not a documented public API and may change; if it stops working, the click falls back to the session's details.
 - For each folder a session works in, at most every 30 s (and on a session's start and end): `git status --porcelain=v2 --branch`, `git rev-parse --show-toplevel`, `git log -1`, `git rev-list --count HEAD --not --remotes`, `git worktree list --porcelain`, `git remote -v`. Read-only, without taking git's index lock; nothing is fetched or pushed.
 - Only while GitLab is on: `glab api …` as above, and once a login shell (`command -v glab`) to find where glab is installed.
+- **New** on an issue in the Work tab (only when you press it): opens `claude://code/new?folder=<the project's folder>`, Claude's documented link for a new session; the Claude app asks you to confirm the folder. No prompt or other text is sent. **Resume** does what a click on the session's pet does.
 - Arguments are always passed as lists, never through a shell.
 
 ## Your organization's policies
