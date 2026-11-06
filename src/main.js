@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const net = require('net');
 const { execFile } = require('child_process');
-const { apply, refresh, publicView, setPet, pinProject } = require('./core/state');
+const { apply, refresh, publicView, setPet, pinProject, gone, CLAUDE_PROC } = require('./core/state');
 const S = require('./core/settings');
 const hooks = require('./core/hooks');
 const autostart = require('./core/autostart');
@@ -88,6 +88,14 @@ function onEvent(e, signal) {
 
 // Side session of another Claude desktop session? That app writes the link into its session file some time after
 // the session starts (seen: after its first events), so look again every 5 s, for up to 10 minutes.
+// Is the process there? Signal 0 checks without touching it; EPERM means it runs under another user.
+const isAlive = pid => { try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; } };
+// Look once at what each new claudePid is (see gone in core/state.js).
+function checkPid(s) {
+  const pid = s.claudePid;
+  s.pidChecked = pid;
+  processNames([pid]).then(([name]) => { if (s.claudePid === pid && CLAUDE_PROC.test(name || '')) s.pidIsClaude = pid; }).catch(() => {});
+}
 function findParent(s, now = Date.now()) {
   if (!s.hostSession || s.parentHost || (s.linkTries || 0) >= 120 || now - (s.linkAt || 0) < 5000) return false;
   s.linkAt = now; s.linkTries = (s.linkTries || 0) + 1;
@@ -727,8 +735,10 @@ app.whenReady().then(async () => {
   timers.push(setInterval(() => {
     const now = Date.now();
     let changed = false;
+    for (const id of gone(sessions, isAlive)) { sessions.delete(id); changed = true; }
     for (const [id, s] of sessions) {
       if (now - s.updated > STALE_MS) { sessions.delete(id); changed = true; continue; }
+      if (s.claudePid && s.pidChecked !== s.claudePid) checkPid(s);
       // Esc / a denied permission ends the turn without any hook: notice it in the transcript.
       if ((s.state === 'working' || s.state === 'waiting') && refresh(s, false, now)) changed = true;
       if (findParent(s, now)) changed = true;
