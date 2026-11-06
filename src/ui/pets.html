@@ -403,7 +403,8 @@ function frame(t) {
     } else if (home != null) {
       p.goal = null;
       const d = home - p.x, step = Math.max(speed * 4, Math.abs(d) * 1.5) * dt; // far away it sprints: there in a few seconds on any screen
-      if (Math.abs(d) <= step) p.x = home; else { p.x += Math.sign(d) * step; p.stepping = true; }
+      // Keeping up with a walking parent moves it a little every frame: that is walking too, not gliding.
+      if (Math.abs(d) <= step) { p.stepping = Math.abs(d) > 0.2; p.x = home; } else { p.x += Math.sign(d) * step; p.stepping = true; }
     } else if (walks(p) && p.goal == null) {
       // A parent keeps room on both sides for its side sessions and turns round only at the ends of that range
       // (never at random): they trail behind it and cross over to the other side just once per turn.
