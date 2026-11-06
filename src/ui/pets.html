@@ -69,6 +69,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .card .sub{font-size:var(--t-xs);color:var(--ink-3);margin:0 0 var(--s2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card .q{color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:0 0 var(--s2)}
 .card .row{display:flex;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3)}
+.card .row+.row{margin-top:var(--s1)}
+.card .row.ctx{margin-top:var(--s2)}
 .card .st{font-weight:600;color:var(--ink)}
 .st-waiting .card .st{color:var(--coral-ink)}
 .meter{height:6px;border-radius:var(--pill);background:var(--n-200);overflow:hidden;margin:var(--s1) 0 var(--s2)}
@@ -231,7 +233,7 @@ function paint(p, now) {
         ${st === 'waiting' ? answerButtons(s, now, true) : ''}
         <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
-        <div class="row"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
+        <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${say && say[2] ? `<div class="say ${say[0]}">${whoHTML(say[2], s)}${esc(say[2].text)}${say[0] === 'waiting' ? answerButtons(say[2].s, now, false) : ''}</div>` : ''}

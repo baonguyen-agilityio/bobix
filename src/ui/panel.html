@@ -94,7 +94,15 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .pane-top .sprite{width:96px;height:96px;border-radius:var(--r-lg);flex:none}
 .pane-top h2{font-size:var(--t-xl);overflow-wrap:anywhere}
 .pane-top .lv{font-size:var(--t-sm)}
-.pane-acts{display:flex;gap:var(--s2);margin-top:var(--s4);flex-wrap:wrap}
+.pane-acts{display:grid;gap:var(--s4);margin-top:var(--s4)}
+.pane-acts>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s2)}
+/* the picture row sizes each button to its label, so a long one like "Thú cưng mặc định" stays on one line */
+.pane-acts>div+div{display:flex;flex-wrap:wrap}
+.pane-acts>div+div .btn{flex:1 1 auto}
+.pane-acts .btn{padding:var(--s2) var(--s1);overflow-wrap:normal}
+.pane-acts [data-act="pet"]{display:grid;place-items:center}
+.pane-acts [data-act="pet"]>span{grid-area:1/1;pointer-events:none}
+.pane-acts .alt{visibility:hidden}
 .pane .open-hint{margin-top:var(--s3)}
 .pane .meta{margin:var(--s4) 0 0;font-size:var(--t-xs);line-height:1.6;color:var(--ink-3);overflow-wrap:anywhere}
 .pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
@@ -130,9 +138,15 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .log .k-done .msg{color:var(--ink)}
 .log .k-done::before{background:var(--mint)}
 .log .k-start::before{background:var(--sky)}
-.log.sides li{grid-template-columns:max-content minmax(0,1fr)}
+.log.sides li{display:block;padding:0;border:0}
+.log.sides li+li{margin-top:var(--s2)}
 .log.sides li::before{content:none}
-.log.sides span{color:var(--ink-2)}
+.sidecard{display:flex;align-items:center;gap:var(--s3);width:100%;text-align:left;padding:var(--s2) var(--s3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer;transition:border-color 150ms var(--ease)}
+.sidecard:hover{border-color:var(--line-strong)}
+.sidecard::after{content:'›';flex:none;color:var(--ink-3);font-size:var(--t-md)}
+.sidecard>span{pointer-events:none}
+.sidecard .t{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidecard .st{flex:none;font-size:var(--t-xs);color:var(--ink-3)}
 .log .arg{font-family:var(--f-mono)}
 .log .n{font-size:var(--t-xs);font-weight:600;color:var(--ink-3);margin-left:var(--s1)}
 .clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,2);overflow:hidden}
@@ -483,21 +497,22 @@ function renderPane() {
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
   const hm = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); // seconds on hover
+  // The pet button also holds its other label, hidden, so Hide / Show wrap alike and the buttons never move on a swap.
   pane.innerHTML = `
     <div class="pane-top st-${st}">
       <span class="sprite">${petArt(list.find(x => x.id === s.parent) || s, st, petColor(s, list))}</span>
       <div><h2>${esc(s.title || s.name)}</h2><span class="lv">${T('pet.lv', { n: s.lv })} · ${esc(statusText(s, st))}</span></div>
     </div>
     <div class="pane-acts">
-      ${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>
-        <button class="btn" type="button" data-act="pet">${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</button>
-        <button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.pixel ? `<button class="btn" type="button" data-act="picEdit">${T('pane.petAdjust')}</button>` : ''}${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}` : ''}
-      <button class="btn" type="button" data-act="close">${T('pane.close')}</button>
+      <div>${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>
+        <button class="btn" type="button" data-act="pet"><span>${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</span><span class="alt" aria-hidden="true">${T(offScreen(s) ? 'pane.hidePet' : 'pane.showPet')}</span></button>` : ''}
+        <button class="btn" type="button" data-act="close">${T('pane.close')}</button></div>
+      ${bridge ? `<div><button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.pixel ? `<button class="btn" type="button" data-act="picEdit">${T('pane.petAdjust')}</button>` : ''}${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}</div>` : ''}
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
     ${hint?.id === s.id ? `<p class="note open-hint">${esc(hintText(hint))}</p>` : ''}
     ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
-    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><span>${esc(statusText(k, look(k)))}</span><button class="btn" type="button" data-act="goto" data-id="${esc(k.id)}">${esc(k.title || k.name)}</button></li>`).join('')}</ol>` : ''}
+    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><button class="sidecard" type="button" data-act="goto" data-id="${esc(k.id)}" title="${esc(k.title || k.name)}"><span class="t">${esc(k.title || k.name)}</span><span class="st">${esc(statusText(k, look(k)))}</span></button></li>`).join('')}</ol>` : ''}
     ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${secsLeft(s) === Infinity ? T('pane.askUntil') : T('pane.askWithin', { n: secsLeft(s) })}
       <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
         <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
