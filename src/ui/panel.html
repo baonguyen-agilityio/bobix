@@ -900,9 +900,13 @@ function guideHTML() {
   return `<ul class="guide">${['working', 'waiting', 'done', 'idle'].map(st => `<li class="st-${st}">${art(st)}<span>${esc(T('guide.' + st))}</span></li>`).join('')}</ul>
     <ul class="guide-more"><li>${esc(T('guide.click'))}</li><li>${esc(T('guide.ask'))}</li></ul>`;
 }
+let guideOut = false;
 function renderIntro() {
   const box = $('#intro');
-  const showNews = !!state?.news, showGuide = !!state && !state.settings.guideSeen && list.length > 0; // the guide waits for a first pet
+  const showNews = !!state?.news;
+  // The guide waits for a first pet, then stays until Got it, even when that session ends.
+  guideOut ||= !!state && !state.settings.guideSeen && list.length > 0;
+  const showGuide = guideOut && !state.settings.guideSeen;
   const key = JSON.stringify([showNews && state.news, showGuide, lang]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
