@@ -158,6 +158,19 @@
       'setup.error': 'Error: {x}',
       'setup.noNode': 'Node.js was not found, so hooks use {mode}. Pets still work; a click opens details instead of the session.',
       'setup.focusNote.linux': 'On Linux, clicking a pet brings its terminal forward on X11 only, with xdotool (sudo apt install xdotool). On Wayland it opens the session here and says where it runs; sessions in the Claude desktop app open directly.',
+      'guide.title': 'How to read the pets',
+      'guide.working': 'Walks around: Claude is working. The bubble says on what.',
+      'guide.waiting': 'Hops with a red bubble: Claude needs your approval.',
+      'guide.done': 'Smiles with a green bubble: the session finished its turn.',
+      'guide.idle': 'Sleeps: nothing is happening. After a while it leaves the screen.',
+      'guide.click': 'Click a pet to open its session. Hover it to see its task and the context left.',
+      'guide.ask': 'When Claude asks for permission, answer Allow, Always allow or Deny on the pet or here. You can still answer where the session runs (terminal, editor or Claude app), as usual.',
+      'guide.ok': 'Got it',
+      'news.title': 'What’s new in Bobix {v}',
+      'news.items': 'Change pet turns a picture into pixel art: the face of the project’s creature, or the whole pet.\nEvery session of a project has the same creature, each in its own colour.\nSide sessions stand next to their parent pet (Claude desktop app).\nFeedback, at the top of the panel, fills in a GitHub issue that you send yourself.\nA permission request can wait on the pet until you answer: Settings → Approve from Bobix → Until I answer.\nThe panel fits wide screens, and its session rows and details no longer overlap.',
+      'news.items.linux': 'Pets stay on top, and take the mouse on Wayland.',
+      'news.ok': 'Got it',
+      'tray.news': 'What’s new in Bobix {v}',
       'test.title': 'Test session',
     },
     vi: {
@@ -318,6 +331,19 @@
       'setup.error': 'Lỗi: {x}',
       'setup.noNode': 'Không tìm thấy Node.js nên hooks dùng {mode}. Thú cưng vẫn chạy; bấm vào sẽ mở chi tiết thay vì mở phiên.',
       'setup.focusNote.linux': 'Trên Linux, bấm vào thú cưng chỉ đưa được terminal lên trước khi dùng X11 và có xdotool (sudo apt install xdotool). Trên Wayland, Bobix mở phiên ở đây và cho biết nó đang chạy ở đâu; phiên trong ứng dụng Claude desktop thì mở thẳng được.',
+      'guide.title': 'Cách đọc thú cưng',
+      'guide.working': 'Đi lại: Claude đang làm. Bong bóng cho biết đang làm gì.',
+      'guide.waiting': 'Nhảy, bong bóng đỏ: Claude cần bạn duyệt.',
+      'guide.done': 'Cười, bong bóng xanh: phiên đã xong lượt.',
+      'guide.idle': 'Ngủ: không có gì xảy ra. Ngủ lâu thì tạm rời màn hình.',
+      'guide.click': 'Bấm vào thú cưng để mở phiên của nó. Rê chuột lên để xem việc đang làm và ngữ cảnh còn lại.',
+      'guide.ask': 'Khi Claude xin quyền, bấm Cho phép, Luôn cho phép hoặc Từ chối trên thú cưng hoặc ở đây. Bạn vẫn trả lời được ở nơi phiên đang chạy (terminal, editor hay app Claude) như bình thường.',
+      'guide.ok': 'Đã hiểu',
+      'news.title': 'Bobix {v} có gì mới',
+      'news.items': 'Đổi thú cưng biến ảnh thành pixel art: làm mặt cho dáng thú của project, hoặc làm cả thú cưng.\nMọi phiên của một project chung một dáng thú, mỗi phiên một màu.\nPhiên phụ đứng cạnh thú cưng của phiên gốc (app Claude desktop).\nNút Góp ý ở đầu bảng điều khiển điền sẵn một issue trên GitHub để bạn tự gửi.\nYêu cầu xin quyền có thể chờ trên thú cưng đến khi bạn trả lời: Cài đặt → Duyệt ngay trên Bobix → Đến khi tôi trả lời.\nBảng điều khiển vừa màn hình rộng, các dòng phiên và phần chi tiết không còn chồng lên nhau.',
+      'news.items.linux': 'Thú cưng luôn nằm trên cùng, và dùng được chuột trên Wayland.',
+      'news.ok': 'Đã hiểu',
+      'tray.news': 'Bobix {v} có gì mới',
       'test.title': 'Phiên thử',
     },
   };
@@ -333,6 +359,7 @@
     const mcp = /^mcp__.+?__(.+)$/.exec(tool || '');
     return t(lang, 'tool.other', { tool: mcp ? mcp[1].replace(/_/g, ' ') : tool });
   };
-  const api = { STR, t, pick, toolLabel };
+  const NEWS = '0.1.4'; // the release that news.items describes; rewrite both when a release ships new notes (see docs/development.md)
+  const api = { STR, t, pick, toolLabel, NEWS };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.I18N = api;
 })(this);

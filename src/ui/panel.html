@@ -275,6 +275,12 @@ input[type=number]{width:104px}
 .hero .note{margin:0 0 var(--s3)}
 .state{display:inline-flex;align-items:center;gap:var(--s2);padding:4px var(--s3);border-radius:var(--pill);font-weight:600;font-size:var(--t-sm)}
 .state.ok{background:var(--mint-soft)}.state.bad{background:var(--coral-soft);color:var(--coral-ink)}
+.intro{display:grid;gap:var(--s4);margin-bottom:var(--s4)}.intro:empty{display:none}
+.intro .card h2{display:flex;align-items:center;gap:var(--s3)}.intro .acts{margin-top:var(--s4)}
+.guide{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s3) var(--s6)}
+.guide li{display:grid;grid-template-columns:40px minmax(0,1fr);gap:var(--s3);align-items:center;font-size:var(--t-sm)}
+.guide .sprite{width:40px;height:40px}.guide .st-waiting .sprite{background:var(--coral-soft);box-shadow:inset 0 0 0 1px var(--coral)}.guide .st-done .sprite{background:var(--mint-soft)}.guide .st-idle .sprite svg{opacity:.6}.guide-more{margin:var(--s4) 0 0;padding-left:1.2em;font-size:var(--t-sm);display:grid;gap:var(--s2)}
+.news{margin:0;padding-left:1.2em;display:grid;gap:var(--s2);font-size:var(--t-sm)}
 .steps{list-style:none;margin:0;padding:0}
 .steps li{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:var(--s4);align-items:center;padding:var(--s4) 0;border-top:1px solid var(--line)}
 .steps .num{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:var(--t-sm);background:var(--n-200)}
@@ -335,6 +341,7 @@ input[type=number]{width:104px}
 <section id="tab-sessions">
   <div class="app" id="app">
     <main id="board">
+      <div class="intro" id="intro"></div>
       <div class="card empty" id="empty">
         <span class="sprite" id="egg" style="width:96px;height:96px"></span>
         <div><h2 data-t="empty.title"></h2><p data-t="empty.body"></p></div>
@@ -477,6 +484,7 @@ function render() {
     [...ol.children].forEach(li => keep.has(li) || li.remove());
   }
   $('#empty').hidden = list.length > 0;
+  renderIntro();
   $('#showAll').hidden = !bridge || !list.some(offScreen);
   const n = st => by[st].length;
   $('#counts').innerHTML = ['waiting', 'working', 'done', 'idle'].map(st => `<span class="${st === 'waiting' && n(st) ? 'hot' : ''}"><b>${n(st)}</b> ${T('count.' + st)}</span>`).join('');
@@ -886,6 +894,36 @@ $('#pd-dialog').addEventListener('close', e => { // Esc, Cancel, Save or an erro
   if (!pd.saved) bridge.petImage(pd.id, 'cancel');
 });
 
+// ---------- first-run guide and "What's new" (shown once each; see core/news.js) ----------
+function guideHTML() {
+  const art = st => `<span class="sprite">${creature('bobix', st)}</span>`;
+  return `<ul class="guide">${['working', 'waiting', 'done', 'idle'].map(st => `<li class="st-${st}">${art(st)}<span>${esc(T('guide.' + st))}</span></li>`).join('')}</ul>
+    <ul class="guide-more"><li>${esc(T('guide.click'))}</li><li>${esc(T('guide.ask'))}</li></ul>`;
+}
+let guideOut = false;
+function renderIntro() {
+  const box = $('#intro');
+  const showNews = !!state?.news;
+  // The guide waits for a first pet, then stays until Got it, even when that session ends.
+  guideOut ||= !!state && !state.settings.guideSeen && list.length > 0;
+  const showGuide = guideOut && !state.settings.guideSeen;
+  const key = JSON.stringify([showNews && state.news, showGuide, lang]);
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  box.innerHTML = (showNews ? `<section class="card" aria-labelledby="news-h"><h2 id="news-h">${esc(T('news.title', { v: state.news }))}</h2>
+      <ul class="news">${[...T('news.items').split('\n'), ...(state.platform === 'linux' ? [T('news.items.linux')] : [])].map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+      <div class="acts"><button class="btn" type="button" data-intro="news">${T('news.ok')}</button></div></section>` : '')
+    + (showGuide ? `<section class="card" aria-labelledby="guide-h"><h2 id="guide-h">${esc(T('guide.title'))}</h2>${guideHTML()}
+      <div class="acts"><button class="btn pri" type="button" data-intro="guide">${T('guide.ok')}</button></div></section>` : '');
+}
+$('#intro').addEventListener('click', async e => {
+  const which = e.target.closest('[data-intro]')?.dataset.intro;
+  if (!which || !bridge) return;
+  if (which === 'news') { state.settings = await bridge.setSettings({ seenVersion: state.news }); state.news = null; }
+  else state.settings = await bridge.setSettings({ guideSeen: true });
+  renderIntro();
+});
+
 // ---------- setup ----------
 async function renderSetup(note) {
   const box = $('#setup');
@@ -920,6 +958,7 @@ async function renderSetup(note) {
       ${!state.nodePath ? `<p class="note">${T('setup.noNode', { mode: state.platform === 'win32' ? 'PowerShell' : 'curl' })}</p>` : ''}
       ${linuxNote}
     </div>
+    <div class="card"><h2>${esc(T('guide.title'))}</h2>${guideHTML()}</div>
     ${h.events.length ? `<div class="card"><h2>${T('setup.remove.title')}</h2><p class="note">${T('setup.remove.body')}</p>
       <div class="acts"><button class="btn danger" type="button" data-act="uninstall">${T('setup.uninstall')}</button></div></div>` : ''}`;
 }
@@ -975,6 +1014,7 @@ $('#conn').textContent = T('conn.wait');
       const langChanged = s.language !== state.settings.language;
       state.settings = s;
       langChanged ? applyLang() : renderSettings(); // e.g. toggled from the tray
+      renderIntro();
     });
   }
   applyLang();
