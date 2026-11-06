@@ -1153,3 +1153,17 @@ test('a permission request is held only where the person can see it', () => {
   strict.equal(holdSecs({ ...on, approveWait: -1 }, { pet: 'shown' }), Infinity);
   strict.equal(holdSecs({ ...on, approveWait: 60, petsVisible: false }, pet), 0, 'a timed wait too');
 });
+
+test('a session whose claude process is gone is forgotten; a shell or an unchecked pid never is', () => {
+  const { gone, CLAUDE_PROC, publicView } = require('../src/core/state');
+  const m = new Map();
+  for (const [id, pid] of [['dead', 101], ['live', 102], ['shell', 103], ['unchecked', 104], ['moved', 105]])
+    apply(m, { session_id: id, hook_event_name: 'UserPromptSubmit', prompt: 'x', bobix_claude_pid: pid });
+  m.get('dead').pidIsClaude = 101; m.get('live').pidIsClaude = 102;
+  m.get('moved').pidIsClaude = 99; // checked an older pid; a new one came in since
+  const alive = new Set([102]);
+  assert.deepEqual(gone(m, pid => alive.has(pid)), ['dead'], 'only a checked claude pid that is no longer running');
+  assert.ok(['claude', 'node', 'Claude', 'node'].every(n => CLAUDE_PROC.test(n)));
+  assert.ok(['sh', 'bash', 'zsh', 'cmd', 'powershell', 'Bobix', 'Electron', '?', 'claude-desktop'].every(n => !CLAUDE_PROC.test(n)), 'shells and others are not claude');
+  assert.ok(!('pidIsClaude' in publicView(m.get('dead'))) && !('pidChecked' in publicView(m.get('dead'))), 'bookkeeping stays in the main process');
+});
