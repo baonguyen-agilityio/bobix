@@ -3,11 +3,12 @@ function hashStr(str) { let h = 2166136261; for (const c of str) h = Math.imul(h
 // Sinh "sinh vật" pixel 7x7 đối xứng từ session_id, có viền tối 1px. Mắt/miệng đổi theo trạng thái.
 const BODY = ['--sky', '--mint', '--lilac', '--peach', '--butter', '--rose'];
 // color: an index into BODY (see petColor); by default the colour that goes with id.
-function creature(id, st, face, color) {
+// pixel: the face is pixel art, so it is scaled without smoothing.
+function creature(id, st, face, color, pixel) {
   let r = hashStr(id) || 1;
   const bit = () => (r = Math.imul(r ^ (r >>> 15), 2246822507) >>> 0, r & 1);
   color = `var(${BODY[color ?? hashStr(id + 'c') % BODY.length]})`;
-  if (face) return bigHead(color, bit, face);
+  if (face) return bigHead(color, bit, face, pixel);
   const on = new Set(), put = (x, y) => { on.add(`${x},${y}`); on.add(`${6 - x},${y}`); };
   for (let y = 1; y <= 5; y++) for (let x = 1; x <= 3; x++) put(x, y);
   if (bit()) put(1, 0); if (bit()) put(2, 0);          // tai / sừng
@@ -35,7 +36,7 @@ function creature(id, st, face, color) {
 // A creature wearing an uploaded picture: the picture (13 of 22 units) sits in the creature's body, and the outline around the
 // body is drawn last, so it trims only the picture's corners into pixel steps. Ears, arms and legs come from the same project's creature (same bits,
 // same order).
-function bigHead(color, bit, face) {
+function bigHead(color, bit, face, pixel) {
   const px = (x, y, fill) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}"/>`;
   const line = `color-mix(in oklch, ${color} 45%, var(--n-900))`;
   const limbs = new Set(), put = (x, y) => { limbs.add(`${x},${y}`); limbs.add(`${21 - x},${y}`); };
@@ -56,13 +57,21 @@ function bigHead(color, bit, face) {
   const ring = around(body, body), limbLine = around(limbs, new Set([...limbs, ...body]));
   return `<svg class="faced" viewBox="0 0 22 22" width="100%" height="100%" shape-rendering="crispEdges" aria-hidden="true">`
     + `${cells(limbLine, line)}${cells(limbs, color)}${cells(body, color)}`
-    + `<image href="${face}" x="4.5" y="4.5" width="13" height="13" preserveAspectRatio="xMidYMid slice"/>${cells(ring, line)}</svg>`;
+    + `<image href="${face}" x="4.5" y="4.5" width="13" height="13"${pixel ? ' style="image-rendering:pixelated"' : ''} preserveAspectRatio="xMidYMid slice"/>${cells(ring, line)}</svg>`;
 }
 
-// The pet of a session: its project's creature, wearing the picture chosen for that project if there is one.
+// A pixel-art picture that is the whole pet: it stands on the bottom of the pet's box, scaled without smoothing.
+function picturePet(href) {
+  return `<svg class="pic" viewBox="0 0 1 1" width="100%" height="100%" aria-hidden="true">`
+    + `<image href="${href}" width="1" height="1" preserveAspectRatio="xMidYMax meet" style="image-rendering:pixelated"/></svg>`;
+}
+
+// The pet of a session: its project's creature, wearing the picture chosen for that project if there is one, or the
+// picture itself when the person chose it to be the whole pet.
 function petArt(s, st, color) {
   const token = new URLSearchParams(location.search).get('t') || '';
-  return creature(s.project || s.id, st, s.image && `/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(token)}`, color);
+  const pic = s.image && `/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(token)}`;
+  return pic && s.pixel && s.whole ? picturePet(pic) : creature(s.project || s.id, st, pic, color, s.pixel);
 }
 
 // A session's colour. Its project gives the shape; the colour tells sessions apart: sessions of one project take the

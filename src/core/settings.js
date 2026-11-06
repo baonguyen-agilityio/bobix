@@ -1,6 +1,7 @@
 // User settings: defaults, validation and a JSON file in the app's data folder.
 const fs = require('fs');
 const path = require('path');
+const { normalizeOpts } = require('./pixelate');
 
 const DEFAULTS = {
   language: 'auto',        // auto | en | vi
@@ -24,13 +25,21 @@ const DEFAULTS = {
   paused: false,           // do-not-disturb: no notifications
   petsVisible: true,
   autostart: false,
-  checkUpdates: true,
-  petImages: {},           // project folder -> picture file in the app's data folder (see main.js choosePetImage)      // once a day, ask GitHub whether a newer release exists (nothing about you is sent)
+  checkUpdates: true,      // once a day, ask GitHub whether a newer release exists (nothing about you is sent)
+  petImages: {},           // project folder -> { src, file, opts } in the app's data folder (see petstore.js), or a file name
 };
 
 const PET_FILE = /^[a-f0-9]{24}\.(png|gif)$/;
+const PET_SRC = /^[a-f0-9]{24}\.(png|jpg|gif|webp)$/;
 const ENUMS = { language: ['auto', 'en', 'vi'], edge: ['bottom', 'top'], label: ['title', 'folder', 'both'], clickAction: ['focus', 'panel'] };
 const RANGES = { port: [1024, 65535], zoneStart: [0, 95], zoneEnd: [5, 100], size: [32, 128], opacity: [0.2, 1], sleepHide: [0, 1440], approveWait: [0, 300] };
+
+// A picture entry: a file name (made before pictures were processed) or { src, file, opts }; null when it is neither.
+function petEntry(e) {
+  if (typeof e === 'string') return PET_FILE.test(e) ? e : null;
+  if (!e || typeof e !== 'object' || !PET_SRC.test(e.src) || !PET_FILE.test(e.file)) return null;
+  return { src: e.src, file: e.file, opts: normalizeOpts(e.opts) };
+}
 
 // Keeps only known keys with valid values; anything else falls back to the current value.
 function sanitize(input, base = DEFAULTS) {
@@ -45,7 +54,7 @@ function sanitize(input, base = DEFAULTS) {
     else if (k === 'display') { if (typeof v === 'string' && v.length < 40) out[k] = v; }
     else if (k === 'petImages') {
       if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
-      out.petImages = Object.fromEntries(Object.entries(v).filter(([p, f]) => p.length < 1024 && PET_FILE.test(f)).slice(0, 200));
+      out.petImages = Object.fromEntries(Object.entries(v).map(([p, e]) => [p, petEntry(e)]).filter(([p, e]) => p.length < 1024 && e).slice(0, 200));
     }
   }
   if (out.zoneEnd - out.zoneStart < 5) out.zoneEnd = Math.min(100, out.zoneStart + 5);
