@@ -1190,17 +1190,17 @@ test('a session whose claude process is gone is forgotten; a shell or an uncheck
 const work = require('../src/core/work');
 
 test('work: git remote URL → GitLab project path, only on the configured host', () => {
-  const h = 'gitlab.asoft-python.com';
-  strict.equal(work.projectPath('git@gitlab.asoft-python.com:bao.nguyen/ba-qa-kit-sandbox.git', h), 'bao.nguyen/ba-qa-kit-sandbox');
-  strict.equal(work.projectPath('ssh://git@gitlab.asoft-python.com:2222/Group/Sub/Proj.git', h), 'group/sub/proj');
-  strict.equal(work.projectPath('https://gitlab.asoft-python.com/bao.nguyen/ba-qa-kit-sandbox', h), 'bao.nguyen/ba-qa-kit-sandbox');
-  strict.equal(work.projectPath('https://oauth2:secret@gitlab.asoft-python.com/g/p.git/', h), 'g/p');
-  strict.equal(work.projectPath('https://gitlab.asoft-python.com:8443/g/p.git', 'gitlab.asoft-python.com:8443'), 'g/p');
+  const h = 'gitlab.example.com';
+  strict.equal(work.projectPath('git@gitlab.example.com:team/shop-app.git', h), 'team/shop-app');
+  strict.equal(work.projectPath('ssh://git@gitlab.example.com:2222/Group/Sub/Proj.git', h), 'group/sub/proj');
+  strict.equal(work.projectPath('https://gitlab.example.com/team/shop-app', h), 'team/shop-app');
+  strict.equal(work.projectPath('https://oauth2:secret@gitlab.example.com/g/p.git/', h), 'g/p');
+  strict.equal(work.projectPath('https://gitlab.example.com:8443/g/p.git', 'gitlab.example.com:8443'), 'g/p');
   strict.equal(work.projectPath('git@github.com:baonguyen-agilityio/bobix.git', h), null, 'other host');
   strict.equal(work.projectPath('https://gitlab.com/g/p.git', h), null);
   strict.equal(work.projectPath('/Users/me/repo.git', h), null, 'local path');
-  strict.equal(work.projectPath('git@gitlab.asoft-python.com:onlyname.git', h), null, 'no namespace');
-  strict.equal(work.projectPath('git@gitlab.asoft-python.com:g/p.git', ''), null, 'GitLab off');
+  strict.equal(work.projectPath('git@gitlab.example.com:onlyname.git', h), null, 'no namespace');
+  strict.equal(work.projectPath('git@gitlab.example.com:g/p.git', ''), null, 'GitLab off');
   strict.equal(work.hostOf('https://GitLab.com/'), 'gitlab.com');
   strict.equal(work.hostOf('ftp://gitlab.com'), '');
   strict.equal(work.hostOf(''), '');
