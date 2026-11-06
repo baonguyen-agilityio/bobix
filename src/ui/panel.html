@@ -907,7 +907,7 @@ function renderIntro() {
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   box.innerHTML = (showNews ? `<section class="card" aria-labelledby="news-h"><h2 id="news-h">${esc(T('news.title', { v: state.news }))}</h2>
-      <ul class="news">${T('news.items').split('\n').map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+      <ul class="news">${[...T('news.items').split('\n'), ...(state.platform === 'linux' ? [T('news.items.linux')] : [])].map(x => `<li>${esc(x)}</li>`).join('')}</ul>
       <div class="acts"><button class="btn" type="button" data-intro="news">${T('news.ok')}</button></div></section>` : '')
     + (showGuide ? `<section class="card" aria-labelledby="guide-h"><h2 id="guide-h">${esc(T('guide.title'))}</h2>${guideHTML()}
       <div class="acts"><button class="btn pri" type="button" data-intro="guide">${T('guide.ok')}</button></div></section>` : '');
