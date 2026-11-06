@@ -197,7 +197,14 @@ function pinProject(s) {
 }
 
 // What the outside world sees (no internal bookkeeping fields).
-const publicView = s => { const { readAt, readMark, parentHost, linkTries, linkAt, ...rest } = s; return rest; };
+const publicView = s => { const { readAt, readMark, parentHost, linkTries, linkAt, pidChecked, pidIsClaude, ...rest } = s; return rest; };
+
+// A session whose claude process went away without a SessionEnd (its terminal was closed, it crashed, it was killed)
+// would stay on screen for good. claudePid is the hook's parent: the claude process itself where Claude Code runs hooks
+// directly (macOS), but it could be a shell that ends with each hook. So only a pid once seen running as claude (or
+// node, for an npm install) counts; anything else is never taken for a session that is gone.
+const CLAUDE_PROC = /^(claude|node)$/i;
+const gone = (sessions, isAlive) => [...sessions].filter(([, s]) => s.claudePid && s.pidIsClaude === s.claudePid && !isAlive(s.claudePid)).map(([id]) => id);
 
 const PET_MODES = ['auto', 'hidden', 'shown'];
 // Hide / show one pet by hand; "all" brings every pet back (and keeps sleeping ones out).
@@ -208,4 +215,4 @@ function setPet(sessions, id, mode) {
   return list.length > 0;
 }
 
-module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, clip, plain, publicView, pinProject, ID_RE };
+module.exports = { CLAUDE_PROC, gone, apply, setPet, readTranscript, ctxLeft, refresh, short, clip, plain, publicView, pinProject, ID_RE };

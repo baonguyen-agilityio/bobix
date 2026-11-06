@@ -4,6 +4,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `main`, not released yet
 
+- **A pet leaves when its Claude is gone**: a session whose claude process ended without saying so (its terminal closed, a crash, a kill) is removed within about 5 s instead of staying on screen, waiting, until Bobix restarts. Only a process seen running as `claude` (or `node`) counts, so a shell between Claude and the hook never makes a live session look gone. Checked on macOS; Windows and Linux not yet.
 - **Pets stay on top on Linux**: the pets window lost "always on top" once it had been hidden and shown again (seen on Ubuntu, Wayland through XWayland, v0.1.3: `alwaysOnTop: false` in Copy diagnostics). It is set again each time the window shows, and CI now fails if it isn't on top.
 - **Pets take the mouse on Linux Wayland**: through XWayland, a pet could be hovered, clicked or dragged only while an X11 window (such as the panel) was under it. The pets overlay now has a window shape around the pets, so the X server hands them the mouse directly.
 - **Linux dock**: the `.deb` sets `desktopName`, so its `.desktop` entry has `StartupWMClass=bobix`, the windows' real class (it said `Bobix`).
