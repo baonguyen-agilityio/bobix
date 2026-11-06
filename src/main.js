@@ -60,7 +60,7 @@ const snapshot = () => {
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession).map(s => [s.hostSession, s.id]));
   const pics = settings?.petImages || {};
   const w = workView();
-  return { work: w.view, sessions: [...sessions.values()].map(s => {
+  return { work: w.view, question: question && { id: question.id, iid: question.iid, title: question.title, path: question.path, folder: question.folder }, sessions: [...sessions.values()].map(s => {
     const project = s.project || '', pic = pics[project];
     return { ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null, project, image: petstore.served(pic), pixel: !!pic && typeof pic === 'object', whole: !!pic?.opts?.whole, issue: w.issueOf.get(s.id) || null };
   }) };
@@ -86,6 +86,7 @@ function onEvent(e, signal) {
   };
   isStop ? setTimeout(finish, 300) : finish(); // let Claude flush the final answer to the transcript first
   // A session that starts on an issue's branch gets its name from Bobix, the way /rename names it; one that has a name keeps it.
+  if (r.s && signal && e.hook_event_name === 'SessionStart' && e.source === 'startup' && !e.session_title && newFor.has(r.s.project)) return askIssue(r.s, signal);
   if (r.s && e.hook_event_name === 'SessionStart' && ['startup', 'resume', 'fork'].includes(e.source) && !e.session_title) return { output: titleFor(r.s) };
   return answered;
 }
@@ -115,6 +116,39 @@ const remotesOf = new Map(); // repository top folder -> its remote URLs (kept h
 let glabPath = null, issues = { status: 'off' }, issuesBusy = false;
 // A session is named after an issue only when its own folder is on that issue's branch ("<iid>-…") of a repository of
 // that GitLab project, and the issue is one assigned to you. Nothing is guessed from timing; other sessions keep Claude's name.
+// Trial: New opens a session in the project's own folder. The next session that starts there is not guessed: Bobix
+// takes it at once when no other session works in that folder, and otherwise asks "Is this session #25?" and holds its SessionStart hook (Claude answers the first prompt only after it) until you
+// answer. Yes: the session is #25 (in memory) and named after it. No: the question waits for the next session there.
+const newFor = new Map(); // project folder -> { path, iid, title } (New pressed, not answered yet)
+let question = null; // { id, sid, path, iid, title, folder, done }
+function askIssue(s, signal) {
+  const n = newFor.get(s.project), id = require('crypto').randomUUID();
+  if (work.aloneIn([...sessions.values()], s.id, s.cwd)) { // nothing else here it could be: no question
+    s.started = { path: n.path, iid: n.iid };
+    newFor.delete(s.project);
+    server.broadcast(snapshot()); // the session's #iid shows now, not at its next event
+    return { output: { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(n.path, n.iid, n.title) } } };
+  }
+  question?.done(null);
+  const answer = new Promise(resolve => {
+    const done = yes => {
+      if (question?.id !== id) return;
+      question = null;
+      if (yes) {
+        s.started = { path: n.path, iid: n.iid };
+        newFor.delete(s.project);
+        resolve({ hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(n.path, n.iid, n.title) } });
+      } else resolve(null);
+      server.broadcast(snapshot());
+    };
+    question = { id, sid: s.id, path: n.path, iid: n.iid, title: n.title, folder: s.cwd, done };
+    signal.addEventListener('abort', () => done(null), { once: true });
+    setTimeout(() => done(null), 170e3);
+  });
+  server.broadcast(snapshot()); // the panel gets the question now, not at the session's next event
+  showPanel({ tab: 'work' });
+  return { secs: 170, answer };
+}
 async function titleFor(s) {
   const host = gitlabHost(), dir = s.cwd;
   if (!host || !dir || !path.isAbsolute(dir)) return null;
@@ -164,12 +198,12 @@ function workView() {
   const host = gitlabHost(), issueOf = new Map();
   if (!host) return { view: { status: 'off' }, issueOf };
   const pathOf = top => (remotesOf.get(top) || []).map(u => work.projectPath(u, host)).find(Boolean) || null;
-  const own = s => work.issueOfSession({ path: pathOf(s.git.top), branches: [...(s.branches || []), s.git.branch].filter(Boolean) });
+  const own = s => work.issueOfSession({ path: pathOf(s.git.top), started: s.started, branches: [...(s.branches || []), s.git.branch].filter(Boolean) });
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession && s.git).map(s => [s.hostSession, s]));
   const live = [...sessions.values()].filter(s => s.git).map(s => {
     const path = pathOf(s.git.top), parent = s.parentHost && byHost.get(s.parentHost);
     const parentIid = parent && pathOf(parent.git.top) === path ? own(parent) : null; // a side session works on its parent's issue
-    return { id: s.id, path, dir: s.project || s.git.top, iid: work.issueOfSession({ path, parentIid, branches: [...(s.branches || []), s.git.branch].filter(Boolean) }) };
+    return { id: s.id, path, dir: s.project || s.git.top, iid: work.issueOfSession({ path, parentIid, started: s.started, branches: [...(s.branches || []), s.git.branch].filter(Boolean) }) };
   });
   const list = issues.list || [];
   for (const s of live) {
@@ -187,10 +221,9 @@ async function startIssue(path, iid) {
   if (!g || !i) return { ok: false, reason: 'gone' };
   const id = i.sessions.map(x => sessions.get(x)).filter(Boolean).sort((a, b) => b.updated - a.updated)[0]?.id;
   if (id) return { mode: 'resume', ...(await openSession(id, true, false)) };
-  const wt = await work.issueWorktree(g.dir, iid, i.title);
-  if (wt.error) return { ok: false, mode: 'new', reason: 'worktree', detail: wt.error };
-  try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(wt.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
-  return { ok: true, mode: 'new', dir: wt.dir, branch: wt.branch, created: wt.created };
+  newFor.set(g.dir, { path, iid, title: i.title });
+  try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(g.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
+  return { ok: true, mode: 'new', dir: g.dir };
 }
 // Only links to the configured GitLab open from the Work tab.
 function openIssue(url) {
@@ -678,6 +711,7 @@ function ipc() {
   handle('pet:image', (id, act, opts) => (typeof id !== 'string' || !Object.hasOwn(petImageActs, act) ? null : petImageActs[act](id, opts && typeof opts === 'object' ? opts : undefined)));
   handle('work:refresh', () => refreshIssues());
   handle('work:open', url => openIssue(url));
+  handle('work:confirm', (id, yes) => { if (question && question.id === id) question.done(!!yes); });
   handle('work:start', (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? startIssue(path, iid) : null));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) { releaseUnseen(); server.broadcast(snapshot()); } });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); shapeOverlay(); showOverlay(); } });

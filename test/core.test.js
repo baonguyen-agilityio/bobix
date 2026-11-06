@@ -416,7 +416,7 @@ test('the permission and SessionStart hooks run in the foreground; old backgroun
   assert.equal(tool.async, true);
   assert.equal(hooks.status({ home }).outdated, false);
   const start = cfg.hooks.SessionStart[0].hooks[0];
-  assert.equal(start.async, undefined); assert.equal(start.timeout, 5);
+  assert.equal(start.async, undefined); assert.ok(start.timeout >= 180);
   start.async = true; fs.writeFileSync(file, JSON.stringify(cfg));
   assert.equal(hooks.status({ home }).outdated, true, 'installed before session titles: reinstall');
   start.async = undefined; ask.async = true; fs.writeFileSync(file, JSON.stringify(cfg));
@@ -1302,4 +1302,10 @@ test('work: a session started from an issue is named "<project> #<iid> <short ti
   strict.equal(work.sessionTitleFor('g/sub/api', 3, 'Fix login'), 'api #3 Fix login');
   strict.equal(work.sessionTitleFor('g/api', 4, ''), 'api #4');
   strict.ok(work.sessionTitleFor('g/api', 5, 'x'.repeat(200)).length <= 52);
+});
+
+test('work: after New, a session alone in the project folder takes the issue without asking', () => {
+  const list = [{ id: 'new', cwd: '/src/a' }, { id: 'side', cwd: '/src/a/.claude/worktrees/x' }, { id: 'other', cwd: '/src/b' }];
+  strict.equal(work.aloneIn(list, 'new', '/src/a'), true, 'sessions in other folders, worktrees included, do not count');
+  strict.equal(work.aloneIn([...list, { id: 'hello', cwd: '/src/a' }], 'new', '/src/a'), false, 'another session in the same folder: ask');
 });

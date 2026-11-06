@@ -78,9 +78,14 @@ function sessionTitleFor(path, iid, title) {
 // s: { path, branches, parentIid }.
 function issueOfSession(s) {
   if (!s.path) return null;
+  if (s.started?.path === s.path) return s.started.iid; // you said so when it started
   for (let i = s.branches.length - 1; i >= 0; i--) { const n = issueOfBranch(s.branches[i]); if (n) return n; }
   return s.parentIid || null;
 }
+
+// After New on an issue, a session that starts in the project's folder is that issue's without asking only when no other
+// session Bobix knows works in that same folder; otherwise Bobix asks. sessions: [{ id, cwd }].
+const aloneIn = (sessions, id, cwd) => !sessions.some(x => x.id !== id && x.cwd === cwd);
 
 // GitLab's branch name for an issue: "<iid>-<title in lower case, words joined by ->", about 50 characters at most.
 function branchFor(iid, title) {
@@ -148,4 +153,4 @@ async function fetchIssues(glab, host) {
   return { ok: false, reason: 'error', detail: 'unexpected answer from GitLab' };
 }
 
-module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, branchFor, worktreesOf, issueWorktree, sessionTitleFor, slimIssue, groupIssues, fetchIssues };
+module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, aloneIn, branchFor, worktreesOf, issueWorktree, sessionTitleFor, slimIssue, groupIssues, fetchIssues };
