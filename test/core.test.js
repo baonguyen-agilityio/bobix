@@ -1241,3 +1241,9 @@ test('settings: GitLab is off by default and keeps only the URL\'s origin', () =
   strict.equal(sanitize({ gitlabUrl: 'javascript:alert(1)' }).gitlabUrl, '');
   strict.equal(sanitize({ gitlabUrl: '' }, { ...DEFAULTS, gitlabUrl: 'https://a.b' }).gitlabUrl, '');
 });
+
+test('settings: the Work tab\'s chosen projects are GitLab paths, lower case, no duplicates', () => {
+  strict.deepEqual(DEFAULTS.workProjects, []);
+  strict.deepEqual(sanitize({ workProjects: ['Team/Shop-App', 'team/shop-app', 'g/sub/p', 'nopath', '../x', 3, 'a/b c'] }).workProjects, ['team/shop-app', 'g/sub/p']);
+  strict.deepEqual(sanitize({ workProjects: 'team/x' }).workProjects, []);
+});

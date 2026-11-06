@@ -310,6 +310,14 @@ input[type=number]{width:104px}
 .issue .overdue{color:var(--coral-ink);font-weight:600}
 .issue .i-acts{display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end}
 .issue.doing .i-t::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--sky, #4aa3df);margin-right:var(--s2);vertical-align:middle}
+.pick{position:relative}
+.pick summary{list-style:none}.pick summary::-webkit-details-marker{display:none}
+.pick summary::after{content:" ▾"}
+.pick-list{position:absolute;z-index:5;top:calc(100% + var(--s2));right:0;min-width:340px;max-width:min(520px,90vw);max-height:360px;overflow:auto;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--lift);padding:var(--s2)}
+.pick-list label{display:flex;gap:var(--s3);align-items:center;padding:var(--s2) var(--s3);border-radius:var(--r-sm, 6px);cursor:pointer;font-size:var(--t-sm);overflow-wrap:anywhere}
+.pick-list label:hover{background:var(--n-100)}
+.pick-list .n{margin-left:auto;flex:none;padding-left:var(--s3);color:var(--ink-3)}
+.pick-list hr{border:0;border-top:1px solid var(--line);margin:var(--s1) 0}
 .wgroup h2{display:flex;gap:var(--s2);align-items:baseline;flex-wrap:wrap}
 .wgroup h2 .n,.wgroup h2 .dir{font-size:var(--t-sm);font-weight:500;color:var(--ink-3);overflow-wrap:anywhere}
 .gitkv{grid-template-columns:max-content minmax(0,1fr)}
@@ -600,7 +608,18 @@ $('#pane').addEventListener('click', async e => {
 });
 
 // ---------- work: GitLab issues assigned to you ----------
-let work = { status: 'off' };
+let work = { status: 'off' }, pickOpen = false;
+// Projects the person chose in the Work tab's picker (Settings → workProjects); none chosen = all.
+const picked = () => state?.settings?.workProjects || [];
+const shown = g => !picked().length || picked().includes(g.path);
+function pickerHTML(groups) {
+  const sel = picked(), all = !sel.length;
+  const label = all ? T('work.pick.all') : T('work.pick.some', { n: sel.length, of: groups.length });
+  return `<details class="pick"${pickOpen ? ' open' : ''}><summary class="btn">${esc(T('work.pick'))}: ${esc(label)}</summary><div class="pick-list">
+    <label><input type="checkbox" data-pick="*"${all ? ' checked' : ''}> ${esc(T('work.pick.all'))}</label><hr>
+    ${groups.map(g => `<label><input type="checkbox" data-pick="${esc(g.path)}"${!all && sel.includes(g.path) ? ' checked' : ''}> ${esc(g.path)}<span class="n">${g.issues.length}</span></label>`).join('')}
+    ${sel.filter(p => !groups.some(g => g.path === p)).map(p => `<label><input type="checkbox" data-pick="${esc(p)}" checked> ${esc(p)}<span class="n">0</span></label>`).join('')}</div></details>`;
+}
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 function issueHTML(i) {
   const doing = i.sessions.map(id => list.find(x => x.id === id)).filter(Boolean);
@@ -615,7 +634,7 @@ function renderWork() {
   const box = $('#work');
   if (!box || $('#tab-work').hidden) return;
   const w = work, host = esc(w.host || '');
-  const key = JSON.stringify([w, list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
+  const key = JSON.stringify([w, picked(), list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   const login = `<div class="cmd"><code>glab auth login --hostname ${host}</code><button class="btn" type="button" data-copy="glab auth login --hostname ${host}">${T('work.copy')}</button></div>`;
@@ -623,19 +642,29 @@ function renderWork() {
     box.innerHTML = `<div class="card"><h2>${T('work.off.title')}</h2><p class="note">${esc(T('work.off.body'))}</p>${bridge ? `<div class="acts"><button class="btn pri" type="button" data-tab-go="settings">${T('work.toSettings')}</button></div>` : ''}</div>`;
     return;
   }
-  const n = [...w.local, ...w.away].reduce((a, g) => a + g.issues.length, 0);
+  const groups = [...w.local, ...w.away], local = w.local.filter(shown), away = w.away.filter(shown);
+  const n = [...local, ...away].reduce((a, g) => a + g.issues.length, 0);
   const top = `<div class="work-top"><p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading', { host: w.host }))
       : w.status === 'ok' ? esc(T('work.updated', { n, host: w.host, ago: ago(w.at) })) : ''}</p>
-    ${bridge ? `<button class="btn" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button>` : ''}</div>`;
+    <div class="acts" style="margin:0">${bridge && groups.length ? pickerHTML(groups) : ''}${bridge ? `<button class="btn" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button>` : ''}</div></div>`;
   const problem = w.status === 'noglab' ? `<div class="card"><p class="note err">${esc(T('work.noglab'))}</p>${login}</div>`
     : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth', { host: w.host }))}</p>${login}</div>`
     : w.status === 'error' ? `<div class="card"><p class="note err">${esc(T('work.error', { host: w.host, x: w.detail }))}</p></div>` : '';
   const group = (g, away) => `<section class="card wgroup"><h2>${esc(g.path)} <span class="n">${g.issues.length}</span>${g.dir ? `<span class="dir">${esc(g.dir)}</span>` : ''}</h2><ol class="issues">${g.issues.map(issueHTML).join('')}</ol></section>`;
   box.innerHTML = top + problem
-    + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T('work.none', { host: w.host }))}</p></div>` : '')
-    + w.local.map(g => group(g)).join('')
-    + (w.away.length ? `<h2>${T('work.away')}</h2><p class="note">${T('work.away.desc')}</p>${w.away.map(g => group(g, true)).join('')}` : '');
+    + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: w.host }))}</p></div>` : '')
+    + local.map(g => group(g)).join('')
+    + (away.length ? `<h2>${T('work.away')}</h2><p class="note">${T('work.away.desc')}</p>${away.map(g => group(g, true)).join('')}` : '');
 }
+$('#work').addEventListener('toggle', e => { if (e.target.matches('.pick')) pickOpen = e.target.open; }, true);
+$('#work').addEventListener('change', e => {
+  const p = e.target.dataset.pick;
+  if (p === undefined) return;
+  const cur = new Set(picked());
+  if (p === '*') cur.clear(); else e.target.checked ? cur.add(p) : cur.delete(p);
+  save({ workProjects: [...cur] }, { rerender: false }).then(renderWork);
+});
+document.addEventListener('click', e => { const d = $('#work .pick[open]'); if (d && !d.contains(e.target)) d.open = false; }); // closes like a dropdown
 $('#work').addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
