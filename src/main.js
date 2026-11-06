@@ -697,7 +697,9 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin') app.dock?.hide();
   migrateFromOldName();
   settings = S.load(settingsFile());
-  try { settings.autostart = autostart.get(app); if (settings.autostart) autostart.set(app, true); } catch {} // start at login: point at this copy, not one from an old path
+  // Start at login: point at this copy, not one from an old path. Run from a clone, a missing login entry of its own
+  // doesn't mean "off": the installed app shares this settings file and owns the setting, so leave it as stored.
+  try { const on = autostart.get(app); if (app.isPackaged || on) settings.autostart = on; if (on) autostart.set(app, true); } catch {}
   token = hooks.ensureToken();
   server = startServer({ port: settings.port, token, onEvent, snapshot, petDir: petDir() });
   try { await server.ready; } catch (err) {
