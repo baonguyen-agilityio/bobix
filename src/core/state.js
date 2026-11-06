@@ -1,6 +1,7 @@
 // Session state machine fed by Claude Code hook events. apply() is pure so it can be unit-tested.
 const fs = require('fs');
 const path = require('path');
+const { projectOf } = require('./project');
 
 const ID_RE = /^[\w-]{1,128}$/;
 const short = (s, n = 80) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
@@ -186,6 +187,15 @@ function refresh(s, withSummary, now = Date.now(), forcedWindow) {
   return false;
 }
 
+// The project of a session (see project.js), kept on it as s.project. Claude cds out of it for a while (into a scratchpad,
+// /tmp…): a folder outside every git repository keeps the project the session has, or its pet would turn into another
+// project's pet, without this project's picture, until Claude cds back.
+function pinProject(s) {
+  const p = projectOf(s.cwd);
+  if (!s.project || (path.isAbsolute(p) && fs.existsSync(path.join(p, '.git')))) s.project = p;
+  return s.project;
+}
+
 // What the outside world sees (no internal bookkeeping fields).
 const publicView = s => { const { readAt, readMark, parentHost, linkTries, linkAt, ...rest } = s; return rest; };
 
@@ -198,4 +208,4 @@ function setPet(sessions, id, mode) {
   return list.length > 0;
 }
 
-module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, clip, plain, publicView, ID_RE };
+module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, clip, plain, publicView, pinProject, ID_RE };

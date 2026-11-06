@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const net = require('net');
 const { execFile } = require('child_process');
-const { apply, refresh, publicView, setPet } = require('./core/state');
+const { apply, refresh, publicView, setPet, pinProject } = require('./core/state');
 const S = require('./core/settings');
 const hooks = require('./core/hooks');
 const autostart = require('./core/autostart');
@@ -13,7 +13,6 @@ const { focusPids, ancestors, processNames, hostApp } = require('./core/focus');
 const { startServer } = require('./core/server');
 const { checkLatest } = require('./core/update');
 const { parentOf } = require('./core/links');
-const { projectOf } = require('./core/project');
 const feedback = require('./core/feedback');
 const { bitmap } = require('./core/icon');
 const I18N = require('./ui/i18n');
@@ -57,7 +56,7 @@ const snapshot = () => {
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession).map(s => [s.hostSession, s.id]));
   const pics = settings?.petImages || {};
   return { sessions: [...sessions.values()].map(s => {
-    const project = projectOf(s.cwd);
+    const project = s.project || '';
     return { ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null, project, image: pics[project] || null };
   }) };
 };
@@ -70,7 +69,7 @@ function onEvent(e, signal) {
   lastEventAt = Date.now();
   const r = apply(sessions, e);
   if (!r) return null;
-  if (r.s) findParent(r.s);
+  if (r.s) { pinProject(r.s); findParent(r.s); }
   const answered = signal && r.s && e.hook_event_name === 'PermissionRequest' ? waitForAnswer(r.s, e, signal) : null;
   const isStop = e.hook_event_name === 'Stop', since = r.s?.since;
   const finish = () => {
@@ -98,7 +97,7 @@ function findParent(s, now = Date.now()) {
 // pictures are scaled to 128 px PNG; a GIF is kept as it is so it stays animated.
 const petDir = () => path.join(app.getPath('userData'), 'pets');
 async function choosePetImage(id) {
-  const s = sessions.get(id), project = s && projectOf(s.cwd);
+  const s = sessions.get(id), project = s?.project;
   if (!project) return { ok: false };
   const win = panel && !panel.isDestroyed() ? panel : undefined;
   const r = await dialog.showOpenDialog(win, { title: tr('pane.petPick'), properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
@@ -119,7 +118,7 @@ async function choosePetImage(id) {
   return { ok: true };
 }
 function resetPetImage(id) {
-  const s = sessions.get(id), project = s && projectOf(s.cwd);
+  const s = sessions.get(id), project = s?.project;
   if (!project || !settings.petImages[project]) return { ok: false };
   const { [project]: old, ...rest } = settings.petImages;
   updateSettings({ petImages: rest });
@@ -436,8 +435,9 @@ function ipc() {
     displays: screen.getAllDisplays().map((d, i) => ({ id: d.id, label: `${d.label || `#${i + 1}`} (${d.size.width}×${d.size.height})` })),
   }));
   handle('settings', patch => updateSettings(patch));
-  // Back to defaults, except the language you read and what changes the system (port → hooks + restart, start at login).
-  handle('settings:reset', () => updateSettings({ ...S.DEFAULTS, language: settings.language, port: settings.port, autostart: settings.autostart }));
+  // Back to defaults, except the language you read, what changes the system (port → hooks + restart, start at login) and
+  // the projects' pet pictures (chosen files, not settings: wiping them would turn pets default at their next event).
+  handle('settings:reset', () => updateSettings({ ...S.DEFAULTS, language: settings.language, port: settings.port, autostart: settings.autostart, petImages: settings.petImages }));
   handle('reveal-settings', () => shell.showItemInFolder(hooks.status().file));
   handle('diagnostics', async () => { const text = JSON.stringify(await diagnostics(), null, 2); clipboard.writeText(text); return text; });
   handle('feedback:info', () => feedbackInfo());
