@@ -1,17 +1,30 @@
 // Session state machine fed by Claude Code hook events. apply() is pure so it can be unit-tested.
 const fs = require('fs');
 const path = require('path');
+const { projectOf } = require('./project');
 
 const ID_RE = /^[\w-]{1,128}$/;
 const short = (s, n = 80) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
-// Like short, but keeps the lines (the final report is Markdown): only blank-line runs and trailing spaces go.
-const clip = (s, n) => { s = String(s ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+// Like short, but keeps the lines (the prompt and the final report are Markdown): only blank-line runs and trailing spaces go.
+// A longer text is cut at a line end when one is near, an open code block is closed, and "[…]" on its own line shows the cut.
+function clip(s, n) {
+  s = String(s ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (s.length <= n) return s;
+  s = s.slice(0, n - 24); // room for the closing fence and the mark
+  const nl = s.lastIndexOf('\n');
+  if (nl > s.length - 2000) s = s.slice(0, nl).trimEnd();
+  const fences = s.match(/^[ \t]*(`{3,}|~{3,})/gm) || [];
+  return `${s}${fences.length % 2 ? '\n' + fences.at(-1).trim() : ''}\n\n[…]`;
+}
+// Kept whole up to here, so pasted reports of 10–20k fit. Still capped: the snapshot carries both texts of every session to
+// the panel and the pets on every hook event (30 sessions at the cap, in Vietnamese: about 2.7 MB).
+const TEXT_MAX = 32000;
 // The answer's Markdown as plain text, for one-line previews and notifications (the panel renders the report itself).
 const plain = s => String(s ?? '')
   .replace(/^[ \t]*```.*$/gm, '')
-  .replace(/^[ \t]*\|?[ \t]*:?-{3,}[-|: \t]*$/gm, '')
+  .replace(/^[ \t]*\|?[ \t]*:?-+:?[ \t]*\|[-|: \t]*$/gm, '')
   .replace(/^[ \t]*([-*_])([ \t]*\1){2,}[ \t]*$/gm, '')
-  .replace(/^[ \t]*\|(.*)\|[ \t]*$/gm, (_, row) => row.split('|').map(c => c.trim()).join(' · '))
+  .replace(/^[ \t]*\|(.*)\|[ \t]*$/gm, (_, row) => row.split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|')).join(' · '))
   .replace(/^[ \t]*(#{1,6}|[-*+]|\d+[.)]|>)[ \t]+/gm, '')
   .replace(/!?\[([^\]]*)\]\([^)\s]*\)/g, '$1')
   .replace(/(\*\*|~~|\*)(?=\S)(.+?)(?<=\S)\1/g, '$2')
@@ -73,8 +86,8 @@ function apply(sessions, e, now = Date.now()) {
     case 'UserPromptSubmit': {
       const sys = systemPrompt(e.prompt);
       if (sys) { s.tool = ''; s.toolArg = ''; log('system', sys); set('working'); break; } // not a new quest: keep the quest, the report and hidden pets as they are
-      s.quest = short(e.prompt, 240); s.prompt = clip(e.prompt, 4000); s.hits = 0; s.summary = ''; s.report = ''; s.ask = ''; s.askTool = ''; s.tool = ''; s.toolArg = '';
-      log('prompt', short(e.prompt, 240));
+      s.quest = short(plain(String(e.prompt ?? '').slice(0, 2000)), 240); s.prompt = clip(e.prompt, TEXT_MAX); s.hits = 0; s.summary = ''; s.report = ''; s.ask = ''; s.askTool = ''; s.tool = ''; s.toolArg = '';
+      log('prompt', s.quest);
       set('working');
       s.pet = 'auto';
       break;
@@ -166,12 +179,21 @@ function refresh(s, withSummary, now = Date.now(), forcedWindow) {
   const r = readTranscript(s.transcript);
   if (r.usage) s.ctx = ctxLeft(r.usage, forcedWindow);
   if (r.title) s.title = short(r.title, 80);
-  if (withSummary && r.text) { s.summary = short(plain(r.text), 600); s.report = clip(r.text, 8000); }
+  if (withSummary && r.text) { s.summary = short(plain(r.text), 600); s.report = clip(r.text, TEXT_MAX); }
   if (r.interrupted && (s.state === 'working' || s.state === 'waiting')) {
     s.ask = ''; s.askTool = ''; s.state = 'idle'; s.since = now;
     return true; // state changed
   }
   return false;
+}
+
+// The project of a session (see project.js), kept on it as s.project. Claude cds out of it for a while (into a scratchpad,
+// /tmp…): a folder outside every git repository keeps the project the session has, or its pet would turn into another
+// project's pet, without this project's picture, until Claude cds back.
+function pinProject(s) {
+  const p = projectOf(s.cwd);
+  if (!s.project || (path.isAbsolute(p) && fs.existsSync(path.join(p, '.git')))) s.project = p;
+  return s.project;
 }
 
 // What the outside world sees (no internal bookkeeping fields).
@@ -186,4 +208,4 @@ function setPet(sessions, id, mode) {
   return list.length > 0;
 }
 
-module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, clip, plain, publicView, ID_RE };
+module.exports = { apply, setPet, readTranscript, ctxLeft, refresh, short, clip, plain, publicView, pinProject, ID_RE };

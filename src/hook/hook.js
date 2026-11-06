@@ -42,9 +42,11 @@ process.stdin.on('end', () => {
     timeout: ask ? 3000 : 1500, // until the app replies; a frozen app can't hold Claude up
     headers: { 'content-type': 'application/json', 'x-bobix': token, 'content-length': Buffer.byteLength(body), ...(ask && { 'x-bobix-wait': '1' }) },
   }, res => {
-    // The app replies at once with how long it will wait for an answer; never wait longer than that.
-    const secs = Math.min(300, Number(res.headers['x-bobix-wait']) || 0);
-    if (secs) { req.setTimeout(0); setTimeout(() => req.destroy(), (secs + 3) * 1000).unref(); } // unref: exit as soon as the answer is in
+    // The app replies at once with how long it will wait for an answer ('forever': until answered); never wait longer.
+    // A closed request tells the app that Claude moved on, so the wait ends with the hook process.
+    const wait = res.headers['x-bobix-wait'], secs = Math.min(300, Number(wait) || 0);
+    if (wait === 'forever') req.setTimeout(0);
+    else if (secs) { req.setTimeout(0); setTimeout(() => req.destroy(), (secs + 3) * 1000).unref(); } // unref: exit as soon as the answer is in
     let out = '';
     res.setEncoding('utf8');
     res.on('data', c => { out += c; });

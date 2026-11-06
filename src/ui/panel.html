@@ -94,7 +94,15 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .pane-top .sprite{width:96px;height:96px;border-radius:var(--r-lg);flex:none}
 .pane-top h2{font-size:var(--t-xl);overflow-wrap:anywhere}
 .pane-top .lv{font-size:var(--t-sm)}
-.pane-acts{display:flex;gap:var(--s2);margin-top:var(--s4);flex-wrap:wrap}
+.pane-acts{display:grid;gap:var(--s4);margin-top:var(--s4)}
+.pane-acts>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s2)}
+/* the picture row sizes each button to its label, so a long one like "Thú cưng mặc định" stays on one line */
+.pane-acts>div+div{display:flex;flex-wrap:wrap}
+.pane-acts>div+div .btn{flex:1 1 auto}
+.pane-acts .btn{padding:var(--s2) var(--s1);overflow-wrap:normal}
+.pane-acts [data-act="pet"]{display:grid;place-items:center}
+.pane-acts [data-act="pet"]>span{grid-area:1/1;pointer-events:none}
+.pane-acts .alt{visibility:hidden}
 .pane .open-hint{margin-top:var(--s3)}
 .pane .meta{margin:var(--s4) 0 0;font-size:var(--t-xs);line-height:1.6;color:var(--ink-3);overflow-wrap:anywhere}
 .pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
@@ -102,19 +110,22 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-md);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
 .ask .acts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2)}
 .ask strong{color:var(--coral-ink)}
-.report{overflow-wrap:anywhere;font-size:var(--t-sm);background:var(--mint-soft);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
-.report p,.report ul,.report ol,.report pre,.report table{margin:0 0 var(--s2)}
-.report>:last-child{margin-bottom:0}
-.report h4{font-size:var(--t-sm);font-weight:700;margin:var(--s3) 0 var(--s1)}
-.report>h4:first-child{margin-top:0}
-.report ul,.report ol{padding-left:var(--s6)}
-.report li+li{margin-top:var(--s1)}
-.report code{padding:0 var(--s1)}
-.report pre{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s2) var(--s3)}
-.report pre code{background:none;border:0;padding:0;overflow-wrap:normal}
-.report table{display:block;overflow-x:auto;border-collapse:collapse}
-.report th,.report td{border:1px solid var(--line-strong);padding:var(--s1) var(--s2);text-align:left;vertical-align:top;overflow-wrap:break-word}
-.report hr{border:0;border-top:1px solid var(--line-strong);margin:var(--s3) 0}
+.md{overflow-wrap:anywhere;font-size:var(--t-sm);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
+.report{background:var(--mint-soft)}
+.md p,.md ul,.md ol,.md pre,.md table,.md blockquote{margin:0 0 var(--s2)}
+.md>:last-child{margin-bottom:0}
+.md h4{font-size:var(--t-sm);font-weight:700;margin:var(--s3) 0 var(--s1)}
+.md>h4:first-child{margin-top:0}
+.md ul,.md ol{padding-left:var(--s6)}
+.md li+li,.md li>ul,.md li>ol{margin-top:var(--s1)}
+.md li>ul,.md li>ol{margin-bottom:0}
+.md code{padding:0 var(--s1)}
+.md pre{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s2) var(--s3)}
+.md pre code{background:none;border:0;padding:0;overflow-wrap:normal}
+.md table{display:block;overflow-x:auto;border-collapse:collapse}
+.md th,.md td{border:1px solid var(--line-strong);padding:var(--s1) var(--s2);text-align:left;vertical-align:top;overflow-wrap:break-word}
+.md hr{border:0;border-top:1px solid var(--line-strong);margin:var(--s3) 0}
+.md blockquote{padding-left:var(--s3);border-left:3px solid var(--line-strong);color:var(--ink-2)}
 .log{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
 .log li{display:grid;grid-template-columns:max-content 8px minmax(0,1fr);align-items:baseline;gap:var(--s2) var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
 .log time{grid-column:1;grid-row:1;font-size:var(--t-xs);color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -127,14 +138,23 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .log .k-done .msg{color:var(--ink)}
 .log .k-done::before{background:var(--mint)}
 .log .k-start::before{background:var(--sky)}
-.log.sides li{grid-template-columns:max-content minmax(0,1fr)}
+.log.sides li{display:block;padding:0;border:0}
+.log.sides li+li{margin-top:var(--s2)}
 .log.sides li::before{content:none}
-.log.sides span{color:var(--ink-2)}
+.sidecard{display:flex;align-items:center;gap:var(--s3);width:100%;text-align:left;padding:var(--s2) var(--s3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer;transition:border-color 150ms var(--ease)}
+.sidecard:hover{border-color:var(--line-strong)}
+.sidecard::after{content:'›';flex:none;color:var(--ink-3);font-size:var(--t-md)}
+.sidecard>span{pointer-events:none}
+.sidecard .t{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidecard .st{flex:none;font-size:var(--t-xs);color:var(--ink-3)}
 .log .arg{font-family:var(--f-mono)}
 .log .n{font-size:var(--t-xs);font-weight:600;color:var(--ink-3);margin-left:var(--s1)}
 .clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,2);overflow:hidden}
 .clamp.open{display:block}
-.prompt{white-space:pre-wrap;font-size:var(--t-sm);--lines:4}
+/* the quest is Markdown: clamped by height, since line-clamp lays tables and lists out as flex items */
+.clamp.prompt{display:block;-webkit-line-clamp:none;max-height:10em;background:var(--bg)}
+.clamp.prompt.open{max-height:none}
+.prompt.over{-webkit-mask-image:linear-gradient(#000 65%,transparent)}
 .more{display:block;border:0;background:none;padding:0;margin-top:var(--s1);font:600 var(--t-xs) var(--f-body);color:var(--ink-2);cursor:pointer}
 .more:hover{color:var(--ink);text-decoration:underline}
 .note{font-size:var(--t-sm);color:var(--ink-2)}
@@ -179,6 +199,51 @@ input[type=number]{width:104px}
 .fb details{margin-top:var(--s3);font-size:var(--t-sm);color:var(--ink-2)}
 .fb summary{cursor:pointer}
 .fb pre{margin:var(--s2) 0 0;padding:var(--s3);max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--n-100);border-radius:var(--r-md);font-size:var(--t-xs)}
+.pd{width:min(720px,calc(100vw - 32px));overflow:auto}
+.pd-grid{display:flex;gap:var(--s6);flex-wrap:wrap;margin-top:var(--s4)}
+.pd-view{display:flex;flex-direction:column;align-items:center;gap:var(--s3);flex:0 1 264px;min-width:0}
+.pd-big{display:grid;place-items:center;box-sizing:border-box;width:min(264px,100%);aspect-ratio:1;border:1px solid var(--line);border-radius:var(--r-md);background:repeating-conic-gradient(var(--n-100) 0 25%,var(--surface) 0 50%) 0 0 / 16px 16px;transition:opacity 150ms var(--ease)}
+.pd-big img{image-rendering:pixelated;max-width:100%}
+.pd[aria-busy="true"] .pd-big,.pd[aria-busy="true"] .pd-pet{opacity:.55}
+.pd-pet{transition:opacity 150ms var(--ease)}
+.pd .sprite{width:96px;height:96px;border-radius:var(--r-lg)}
+.pd-ctl{flex:1 1 280px;min-width:0;display:grid;gap:var(--s3);align-content:start}
+.pd-sec{display:grid;gap:var(--s2);min-width:0}
+.pd-sec + .pd-sec{padding-top:var(--s3);border-top:1px solid var(--line)}
+.pd-ctl .lbl{display:block;margin:0;font-size:var(--t-sm);font-weight:600}
+.pd-ctl .seg{display:flex;margin:0}
+.pd-ctl .seg button{flex:1 1 0;padding:6px var(--s3)}
+.pd-ctl .seg + .lbl{margin-top:var(--s2)}
+.pd-ctl .hint{margin:0;font-size:var(--t-xs);line-height:1.45;color:var(--ink-3)}
+.pd-nums{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.fb .pd-num{display:grid;gap:var(--s1);margin:0}
+.fb .pd-num input{min-height:36px;padding:var(--s1) var(--s3)}
+.pd-ctl .pr{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);min-height:32px}
+.fb .pd-ctl .pr label{margin:0;font-size:var(--t-sm);font-weight:600}
+.fb .sw{width:44px;padding:0;border:0;background:var(--n-300)}
+.fb .sw:checked{background:var(--ink)}
+.pd-info{min-height:1.4em;margin:0;font-size:var(--t-xs);color:var(--ink-3)}
+/* the outline colour: a card under its switch, the code field beside its title so the swatches get the full width */
+.pd-oc{display:grid;gap:var(--s2);min-width:0;margin:0;padding:var(--s2) var(--s3);border:1px solid var(--line);border-radius:var(--r-md);background:var(--n-100);transition:opacity 150ms var(--ease)}
+.pd-oc:disabled{opacity:.45}
+.pd-oc-top{display:flex;align-items:center;justify-content:space-between;gap:var(--s2)}
+.pd-oc-top .lbl{flex:1}
+/* the error takes the title's place, so showing it never makes the dialog taller */
+.pd-oc-top .pd-err{flex:1;min-width:0}
+.pd-oc-top:has(.pd-err:not([hidden])) .lbl{display:none}
+.pd-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.pd-sw{width:26px;height:26px;padding:0;border:1px solid oklch(30% 0.04 262 / .2);border-radius:50%;background:var(--c);cursor:pointer;transition:box-shadow 150ms var(--ease)}
+.pd-sw.auto{width:auto;padding:0 var(--s2);border-radius:var(--pill);border-color:var(--line-strong);background:var(--surface);font-size:var(--t-xs);font-weight:600;color:var(--ink-2)}
+.pd-sw[aria-checked="true"]{box-shadow:0 0 0 2px var(--n-100),0 0 0 4px var(--ink)}
+.pd-sw:disabled{cursor:default}
+.fb .pd-oc input[type=color]{flex:none;width:26px;height:26px;padding:3px;border:0;border-radius:50%;background:conic-gradient(red,yellow,lime,aqua,blue,magenta,red);cursor:pointer}
+.pd-oc input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.pd-oc input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
+.fb .pd-oc input[type=text]{flex:none;width:9.5em;min-height:32px;padding:var(--s1) var(--s2);font-family:var(--f-mono);font-size:var(--t-xs)}
+.fb .pd-oc input[aria-invalid="true"]{border-color:var(--coral)}
+.pd-err{margin:0;font-size:var(--t-xs);font-weight:600;color:var(--coral-ink)}
+/* Save and Cancel stay in view when a short window makes the dialog scroll (same spacing as .acts when it does not) */
+.pd .acts{position:sticky;bottom:calc(var(--s6) * -1);margin:var(--s1) 0 calc(var(--s6) * -1);padding:var(--s3) 0 var(--s6);background:var(--surface)}
 .sw{appearance:none;-webkit-appearance:none;margin:0;width:44px;height:26px;border-radius:var(--pill);background:var(--n-300);position:relative;cursor:pointer;flex:none;transition:background 150ms var(--ease)}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--n-50);box-shadow:0 1px 2px oklch(30% 0.04 262 / .3);transition:transform 150ms var(--ease)}
 .sw:checked{background:var(--ink)}
@@ -265,6 +330,7 @@ input[type=number]{width:104px}
   <button class="btn" type="button" id="fb-open" data-t="fb.title"></button>
 </header>
 <dialog id="fb-dialog" class="fb" aria-labelledby="fb-heading"></dialog>
+<dialog id="pd-dialog" class="fb pd" aria-labelledby="pd-heading"></dialog>
 
 <section id="tab-sessions">
   <div class="app" id="app">
@@ -291,6 +357,8 @@ input[type=number]{width:104px}
 <script src="/ui/markdown.js"></script>
 <script src="/ui/log.js"></script>
 <script>
+// The panel shows after 1 s at the latest. Set first, so an error further down cannot leave it hidden (body.boot).
+setTimeout(() => document.body.classList.remove('boot'), 1000);
 const IDLE_AFTER = 10 * 60e3;
 const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -303,7 +371,7 @@ function familyOrder(items) {
   return out;
 }
 const titleOf = id => { const p = id && list.find(x => x.id === id); return p ? p.title || p.name : ''; };
-const secsLeft = s => (s.answer ? Math.max(0, Math.ceil((s.answer.until - Date.now()) / 1000)) : 0);
+const secsLeft = s => (!s.answer ? 0 : s.answer.until == null ? Infinity : Math.max(0, Math.ceil((s.answer.until - Date.now()) / 1000))); // Infinity: waits until answered
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 // Same rule as the pets overlay: hidden by hand, or asleep past the "leave after" time.
 const offScreen = s => {
@@ -366,8 +434,9 @@ function moreHTML(key, html, cls = '', cut = false) {
 // After drawing: a toggle is shown for text that is open, cut by the clamp, or shortened (a long command).
 function showMore(root) {
   root.querySelectorAll('[data-more]').forEach(b => {
-    const box = b.previousElementSibling;
-    b.hidden = !(box.classList.contains('open') || box.scrollHeight > box.clientHeight + 1 || b.hasAttribute('data-cut'));
+    const box = b.previousElementSibling, over = box.scrollHeight > box.clientHeight + 1;
+    b.hidden = !(box.classList.contains('open') || over || b.hasAttribute('data-cut'));
+    box.classList.toggle('over', over);
   });
 }
 function rowHTML(s, st) {
@@ -398,7 +467,7 @@ function render() {
     items.forEach((s, i) => {
       let li = [...ol.children].find(c => c.dataset.id === s.id) || [...document.querySelectorAll('li[data-id]')].find(c => c.dataset.id === s.id);
       if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
-      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.image, s.project, petColor(s, list), lang]);
+      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.image, s.whole, s.project, petColor(s, list), lang]);
       if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
       li.classList.toggle('side', !!(s.parent && items.some(x => x.id === s.parent)));
       btn.setAttribute('aria-pressed', String(s.id === selected));
@@ -423,33 +492,34 @@ function renderPane() {
   if (!s) return;
   const st = look(s);
   const kids = kidsOf(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.image, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), petColor(s, list), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.image, s.whole, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), petColor(s, list), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
   const hm = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); // seconds on hover
+  // The pet button also holds its other label, hidden, so Hide / Show wrap alike and the buttons never move on a swap.
   pane.innerHTML = `
     <div class="pane-top st-${st}">
       <span class="sprite">${petArt(list.find(x => x.id === s.parent) || s, st, petColor(s, list))}</span>
       <div><h2>${esc(s.title || s.name)}</h2><span class="lv">${T('pet.lv', { n: s.lv })} · ${esc(statusText(s, st))}</span></div>
     </div>
     <div class="pane-acts">
-      ${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>
-        <button class="btn" type="button" data-act="pet">${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</button>
-        <button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}` : ''}
-      <button class="btn" type="button" data-act="close">${T('pane.close')}</button>
+      <div>${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>
+        <button class="btn" type="button" data-act="pet"><span>${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</span><span class="alt" aria-hidden="true">${T(offScreen(s) ? 'pane.hidePet' : 'pane.showPet')}</span></button>` : ''}
+        <button class="btn" type="button" data-act="close">${T('pane.close')}</button></div>
+      ${bridge ? `<div><button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.pixel ? `<button class="btn" type="button" data-act="picEdit">${T('pane.petAdjust')}</button>` : ''}${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}</div>` : ''}
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
     ${hint?.id === s.id ? `<p class="note open-hint">${esc(hintText(hint))}</p>` : ''}
     ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
-    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><span>${esc(statusText(k, look(k)))}</span><button class="btn" type="button" data-act="goto" data-id="${esc(k.id)}">${esc(k.title || k.name)}</button></li>`).join('')}</ol>` : ''}
-    ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${T('pane.askWithin', { n: secsLeft(s) })}
+    ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><button class="sidecard" type="button" data-act="goto" data-id="${esc(k.id)}" title="${esc(k.title || k.name)}"><span class="t">${esc(k.title || k.name)}</span><span class="st">${esc(statusText(k, look(k)))}</span></button></li>`).join('')}</ol>` : ''}
+    ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${secsLeft(s) === Infinity ? T('pane.askUntil') : T('pane.askWithin', { n: secsLeft(s) })}
       <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
         <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
-        <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T('pane.askHint')}</div>` : ''}
-    <h3>${T('pane.quest')}</h3>${moreHTML(`q:${s.id}`, esc(s.prompt || s.quest || T('line.noQuest')), 'prompt')}
+        <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T(approveWhere(s))}</div>` : ''}
+    <h3>${T('pane.quest')}</h3>${moreHTML(`q:${s.id}`, markdown(s.prompt || s.quest || T('line.noQuest')), 'prompt md')}
     ${s.summary ? `<details class="fold"${reportOpen ? ' open' : ''}><summary><h3>${T('pane.report')}</h3></summary>
-      <div class="report">${markdown(s.report || s.summary)}</div></details>` : ''}
+      <div class="report md">${markdown(s.report || s.summary)}</div></details>` : ''}
     <h3>${T('pane.log')}</h3>
     <ol class="log">${LOG.fold(s.log).map(l => { const k = `l:${s.id}:${l.from}:${l.kind}`;
       return `<li class="k-${esc(l.kind)}"><time title="${time(l.t)}">${hm(l.t)}</time><div class="msg">${moreHTML(k, logHTML(l, moreOpen.has(k)), '', l.kind === 'tool' && LOG.mid(l.text) !== l.text)}</div></li>`; }).join('')}</ol>`;
@@ -471,7 +541,8 @@ $('#pane').addEventListener('click', async e => {
   const act = e.target.dataset.act;
   if (act === 'close') select(null);
   if (act === 'goto') select(e.target.dataset.id);
-  if (act === 'pic' || act === 'picReset') { const r = await bridge.petImage(selected, act === 'pic' ? 'choose' : 'reset'); if (r?.reason) toast(T('pane.petFail.' + r.reason)); }
+  if (act === 'pic' || act === 'picEdit') openPetPicture(act === 'pic' ? 'choose' : 'edit');
+  if (act === 'picReset') { const r = await bridge.petImage(selected, 'reset'); if (r?.reason) toast(T('pane.petFail.' + r.reason)); }
   const more = e.target.dataset.more;
   if (more) { moreOpen.has(more) ? moreOpen.delete(more) : moreOpen.add(more); $('#pane').dataset.key = ''; renderPane(); }
   if (act === 'answer') { const s = list.find(x => x.id === selected); if (s?.answer) bridge.answer(s.answer.id, e.target.dataset.choice); }
@@ -480,7 +551,7 @@ $('#pane').addEventListener('click', async e => {
 });
 function select(id) { if (hint?.id !== id) hint = null; selected = id; render(); }
 $('#board').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(li.dataset.id === selected ? null : li.dataset.id); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && selected) select(null); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && selected && !document.querySelector('dialog[open]')) select(null); }); // a dialog takes the Esc itself
 
 // ---------- settings ----------
 const has = k => (I18N.STR[I18N.pick(lang)][k] ?? I18N.STR.en[k]) !== undefined;
@@ -489,6 +560,9 @@ const pct = v => Math.round(v * 100) + '%';
 const SHOW = { all: { showIdle: true, onlyAttention: false }, active: { showIdle: false, onlyAttention: false }, attention: { showIdle: true, onlyAttention: true } };
 const showOf = s => (s.onlyAttention ? 'attention' : s.showIdle ? 'all' : 'active');
 const ZONES = { full: [0, 100], left: [0, 50], right: [50, 100], corner: [70, 100] };
+// Off, 20 s … until I answer; a value set earlier (any number of seconds) stays listed.
+const WAITS = [[0, 'set.approveWait.off'], [20, 'set.approveWait.s20'], [60, 'set.approveWait.s60'], [120, 'set.approveWait.m2'], [300, 'set.approveWait.m5'], [-1, 'set.approveWait.until']];
+const waitOpts = cur => [...WAITS, ...(WAITS.some(w => w[0] === cur) ? [] : [[cur, null]])].sort((a, b) => (a[0] < 0 ? 1 : b[0] < 0 ? -1 : a[0] - b[0])).map(([v, k]) => [String(v), k ? T(k) : T('set.approveWait.custom', { n: v })]);
 const opts = (keys, prefix) => () => keys.map(v => [v, T(prefix + v)]);
 const SECTIONS = [
   ['set.section.place', [
@@ -508,7 +582,7 @@ const SECTIONS = [
   ]],
   ['set.section.notify', [
     { k: 'paused', type: 'switch' },
-    { k: 'approveWait', type: 'number', min: 0, max: 300, step: 5, unit: 'set.seconds' },
+    { k: 'approveWait', type: 'select', opts: () => waitOpts(state.settings.approveWait), get: s => String(s.approveWait) },
     { k: 'notifyWaiting', type: 'switch', dim: s => s.paused },
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
@@ -673,6 +747,145 @@ $('#fb-dialog').addEventListener('click', async e => {
   if (r?.ok) { fb.kind = 'bug'; fb.title = fb.description = ''; box.close(); toast(T(r.truncated ? 'fb.sentCut' : 'fb.sent')); }
 });
 
+// ---------- pet picture (pixel art) ----------
+// choose / edit return a Preview and keep the picture pending in the main process; every change asks for a new preview
+// (debounced), save and cancel end it. Only the reply to the newest request is shown.
+const pd = { id: null, opts: null, preview: '', sent: 0, timer: 0, saved: false };
+const PD_SIZES = [32, 48, 64]; // SIZES in core/pixelate.js
+const PD_VIEW = 256;           // the preview is scaled up by whole pixels to at most this
+const PD_DEBOUNCE = 150;       // ms: a typed number or held arrow key asks once
+// Outline colours offered as swatches (i18n pd.oc.<name>); 'Auto' before them is the picture's own darkest colour, darker.
+const PD_OUTLINES = [['black', '#000000'], ['brown', '#4a2a16'], ['navy', '#1c2b5a'], ['green', '#1f4a2c'], ['purple', '#5a2d82'], ['white', '#ffffff'], ['pink', '#ff6fa8'], ['gold', '#e8b020']];
+async function openPetPicture(act) {
+  const box = $('#pd-dialog'), id = selected;
+  if (!bridge || !id || box.open) return;
+  const r = await bridge.petImage(id, act);
+  if (!r?.ok) { if (r?.reason) toast(T('pane.petFail.' + r.reason)); return; }
+  Object.assign(pd, { id, opts: { ...r.opts }, sent: 0, saved: false });
+  const sw = (k, label) => `<div class="pr"><label for="pd-${k}">${T(label)}</label><input type="checkbox" role="switch" class="sw" id="pd-${k}" data-k="${k}"></div>`;
+  box.innerHTML = `<h2 id="pd-heading">${T('pd.title')}</h2><p class="note">${T('pd.body')}</p>
+    <div class="pd-grid">
+      <div class="pd-view"><div class="pd-big"><img id="pd-img" alt="${esc(T('pd.alt'))}"></div><span class="sprite pd-pet" id="pd-pet"></span><p class="pd-info" id="pd-info" role="status"></p></div>
+      <div class="pd-ctl">
+        <div class="pd-sec">
+          <span class="lbl" id="pd-look-l">${T('pd.look')}</span>
+          <div class="seg" role="radiogroup" aria-labelledby="pd-look-l">${['face', 'whole'].map(k => `<button type="button" role="radio" data-look="${k}">${T('pd.look.' + k)}</button>`).join('')}</div>
+          <span class="lbl" id="pd-size-l">${T('pd.size')}</span>
+          <div class="seg" role="radiogroup" aria-labelledby="pd-size-l" aria-describedby="pd-size-h">${PD_SIZES.map(n => `<button type="button" role="radio" data-size="${n}">${n}</button>`).join('')}</div>
+          <p class="hint" id="pd-size-h">${T('pd.size.hint')}</p>
+        </div>
+        <div class="pd-sec">
+          <div class="pd-nums"><label class="pd-num">${T('pd.colors')}<input type="number" id="pd-colors" data-k="colors" min="4" max="32" step="1"></label><label class="pd-num">${T('pd.accents')}<input type="number" id="pd-accents" data-k="accents" min="0" max="8" step="1" aria-describedby="pd-accents-h"></label></div>
+          <p class="hint" id="pd-accents-h">${T('pd.accents.hint')}</p>
+        </div>
+        <div class="pd-sec">
+          ${sw('clean', 'pd.clean')}${sw('removeBg', 'pd.removeBg')}${sw('outline', 'pd.outline')}
+          <fieldset class="pd-oc" id="pd-oc">
+            <div class="pd-oc-top"><span class="lbl">${T('pd.oc')}</span><p class="pd-err" id="pd-oc-err" role="alert" hidden>${T('pd.oc.bad')}</p><input type="color" id="pd-oc-pick" aria-label="${esc(T('pd.oc.pick'))}" title="${esc(T('pd.oc.pick'))}"><input type="text" id="pd-oc-text" aria-label="${esc(T('pd.oc.code'))}" placeholder="#f0a, rgb(…)" spellcheck="false" autocomplete="off"></div>
+            <div class="pd-row pd-sws" role="radiogroup" aria-label="${esc(T('pd.oc'))}"><button type="button" role="radio" class="pd-sw auto" data-oc="" title="${esc(T('pd.oc.autoHint'))}">${T('pd.oc.auto')}</button>${PD_OUTLINES.map(([k, c]) => `<button type="button" role="radio" class="pd-sw" data-oc="${c}" style="--c:${c}" aria-label="${esc(T('pd.oc.' + k))}" title="${esc(T('pd.oc.' + k))}"></button>`).join('')}</div>
+          </fieldset>
+        </div>
+      </div>
+    </div>
+    <div class="acts"><button class="btn pri" type="button" data-act="save">${T('pd.save')}</button><button class="btn" type="button" data-act="cancel">${T('pd.cancel')}</button></div>`;
+  pdControls(); pdShow(r);
+  box.showModal();
+  box.querySelector('[aria-checked="true"]')?.focus();
+}
+function pdControls() {
+  const o = pd.opts, box = $('#pd-dialog');
+  box.querySelectorAll('[data-size]').forEach(b => b.setAttribute('aria-checked', String(+b.dataset.size === o.size)));
+  box.querySelectorAll('[data-look]').forEach(b => b.setAttribute('aria-checked', String((b.dataset.look === 'whole') === !!o.whole)));
+  for (const k of ['colors', 'accents']) { const e = $('#pd-' + k); if (e !== document.activeElement) e.value = o[k]; }
+  for (const k of ['clean', 'outline', 'removeBg']) $('#pd-' + k).checked = !!o[k];
+  const oc = o.outlineColor || '', text = $('#pd-oc-text');
+  $('#pd-oc').disabled = !o.outline; // the colour is kept while the outline is off, and comes back with it
+  box.querySelectorAll('[data-oc]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.oc === oc)));
+  $('#pd-oc-pick').value = oc || '#000000';
+  if (text !== document.activeElement) { text.value = oc; pdBad(false); }
+}
+// A typed outline colour, in any form the browser knows (#hex, rgb(), hsl(), names...) -> '#rrggbb', or null.
+// A canvas parses it: fillStyle ignores what is not a colour, so the text is tried from two different colours.
+const pdCanvas = document.createElement('canvas').getContext('2d');
+function pdColor(text) {
+  const v = text.trim(), read = from => { pdCanvas.fillStyle = from; pdCanvas.fillStyle = v; return pdCanvas.fillStyle; };
+  const a = read('#000000');
+  if (!v || a !== read('#ffffff') || /^currentcolor$/i.test(v)) return null;
+  if (/^#[0-9a-f]{6}$/.test(a)) return a;
+  const m = /^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/.exec(a); // a colour with alpha; the alpha is dropped, all of it is not
+  return m && +m[4] > 0 ? '#' + m.slice(1, 4).map(n => (+n).toString(16).padStart(2, '0')).join('') : null;
+}
+// The error describes the field only while it shows: a hidden element named by aria-describedby is still read out.
+function pdBad(on) {
+  const t = $('#pd-oc-text');
+  $('#pd-oc-err').hidden = !on; t.setAttribute('aria-invalid', String(on));
+  if (on) t.setAttribute('aria-describedby', 'pd-oc-err'); else t.removeAttribute('aria-describedby');
+}
+// While typing, a colour is used as soon as the text is one; the error waits for Enter or leaving the field.
+// An empty field on Enter or leaving it goes back to the automatic colour.
+function pdTyped(t, done) {
+  const v = t.value.trim(), c = pdColor(v);
+  pdBad(done && !!v && !c);
+  if (!c && (v || !done)) return; // not a colour (yet): the preview stays as it is
+  if (done) t.value = c || '';
+  if (c !== (pd.opts.outlineColor || null)) { pd.opts.outlineColor = c; pdControls(); pdAsk(); }
+}
+function pdShow(r) {
+  const img = $('#pd-img');
+  img.onload = () => { const n = Math.max(img.naturalWidth, img.naturalHeight) || 1; img.style.width = img.naturalWidth * Math.max(1, Math.floor(PD_VIEW / n)) + 'px'; };
+  img.src = pd.preview = r.preview;
+  pdPet();
+  $('#pd-info').textContent = r.animated ? T('pd.frames', { n: r.frames }) : '';
+}
+// The pet as it will look: the picture on its own, or as the face of the project's creature in the session's colour.
+function pdPet() {
+  const s = list.find(x => x.id === pd.id), art = s && (list.find(x => x.id === s.parent) || s);
+  if (s) $('#pd-pet').innerHTML = pd.opts.whole ? picturePet(pd.preview) : creature(art.project || art.id, 'idle', pd.preview, petColor(s, list), true);
+}
+function pdAsk() {
+  clearTimeout(pd.timer);
+  const n = ++pd.sent, box = $('#pd-dialog');
+  box.setAttribute('aria-busy', 'true');
+  pd.timer = setTimeout(async () => {
+    const r = await bridge.petImage(pd.id, 'preview', { ...pd.opts });
+    if (n !== pd.sent || !box.open) return; // a newer change is on its way, or the dialog is gone
+    box.removeAttribute('aria-busy');
+    if (!r?.ok) { toast(T('pane.petFail.' + (r?.reason ?? 'bad'))); return box.close(); }
+    pd.opts = { ...r.opts }; pdControls(); pdShow(r);
+  }, PD_DEBOUNCE);
+}
+function pdRead(e) {
+  const t = e.target, o = pd.opts, b = t.closest?.('[data-size]'), look = t.closest?.('[data-look]'), oc = t.closest?.('[data-oc]');
+  if (look) { o.whole = look.dataset.look === 'whole'; pdControls(); return pdPet(); } // how the pet wears it: no new pixel art
+  if (t.id === 'pd-oc-text') return pdTyped(t, false);
+  if (b) o.size = +b.dataset.size;
+  else if (oc) o.outlineColor = oc.dataset.oc || null;
+  else if (t.type === 'color') o.outlineColor = t.value;
+  else if (t.type === 'checkbox') o[t.dataset.k] = t.checked;
+  else if (t.type === 'number') { const v = Math.round(+t.value); if (t.value === '' || !Number.isFinite(v)) return; o[t.dataset.k] = Math.min(+t.max, Math.max(+t.min, v)); }
+  else return;
+  pdControls(); pdAsk();
+}
+$('#pd-dialog').addEventListener('input', pdRead);
+// pdControls leaves the field being typed in alone, so on leaving it a number out of range (or none) shows the one used.
+$('#pd-dialog').addEventListener('change', e => { if (e.target.type === 'number') e.target.value = pd.opts[e.target.dataset.k]; else if (e.target.id === 'pd-oc-text') pdTyped(e.target, true); });
+$('#pd-dialog').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'pd-oc-text') pdTyped(e.target, true); });
+$('#pd-dialog').addEventListener('click', async e => {
+  const box = e.currentTarget, act = e.target.closest('button')?.dataset.act;
+  if (e.target.closest('[data-size], [data-look], [data-oc]')) return pdRead(e);
+  if (act === 'cancel') return box.close();
+  if (act !== 'save') return;
+  clearTimeout(pd.timer); pd.sent++;
+  const r = await bridge.petImage(pd.id, 'save', { ...pd.opts });
+  if (!r?.ok) return toast(T('pane.petFail.' + (r?.reason ?? 'bad')));
+  pd.saved = true; box.close();
+});
+$('#pd-dialog').addEventListener('close', e => { // Esc, Cancel, Save or an error: a closed dialog never leaves a picture pending
+  clearTimeout(pd.timer); pd.sent++;
+  e.currentTarget.removeAttribute('aria-busy');
+  if (!pd.saved) bridge.petImage(pd.id, 'cancel');
+});
+
 // ---------- setup ----------
 async function renderSetup(note) {
   const box = $('#setup');
@@ -732,10 +945,9 @@ function applyLang() {
   if (!$('#tab-setup').hidden) renderSetup();
 }
 $('#egg').innerHTML = creature('bobix', 'idle');
-// Shown once its language and the first sessions are in, so the bar doesn't jump as they arrive; at the latest after 1 s.
+// Shown once its language and the first sessions are in, so the bar doesn't jump as they arrive (fallback: top of this script).
 const pending = new Set(['state', 'list']);
 const arrived = k => pending.delete(k) && !pending.size && document.body.classList.remove('boot');
-setTimeout(() => document.body.classList.remove('boot'), 1000);
 const es = new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || ''));
 es.onopen = () => { $('#conn').textContent = T('conn.ok'); $('#conn').className = 'conn'; };
 es.onerror = () => { $('#conn').textContent = T('conn.lost'); $('#conn').className = 'conn lost'; };

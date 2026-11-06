@@ -19,8 +19,8 @@ The hook script drops file contents and tool output before sending anything. All
 | `~/.claude/settings.json` | Bobix's hook entries (only when you click Install hooks; removed by Remove hooks) |
 | `~/.claude/settings.json.bak-bobix-*` | a copy of that file before each change, same permissions, newest 3 kept. It contains whatever your settings file contains. |
 | `~/.claude/bobix/hook.js`, `token`, `header` | the forwarder and a random per-user token (mode 0600) |
-| The app's settings folder → `settings.json` | your Bobix preferences, including which picture each project uses |
-| The app's settings folder → `pets/` | pictures you chose for projects, scaled to 128 px (GIFs copied as they are); removed when no project uses them |
+| The app's settings folder → `settings.json` | your Bobix preferences, including which picture each project uses and the pixel-art settings you chose for it |
+| The app's settings folder → `pets/` | the pixel-art version of each project's picture (the face the pets wear), and in `pets/originals/` the original picture as you chose it, kept so Edit picture can start from it and never shown or served by Bobix; both removed when no project uses them |
 | Start at login (only if you turn it on) | a login item (macOS / Windows), a LaunchAgent (macOS, from source) or `~/.config/autostart/bobix.desktop` (Linux) |
 
 ## What it sends, and to whom
@@ -33,7 +33,7 @@ The hook script drops file contents and tool output before sending anything. All
 
 ## What it runs
 
-- `node ~/.claude/bobix/hook.js <port>` on each Claude Code hook event, in the background so Claude never waits for it. The one exception is a permission request: there the hook waits for your answer in Bobix (Settings → "Approve from Bobix", 20 s by default, 0 = off), then Claude asks in the terminal as usual. Runs without a person at Bobix (`claude -p`, Agent SDK apps) never wait. Answers come only from Bobix's own windows and notifications, never over the network. Fallbacks without Node.js: `curl` or PowerShell (no approvals).
+- `node ~/.claude/bobix/hook.js <port>` on each Claude Code hook event, in the background so Claude never waits for it. The one exception is a permission request: there the hook waits for your answer in Bobix (Settings → "Approve from Bobix": by default until you answer there, or a time limit you set; off if you choose). Claude Code shows its own prompt in the terminal at the same time, so you can answer there instead. Runs without a person at Bobix (`claude -p`, Agent SDK apps) never wait. Answers come only from Bobix's own windows and notifications, never over the network. Fallbacks without Node.js: `curl` or PowerShell (no approvals).
 - When you click a pet: `open -a <app>` (macOS), `WScript.Shell.AppActivate` via PowerShell (Windows) or `xdotool` (Linux) to bring the session's window forward, and `ps` / `Get-CimInstance` to find that window's process. In the Claude desktop app it opens `claude://code/continue?session=<id>`, a link that app registers. It is not a documented public API and may change; if it stops working, the click falls back to the session's details.
 - Arguments are always passed as lists, never through a shell.
 

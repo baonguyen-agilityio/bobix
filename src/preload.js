@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld('bobix', {
   testEvent: () => ipcRenderer.invoke('hooks:test'),
   openSession: id => ipcRenderer.invoke('open-session', id),
   answer: (id, choice) => ipcRenderer.invoke('answer', id, choice), // a waiting permission request: allow | always | deny
-  petImage: (id, act) => ipcRenderer.invoke('pet:image', id, act), // act: 'choose' (file dialog) | 'reset'
+  petImage: (id, act, opts) => ipcRenderer.invoke('pet:image', id, act, opts), // act: choose | edit | preview | save | cancel | reset
   setPet: (id, mode) => ipcRenderer.invoke('pet:set', id, mode), // mode: auto | hidden | shown; id '*' = every pet
   onSettings: on('settings'),
   onSelect: on('select'),

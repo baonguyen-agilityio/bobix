@@ -8,8 +8,9 @@ const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
 const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'PermissionRequest']);
 const MARK = 'bobix';
 // PermissionRequest waits for an answer from Bobix (node forwarder only), so it can't run in the background.
-// The app decides how long it waits (Settings); this is only the hard cap Claude Code enforces.
-const ANSWER_EVENT = 'PermissionRequest', ANSWER_TIMEOUT = 330;
+// The app decides how long it waits (Settings, up to "until I answer"); this is only the hard cap Claude Code enforces:
+// a day, since the docs give `timeout` in seconds with no maximum.
+const ANSWER_EVENT = 'PermissionRequest', ANSWER_TIMEOUT = 86400;
 const KEEP_BACKUPS = 3;
 
 const claudeDir = (home = os.homedir()) => path.join(home, '.claude');
@@ -160,9 +161,9 @@ function status({ home } = {}) {
     const port = !one ? null : mode === 'node' ? Number(one.args[1]) || null : Number((JSON.stringify(one).match(/127\.0\.0\.1:(\d+)/) || [])[1]) || null;
     // node mode records an absolute node path: it goes stale when nvm / Homebrew remove that version.
     const stale = mode === 'node' && !fs.existsSync(one.command);
-    // Installed by the old Session Guild build, or before Bobix could answer permission requests.
+    // Installed by the old Session Guild build, before Bobix could answer permission requests, or with a cap too short for "until I answer".
     const ask = groupsOf(hooks, ANSWER_EVENT).flatMap(entriesOf).find(isOurs);
-    const outdated = !!one && (markOf(one) !== MARK || (mode === 'node' && !!ask?.async));
+    const outdated = !!one && (markOf(one) !== MARK || (mode === 'node' && !!ask && (!!ask.async || !(ask.timeout >= ANSWER_TIMEOUT))));
     return { file, events, complete: events.length === EVENTS.length, mode, port, nodePath: mode === 'node' ? one.command : null, stale, outdated };
   } catch (err) {
     return { file, error: `settings.json: ${err.message}`, events: [], complete: false, mode: null, port: null, stale: false };
