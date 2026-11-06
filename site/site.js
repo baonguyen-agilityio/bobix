@@ -165,6 +165,9 @@
   cmd.addEventListener('focus', () => cmd.select());
 
   // ---- the demo plays muted on its own, with its controls, unless motion is reduced -------------------------------
+  // It plays only while on screen: a 1600 px clip decoding off screen costs every frame of the scroll.
   const demo = $('.demo video');
-  if (demo && !matchMedia('(prefers-reduced-motion: reduce)').matches) { demo.autoplay = true; demo.play().catch(() => {}); }
+  if (demo && !matchMedia('(prefers-reduced-motion: reduce)').matches && 'IntersectionObserver' in window) {
+    new IntersectionObserver(([e]) => { if (e.isIntersecting) demo.play().catch(() => {}); else demo.pause(); }, { threshold: 0.25 }).observe(demo);
+  }
 })();

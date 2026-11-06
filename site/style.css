@@ -122,7 +122,7 @@ a, button, summary, label, input { touch-action: manipulation; }
 .sel .row__main span { white-space: normal; }
 .sel__h { font-size: var(--sc-t-sm); margin: var(--sc-4) 0 var(--sc-2); color: var(--sc-ink-soft); }
 .log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.log li { font-size: var(--sc-t-sm); padding: 6px var(--sc-3); border-radius: var(--sc-r-sm); opacity: 0.25; transition: opacity 200ms var(--sc-ease-out), background-color 200ms var(--sc-ease-out); }
+.log li { font-size: var(--sc-t-sm); padding: 6px var(--sc-3); border-radius: var(--sc-r-sm); opacity: 0.25; }
 .log li code { background: none; padding: 0; font-size: inherit; }
 .log li.is-on { opacity: 1; }
 .log li.is-now { background: var(--sky-soft); }
@@ -212,7 +212,7 @@ details ol { margin: 0; padding-left: 1.2em; display: grid; gap: var(--sc-1); }
 .foot p a { color: var(--sc-ink); }
 
 /* ---------- the pets on the screen's edge, like the app ---------- */
-.edge { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; pointer-events: none; --pet-scale: 1; --pet-alpha: 1; }
+.edge { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; pointer-events: none; contain: layout style; --pet-scale: 1; --pet-alpha: 1; }
 .edge--top { bottom: auto; top: var(--bar); }
 .edge__lane { max-width: var(--sc-maxw); margin-inline: auto; padding: 0 var(--sc-gutter) 4px; display: flex; align-items: flex-end; gap: calc(var(--sc-4) * var(--pet-scale)); opacity: var(--pet-alpha); }
 .edge--top .edge__lane { align-items: flex-start; padding-top: 4px; }
@@ -221,6 +221,7 @@ details ol { margin: 0; padding-left: 1.2em; display: grid; gap: var(--sc-1); }
 .epet[hidden] { display: none; }
 .epet.is-filtered { opacity: 0; }
 .epet__art, .epet__art svg { display: block; width: 100%; height: 100%; }
+.epet__art { will-change: transform; }
 .epet:not(.is-idle):not(.epet--kid) .epet__art { animation: sway 3.4s ease-in-out infinite alternate; }
 .epet.is-waiting .epet__art { animation: hop 900ms var(--sc-ease-out) infinite; }
 .epet[data-pet="search-service"] .epet__art { animation-delay: -1.2s; }
@@ -241,7 +242,7 @@ details ol { margin: 0; padding-left: 1.2em; display: grid; gap: var(--sc-1); }
 @media (max-width: 600px) { :root { --pet: 44px; } .ecard .btn { min-height: 36px; } }
 @media (prefers-reduced-motion: reduce) {
   .epet__art { animation: none !important; }
-  .btn, .log li, .epet, .tabs a { transition: none; }
+  .btn, .epet, .tabs a { transition: none; }
 }
 
 /* ---------- phones: the turn has to fit one screen, the chrome one line ---------- */
