@@ -295,6 +295,28 @@ input[type=number]{width:104px}
 .toast{display:flex;gap:var(--s3);align-items:center;padding:var(--s3);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--lift);font-size:var(--t-sm);text-align:left;animation:toast-in 250ms var(--ease)}
 @keyframes toast-in{from{opacity:0;transform:translateY(8px)}}
 
+.work-wrap{max-width:980px;margin:0 auto;padding:var(--s6);display:flex;flex-direction:column;gap:var(--s6)}
+.work-top{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;justify-content:space-between}
+.work-top .note{margin:0}
+.cmd{display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap;margin-top:var(--s3)}
+.cmd code{background:var(--n-100);border-radius:var(--r-sm, 6px);padding:var(--s1) var(--s3);font-size:var(--t-sm)}
+.issues{list-style:none;margin:0;padding:0}
+.issue{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s2) var(--s4);align-items:center;padding:var(--s3) 0;border-top:1px solid var(--line)}
+.issue:first-child{border-top:0}
+.issue .i-t{font-weight:600;overflow-wrap:anywhere}
+.issue .i-n{color:var(--ink-3);font-weight:500;margin-right:var(--s2)}
+.issue .i-meta{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin-top:var(--s1);font-size:var(--t-xs);color:var(--ink-2)}
+.issue .lab{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
+.issue .overdue{color:var(--coral-ink);font-weight:600}
+.issue .i-acts{display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end}
+.issue.doing .i-t::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--sky, #4aa3df);margin-right:var(--s2);vertical-align:middle}
+.wgroup h2{display:flex;gap:var(--s2);align-items:baseline;flex-wrap:wrap}
+.wgroup h2 .n,.wgroup h2 .dir{font-size:var(--t-sm);font-weight:500;color:var(--ink-3);overflow-wrap:anywhere}
+.gitkv{grid-template-columns:max-content minmax(0,1fr)}
+.gitkv dd{overflow-wrap:anywhere;display:block}
+.gitkv code{overflow-wrap:anywhere}
+.lnk{border:0;background:none;padding:0;font:inherit;color:inherit;text-align:left;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+@media (max-width:720px){.issue{grid-template-columns:1fr}.issue .i-acts{justify-content:flex-start}}
 @media (max-width:980px){
   .set-wrap{grid-template-columns:minmax(0,1fr)}
   .set-side{position:static}
@@ -327,6 +349,7 @@ input[type=number]{width:104px}
   <span class="ver" id="ver" hidden></span>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-tab="sessions" data-t="tab.sessions"></button>
+    <button class="tab" role="tab" data-tab="work" data-t="tab.work"></button>
     <button class="tab" role="tab" data-tab="settings" data-t="tab.settings"></button>
     <button class="tab" role="tab" data-tab="setup" data-t="tab.setup"></button>
   </nav>
@@ -355,6 +378,7 @@ input[type=number]{width:104px}
   </div>
 </section>
 
+<section id="tab-work" hidden><div class="work-wrap" id="work"></div></section>
 <section id="tab-settings" hidden><div class="set-wrap" id="settings"></div></section>
 <section id="tab-setup" hidden><div class="setup-wrap" id="setup"></div></section>
 <div class="toasts" id="toasts"></div>
@@ -411,7 +435,8 @@ function toast(text, action) {
 function showTab(name) {
   if (name === 'feedback') return openFeedback(); // from the tray, over whichever tab is open
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
-  for (const n of ['sessions', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
+  for (const n of ['sessions', 'work', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
+  if (name === 'work') renderWork();
   if (name === 'setup') renderSetup();
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -450,7 +475,7 @@ function rowHTML(s, st) {
   const hp = s.ctx;
   const par = s.parent && list.find(x => x.id === s.parent);
   return `<span class="sprite">${petArt(par || s, st, petColor(s, list))}</span>
-    <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${s.parent ? `<span class="folder">${esc(T('pet.from', { name: titleOf(s.parent) }))}</span>` : ''}${kidsOf(s).length ? `<span class="folder off">${esc(T('pet.kids', { n: kidsOf(s).length }))}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
+    <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${s.issue ? `<span class="folder off" title="${esc(s.issue.title)}">#${s.issue.iid}</span>` : ''}${s.parent ? `<span class="folder">${esc(T('pet.from', { name: titleOf(s.parent) }))}</span>` : ''}${kidsOf(s).length ? `<span class="folder off">${esc(T('pet.kids', { n: kidsOf(s).length }))}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
       <span class="quest">${esc(line2(s, st))}</span></span>
     <span class="status"><span class="pill">${esc(statusText(s, st))}</span></span>
     <span class="ctx" title="${T('ctx')}"><span class="meter ${hp == null ? 'unk' : hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></span><span>${hp == null ? T('ctx.unknown') : `${T('ctx')} ${hp}%`}</span></span>
@@ -474,7 +499,7 @@ function render() {
     items.forEach((s, i) => {
       let li = [...ol.children].find(c => c.dataset.id === s.id) || [...document.querySelectorAll('li[data-id]')].find(c => c.dataset.id === s.id);
       if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
-      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.image, s.whole, s.project, petColor(s, list), lang]);
+      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.issue, s.image, s.whole, s.project, petColor(s, list), lang]);
       if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
       li.classList.toggle('side', !!(s.parent && items.some(x => x.id === s.parent)));
       btn.setAttribute('aria-pressed', String(s.id === selected));
@@ -500,7 +525,7 @@ function renderPane() {
   if (!s) return;
   const st = look(s);
   const kids = kidsOf(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.image, s.whole, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), petColor(s, list), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.git, s.issue, s.image, s.whole, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), petColor(s, list), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -519,6 +544,7 @@ function renderPane() {
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
     ${hint?.id === s.id ? `<p class="note open-hint">${esc(hintText(hint))}</p>` : ''}
+    ${gitHTML(s)}
     ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
     ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><button class="sidecard" type="button" data-act="goto" data-id="${esc(k.id)}" title="${esc(k.title || k.name)}"><span class="t">${esc(k.title || k.name)}</span><span class="st">${esc(statusText(k, look(k)))}</span></button></li>`).join('')}</ol>` : ''}
     ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${secsLeft(s) === Infinity ? T('pane.askUntil') : T('pane.askWithin', { n: secsLeft(s) })}
@@ -532,6 +558,20 @@ function renderPane() {
     <ol class="log">${LOG.fold(s.log).map(l => { const k = `l:${s.id}:${l.from}:${l.kind}`;
       return `<li class="k-${esc(l.kind)}"><time title="${time(l.t)}">${hm(l.t)}</time><div class="msg">${moreHTML(k, logHTML(l, moreOpen.has(k)), '', l.kind === 'tool' && LOG.mid(l.text) !== l.text)}</div></li>`; }).join('')}</ol>`;
   showMore(pane);
+}
+// The session's repository: branch (and the GitLab issue it names), changes, what is not pushed, last commit.
+function gitHTML(s) {
+  const g = s.git;
+  if (!g) return '';
+  const row = (k, v) => `<dt>${T('git.' + k)}</dt><dd>${v}</dd>`;
+  return `<h3>${T('git.title')}</h3><dl class="kv gitkv">
+    ${row('branch', g.branch ? `<code>${esc(g.branch)}</code>` : T('git.detached'))}
+    ${s.issue ? row('issue', s.issue.url && bridge ? `<button class="lnk" type="button" data-act="issue" data-url="${esc(s.issue.url)}" title="${esc(T('work.open'))}">#${s.issue.iid}${s.issue.title ? ' ' + esc(s.issue.title) : ''}</button>` : `#${s.issue.iid}`) : ''}
+    ${row('changed', g.changed)}
+    ${row('unpushed', g.unpushed)}
+    ${row('sync', g.upstream ? esc(T('git.syncVal', { a: g.ahead, b: g.behind, u: g.upstream })) : T('git.noUpstream'))}
+    ${g.last ? row('last', `${esc(g.last.subject)} <span class="note">· ${ago(g.last.t)}</span>`) : ''}
+    ${g.worktrees > 1 ? row('worktrees', g.worktrees) : ''}</dl>`;
 }
 $('#showAll').addEventListener('click', () => bridge.setPet('*', 'shown'));
 // A pet or notification click that could not open its session: the panel opens on it and says where it runs, in the
@@ -556,6 +596,54 @@ $('#pane').addEventListener('click', async e => {
   if (act === 'answer') { const s = list.find(x => x.id === selected); if (s?.answer) bridge.answer(s.answer.id, e.target.dataset.choice); }
   if (act === 'pet') { const s = list.find(x => x.id === selected); if (s) bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden'); }
   if (act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); }
+  if (act === 'issue') bridge.openIssue(e.target.closest('[data-url]').dataset.url);
+});
+
+// ---------- work: GitLab issues assigned to you ----------
+let work = { status: 'off' };
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+function issueHTML(i) {
+  const doing = i.sessions.map(id => list.find(x => x.id === id)).filter(Boolean);
+  const due = i.due ? `<span class="${i.due < today() ? 'overdue' : ''}">${esc(T(i.due < today() ? 'work.overdue' : 'work.due', { d: i.due }))}</span>` : '';
+  return `<li class="issue${doing.length ? ' doing' : ''}"><div>
+      <div class="i-t"><span class="i-n">#${i.iid}</span>${esc(i.title)}</div>
+      <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}</div></div>
+    <div class="i-acts">${doing.map(s => `<button class="btn" type="button" data-goto="${esc(s.id)}" title="${esc(T('work.inProgress'))}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}
+      ${bridge ? `<button class="btn" type="button" data-url="${esc(i.url)}">${T('work.open')}</button>` : ''}</div></li>`;
+}
+function renderWork() {
+  const box = $('#work');
+  if (!box || $('#tab-work').hidden) return;
+  const w = work, host = esc(w.host || '');
+  const key = JSON.stringify([w, list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  const login = `<div class="cmd"><code>glab auth login --hostname ${host}</code><button class="btn" type="button" data-copy="glab auth login --hostname ${host}">${T('work.copy')}</button></div>`;
+  if (w.status === 'off') {
+    box.innerHTML = `<div class="card"><h2>${T('work.off.title')}</h2><p class="note">${esc(T('work.off.body'))}</p>${bridge ? `<div class="acts"><button class="btn pri" type="button" data-tab-go="settings">${T('work.toSettings')}</button></div>` : ''}</div>`;
+    return;
+  }
+  const n = [...w.local, ...w.away].reduce((a, g) => a + g.issues.length, 0);
+  const top = `<div class="work-top"><p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading', { host: w.host }))
+      : w.status === 'ok' ? esc(T('work.updated', { n, host: w.host, ago: ago(w.at) })) : ''}</p>
+    ${bridge ? `<button class="btn" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button>` : ''}</div>`;
+  const problem = w.status === 'noglab' ? `<div class="card"><p class="note err">${esc(T('work.noglab'))}</p>${login}</div>`
+    : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth', { host: w.host }))}</p>${login}</div>`
+    : w.status === 'error' ? `<div class="card"><p class="note err">${esc(T('work.error', { host: w.host, x: w.detail }))}</p></div>` : '';
+  const group = (g, away) => `<section class="card wgroup"><h2>${esc(g.path)} <span class="n">${g.issues.length}</span>${g.dir ? `<span class="dir">${esc(g.dir)}</span>` : ''}</h2><ol class="issues">${g.issues.map(issueHTML).join('')}</ol></section>`;
+  box.innerHTML = top + problem
+    + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T('work.none', { host: w.host }))}</p></div>` : '')
+    + w.local.map(g => group(g)).join('')
+    + (w.away.length ? `<h2>${T('work.away')}</h2><p class="note">${T('work.away.desc')}</p>${w.away.map(g => group(g, true)).join('')}` : '');
+}
+$('#work').addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.tabGo) return showTab(b.dataset.tabGo);
+  if (b.dataset.goto) { showTab('sessions'); return select(b.dataset.goto); }
+  if (b.dataset.url) return bridge.openIssue(b.dataset.url);
+  if (b.dataset.copy) { try { await navigator.clipboard.writeText(b.dataset.copy); toast(T('work.copied')); } catch {} return; }
+  if (b.dataset.act === 'refresh') { b.disabled = true; await bridge.refreshWork(); }
 });
 function select(id) { if (hint?.id !== id) hint = null; selected = id; render(); }
 $('#board').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(li.dataset.id === selected ? null : li.dataset.id); });
@@ -596,6 +684,10 @@ const SECTIONS = [
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
     { k: 'checkUpdates', type: 'switch' },
   ]],
+  ['set.section.work', [
+    { k: 'gitlab', type: 'switch' },
+    { k: 'gitlabUrl', type: 'url', wide: true },
+  ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
     { k: 'autostart', type: 'switch' },
@@ -621,6 +713,7 @@ function control(r, s) {
         <input type="range" class="rng" id="f-${k}" data-k="${k}" min="0" max="100" step="5" value="${s[k]}" style="--fill:${fill(z, s[k])}"><output class="val" for="f-${k}" data-val="${k}">${s[k]}%</output></div>`).join('')}
     </div>`;
   }
+  if (r.type === 'url') return `<div class="rng-row" style="width:100%"><input type="url" id="${id}" value="${esc(v)}" placeholder="https://gitlab.com" aria-labelledby="l-${r.k}" spellcheck="false" style="flex:1;min-width:0"><button class="btn" type="button" data-act="gitlabUrl">${T('set.gitlabUrl.apply')}</button></div>`;
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
 }
@@ -698,6 +791,11 @@ $('#settings').addEventListener('click', async e => {
   if (!t) return;
   if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
   if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
+  if (t.dataset.act === 'gitlabUrl') {
+    const v = $('#f-gitlabUrl').value.trim();
+    if (v && !/^https?:\/\/[^\s/]+/i.test(v)) return toast(T('set.gitlabUrl.bad'));
+    return save({ gitlabUrl: v });
+  }
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
     if (v === state.settings.port) return;
@@ -994,12 +1092,14 @@ es.onmessage = m => {
   const d = JSON.parse(m.data);
   const firstIds = list.slice(0, 4).map(x => x.id).join();
   list = d.sessions || [];
+  work = d.work || { status: 'off' };
+  renderWork();
   if (selected && !list.some(s => s.id === selected)) selected = null;
   render();
   if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();
   arrived('list');
 };
-setInterval(render, 15e3);
+setInterval(() => { render(); renderWork(); }, 15e3);
 setInterval(() => list.some(s => s.answer) && renderPane(), 1000); // countdown of a waiting permission request
 $('#conn').textContent = T('conn.wait');
 (async () => {
