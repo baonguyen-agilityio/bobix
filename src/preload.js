@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('bobix', {
   answer: (id, choice) => ipcRenderer.invoke('answer', id, choice), // a waiting permission request: allow | always | deny
   petImage: (id, act, opts) => ipcRenderer.invoke('pet:image', id, act, opts), // act: choose | edit | preview | save | cancel | reset
   setPet: (id, mode) => ipcRenderer.invoke('pet:set', id, mode), // mode: auto | hidden | shown; id '*' = every pet
+  refreshWork: () => ipcRenderer.invoke('work:refresh'), // GitLab issues, read again now (only while GitLab is on)
+  openIssue: url => ipcRenderer.invoke('work:open', url), // in the browser; only links to the configured GitLab
   onSettings: on('settings'),
   onSelect: on('select'),
   onShowTab: on('show-tab'),

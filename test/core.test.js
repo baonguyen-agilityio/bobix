@@ -1186,3 +1186,64 @@ test('a session whose claude process is gone is forgotten; a shell or an uncheck
   assert.ok(['sh', 'bash', 'zsh', 'cmd', 'powershell', 'Bobix', 'Electron', '?', 'claude-desktop'].every(n => !CLAUDE_PROC.test(n)), 'shells and others are not claude');
   assert.ok(!('pidIsClaude' in publicView(m.get('dead'))) && !('pidChecked' in publicView(m.get('dead'))), 'bookkeeping stays in the main process');
 });
+
+const work = require('../src/core/work');
+
+test('work: git remote URL → GitLab project path, only on the configured host', () => {
+  const h = 'gitlab.example.com';
+  strict.equal(work.projectPath('git@gitlab.example.com:team/shop-app.git', h), 'team/shop-app');
+  strict.equal(work.projectPath('ssh://git@gitlab.example.com:2222/Group/Sub/Proj.git', h), 'group/sub/proj');
+  strict.equal(work.projectPath('https://gitlab.example.com/team/shop-app', h), 'team/shop-app');
+  strict.equal(work.projectPath('https://oauth2:secret@gitlab.example.com/g/p.git/', h), 'g/p');
+  strict.equal(work.projectPath('https://gitlab.example.com:8443/g/p.git', 'gitlab.example.com:8443'), 'g/p');
+  strict.equal(work.projectPath('git@github.com:baonguyen-agilityio/bobix.git', h), null, 'other host');
+  strict.equal(work.projectPath('https://gitlab.com/g/p.git', h), null);
+  strict.equal(work.projectPath('/Users/me/repo.git', h), null, 'local path');
+  strict.equal(work.projectPath('git@gitlab.example.com:onlyname.git', h), null, 'no namespace');
+  strict.equal(work.projectPath('git@gitlab.example.com:g/p.git', ''), null, 'GitLab off');
+  strict.equal(work.hostOf('https://GitLab.com/'), 'gitlab.com');
+  strict.equal(work.hostOf('ftp://gitlab.com'), '');
+  strict.equal(work.hostOf(''), '');
+});
+
+test('work: a branch named from an issue ("<iid>-…") links to that issue of the same project', () => {
+  strict.equal(work.issueOfBranch('29-buy-item-list-cannot-be-used'), 29);
+  strict.equal(work.issueOfBranch('feat/29-x'), null);
+  strict.equal(work.issueOfBranch('main'), null);
+  strict.equal(work.issueOfBranch(null), null);
+  const issues = [{ iid: 29, project: 'g/a', title: 'x', labels: [], due: null, url: 'u' }];
+  const sessions = [{ id: 's1', path: 'g/a', branch: '29-fix' }, { id: 's2', path: 'g/b', branch: '29-fix' }, { id: 's3', path: 'g/a', branch: '290-other' }];
+  strict.deepEqual(work.groupIssues(issues, [], sessions).away[0].issues[0].sessions, ['s1'], 'same number in another project does not count');
+});
+
+test('work: issues grouped by project, local repositories first, the rest "not on this machine"', () => {
+  const mk = (project, iid, due = null) => ({ iid, project, title: `t${iid}`, labels: [], due, url: `u${iid}` });
+  const issues = [mk('g/away', 1), mk('g/here', 2, '2026-12-01'), mk('g/here', 3, '2026-11-10'), mk('g/here', 4)];
+  const r = work.groupIssues(issues, [{ dir: '/src/here', path: 'g/here' }, { dir: '/tmp/x', path: null }], [{ id: 's', path: 'g/here', branch: '4-x' }]);
+  strict.deepEqual(r.local.map(g => [g.path, g.dir]), [['g/here', '/src/here']]);
+  strict.deepEqual(r.local[0].issues.map(i => i.iid), [4, 3, 2], 'in progress first, then by due date');
+  strict.deepEqual(r.away.map(g => g.path), ['g/away']);
+  strict.equal('dir' in r.away[0], false);
+  strict.deepEqual(work.slimIssue({ iid: 7, title: 'T', web_url: 'https://h/g/p/-/issues/7', references: { full: 'G/P#7' }, labels: ['Bug'], due_date: '2026-11-20' }),
+    { iid: 7, title: 'T', url: 'https://h/g/p/-/issues/7', project: 'g/p', labels: ['Bug'], due: '2026-11-20' });
+});
+
+test('work: git status --porcelain=v2 parsing', () => {
+  const r = work.parseStatus('# branch.oid abc\n# branch.head 29-fix\n# branch.upstream origin/29-fix\n# branch.ab +2 -1\n1 .M N... 100644 100644 100644 a b src/x.js\n? new.txt\nu UU N... 1 2 3 4 a b c f\n');
+  strict.deepEqual(r, { branch: '29-fix', upstream: 'origin/29-fix', ahead: 2, behind: 1, changed: 3 });
+  strict.equal(work.parseStatus('# branch.head (detached)\n').branch, null);
+});
+
+test('settings: GitLab is off by default and keeps only the URL\'s origin', () => {
+  strict.equal(DEFAULTS.gitlab, false);
+  strict.equal(DEFAULTS.gitlabUrl, '');
+  strict.equal(sanitize({ gitlabUrl: 'https://user:pw@gitlab.example.com/some/path?x=1' }).gitlabUrl, 'https://gitlab.example.com');
+  strict.equal(sanitize({ gitlabUrl: 'javascript:alert(1)' }).gitlabUrl, '');
+  strict.equal(sanitize({ gitlabUrl: '' }, { ...DEFAULTS, gitlabUrl: 'https://a.b' }).gitlabUrl, '');
+});
+
+test('settings: the Work tab\'s chosen projects are GitLab paths, lower case, no duplicates', () => {
+  strict.deepEqual(DEFAULTS.workProjects, []);
+  strict.deepEqual(sanitize({ workProjects: ['Team/Shop-App', 'team/shop-app', 'g/sub/p', 'nopath', '../x', 3, 'a/b c'] }).workProjects, ['team/shop-app', 'g/sub/p']);
+  strict.deepEqual(sanitize({ workProjects: 'team/x' }).workProjects, []);
+});

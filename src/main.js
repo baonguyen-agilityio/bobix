@@ -19,6 +19,7 @@ const { bitmap } = require('./core/icon');
 const petstore = require('./core/petstore');
 const I18N = require('./ui/i18n');
 const news = require('./core/news');
+const work = require('./core/work');
 
 // Linux on Wayland: apps may not keep a window on top or position it, so the pets overlay would sit behind
 // whatever you work in. Run through XWayland (X11) when it is there; BOBIX_WAYLAND=1 keeps native Wayland.
@@ -58,9 +59,10 @@ const tr = (k, v) => I18N.t(lang(), k, v);
 const snapshot = () => {
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession).map(s => [s.hostSession, s.id]));
   const pics = settings?.petImages || {};
-  return { sessions: [...sessions.values()].map(s => {
+  const w = workView();
+  return { work: w.view, sessions: [...sessions.values()].map(s => {
     const project = s.project || '', pic = pics[project];
-    return { ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null, project, image: petstore.served(pic), pixel: !!pic && typeof pic === 'object', whole: !!pic?.opts?.whole };
+    return { ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null, project, image: petstore.served(pic), pixel: !!pic && typeof pic === 'object', whole: !!pic?.opts?.whole, issue: w.issueOf.get(s.id) || null };
   }) };
 };
 const fromUs = e => (e.senderFrame?.url || '').startsWith(origin() + '/'); // IPC only from our own pages
@@ -72,7 +74,7 @@ function onEvent(e, signal) {
   lastEventAt = Date.now();
   const r = apply(sessions, e);
   if (!r) return null;
-  if (r.s) { pinProject(r.s); findParent(r.s); }
+  if (r.s) { pinProject(r.s); findParent(r.s); refreshGit(r.s, e.hook_event_name === 'Stop' || e.hook_event_name === 'SessionStart'); }
   const answered = signal && r.s && e.hook_event_name === 'PermissionRequest' ? waitForAnswer(r.s, e, signal) : null;
   const isStop = e.hook_event_name === 'Stop', since = r.s?.since;
   const finish = () => {
@@ -101,6 +103,70 @@ function findParent(s, now = Date.now()) {
   s.linkAt = now; s.linkTries = (s.linkTries || 0) + 1;
   s.parentHost = parentOf(s.hostSession);
   return !!s.parentHost;
+}
+
+// ---------- work items: git status, GitLab issues ----------
+// Git: per folder, read on a session's events and by the 30 s timer, at most every 30 s (on Stop and SessionStart at once).
+// GitLab: only while its switch is on and a URL is set, through the person's own glab (see core/work.js and docs/privacy.md).
+const gitCache = new Map(); // folder -> { at, busy, git }
+const remotesOf = new Map(); // repository top folder -> its remote URLs (kept here, never sent to the pages: they may hold credentials)
+let glabPath = null, issues = { status: 'off' }, issuesBusy = false;
+async function refreshGit(s, force = false) {
+  const dir = s.cwd;
+  if (!dir || !path.isAbsolute(dir)) return;
+  if (gitCache.size > 300) gitCache.clear();
+  const c = gitCache.get(dir) || {};
+  gitCache.set(dir, c);
+  if (c.git && !s.git) s.git = c.git;
+  if (c.busy || (!force && Date.now() - (c.at || 0) < 30e3)) return;
+  c.busy = true;
+  let g = null;
+  try { g = await work.gitStatus(dir); } catch (err) { console.error('[bobix] git status:', err.message); } finally { c.busy = false; c.at = Date.now(); }
+  if (!g) return; // not a repository (a scratchpad…): the session keeps the status it had
+  const { remotes, ...git } = g;
+  remotesOf.set(git.top, remotes);
+  const was = JSON.stringify(c.git);
+  c.git = git;
+  let changed = was !== JSON.stringify(git);
+  for (const x of sessions.values()) if (x.cwd === dir && x.git !== git) { changed ||= JSON.stringify(x.git) !== was; x.git = git; }
+  if (changed && server) server.broadcast(snapshot());
+}
+const gitlabHost = () => (settings.gitlab ? work.hostOf(settings.gitlabUrl) : '');
+async function refreshIssues() {
+  const host = gitlabHost();
+  if (!host) { issues = { status: 'off' }; return server?.broadcast(snapshot()); }
+  if (issuesBusy) return;
+  issuesBusy = true;
+  if (issues.host !== host) { issues = { status: 'loading', host }; server.broadcast(snapshot()); }
+  try {
+    glabPath ??= await findBin('glab');
+    const r = await work.fetchIssues(glabPath, host);
+    if (r.reason === 'noglab') glabPath = null; // look again next time: it may be installed by then
+    if (gitlabHost() !== host) return; // switched off or to another GitLab meanwhile
+    issues = r.ok ? { status: 'ok', host, at: Date.now(), list: r.issues } : { status: r.reason, host, at: Date.now(), detail: r.detail || '' };
+  } catch (err) { issues = { status: 'error', host, at: Date.now(), detail: err.message }; } finally { issuesBusy = false; }
+  server.broadcast(snapshot());
+}
+// What the pages see: issues grouped by project, and for each session the issue its branch names (GitLab's "<iid>-…").
+function workView() {
+  const host = gitlabHost(), issueOf = new Map();
+  if (!host) return { view: { status: 'off' }, issueOf };
+  const pathOf = top => (remotesOf.get(top) || []).map(u => work.projectPath(u, host)).find(Boolean) || null;
+  const live = [...sessions.values()].filter(s => s.git).map(s => ({ id: s.id, path: pathOf(s.git.top), branch: s.git.branch, dir: s.project || s.git.top }));
+  const list = issues.list || [];
+  for (const s of live) {
+    const iid = s.path && work.issueOfBranch(s.branch);
+    if (iid) { const i = list.find(x => x.project === s.path && x.iid === iid); issueOf.set(s.id, { iid, title: i?.title || '', url: i?.url || '' }); }
+  }
+  const { local, away } = work.groupIssues(list, live, live);
+  return { view: { status: issues.status, host, at: issues.at || null, detail: issues.detail || '', local, away }, issueOf };
+}
+// Only links to the configured GitLab open from the Work tab.
+function openIssue(url) {
+  const base = settings.gitlab && work.hostOf(settings.gitlabUrl) ? settings.gitlabUrl + '/' : null;
+  if (!base || typeof url !== 'string' || !url.startsWith(base)) return false;
+  shell.openExternal(url);
+  return true;
 }
 
 // ---------- a project's own pet picture ----------
@@ -517,6 +583,7 @@ async function updateSettings(patch) {
   if (settings.petsVisible !== prev.petsVisible) showOverlay();
   if (['petsVisible', 'paused', 'language', 'seenVersion'].some(k => settings[k] !== prev[k])) buildTray();
   releaseUnseen();
+  if (settings.gitlab !== prev.gitlab || settings.gitlabUrl !== prev.gitlabUrl) refreshIssues();
   if (settings.checkUpdates && !prev.checkUpdates) checkForUpdate();
   if (!settings.checkUpdates && update) { update = null; buildTray(); }
   broadcastSettings();
@@ -524,17 +591,18 @@ async function updateSettings(patch) {
 }
 
 // ---------- hooks setup ----------
-// GUI apps don't get the shell's PATH (nvm, Homebrew…), so ask a login shell where node is.
-function findNode() {
+// GUI apps don't get the shell's PATH (nvm, Homebrew…), so ask a login shell where node (or glab) is.
+function findBin(name) {
+  const exe = new RegExp(`${name}(\\.exe)?$`, 'i');
   const tryCmd = (cmd, args) => new Promise(res => execFile(cmd, args, { timeout: 5000, windowsHide: true }, (err, out) => {
     // `where` lists matches in PATH order (first wins); an interactive shell may print noise before the answer (last wins).
     const lines = String(out || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const line = (process.platform === 'win32' ? lines : lines.reverse()).find(l => /node(\.exe)?$/i.test(l) && fs.existsSync(l));
+    const line = (process.platform === 'win32' ? lines : lines.reverse()).find(l => exe.test(l) && fs.existsSync(l));
     res(err && !line ? null : line || null);
   }));
-  if (process.platform === 'win32') return tryCmd('where', ['node']);
+  if (process.platform === 'win32') return tryCmd('where', [name]);
   const sh = process.env.SHELL || '/bin/bash';
-  return tryCmd(sh, ['-lc', 'command -v node']).then(p => p || tryCmd(sh, ['-lic', 'command -v node']));
+  return tryCmd(sh, ['-lc', `command -v ${name}`]).then(p => p || tryCmd(sh, ['-lic', `command -v ${name}`]));
 }
 
 function installHooks() {
@@ -577,6 +645,8 @@ function ipc() {
   ipcMain.on('pet-click', (e, id) => fromUs(e) && openSession(id));
   handle('answer', (id, choice) => answer(id, choice));
   handle('pet:image', (id, act, opts) => (typeof id !== 'string' || !Object.hasOwn(petImageActs, act) ? null : petImageActs[act](id, opts && typeof opts === 'object' ? opts : undefined)));
+  handle('work:refresh', () => refreshIssues());
+  handle('work:open', url => openIssue(url));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) { releaseUnseen(); server.broadcast(snapshot()); } });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); shapeOverlay(); showOverlay(); } });
 }
@@ -723,7 +793,7 @@ app.whenReady().then(async () => {
     return app.exit(1);
   }
   ipc();
-  nodePath = await findNode();
+  nodePath = await findBin('node');
   try {
     const st = hooks.status();
     if (st.outdated || (st.mode === 'node' && st.stale && nodePath)) installHooks(); // old name, or recorded node removed (nvm/Homebrew)
@@ -748,7 +818,10 @@ app.whenReady().then(async () => {
   screen.on('display-metrics-changed', placeOverlay);
   screen.on('display-added', placeOverlay);
   screen.on('display-removed', placeOverlay);
+  timers.push(setInterval(() => { for (const s of sessions.values()) refreshGit(s); }, 30e3));
   if (process.env.BOBIX_SMOKE) return smoke(process.env.BOBIX_SMOKE);
+  refreshIssues();
+  timers.push(setInterval(refreshIssues, 5 * 60e3)); // does nothing while GitLab is off
   setTimeout(checkForUpdate, 15e3);
   timers.push(setInterval(checkForUpdate, 24 * 3600e3));
   if (!hooks.status().events.length) showPanel({ tab: 'setup' }); // first run: help connect Claude Code

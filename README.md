@@ -39,12 +39,13 @@ Run a few Claude Code sessions at once and you spend your day clicking through t
 - **Click to open** the session: straight to it in the Claude desktop app, or brings its Terminal, iTerm or VS Code window forward.
 - **Side sessions** (Claude desktop app): a session started from another one stands next to it, and the panel shows which session it came from and how many side sessions are still busy or need you.
 - **Approve from Bobix**: when Claude asks for permission, answer Allow, Always allow or Deny on the pet, in the panel or on the notification (macOS). By default Bobix holds the request until you answer it there; Claude still asks in the terminal at the same time, so you can answer in either place. A time limit in Settings makes Bobix let go of the request when it runs out. Nothing is held while pets are hidden or notifications are paused.
+- **Work items** (opt-in): each session's git status (branch, changes, what isn't pushed), and a Work tab with the GitLab issues assigned to you, any GitLab host, read through your own `glab`. A session on an issue's branch (`29-…`) shows `#29`, and the issue shows that session. Off by default; Bobix keeps no token and writes nothing to GitLab.
 - **Control panel** with every session grouped by what needs you, its last answer and a log of the tools it used.
 - **Notifications** when a session needs approval or finishes, with optional sound.
 - **Stays out of your way**: pick the screen, the top or bottom edge, the part of the edge pets may use, their size and opacity. Pets fade when the cursor comes near, everything that isn't a pet lets clicks through, and sleeping pets leave the screen after a time you choose.
 - **Light on your machine**: about 1–2 % CPU while pets sit still, nothing redrawn while none are out, no disk writes besides your settings.
 - **macOS, Windows and Linux**, in English and Vietnamese.
-- **Private by design**: runs locally, no account, nothing about you or your sessions sent anywhere. The only request it makes is a daily check on GitHub for a new version, which you can turn off. See [Privacy](docs/privacy.md).
+- **Private by design**: runs locally, no account, nothing about you or your sessions sent anywhere. The only request it makes on its own is a daily check on GitHub for a new version, which you can turn off; GitLab issues are read only if you turn them on. See [Privacy](docs/privacy.md).
 - **Tells you about updates**: when a new version is out, a notification and the tray menu link to it.
 
 ## Install
