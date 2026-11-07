@@ -305,6 +305,7 @@ input[type=number]{width:104px}
 .issue:first-child{border-top:0}
 .issue .i-t{font-weight:600;overflow-wrap:anywhere}
 .issue .i-n{color:var(--ink-3);font-weight:500;margin-right:var(--s2)}
+.keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;text-transform:uppercase}
 .issue .wait{color:var(--accent,var(--ink))}
 .issue .i-meta{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin-top:var(--s1);font-size:var(--t-xs);color:var(--ink-2)}
 .issue .lab{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
@@ -609,7 +610,7 @@ $('#pane').addEventListener('click', async e => {
 });
 
 // ---------- work: GitLab issues assigned to you ----------
-let work = { status: 'off' }, waiting = [], pickOpen = false; // waiting: New pressed, no new session there yet
+let work = { status: 'off' }, lastProjects = '', waiting = [], pickOpen = false; // waiting: New pressed, no new session there yet
 // Projects the person chose in the Work tab's picker (Settings → workProjects); none chosen = all.
 const picked = () => state?.settings?.workProjects || [];
 const shown = g => !picked().length || picked().includes(g.path);
@@ -726,6 +727,7 @@ const SECTIONS = [
   ]],
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
+    { k: 'workKeys', type: 'keys', wide: true },
   ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
@@ -751,6 +753,11 @@ function control(r, s) {
       ${['zoneStart', 'zoneEnd'].map((k, i) => `<div class="pair"><label for="f-${k}">${T(i ? 'set.zone.to' : 'set.zone.from')}</label>
         <input type="range" class="rng" id="f-${k}" data-k="${k}" min="0" max="100" step="5" value="${s[k]}" style="--fill:${fill(z, s[k])}"><output class="val" for="f-${k}" data-val="${k}">${s[k]}%</output></div>`).join('')}
     </div>`;
+  }
+  if (r.type === 'keys') { // each project's code in session names; the projects are the Work tab's
+    const gs = [...(work.local || []), ...(work.away || [])];
+    if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
+    return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
   }
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
@@ -820,6 +827,13 @@ $('#settings').addEventListener('input', e => {
   save({ [k]: v }, { rerender: false });
 });
 $('#settings').addEventListener('change', e => {
+  const of = e.target.dataset.keyOf;
+  if (of) {
+    const v = e.target.value.trim().toUpperCase(), keys = { ...(state.settings.workKeys || {}) };
+    if (v && !/^[A-Z][A-Z0-9]{0,9}$/.test(v)) { e.target.value = keys[of] || ''; return toast(T('set.workKeys.bad')); }
+    if (v) keys[of] = v; else delete keys[of];
+    return save({ workKeys: keys });
+  }
   const k = e.target.dataset.k;
   if (!k || e.target.type === 'range') return;
   save({ [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -1128,6 +1142,8 @@ es.onmessage = m => {
   work = d.work || { status: 'off' };
   waiting = d.waiting || [];
   renderWork();
+  const projects = [...(work.local || []), ...(work.away || [])].map(g => g.path + ':' + g.autoKey).join();
+  if (projects !== lastProjects) { lastProjects = projects; if (!$('#tab-settings').hidden && !document.activeElement?.dataset?.keyOf) renderSettings(); } // the codes list
   if (selected && !list.some(s => s.id === selected)) selected = null;
   render();
   if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();

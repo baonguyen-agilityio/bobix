@@ -450,20 +450,20 @@ test('an issue\'s Claude desktop session is found by its name, in its folder, ne
   const put = (id, o) => fs.writeFileSync(path.join(u, `local_${id}.json`), JSON.stringify(o));
   try {
     put('a', { cwd: '/src/shop', title: 'shop #23 Item list...', lastActivityAt: 100 });
-    put('b', { cwd: '/src/shop', title: 'shop #23 Item list...', lastActivityAt: 300 });
+    put('b', { cwd: '/src/shop', title: '[SHO-23] Item list...', lastActivityAt: 300 });
     put('c', { cwd: '/src/shop', title: 'shop #23 newer but archived', lastActivityAt: 900, isArchived: true });
     put('d', { cwd: '/src/shop', title: 'shop #231 other issue', lastActivityAt: 950 });
     put('e', { cwd: '/src/other', title: 'shop #23 other folder', lastActivityAt: 990 });
     put('f', { cwd: '/src/shop', title: 'shop #24', lastActivityAt: 10 });
     fs.writeFileSync(path.join(u, 'notes.json'), '{}');
-    const list = claudeSessions(root);
+    const list = claudeSessions(root), named = iid => t => work.namesIssue(t, 'SHO', 'g/shop', iid);
     strict.equal(list.length, 5);
-    strict.equal(issueSession(list, '/src/shop', 'shop', 23), 'local_b');
-    strict.equal(issueSession(list, '/src/shop', 'shop', 24), 'local_f', 'the name alone');
-    strict.equal(issueSession(list, '/src/shop', 'shop', 25), null);
+    strict.equal(issueSession(list, '/src/shop', named(23)), 'local_b');
+    strict.equal(issueSession(list, '/src/shop', named(24)), 'local_f', 'the name alone');
+    strict.equal(issueSession(list, '/src/shop', named(25)), null);
     put('b', { cwd: '/src/shop', title: 'renamed by hand', lastActivityAt: 400 });
     fs.utimesSync(path.join(u, 'local_b.json'), new Date(), new Date(Date.now() + 5000));
-    strict.equal(issueSession(claudeSessions(root), '/src/shop', 'shop', 23), 'local_a', 'a changed file is read again');
+    strict.equal(issueSession(claudeSessions(root), '/src/shop', named(23)), 'local_a', 'a changed file is read again');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -1296,9 +1296,30 @@ test('transcript: every gitBranch the session was on, oldest first', () => {
 });
 
 test('work: a session started from an issue is named "<project> #<iid> <short title>"', () => {
-  strict.equal(work.sessionTitleFor('team/shop-app', 27, '[Bug] Buy - Back leaves without "Leave without saving?" and typed values are lost'), 'shop-app #27 Buy - Back leaves without "Leave without…');
-  strict.equal(work.sessionTitleFor('g/sub/api', 3, 'Fix login'), 'api #3 Fix login');
-  strict.equal(work.sessionTitleFor('g/api', 4, ''), 'api #4');
-  strict.ok(work.sessionTitleFor('g/api', 5, 'x'.repeat(200)).length <= 52);
+  strict.equal(work.sessionTitleFor('SHA', 27, '[Bug] Buy - Back leaves without "Leave without saving?" and typed values are lost'), '[SHA-27] Buy - Back leaves without "Leave without…');
+  strict.equal(work.sessionTitleFor('BAK', 23, 'Sửa lỗi đăng nhập'), '[BAK-23] Sửa lỗi đăng nhập');
+  strict.equal(work.sessionTitleFor('API', 4, ''), '[API-4]');
+  strict.ok(work.sessionTitleFor('API', 5, 'x'.repeat(200)).length <= 52);
+});
+
+test('work: a project\'s code comes from its name; a session name matches its issue exactly, new and old format', () => {
+  strict.equal(work.keyFor('team/ba-qa-kit'), 'BAK');
+  strict.equal(work.keyFor('bao/ba-qa-kit-sandbox'), 'BAS');
+  strict.equal(work.keyFor('bao/html-css-training'), 'HTT');
+  strict.equal(work.keyFor('g/shop_app'), 'SHA');
+  strict.equal(work.keyFor('g/bobix'), 'BOB');
+  strict.equal(work.keyFor('g/x2'), 'X2');
+  strict.equal(work.keyFor('g/---'), 'ISSUE');
+  const m = n => work.namesIssue(n, 'BAK', 'bao/ba-qa-kit-sandbox', 2);
+  strict.equal(m('[BAK-2] Fix'), true);
+  strict.equal(m('[BAK-2]'), true);
+  strict.equal(m('[BAK-23] Fix'), false, '[BAK-2] is not [BAK-23]');
+  strict.equal(m('[BAS-2] Fix'), false, 'another code');
+  strict.equal(m('ba-qa-kit-sandbox #2 Fix'), true, 'the first format still resumes');
+  strict.equal(m('ba-qa-kit-sandbox #23 Fix'), false);
+  strict.equal(m('Fix [BAK-2]'), false);
+  const { sanitize } = require('../src/core/settings');
+  strict.deepEqual(sanitize({ workKeys: { 'bao/ba-qa-kit-sandbox': 'BAK', 'Bao/Other': 'X1', 'bad': 'BAK', 'a/b': 'bak', 'a/c': '1AB', 'a/../d': 'D' } }).workKeys,
+    { 'bao/ba-qa-kit-sandbox': 'BAK', 'bao/other': 'X1' });
 });
 

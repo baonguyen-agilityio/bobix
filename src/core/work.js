@@ -68,12 +68,27 @@ function projectPath(remote, host) {
 // GitLab's "create branch" from an issue names it "<iid>-<title>", also under a prefix ("feat/<iid>-…"): the number, or null.
 const issueOfBranch = branch => { const m = /(?:^|\/)(\d+)-/.exec(branch || ''); return m ? Number(m[1]) : null; };
 
-// The name of a session that starts on an issue's branch: "<project> #<iid> <short title>", e.g. "shop-app #27 Back leaves without…".
+// A project's short code, from its name (the last part of its path): the first two letters of the first word and the
+// first letter of the last word ("ba-qa-kit" → BAK, "shop-app" → SHA); one word: its first three letters ("bobix" → BOB).
+// Letters and digits only, upper case. You can set your own per project in Settings (settings.workKeys).
+function keyFor(path) {
+  const w = String(path).split('/').pop().toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+  if (!w.length) return 'ISSUE';
+  return w.length === 1 ? w[0].slice(0, 3) : w[0].slice(0, 2) + w[w.length - 1][0];
+}
+
+// The name of a session started from an issue: "[<KEY>-<iid>] <short title>", e.g. "[SHA-27] Buy - Back leaves without…".
 // Leading tags such as "[Bug]" go; the title is cut at a word near 40 characters.
-function sessionTitleFor(path, iid, title) {
+function sessionTitleFor(key, iid, title) {
   let d = String(title || '').replace(/^(\s*\[[^\]]*\])+/, '').replace(/\s+/g, ' ').trim();
   if (d.length > 40) d = d.slice(0, 41).replace(/\s+\S*$/, '').replace(/[\s,.;:-]+$/, '') + '…';
-  return `${String(path).split('/').pop()} #${iid}${d ? ' ' + d : ''}`;
+  return `[${key}-${iid}]${d ? ' ' + d : ''}`;
+}
+// Is `name` a session name of that issue? "[KEY-iid]" (this format) or "<project name> #<iid>" (the first one), alone or
+// followed by a space, so [BAK-2] is not [BAK-23].
+function namesIssue(name, key, path, iid) {
+  const n = String(name || '');
+  return [`[${key}-${iid}]`, `${String(path).split('/').pop()} #${iid}`].some(p => n === p || n.startsWith(p + ' '));
 }
 
 // The issue a session works on: the newest of its branches (the transcript's gitBranch values, oldest first, then the
@@ -124,4 +139,4 @@ async function fetchIssues(glab, host) {
   return { ok: false, reason: 'error', detail: 'unexpected answer from GitLab' };
 }
 
-module.exports = { parseStatus, gitStatus, loggedInHosts, glabHosts, projectPath, issueOfBranch, issueOfSession, sessionTitleFor, slimIssue, groupIssues, fetchIssues };
+module.exports = { parseStatus, gitStatus, loggedInHosts, glabHosts, projectPath, issueOfBranch, issueOfSession, keyFor, sessionTitleFor, namesIssue, slimIssue, groupIssues, fetchIssues };

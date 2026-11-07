@@ -131,7 +131,7 @@ function takeIssue(s) {
   s.started = { path: n.path, iid: n.iid };
   newFor.delete(s.cwd);
   server.broadcast(snapshot()); // the session's #iid shows now, not at its next event
-  return { output: { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(n.path, n.iid, n.title) } } };
+  return { output: { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(keyOf(n.path), n.iid, n.title) } } };
 }
 async function titleFor(s) {
   const hosts = gitlabHosts(), dir = s.cwd;
@@ -139,7 +139,7 @@ async function titleFor(s) {
   const g = await work.gitStatus(dir).catch(() => null);
   const project = g && pathIn(g.remotes, hosts), iid = g && work.issueOfBranch(g.branch);
   const i = project && iid && (issues.list || []).find(x => x.project === project && x.iid === iid);
-  return i ? { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(project, iid, i.title) } } : null;
+  return i ? { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(keyOf(project), iid, i.title) } } : null;
 }
 async function refreshGit(s, force = false) {
   const dir = s.cwd;
@@ -161,6 +161,8 @@ async function refreshGit(s, force = false) {
   for (const x of sessions.values()) if (x.cwd === dir && x.git !== git) { changed ||= JSON.stringify(x.git) !== was; x.git = git; }
   if (changed && server) server.broadcast(snapshot());
 }
+// A project's code in session names: the one you set in Settings, else the one made from its name.
+const keyOf = p => settings.workKeys?.[p] || work.keyFor(p);
 const gitlabHosts = () => (settings.gitlab ? issues.hosts || [] : []);
 // A repository's GitLab project path: the first signed-in host one of its remotes points at.
 // ponytail: the same path on two GitLabs counts as one project; key by host too if anyone works like that.
@@ -203,7 +205,8 @@ function workView() {
     if (s.iid) { const i = list.find(x => x.project === s.path && x.iid === s.iid); issueOf.set(s.id, { iid: s.iid, title: i?.title || '', url: i?.url || '' }); }
   }
   const { local, away } = work.groupIssues(list, live, live);
-  for (const g of local) for (const i of g.issues) if (!i.sessions.length) i.resume = issueSession(claudeList, g.dir, g.path.split('/').pop(), i.iid);
+  for (const g of local) for (const i of g.issues) if (!i.sessions.length) i.resume = issueSession(claudeList, g.dir, t => work.namesIssue(t, keyOf(g.path), g.path, i.iid));
+  for (const g of [...local, ...away]) { g.key = keyOf(g.path); g.autoKey = work.keyFor(g.path); }
   return { view: { status: issues.status, hosts, at: issues.at || null, failed: issues.failed || [], local, away }, issueOf };
 }
 // The Work tab's button on an issue: Resume opens the session working on it, exactly like a click on its pet;

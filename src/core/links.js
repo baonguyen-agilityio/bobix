@@ -55,11 +55,9 @@ function claudeSessions(root = sessionsDir()) {
   return out;
 }
 
-// The newest of those sessions in folder `dir` named after an issue: "<project> #<iid>" alone or followed by a space
-// (the name Bobix gives it, see work.sessionTitleFor). null when there is none.
-function issueSession(list, dir, key, iid) {
-  const p = `${key} #${iid}`;
-  return list.filter(s => s.cwd === dir && (s.title === p || s.title.startsWith(p + ' '))).sort((a, b) => b.at - a.at)[0]?.id || null;
+// The newest of those sessions in folder `dir` whose name `named(title)` accepts (an issue's, see work.namesIssue), or null.
+function issueSession(list, dir, named) {
+  return list.filter(s => s.cwd === dir && named(s.title)).sort((a, b) => b.at - a.at)[0]?.id || null;
 }
 
 module.exports = { parentOf, sessionsDir, claudeSessions, issueSession };
