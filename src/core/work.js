@@ -1,7 +1,6 @@
 // Work items: a session's local git status (no network), and the GitLab issues assigned to you, read through your own
 // `glab` (Bobix keeps no token, writes nothing to GitLab). Commands get argument lists, never a shell.
 const { execFile } = require('child_process');
-const path = require('path');
 
 const run = (cmd, args, opts = {}) => new Promise(res => execFile(cmd, args, { timeout: 15000, windowsHide: true, maxBuffer: 8 * 1024 * 1024, ...opts },
   (err, out, errOut) => res({ err, out: String(out || ''), errOut: String(errOut || '') })));
@@ -41,9 +40,13 @@ async function gitStatus(dir) {
   };
 }
 
-// "host" (with its port) of the configured GitLab URL, or '' when it isn't one.
-function hostOf(url) {
-  try { const u = new URL(url); return /^https?:$/.test(u.protocol) && u.hostname ? u.host.toLowerCase() : ''; } catch { return ''; }
+// The GitLab hosts glab is signed in to, from `glab auth status` (it names each host it can reach with "Logged in to <host> as …";
+// a host whose sign-in fails has no such line). glab masks the token there; Bobix reads only these lines and keeps nothing else.
+const loggedInHosts = text => [...new Set([...String(text).matchAll(/Logged in to (\S+) as /g)].map(m => m[1].toLowerCase()))];
+// null when glab is missing, else the hosts (none when it is signed in nowhere). glab exits non-zero when any host fails.
+async function glabHosts(glab) {
+  const r = await run(glab, ['auth', 'status'], { timeout: 30000 });
+  return r.err?.code === 'ENOENT' ? null : loggedInHosts(r.out + '\n' + r.errOut);
 }
 
 // A git remote URL → GitLab project path ("group/sub/project", lower case) when it points at `host`, else null.
@@ -65,12 +68,27 @@ function projectPath(remote, host) {
 // GitLab's "create branch" from an issue names it "<iid>-<title>", also under a prefix ("feat/<iid>-…"): the number, or null.
 const issueOfBranch = branch => { const m = /(?:^|\/)(\d+)-/.exec(branch || ''); return m ? Number(m[1]) : null; };
 
-// The name of a session that starts on an issue's branch: "<project> #<iid> <short title>", e.g. "shop-app #27 Back leaves without…".
+// A project's short code, from its name (the last part of its path): the first two letters of the first word and the
+// first letter of the last word ("ba-qa-kit" → BAK, "shop-app" → SHA); one word: its first three letters ("bobix" → BOB).
+// Letters and digits only, upper case. You can set your own per project in Settings (settings.workKeys).
+function keyFor(path) {
+  const w = String(path).split('/').pop().toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+  if (!w.length) return 'ISSUE';
+  return w.length === 1 ? w[0].slice(0, 3) : w[0].slice(0, 2) + w[w.length - 1][0];
+}
+
+// The name of a session started from an issue: "[<KEY>-<iid>] <short title>", e.g. "[SHA-27] Buy - Back leaves without…".
 // Leading tags such as "[Bug]" go; the title is cut at a word near 40 characters.
-function sessionTitleFor(path, iid, title) {
+function sessionTitleFor(key, iid, title) {
   let d = String(title || '').replace(/^(\s*\[[^\]]*\])+/, '').replace(/\s+/g, ' ').trim();
   if (d.length > 40) d = d.slice(0, 41).replace(/\s+\S*$/, '').replace(/[\s,.;:-]+$/, '') + '…';
-  return `${String(path).split('/').pop()} #${iid}${d ? ' ' + d : ''}`;
+  return `[${key}-${iid}]${d ? ' ' + d : ''}`;
+}
+// Is `name` a session name of that issue? "[KEY-iid]" (this format) or "<project name> #<iid>" (the first one), alone or
+// followed by a space, so [BAK-2] is not [BAK-23].
+function namesIssue(name, key, path, iid) {
+  const n = String(name || '');
+  return [`[${key}-${iid}]`, `${String(path).split('/').pop()} #${iid}`].some(p => n === p || n.startsWith(p + ' '));
 }
 
 // The issue a session works on: the newest of its branches (the transcript's gitBranch values, oldest first, then the
@@ -78,36 +96,9 @@ function sessionTitleFor(path, iid, title) {
 // s: { path, branches, parentIid }.
 function issueOfSession(s) {
   if (!s.path) return null;
+  if (s.started?.path === s.path) return s.started.iid; // you said so when it started
   for (let i = s.branches.length - 1; i >= 0; i--) { const n = issueOfBranch(s.branches[i]); if (n) return n; }
   return s.parentIid || null;
-}
-
-// GitLab's branch name for an issue: "<iid>-<title in lower case, words joined by ->", about 50 characters at most.
-function branchFor(iid, title) {
-  const slug = String(title || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 50).replace(/-+$/, '');
-  return slug ? `${iid}-${slug}` : `${iid}-issue`;
-}
-
-// `git worktree list --porcelain` → [{ dir, branch }] (branch null when detached).
-const worktreesOf = text => String(text).split(/\n\n+/).map(b => ({
-  dir: (/^worktree (.+)$/m.exec(b) || [])[1], branch: ((/^branch refs\/heads\/(.+)$/m.exec(b) || [])[1]) || null,
-})).filter(w => w.dir);
-
-// A folder of its own for an issue: the worktree already on its branch, else a new worktree next to the repository
-// ("<repo>-worktrees/<branch>") on its branch, made from the local branch if there is one, else from the default branch.
-// Local only: nothing is fetched or pushed. Returns { dir, branch, created } or { error }.
-async function issueWorktree(repo, iid, title) {
-  const wts = worktreesOf((await git(repo, ['worktree', 'list', '--porcelain'])).out);
-  const have = wts.find(w => issueOfBranch(w.branch) === iid);
-  if (have) return { dir: have.dir, branch: have.branch, created: false };
-  const refs = (await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).out.split('\n').filter(Boolean);
-  const local = refs.find(b => issueOfBranch(b) === iid);
-  const branch = local || branchFor(iid, title);
-  const dir = path.join(path.dirname(repo), `${path.basename(repo)}-worktrees`, branch.replace(/\//g, '-'));
-  const base = (await git(repo, ['rev-parse', '--verify', '--quiet', 'origin/HEAD'])).err ? 'HEAD' : 'origin/HEAD';
-  const r = await git(repo, local ? ['worktree', 'add', dir, branch] : ['worktree', 'add', '-b', branch, dir, base]);
-  return r.err ? { error: (r.errOut || r.err.message).trim().slice(0, 300) } : { dir, branch, created: true };
 }
 
 // The fields Bobix shows of one issue from GitLab's API.
@@ -148,4 +139,4 @@ async function fetchIssues(glab, host) {
   return { ok: false, reason: 'error', detail: 'unexpected answer from GitLab' };
 }
 
-module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, branchFor, worktreesOf, issueWorktree, sessionTitleFor, slimIssue, groupIssues, fetchIssues };
+module.exports = { parseStatus, gitStatus, loggedInHosts, glabHosts, projectPath, issueOfBranch, issueOfSession, keyFor, sessionTitleFor, namesIssue, slimIssue, groupIssues, fetchIssues };

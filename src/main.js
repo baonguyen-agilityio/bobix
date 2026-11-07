@@ -13,7 +13,7 @@ const autostart = require('./core/autostart');
 const { focusPids, ancestors, processNames, hostApp } = require('./core/focus');
 const { startServer } = require('./core/server');
 const { checkLatest } = require('./core/update');
-const { parentOf } = require('./core/links');
+const { parentOf, claudeSessions, issueSession } = require('./core/links');
 const feedback = require('./core/feedback');
 const { bitmap } = require('./core/icon');
 const petstore = require('./core/petstore');
@@ -60,7 +60,7 @@ const snapshot = () => {
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession).map(s => [s.hostSession, s.id]));
   const pics = settings?.petImages || {};
   const w = workView();
-  return { work: w.view, sessions: [...sessions.values()].map(s => {
+  return { work: w.view, waiting: [...newFor].map(([dir, n]) => ({ dir, path: n.path, iid: n.iid })), sessions: [...sessions.values()].map(s => {
     const project = s.project || '', pic = pics[project];
     return { ...publicView(s), parent: (s.parentHost && byHost.get(s.parentHost)) || null, project, image: petstore.served(pic), pixel: !!pic && typeof pic === 'object', whole: !!pic?.opts?.whole, issue: w.issueOf.get(s.id) || null };
   }) };
@@ -86,6 +86,8 @@ function onEvent(e, signal) {
   };
   isStop ? setTimeout(finish, 300) : finish(); // let Claude flush the final answer to the transcript first
   // A session that starts on an issue's branch gets its name from Bobix, the way /rename names it; one that has a name keeps it.
+  if (['SessionStart', 'SessionEnd'].includes(e.hook_event_name) && settings.gitlab) setTimeout(() => { readClaudeList(); server.broadcast(snapshot()); }, 3000); // Claude writes the name after
+  if (r.s && e.hook_event_name === 'SessionStart' && e.source === 'startup' && !e.session_title && newFor.has(r.s.cwd)) return takeIssue(r.s);
   if (r.s && e.hook_event_name === 'SessionStart' && ['startup', 'resume', 'fork'].includes(e.source) && !e.session_title) return { output: titleFor(r.s) };
   return answered;
 }
@@ -109,19 +111,35 @@ function findParent(s, now = Date.now()) {
 
 // ---------- work items: git status, GitLab issues ----------
 // Git: per folder, read on a session's events and by the 30 s timer, at most every 30 s (on Stop and SessionStart at once).
-// GitLab: only while its switch is on and a URL is set, through the person's own glab (see core/work.js and docs/privacy.md).
+// GitLab: only while its switch is on, from every GitLab the person's own glab is signed in to (see core/work.js and docs/privacy.md).
 const gitCache = new Map(); // folder -> { at, busy, git }
 const remotesOf = new Map(); // repository top folder -> its remote URLs (kept here, never sent to the pages: they may hold credentials)
 let glabPath = null, issues = { status: 'off' }, issuesBusy = false;
+// Claude desktop's own sessions (id, folder, name), read when issues are read and when a session starts or ends: an
+// issue's session that Bobix has not seen since it started is found by its name (see links.issueSession).
+let claudeList = [];
+const readClaudeList = () => { try { claudeList = claudeSessions(); } catch { claudeList = []; } };
 // A session is named after an issue only when its own folder is on that issue's branch ("<iid>-…") of a repository of
 // that GitLab project, and the issue is one assigned to you. Nothing is guessed from timing; other sessions keep Claude's name.
+// New opens a new session in the project's own folder and leaves "#25 waits" here, in memory. The first session that is
+// created in exactly that folder afterwards takes #25 and its name. Sessions already open there never start again, so they
+// can't take it; resumed, cleared or forked ones start with another source. The wait shows on the issue's card until a session
+// takes it, New is pressed again for that folder, or you cancel it there.
+const newFor = new Map(); // project folder -> { path, iid, title }
+function takeIssue(s) {
+  const n = newFor.get(s.cwd);
+  s.started = { path: n.path, iid: n.iid };
+  newFor.delete(s.cwd);
+  server.broadcast(snapshot()); // the session's #iid shows now, not at its next event
+  return { output: { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(keyOf(n.path), n.iid, n.title) } } };
+}
 async function titleFor(s) {
-  const host = gitlabHost(), dir = s.cwd;
-  if (!host || !dir || !path.isAbsolute(dir)) return null;
+  const hosts = gitlabHosts(), dir = s.cwd;
+  if (!hosts.length || !dir || !path.isAbsolute(dir)) return null;
   const g = await work.gitStatus(dir).catch(() => null);
-  const project = g && g.remotes.map(u => work.projectPath(u, host)).find(Boolean), iid = g && work.issueOfBranch(g.branch);
+  const project = g && pathIn(g.remotes, hosts), iid = g && work.issueOfBranch(g.branch);
   const i = project && iid && (issues.list || []).find(x => x.project === project && x.iid === iid);
-  return i ? { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(project, iid, i.title) } } : null;
+  return i ? { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(keyOf(project), iid, i.title) } } : null;
 }
 async function refreshGit(s, force = false) {
   const dir = s.cwd;
@@ -143,59 +161,73 @@ async function refreshGit(s, force = false) {
   for (const x of sessions.values()) if (x.cwd === dir && x.git !== git) { changed ||= JSON.stringify(x.git) !== was; x.git = git; }
   if (changed && server) server.broadcast(snapshot());
 }
-const gitlabHost = () => (settings.gitlab ? work.hostOf(settings.gitlabUrl) : '');
+// A project's code in session names: the one you set in Settings, else the one made from its name.
+const keyOf = p => settings.workKeys?.[p] || work.keyFor(p);
+const gitlabHosts = () => (settings.gitlab ? issues.hosts || [] : []);
+// A repository's GitLab project path: the first signed-in host one of its remotes points at.
+// ponytail: the same path on two GitLabs counts as one project; key by host too if anyone works like that.
+const pathIn = (remotes, hosts) => { for (const h of hosts) for (const u of remotes) { const p = work.projectPath(u, h); if (p) return p; } return null; };
 async function refreshIssues() {
-  const host = gitlabHost();
-  if (!host) { issues = { status: 'off' }; return server?.broadcast(snapshot()); }
+  if (!settings.gitlab) { issues = { status: 'off' }; return server?.broadcast(snapshot()); }
   if (issuesBusy) return;
   issuesBusy = true;
-  if (issues.host !== host) { issues = { status: 'loading', host }; server.broadcast(snapshot()); }
+  if (issues.status === 'off') { issues = { status: 'loading' }; server.broadcast(snapshot()); }
+  let next;
   try {
     glabPath ??= await findBin('glab');
-    const r = await work.fetchIssues(glabPath, host);
-    if (r.reason === 'noglab') glabPath = null; // look again next time: it may be installed by then
-    if (gitlabHost() !== host) return; // switched off or to another GitLab meanwhile
-    issues = r.ok ? { status: 'ok', host, at: Date.now(), list: r.issues } : { status: r.reason, host, at: Date.now(), detail: r.detail || '' };
-  } catch (err) { issues = { status: 'error', host, at: Date.now(), detail: err.message }; } finally { issuesBusy = false; }
+    const hosts = glabPath && await work.glabHosts(glabPath), at = Date.now();
+    if (!hosts) { glabPath = null; next = { status: 'noglab', at }; } // look again next time: it may be installed by then
+    else if (!hosts.length) next = { status: 'auth', hosts, at };
+    else {
+      const rs = await Promise.all(hosts.map(h => work.fetchIssues(glabPath, h)));
+      const failed = rs.map((r, i) => !r.ok && { host: hosts[i], detail: r.detail || r.reason }).filter(Boolean);
+      next = failed.length === hosts.length ? { status: 'error', hosts, at, failed } : { status: 'ok', hosts, at, failed, list: rs.flatMap(r => r.issues || []) };
+    }
+  } catch (err) { next = { status: 'error', hosts: [], at: Date.now(), failed: [{ host: 'glab', detail: err.message }] }; } finally { issuesBusy = false; }
+  issues = settings.gitlab ? next : { status: 'off' }; // switched off meanwhile
+  readClaudeList();
   server.broadcast(snapshot());
 }
 // What the pages see: issues grouped by project, and for each session the issue its branch names (GitLab's "<iid>-…").
 function workView() {
-  const host = gitlabHost(), issueOf = new Map();
-  if (!host) return { view: { status: 'off' }, issueOf };
-  const pathOf = top => (remotesOf.get(top) || []).map(u => work.projectPath(u, host)).find(Boolean) || null;
-  const own = s => work.issueOfSession({ path: pathOf(s.git.top), branches: [...(s.branches || []), s.git.branch].filter(Boolean) });
+  const hosts = gitlabHosts(), issueOf = new Map();
+  if (!settings.gitlab) return { view: { status: 'off' }, issueOf };
+  const pathOf = top => pathIn(remotesOf.get(top) || [], hosts);
+  const own = s => work.issueOfSession({ path: pathOf(s.git.top), started: s.started, branches: [...(s.branches || []), s.git.branch].filter(Boolean) });
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession && s.git).map(s => [s.hostSession, s]));
   const live = [...sessions.values()].filter(s => s.git).map(s => {
     const path = pathOf(s.git.top), parent = s.parentHost && byHost.get(s.parentHost);
     const parentIid = parent && pathOf(parent.git.top) === path ? own(parent) : null; // a side session works on its parent's issue
-    return { id: s.id, path, dir: s.project || s.git.top, iid: work.issueOfSession({ path, parentIid, branches: [...(s.branches || []), s.git.branch].filter(Boolean) }) };
+    return { id: s.id, path, dir: s.project || s.git.top, iid: work.issueOfSession({ path, parentIid, started: s.started, branches: [...(s.branches || []), s.git.branch].filter(Boolean) }) };
   });
   const list = issues.list || [];
   for (const s of live) {
     if (s.iid) { const i = list.find(x => x.project === s.path && x.iid === s.iid); issueOf.set(s.id, { iid: s.iid, title: i?.title || '', url: i?.url || '' }); }
   }
   const { local, away } = work.groupIssues(list, live, live);
-  return { view: { status: issues.status, host, at: issues.at || null, detail: issues.detail || '', local, away }, issueOf };
+  for (const g of local) for (const i of g.issues) if (!i.sessions.length) i.resume = issueSession(claudeList, g.dir, t => work.namesIssue(t, keyOf(g.path), g.path, i.iid));
+  for (const g of [...local, ...away]) { g.key = keyOf(g.path); g.autoKey = work.keyFor(g.path); }
+  return { view: { status: issues.status, hosts, at: issues.at || null, failed: issues.failed || [], local, away }, issueOf };
 }
 // The panel's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
-// New opens a new Claude desktop session in the issue's own folder: a git worktree on its branch (see work.issueWorktree),
-// made the first time, so the session is that issue's by its branch (the link Claude documents, no prompt sent).
+// New opens a new Claude desktop session in the project's folder (the link Claude documents, no prompt sent); see newFor.
 async function startIssue(path, iid) {
   const { view } = workView();
   const g = view.local?.find(x => x.path === path), i = g?.issues.find(x => x.iid === iid);
   if (!g || !i) return { ok: false, reason: 'gone' };
   const id = i.sessions.map(x => sessions.get(x)).filter(Boolean).sort((a, b) => b.updated - a.updated)[0]?.id;
   if (id) return { mode: 'resume', ...(await openSession(id, true, false)) };
-  const wt = await work.issueWorktree(g.dir, iid, i.title);
-  if (wt.error) return { ok: false, mode: 'new', reason: 'worktree', detail: wt.error };
-  try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(wt.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
-  return { ok: true, mode: 'new', dir: wt.dir, branch: wt.branch, created: wt.created };
+  if (i.resume) { // named after the issue in Claude desktop, not seen by Bobix since it started
+    try { await shell.openExternal(`claude://code/continue?session=${encodeURIComponent(i.resume)}`); return { ok: true, mode: 'resume' }; } catch (err) { return { ok: false, mode: 'resume', reason: 'notfound' }; }
+  }
+  newFor.set(g.dir, { path, iid, title: i.title });
+  server.broadcast(snapshot());
+  try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(g.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
+  return { ok: true, mode: 'new', dir: g.dir };
 }
-// Only links to the configured GitLab open from the panel.
+// Only the links of the issues Bobix read open from the panel.
 function openIssue(url) {
-  const base = settings.gitlab && work.hostOf(settings.gitlabUrl) ? settings.gitlabUrl + '/' : null;
-  if (!base || typeof url !== 'string' || !url.startsWith(base)) return false;
+  if (!settings.gitlab || typeof url !== 'string' || !(issues.list || []).some(i => i.url === url)) return false;
   shell.openExternal(url);
   return true;
 }
@@ -614,7 +646,7 @@ async function updateSettings(patch) {
   if (settings.petsVisible !== prev.petsVisible) showOverlay();
   if (['petsVisible', 'paused', 'language', 'seenVersion'].some(k => settings[k] !== prev[k])) buildTray();
   releaseUnseen();
-  if (settings.gitlab !== prev.gitlab || settings.gitlabUrl !== prev.gitlabUrl) refreshIssues();
+  if (settings.gitlab !== prev.gitlab) refreshIssues();
   if (settings.checkUpdates && !prev.checkUpdates) checkForUpdate();
   if (!settings.checkUpdates && update) { update = null; buildTray(); }
   broadcastSettings();
@@ -678,6 +710,7 @@ function ipc() {
   handle('pet:image', (id, act, opts) => (typeof id !== 'string' || !Object.hasOwn(petImageActs, act) ? null : petImageActs[act](id, opts && typeof opts === 'object' ? opts : undefined)));
   handle('work:refresh', () => refreshIssues());
   handle('work:open', url => openIssue(url));
+  handle('work:cancel', dir => { if (newFor.delete(dir)) server.broadcast(snapshot()); });
   handle('work:start', (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? startIssue(path, iid) : null));
   handle('pet:set', (id, mode) => { if (typeof id === 'string' && setPet(sessions, id, mode)) { releaseUnseen(); server.broadcast(snapshot()); } });
   ipcMain.on('rects', (e, r) => { if (fromUs(e) && Array.isArray(r)) { rects = r.filter(x => Array.isArray(x) && x.length === 4 && x.every(Number.isFinite)); shapeOverlay(); showOverlay(); } });

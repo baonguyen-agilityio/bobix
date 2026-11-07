@@ -443,6 +443,30 @@ test('new version check: only a newer, non-pre-release version is offered', asyn
   assert.equal(await checkLatest({ repo, current: '0.1.1', fetchImpl: async () => ({ ok: false }) }), null);
 });
 
+test('an issue\'s Claude desktop session is found by its name, in its folder, newest first, archived ones left out', () => {
+  const { claudeSessions, issueSession } = require('../src/core/links');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-cs-')), u = path.join(root, 'org', 'user');
+  fs.mkdirSync(u, { recursive: true });
+  const put = (id, o) => fs.writeFileSync(path.join(u, `local_${id}.json`), JSON.stringify(o));
+  try {
+    put('a', { cwd: '/src/shop', title: 'shop #23 Item list...', lastActivityAt: 100 });
+    put('b', { cwd: '/src/shop', title: '[SHO-23] Item list...', lastActivityAt: 300 });
+    put('c', { cwd: '/src/shop', title: 'shop #23 newer but archived', lastActivityAt: 900, isArchived: true });
+    put('d', { cwd: '/src/shop', title: 'shop #231 other issue', lastActivityAt: 950 });
+    put('e', { cwd: '/src/other', title: 'shop #23 other folder', lastActivityAt: 990 });
+    put('f', { cwd: '/src/shop', title: 'shop #24', lastActivityAt: 10 });
+    fs.writeFileSync(path.join(u, 'notes.json'), '{}');
+    const list = claudeSessions(root), named = iid => t => work.namesIssue(t, 'SHO', 'g/shop', iid);
+    strict.equal(list.length, 5);
+    strict.equal(issueSession(list, '/src/shop', named(23)), 'local_b');
+    strict.equal(issueSession(list, '/src/shop', named(24)), 'local_f', 'the name alone');
+    strict.equal(issueSession(list, '/src/shop', named(25)), null);
+    put('b', { cwd: '/src/shop', title: 'renamed by hand', lastActivityAt: 400 });
+    fs.utimesSync(path.join(u, 'local_b.json'), new Date(), new Date(Date.now() + 5000));
+    strict.equal(issueSession(claudeSessions(root), '/src/shop', named(23)), 'local_a', 'a changed file is read again');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('a Claude desktop side session knows the session it was started from', () => {
   const { parentOf } = require('../src/core/links');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-ccd-'));
@@ -1209,9 +1233,11 @@ test('work: git remote URL → GitLab project path, only on the configured host'
   strict.equal(work.projectPath('/Users/me/repo.git', h), null, 'local path');
   strict.equal(work.projectPath('git@gitlab.example.com:onlyname.git', h), null, 'no namespace');
   strict.equal(work.projectPath('git@gitlab.example.com:g/p.git', ''), null, 'GitLab off');
-  strict.equal(work.hostOf('https://GitLab.com/'), 'gitlab.com');
-  strict.equal(work.hostOf('ftp://gitlab.com'), '');
-  strict.equal(work.hostOf(''), '');
+  const status = 'gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/v4/user: 401\n  ✓ Git operations for gitlab.com configured to use ssh protocol.\n'
+    + 'git.example.com:8443\n  ✓ Logged in to git.example.com:8443 as someone (keyring)\n  ✓ Token: **************************\n'
+    + 'Gitlab.Example.org\n  ✓ Logged in to Gitlab.Example.org as other (config.yml)\n';
+  strict.deepEqual(work.loggedInHosts(status), ['git.example.com:8443', 'gitlab.example.org'], 'a host whose sign-in fails is left out');
+  strict.deepEqual(work.loggedInHosts('X could not authenticate'), []);
 });
 
 test('work: a branch named from an issue ("<iid>-…") links to that issue of the same project', () => {
@@ -1245,10 +1271,7 @@ test('work: git status --porcelain=v2 parsing', () => {
 
 test('settings: GitLab is off by default and keeps only the URL\'s origin', () => {
   strict.equal(DEFAULTS.gitlab, false);
-  strict.equal(DEFAULTS.gitlabUrl, '');
-  strict.equal(sanitize({ gitlabUrl: 'https://user:pw@gitlab.example.com/some/path?x=1' }).gitlabUrl, 'https://gitlab.example.com');
-  strict.equal(sanitize({ gitlabUrl: 'javascript:alert(1)' }).gitlabUrl, '');
-  strict.equal(sanitize({ gitlabUrl: '' }, { ...DEFAULTS, gitlabUrl: 'https://a.b' }).gitlabUrl, '');
+  strict.equal(sanitize({ gitlabUrl: 'https://gitlab.example.com' }).gitlabUrl, undefined, 'no GitLab URL to set: glab knows where it is signed in');
 });
 
 test('settings: the Work tab\'s chosen projects are GitLab paths, lower case, no duplicates', () => {
@@ -1266,31 +1289,6 @@ test('work: a session works on the issue its newest branch names, else its paren
   strict.equal(s(['29-x'], null, null), null, 'repository not on this GitLab');
 });
 
-test('work: an issue\'s branch and its own worktree, made once, local only', async () => {
-  strict.equal(work.branchFor(27, '[Bug] Buy - Back leaves without "Leave without saving?"'), '27-bug-buy-back-leaves-without-leave-without-saving');
-  strict.equal(work.branchFor(3, 'Sửa lỗi đăng nhập'), '3-sua-loi-dang-nhap');
-  strict.equal(work.branchFor(4, '!!!'), '4-issue');
-  strict.ok(work.branchFor(5, 'word '.repeat(40)).length <= 52);
-  strict.deepEqual(work.worktreesOf('worktree /r\nHEAD a\nbranch refs/heads/main\n\nworktree /r-w/27-x\nHEAD b\nbranch refs/heads/27-x\n\nworktree /d\nHEAD c\ndetached\n'),
-    [{ dir: '/r', branch: 'main' }, { dir: '/r-w/27-x', branch: '27-x' }, { dir: '/d', branch: null }]);
-  const { execFileSync } = require('child_process');
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-wt-'))), repo = path.join(root, 'shop');
-  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' }).toString().trim();
-  try {
-    fs.mkdirSync(repo); execFileSync('git', ['init', '-q', '-b', 'main', repo]);
-    g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
-    const a = await work.issueWorktree(repo, 27, 'Back leaves');
-    strict.deepEqual(a, { dir: path.join(root, 'shop-worktrees', '27-back-leaves'), branch: '27-back-leaves', created: true });
-    strict.equal(g('-C', a.dir, 'branch', '--show-current'), '27-back-leaves');
-    strict.equal(g('branch', '--show-current'), 'main', 'the main checkout stays on its branch');
-    strict.deepEqual(await work.issueWorktree(repo, 27, 'Renamed title'), { ...a, created: false }, 'the same folder again');
-    g('branch', 'feat/31-from-gitlab');
-    const b = await work.issueWorktree(repo, 31, 'Other');
-    strict.equal(b.branch, 'feat/31-from-gitlab', 'an existing local branch of the issue is used');
-    strict.equal(b.dir, path.join(root, 'shop-worktrees', 'feat-31-from-gitlab'));
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
-});
-
 test('transcript: every gitBranch the session was on, oldest first', () => {
   const f = path.join(os.tmpdir(), `bobix-branches-${process.pid}.jsonl`);
   fs.writeFileSync(f, [{ type: 'user', gitBranch: 'main' }, { type: 'assistant', gitBranch: '29-fix', message: { content: [] } }, { type: 'user', gitBranch: '29-fix' }, { type: 'user', gitBranch: 'feat/31-x' }, { type: 'user' }].map(l => JSON.stringify(l)).join('\n'));
@@ -1298,8 +1296,30 @@ test('transcript: every gitBranch the session was on, oldest first', () => {
 });
 
 test('work: a session started from an issue is named "<project> #<iid> <short title>"', () => {
-  strict.equal(work.sessionTitleFor('team/shop-app', 27, '[Bug] Buy - Back leaves without "Leave without saving?" and typed values are lost'), 'shop-app #27 Buy - Back leaves without "Leave without…');
-  strict.equal(work.sessionTitleFor('g/sub/api', 3, 'Fix login'), 'api #3 Fix login');
-  strict.equal(work.sessionTitleFor('g/api', 4, ''), 'api #4');
-  strict.ok(work.sessionTitleFor('g/api', 5, 'x'.repeat(200)).length <= 52);
+  strict.equal(work.sessionTitleFor('SHA', 27, '[Bug] Buy - Back leaves without "Leave without saving?" and typed values are lost'), '[SHA-27] Buy - Back leaves without "Leave without…');
+  strict.equal(work.sessionTitleFor('BAK', 23, 'Sửa lỗi đăng nhập'), '[BAK-23] Sửa lỗi đăng nhập');
+  strict.equal(work.sessionTitleFor('API', 4, ''), '[API-4]');
+  strict.ok(work.sessionTitleFor('API', 5, 'x'.repeat(200)).length <= 52);
 });
+
+test('work: a project\'s code comes from its name; a session name matches its issue exactly, new and old format', () => {
+  strict.equal(work.keyFor('team/ba-qa-kit'), 'BAK');
+  strict.equal(work.keyFor('bao/ba-qa-kit-sandbox'), 'BAS');
+  strict.equal(work.keyFor('bao/html-css-training'), 'HTT');
+  strict.equal(work.keyFor('g/shop_app'), 'SHA');
+  strict.equal(work.keyFor('g/bobix'), 'BOB');
+  strict.equal(work.keyFor('g/x2'), 'X2');
+  strict.equal(work.keyFor('g/---'), 'ISSUE');
+  const m = n => work.namesIssue(n, 'BAK', 'bao/ba-qa-kit-sandbox', 2);
+  strict.equal(m('[BAK-2] Fix'), true);
+  strict.equal(m('[BAK-2]'), true);
+  strict.equal(m('[BAK-23] Fix'), false, '[BAK-2] is not [BAK-23]');
+  strict.equal(m('[BAS-2] Fix'), false, 'another code');
+  strict.equal(m('ba-qa-kit-sandbox #2 Fix'), true, 'the first format still resumes');
+  strict.equal(m('ba-qa-kit-sandbox #23 Fix'), false);
+  strict.equal(m('Fix [BAK-2]'), false);
+  const { sanitize } = require('../src/core/settings');
+  strict.deepEqual(sanitize({ workKeys: { 'bao/ba-qa-kit-sandbox': 'BAK', 'Bao/Other': 'X1', 'bad': 'BAK', 'a/b': 'bak', 'a/c': '1AB', 'a/../d': 'D' } }).workKeys,
+    { 'bao/ba-qa-kit-sandbox': 'BAK', 'bao/other': 'X1' });
+});
+

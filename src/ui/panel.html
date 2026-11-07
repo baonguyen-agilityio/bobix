@@ -337,6 +337,8 @@ input[type=number]{width:104px}
 .k.issue .t span{color:var(--ink-3);font-weight:500}
 .k.issue .acts{display:flex;flex-wrap:wrap;gap:6px;margin:0}
 .k .overdue{color:var(--coral-ink);font-weight:600}
+.keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;text-transform:uppercase}
+.k.issue .wait{font-size:var(--t-xs);color:var(--accent,var(--ink))}
 .pick{position:relative}
 .pick summary{list-style:none}.pick summary::-webkit-details-marker{display:none}
 .pick summary::after{content:" ▾"}
@@ -635,7 +637,7 @@ $('#pane').addEventListener('click', async e => {
 });
 
 // ---------- work: GitLab issues assigned to you ----------
-let work = { status: 'off' }, pickOpen = false, todoN = 0;
+let work = { status: 'off' }, lastProjects = '', waiting = [], pickOpen = false, todoN = 0; // waiting: New pressed, no new session there yet
 // Projects the person chose in the To do column's picker (Settings → workProjects); none chosen = all.
 const picked = () => state?.settings?.workProjects || [];
 const shown = g => !picked().length || picked().includes(g.path);
@@ -662,36 +664,38 @@ function eggSVG(seed) {
 }
 // An issue no session in the list works on; one that has a session shows as that session's #number instead.
 function issueHTML(i, g) {
+  const wait = waiting.find(x => x.dir === g.dir && x.iid === i.iid);
   const due = i.due ? `<span class="${i.due < today() ? 'overdue' : ''}">${esc(T(i.due < today() ? 'work.overdue' : 'work.due', { d: i.due }))}</span>` : '';
-  const acts = (bridge && g.dir ? `<button class="btn sm pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T('work.new.desc'))}">${T('work.new')}</button>` : '')
+  const acts = (bridge && g.dir ? `<button class="btn sm pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T(i.resume ? 'work.resume.desc' : 'work.new.desc'))}">${T(i.resume ? 'work.resume' : 'work.new')}</button>` : '')
     + (bridge ? `<button class="btn sm" type="button" data-url="${esc(i.url)}">${T('work.open')}</button>` : '');
   return `<li class="k issue"><span class="hd"><span class="egg">${eggSVG(g.path + i.iid)}</span><span class="t"><span>#${i.iid}</span> ${esc(i.title)}</span></span>
     <span class="chips"><span title="${esc(g.path)}">${esc(g.path.split('/').pop())}</span>${g.dir ? '' : `<span class="tag" title="${esc(T('work.away.desc'))}">${esc(T('work.away'))}</span>`}${i.labels.map(l => `<span class="tag">${esc(l)}</span>`).join('')}${due}</span>
+    ${wait ? `<span class="wait">${esc(T('work.wait'))} <button class="lnk" type="button" data-cancel="${esc(g.dir)}" title="${esc(T('work.wait.desc'))}">✕ ${esc(T('work.wait.cancel'))}</button></span>` : ''}
     ${acts ? `<div class="acts">${acts}</div>` : ''}</li>`;
 }
 function renderWork() {
-  const box = $('#work'), w = work, host = esc(w.host || '');
+  const box = $('#work'), w = work, hosts = (w.hosts || []).join(', ');
   const free = i => !i.sessions.some(id => list.some(x => x.id === id));
   const groups = [...w.local || [], ...w.away || []], todo = groups.filter(shown).flatMap(g => g.issues.filter(free).map(i => [i, g]));
   todoN = w.status === 'off' ? 0 : todo.length;
   $('.colm[data-k="todo"] .n').textContent = todoN;
-  const key = JSON.stringify([w, picked(), list.map(s => s.id), lang, Math.floor(Date.now() / 60e3)]);
+  const key = JSON.stringify([w, waiting, picked(), list.map(s => s.id), lang, Math.floor(Date.now() / 60e3)]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   if (w.status === 'off') {
     box.innerHTML = `<div class="card"><h3>${T('work.off.title')}</h3><p class="note">${esc(T('work.off.body'))}</p>${bridge ? `<div class="acts"><button class="btn sm" type="button" data-tab-go="settings">${T('work.toSettings')}</button></div>` : ''}</div>`;
     return;
   }
-  const login = `<div class="cmd"><code>glab auth login --hostname ${host}</code><button class="btn sm" type="button" data-copy="glab auth login --hostname ${host}">${T('work.copy')}</button></div>`;
+  const login = `<div class="cmd"><code>glab auth login</code><button class="btn sm" type="button" data-copy="glab auth login">${T('work.copy')}</button></div>`;
   const n = groups.filter(shown).reduce((a, g) => a + g.issues.length, 0);
-  const top = `<p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading', { host: w.host }))
-      : w.status === 'ok' ? esc(T('work.updated', { n, host: w.host, ago: ago(w.at) })) : ''}</p>
+  const top = `<p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading'))
+      : w.status === 'ok' ? esc(T('work.updated', { n, host: hosts, ago: ago(w.at) })) : ''}</p>
     ${bridge ? `<div class="work-top">${groups.length ? pickerHTML(groups) : ''}<button class="btn sm" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button></div>` : ''}`;
   const problem = w.status === 'noglab' ? `<div class="card"><p class="note err">${esc(T('work.noglab'))}</p>${login}</div>`
-    : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth', { host: w.host }))}</p>${login}</div>`
-    : w.status === 'error' ? `<div class="card"><p class="note err">${esc(T('work.error', { host: w.host, x: w.detail }))}</p></div>` : '';
+    : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth'))}</p>${login}</div>`
+    : (w.failed || []).map(f => `<div class="card"><p class="note err">${esc(T('work.error', { host: f.host, x: f.detail }))}</p></div>`).join('');
   box.innerHTML = top + problem
-    + (w.status === 'ok' && !n ? `<p class="none">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: w.host }))}</p>` : '')
+    + (w.status === 'ok' && !n ? `<p class="none">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: hosts }))}</p>` : '')
     + (todo.length ? `<ol class="rows">${todo.map(([i, g]) => issueHTML(i, g)).join('')}</ol>` : n ? `<p class="none">${esc(T('col.none'))}</p>` : '');
 }
 $('#work').addEventListener('toggle', e => { if (e.target.matches('.pick')) pickOpen = e.target.open; }, true);
@@ -712,10 +716,11 @@ $('#work').addEventListener('click', async e => {
     b.disabled = true;
     const r = await bridge.startIssue(b.dataset.path, Number(b.dataset.start));
     b.disabled = false;
-    if (r?.mode === 'new' && r.ok) toast(T('work.new.done', { b: r.branch }));
-    else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(r.reason === 'worktree' ? T('work.new.wt', { x: r.detail }) : T('work.new.fail'));
+    if (r?.mode === 'new' && r.ok) toast(T('work.new.done'));
+    else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
     return;
   }
+  if (b.dataset.cancel) { bridge.cancelNew(b.dataset.cancel); return; }
   if (b.dataset.copy) { try { await navigator.clipboard.writeText(b.dataset.copy); toast(T('work.copied')); } catch {} return; }
   if (b.dataset.act === 'refresh') { b.disabled = true; await bridge.refreshWork(); }
 });
@@ -766,7 +771,7 @@ const SECTIONS = [
   ]],
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
-    { k: 'gitlabUrl', type: 'url', wide: true },
+    { k: 'workKeys', type: 'keys', wide: true },
   ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
@@ -793,7 +798,11 @@ function control(r, s) {
         <input type="range" class="rng" id="f-${k}" data-k="${k}" min="0" max="100" step="5" value="${s[k]}" style="--fill:${fill(z, s[k])}"><output class="val" for="f-${k}" data-val="${k}">${s[k]}%</output></div>`).join('')}
     </div>`;
   }
-  if (r.type === 'url') return `<div class="rng-row" style="width:100%"><input type="url" id="${id}" value="${esc(v)}" placeholder="https://gitlab.com" aria-labelledby="l-${r.k}" spellcheck="false" style="flex:1;min-width:0"><button class="btn" type="button" data-act="gitlabUrl">${T('set.gitlabUrl.apply')}</button></div>`;
+  if (r.type === 'keys') { // each project's code in session names; the projects are the ones Bobix read issues for
+    const gs = [...(work.local || []), ...(work.away || [])];
+    if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
+    return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
+  }
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
 }
@@ -862,6 +871,13 @@ $('#settings').addEventListener('input', e => {
   save({ [k]: v }, { rerender: false });
 });
 $('#settings').addEventListener('change', e => {
+  const of = e.target.dataset.keyOf;
+  if (of) {
+    const v = e.target.value.trim().toUpperCase(), keys = { ...(state.settings.workKeys || {}) };
+    if (v && !/^[A-Z][A-Z0-9]{0,9}$/.test(v)) { e.target.value = keys[of] || ''; return toast(T('set.workKeys.bad')); }
+    if (v) keys[of] = v; else delete keys[of];
+    return save({ workKeys: keys });
+  }
   const k = e.target.dataset.k;
   if (!k || e.target.type === 'range') return;
   save({ [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -871,11 +887,6 @@ $('#settings').addEventListener('click', async e => {
   if (!t) return;
   if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
   if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
-  if (t.dataset.act === 'gitlabUrl') {
-    const v = $('#f-gitlabUrl').value.trim();
-    if (v && !/^https?:\/\/[^\s/]+/i.test(v)) return toast(T('set.gitlabUrl.bad'));
-    return save({ gitlabUrl: v });
-  }
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
     if (v === state.settings.port) return;
@@ -1174,6 +1185,9 @@ es.onmessage = m => {
   const firstIds = list.slice(0, 4).map(x => x.id).join();
   list = d.sessions || [];
   work = d.work || { status: 'off' };
+  waiting = d.waiting || [];
+  const projects = [...(work.local || []), ...(work.away || [])].map(g => g.path + ':' + g.autoKey).join();
+  if (projects !== lastProjects) { lastProjects = projects; if (!$('#tab-settings').hidden && !document.activeElement?.dataset?.keyOf) renderSettings(); } // the codes list
   if (selected && !list.some(s => s.id === selected)) selected = null;
   render();
   if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();
