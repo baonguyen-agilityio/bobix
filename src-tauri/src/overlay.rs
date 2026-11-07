@@ -42,6 +42,8 @@ pub fn create(app: &AppHandle, b: &Arc<Bobix>) -> tauri::Result<WebviewWindow> {
         .visible(false)
         .build()?;
     if let Some((pos, size)) = bounds(app, b) { win.set_size(size)?; win.set_position(pos)?; }
+    // Linux (tao) can't make a window that was never shown click-through: done in show() there.
+    #[cfg(not(target_os = "linux"))]
     win.set_ignore_cursor_events(true)?;
     #[cfg(target_os = "macos")]
     on_full_screen_spaces(&win);
@@ -65,15 +67,22 @@ pub fn place(app: &AppHandle, b: &Bobix) {
     if let Some((pos, size)) = bounds(app, b) { let _ = win.set_size(size); let _ = win.set_position(pos); }
 }
 
+// Shown click-through: the cursor poll lets the mouse in over a pet. Linux drops "always on top" when a window is
+// hidden and shown again: set it every time.
+fn show(win: &WebviewWindow, b: &Bobix) {
+    let _ = win.show();
+    b.core.lock().unwrap().interactive = false;
+    let _ = win.set_ignore_cursor_events(true);
+    let _ = win.set_always_on_top(true);
+}
+
 // A full-screen transparent window costs the compositor even when empty: keep it hidden while no pet is out.
 pub fn show_or_hide(app: &AppHandle, b: &Bobix) {
     let Some(win) = app.get_webview_window(LABEL) else { return };
     let want = { let c = b.core.lock().unwrap(); c.settings["petsVisible"] == true && !c.rects.is_empty() };
     let visible = win.is_visible().unwrap_or(false);
     if want && !visible {
-        let _ = win.show();
-        // Linux drops "always on top" when a window is hidden and shown again: set it every time.
-        let _ = win.set_always_on_top(true);
+        show(&win, b);
         let _ = win.set_visible_on_all_workspaces(true);
     } else if !want && visible {
         let _ = win.hide();
@@ -88,8 +97,7 @@ pub fn wake(app: &AppHandle, b: &Arc<Bobix>) {
     let Some(win) = app.get_webview_window(LABEL) else { return };
     let go = { let c = b.core.lock().unwrap(); c.settings["petsVisible"] == true && c.rects.is_empty() && !c.sessions.is_empty() };
     if !go || win.is_visible().unwrap_or(true) { return; }
-    let _ = win.show();
-    let _ = win.set_always_on_top(true);
+    show(&win, b);
     let (app, b) = (app.clone(), b.clone());
     thread::spawn(move || { thread::sleep(Duration::from_millis(1500)); show_or_hide(&app, &b); });
 }
