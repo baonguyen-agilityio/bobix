@@ -7,98 +7,126 @@
 <link rel="stylesheet" href="/ui/fonts/fonts.css">
 <link rel="stylesheet" href="/ui/theme.css">
 <style>
+/* The board look: warm neutrals, plain readable type, one drawer for details. Dark follows the system. */
+:root{--bg:oklch(97.5% .012 85);--surface:oklch(99.5% .004 85);--sunk:oklch(95% .014 85);--line:oklch(91% .012 85);--line-strong:oklch(84% .015 85);--on-pop:oklch(24% .035 266)}
+@media (prefers-color-scheme:dark){:root{
+  --n-50:oklch(25% .022 266);--n-100:oklch(20.5% .02 266);--n-200:oklch(30% .022 266);--n-300:oklch(38% .024 266);
+  --n-500:oklch(70% .02 262);--n-700:oklch(85% .014 262);--n-900:oklch(96% .008 262);
+  --sky-soft:oklch(33% .05 235);--mint-soft:oklch(33% .05 162);--coral-soft:oklch(32% .07 33);--coral-ink:oklch(80% .12 33);
+  --bg:oklch(19% .02 266);--surface:oklch(24% .022 266);--sunk:oklch(21% .02 266);--line:oklch(30% .02 266);--line-strong:oklch(38% .024 266);
+  color-scheme:dark}}
+/* the creatures draw eyes and outlines with --n-900: keep them dark on any theme */
+.sprite,.mini,.pd-pet,.logo,.egg{--n-900:oklch(24% .035 266)}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 [hidden]{display:none!important}
 .boot{visibility:hidden}
 body{margin:0;background:var(--bg);color:var(--ink);font:400 var(--t-md)/1.55 var(--f-body);font-variant-numeric:tabular-nums}
+body.drawer-on{overflow:hidden}
 button,input,select{font:inherit;color:inherit}
-h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.15;margin:0;text-wrap:balance}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;text-wrap:balance}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--line-strong);background-clip:padding-box;border:2px solid transparent;border-radius:var(--pill)}
 ::-webkit-scrollbar-thumb:hover{background-color:var(--ink-3)}
 
-.bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:var(--s4);min-height:64px;padding:var(--s2) var(--s6);background:var(--bg);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:var(--s2) var(--s4);min-height:60px;padding:10px clamp(12px,3vw,28px);background:color-mix(in oklch,var(--bg) 90%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:var(--s2)}
+.brand .logo{width:32px;height:32px}
 .bar h1{font-size:var(--t-xl)}
-.tabs{display:flex;gap:var(--s1);background:var(--n-200);padding:var(--s1);border-radius:var(--pill)}
-.tab{border:0;background:none;padding:var(--s1) var(--s4);border-radius:var(--pill);cursor:pointer;font-size:var(--t-sm);font-weight:600;color:var(--ink-2);transition:background 150ms var(--ease)}
+.ver{font-size:var(--t-xs);color:var(--ink-3);align-self:flex-end;padding-bottom:4px}
+.tabs{display:flex;gap:4px;background:var(--line);padding:4px;border-radius:var(--pill);min-width:0;overflow-x:auto}
+.tab{border:0;background:none;padding:6px 14px;border-radius:var(--pill);cursor:pointer;font-size:var(--t-sm);font-weight:600;color:var(--ink-2);white-space:nowrap;transition:background 150ms var(--ease)}
 .tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--lift)}
-.counts{display:flex;gap:var(--s2);flex-wrap:wrap;color:var(--ink-2);font-size:var(--t-sm)}
-.counts b{font-weight:600;color:var(--ink)}
-.counts .hot b{color:var(--coral-ink)}
+.tab .dot{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:var(--pill);background:var(--coral);color:var(--on-pop);font-size:11px;line-height:18px;text-align:center}
 .conn{font-size:var(--t-sm);color:var(--ink-3);margin-left:auto}
 .conn.lost{color:var(--coral-ink);font-weight:600}
-.btn{position:relative;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);padding:var(--s2) var(--s4);font-size:var(--t-sm);font-weight:600;cursor:pointer;box-shadow:var(--press);transition:transform 120ms var(--ease),box-shadow 120ms var(--ease)}
-.btn:hover{transform:translateY(-1px);box-shadow:0 5px 0 var(--line-strong)}
-.btn:active{transform:translateY(4px);box-shadow:0 0 0 var(--line-strong)}
-.btn:disabled{opacity:.5;cursor:default;transform:none}
+.btn{position:relative;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);padding:7px var(--s4);font-size:var(--t-sm);font-weight:600;cursor:pointer;transition:border-color 120ms var(--ease)}
+.btn:hover{border-color:var(--ink-3)}
+.btn:disabled{opacity:.5;cursor:default}
 .btn.pri{background:var(--ink);color:var(--n-50);border-color:var(--ink)}
+.btn.sm{padding:4px 12px;font-size:var(--t-xs)}
+.icon-btn{flex:none;width:36px;height:36px;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);cursor:pointer;font-size:15px}
+.icon-btn:hover{border-color:var(--ink-3)}
 :focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 
-.app{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s6);padding:var(--s6);max-width:1920px;margin:0 auto}
-.app.has-pane{grid-template-columns:minmax(0,1fr) var(--pane)}
-.group+.group{margin-top:var(--s8)}
-#board{container-type:inline-size}
-.group-h{display:flex;align-items:baseline;gap:var(--s2);margin-bottom:var(--s3)}
-.group-h h2{font-size:var(--t-lg)}
-.group-h .n{font-size:var(--t-sm);color:var(--ink-3)}
-.group[data-st="waiting"] .group-h h2{color:var(--coral-ink)}
-details.group>summary,.fold>summary{list-style:none;cursor:pointer;border-radius:var(--r-md)}
-details.group>summary::-webkit-details-marker,.fold>summary::-webkit-details-marker{display:none}
-details.group>summary .group-h::after,.fold>summary h3::after{content:var(--open);font-size:var(--t-xs);font-weight:400;color:var(--ink-3);margin-left:var(--s2)}
-details.group[open]>summary .group-h::after,.fold[open]>summary h3::after{content:var(--close)}
+/* board: one column per state, GitLab issues nobody works on first */
+.app{max-width:1920px;margin:0 auto;padding:var(--s4) clamp(12px,2vw,28px) var(--s8)}
+.board{display:grid;grid-template-columns:repeat(5,minmax(200px,1fr));gap:var(--s3);overflow-x:auto;align-items:start;padding-bottom:var(--s2)}
+.colm{background:var(--sunk);border:1px solid var(--line);border-radius:20px;padding:var(--s3);display:flex;flex-direction:column;gap:var(--s2);min-width:0}
+.colm>h2{display:flex;align-items:center;gap:var(--s2);font-size:var(--t-md);padding:2px 4px var(--s1)}
+.colm>h2 i{flex:none;width:10px;height:10px;border-radius:50%;background:var(--n-300)}
+.colm[data-k=todo]>h2 i{background:var(--butter)}.colm[data-k=waiting]>h2 i{background:var(--coral)}.colm[data-k=working]>h2 i{background:var(--sky)}.colm[data-k=done]>h2 i{background:var(--mint)}
+.colm>h2 .n{margin-left:auto;font:600 var(--t-xs) var(--f-body);color:var(--ink-3)}
+.colm[data-k=waiting]{background:color-mix(in oklch,var(--coral-soft) 70%,var(--sunk));border-color:color-mix(in oklch,var(--coral) 40%,var(--line))}
+.none{margin:0;font-size:var(--t-sm);color:var(--ink-3);padding:var(--s2) 4px}
 .rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--s2)}
-.rows li.side{margin-left:var(--s6, 32px);position:relative}
-.rows li.side::before{content:'';position:absolute;left:calc(-1 * var(--s4));top:-6px;bottom:50%;width:12px;border-left:2px solid var(--line-strong);border-bottom:2px solid var(--line-strong);border-bottom-left-radius:8px}
-.row{width:100%;display:grid;grid-template-columns:48px minmax(0,1.7fr) minmax(0,1fr) 96px 80px;align-items:center;gap:var(--s4);padding:var(--s2) var(--s4) var(--s2) var(--s2);min-height:64px;text-align:left;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);transition:transform 150ms var(--ease),border-color 150ms var(--ease),box-shadow 150ms var(--ease)}
-.row:hover{transform:translateY(-1px);border-color:var(--line-strong);box-shadow:var(--lift)}
-.row[aria-pressed="true"]{border-color:var(--ink);box-shadow:var(--lift)}
-.row.st-waiting{background:var(--coral-soft);border-color:var(--coral)}
-.sprite{display:grid;place-items:center;width:48px;height:48px;border-radius:var(--r-md);background:var(--n-100)}
-.st-waiting .sprite{background:var(--surface)}
-.main{min-width:0;display:flex;flex-direction:column}
-.title{display:flex;flex-wrap:wrap;column-gap:var(--s2);align-items:baseline;min-width:0}
-.title strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.lv,.folder{font-size:var(--t-xs);color:var(--ink-3);flex:none}
-.title .folder{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ver{font-size:var(--t-xs);color:var(--ink-3);margin-left:calc(-1 * var(--s2));align-self:flex-end;padding-bottom:2px}
-.folder.off{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
-.quest{font-size:var(--t-sm);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.status{min-width:0;display:flex}
-.pill{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px var(--s3);border-radius:var(--pill);font-size:var(--t-sm);font-weight:500;background:var(--n-100);color:var(--ink-2)}
-.st-working .pill{background:var(--sky-soft);color:var(--ink)}
-.st-waiting .pill{background:var(--coral);color:var(--n-900);font-weight:600}
-.st-done .pill{background:var(--mint-soft);color:var(--ink)}
-.ctx{display:flex;flex-direction:column;gap:var(--s1);font-size:var(--t-xs);color:var(--ink-3)}
-.meter{height:8px;border-radius:var(--pill);background:var(--n-200);overflow:hidden}
-.meter i{display:block;height:100%;background:var(--ink-2);transform-origin:left;transform:scaleX(var(--v));transition:transform 250ms var(--ease)}
+.k{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);transition:border-color 150ms var(--ease),box-shadow 150ms var(--ease)}
+.k:hover{border-color:var(--line-strong);box-shadow:var(--lift)}
+.k:has(>[aria-pressed="true"]){border-color:var(--ink);box-shadow:var(--lift)}
+.k-main{display:flex;flex-direction:column;gap:6px;width:100%;padding:var(--s3);border:0;background:none;border-radius:inherit;text-align:left;cursor:pointer}
+.k-main:has(+.k-ask){padding-bottom:0}
+.k .hd{display:grid;grid-template-columns:44px minmax(0,1fr);gap:var(--s2);align-items:center}
+.sprite{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:var(--sunk)}
+.k .t{font-weight:600;font-size:var(--t-sm);line-height:1.35;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.k .s{font-size:var(--t-xs);color:var(--ink-2)}
+.st-waiting .k-main .s{color:var(--coral-ink);font-weight:600}
+.k .q{font-size:var(--t-xs);color:var(--ink-3);overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.k .chips{display:flex;flex-wrap:wrap;gap:4px;font-size:var(--t-xs);color:var(--ink-3);min-width:0}
+.k .chips>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.k .tag{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 8px}
+.k .ft{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3)}
+.k-ask{display:flex;flex-direction:column;gap:6px;padding:0 var(--s3) var(--s3)}
+.k-ask code{display:block;font-size:var(--t-xs);background:var(--sunk);border:0;border-radius:8px;padding:4px 8px;max-height:6em;overflow:auto}
+.k-ask .acts{display:flex;flex-wrap:wrap;gap:6px;margin:0}
+.k-ask .note{margin:0;font-size:var(--t-xs)}
+.ctx{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-xs);color:var(--ink-3)}
+.meter{width:64px;height:6px;border-radius:var(--pill);background:var(--line);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--ink-3);transform-origin:left;transform:scaleX(var(--v));transition:transform 250ms var(--ease)}
 .meter.low i{background:var(--coral)}
 .meter.unk i{background:var(--n-300)}
-.ago{font-size:var(--t-xs);color:var(--ink-3);text-align:right;white-space:nowrap}
+.ago{white-space:nowrap}
+.pill{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px var(--s3);border-radius:var(--pill);font-size:var(--t-sm);font-weight:600;background:var(--line);color:var(--ink-2)}
+.st-working .pill{background:var(--sky-soft);color:var(--ink)}
+.st-waiting .pill{background:var(--coral);color:var(--on-pop)}
+.st-done .pill{background:var(--mint-soft);color:var(--ink)}
 .eye{transform-box:fill-box;transform-origin:center}
 .st-working .eye{animation:blink 4.2s infinite}
 .st-waiting .sprite svg{animation:hop 900ms var(--ease) infinite}
 @keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.15)}}
 @keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}
+/* below 900 px one column at a time, picked from a row of chips */
+.colpick{display:none}
+@media (max-width:899px){
+  .board{grid-template-columns:minmax(0,1fr)}
+  .colm{display:none}.colm.on{display:flex}
+  .colpick{display:flex;gap:4px;overflow-x:auto;margin-bottom:var(--s3)}
+  .colpick button{flex:none;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);padding:5px 12px;font-size:var(--t-sm);font-weight:600;cursor:pointer}
+  .colpick button[aria-pressed=true]{background:var(--ink);color:var(--n-50);border-color:var(--ink)}
+  .colpick b{font-weight:600;opacity:.7;margin-left:4px}
+}
 
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s6)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:var(--s6)}
 .card h2{font-size:var(--t-lg);margin-bottom:var(--s2)}
-.empty{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s6);align-items:center;max-width:640px;margin:var(--s12) 0}
+.empty{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s6);align-items:center;max-width:640px;margin:0 0 var(--s4)}
 .empty h2{font-size:var(--t-xl);margin-bottom:var(--s2)}
 .empty p{margin:0 0 var(--s3);font-size:var(--t-sm);color:var(--ink-2);max-width:52ch}
-code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px solid var(--line);border-radius:8px;padding:2px var(--s2);overflow-wrap:anywhere}
+code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:2px var(--s2);overflow-wrap:anywhere}
 
-.pane{position:sticky;top:88px;align-self:start;max-height:calc(100dvh - 112px);overflow:hidden auto;overflow-wrap:anywhere}
+/* a session's details: a drawer from the right, over the board */
+.scrim{position:fixed;inset:0;z-index:30;background:oklch(20% .02 266 / .35)}
+.pane{position:fixed;top:0;right:0;bottom:0;z-index:31;width:min(620px,100vw);overflow:hidden auto;overflow-wrap:anywhere;background:var(--surface);box-shadow:-8px 0 32px #0003;padding:var(--s6) clamp(16px,3vw,28px) var(--s12)}
 .pane-top{display:flex;gap:var(--s4);align-items:center}
-.pane-top .sprite{width:96px;height:96px;border-radius:var(--r-lg);flex:none}
+.pane-top .sprite{width:72px;height:72px;border-radius:20px;flex:none}
+.pane-top>div{flex:1;min-width:0}
 .pane-top h2{font-size:var(--t-xl);overflow-wrap:anywhere}
-.pane-top .lv{font-size:var(--t-sm)}
+.pane-top .lv{font-size:var(--t-sm);color:var(--ink-3)}
+.pane-top .icon-btn{align-self:flex-start}
+.pane-line{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);align-items:center;margin-top:var(--s4)}
 .pane-acts{display:grid;gap:var(--s4);margin-top:var(--s4)}
-.pane-acts>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s2)}
+.pane-acts>div{display:flex;flex-wrap:wrap;gap:var(--s2)}
 /* the picture row sizes each button to its label, so a long one like "Thú cưng mặc định" stays on one line */
-.pane-acts>div+div{display:flex;flex-wrap:wrap}
-.pane-acts>div+div .btn{flex:1 1 auto}
+.pane-acts .btn{flex:1 1 auto}
 .pane-acts .btn{padding:var(--s2) var(--s1);overflow-wrap:normal}
 .pane-acts [data-act="pet"]{display:grid;place-items:center}
 .pane-acts [data-act="pet"]>span{grid-area:1/1;pointer-events:none}
@@ -107,7 +135,7 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .pane .meta{margin:var(--s4) 0 0;font-size:var(--t-xs);line-height:1.6;color:var(--ink-3);overflow-wrap:anywhere}
 .pane h3{font-size:var(--t-md);margin:var(--s6) 0 var(--s2)}
 .pane p{margin:0}
-.ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-md);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
+.ask{margin-top:var(--s4);padding:var(--s3) var(--s4);border-radius:var(--r-lg);background:var(--coral-soft);border:1px solid var(--coral);font-size:var(--t-sm)}
 .ask .acts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2)}
 .ask strong{color:var(--coral-ink)}
 .md{overflow-wrap:anywhere;font-size:var(--t-sm);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
@@ -141,7 +169,7 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .log.sides li{display:block;padding:0;border:0}
 .log.sides li+li{margin-top:var(--s2)}
 .log.sides li::before{content:none}
-.sidecard{display:flex;align-items:center;gap:var(--s3);width:100%;text-align:left;padding:var(--s2) var(--s3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer;transition:border-color 150ms var(--ease)}
+.sidecard{display:flex;align-items:center;gap:var(--s3);width:100%;text-align:left;padding:var(--s2) var(--s3);background:var(--sunk);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer;transition:border-color 150ms var(--ease)}
 .sidecard:hover{border-color:var(--line-strong)}
 .sidecard::after{content:'›';flex:none;color:var(--ink-3);font-size:var(--t-md)}
 .sidecard>span{pointer-events:none}
@@ -152,7 +180,7 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,2);overflow:hidden}
 .clamp.open{display:block}
 /* the quest is Markdown: clamped by height, since line-clamp lays tables and lists out as flex items */
-.clamp.prompt{display:block;-webkit-line-clamp:none;max-height:10em;background:var(--bg)}
+.clamp.prompt{display:block;-webkit-line-clamp:none;max-height:10em;background:var(--sunk)}
 .clamp.prompt.open{max-height:none}
 .prompt.over{-webkit-mask-image:linear-gradient(#000 65%,transparent)}
 .more{display:block;border:0;background:none;padding:0;margin-top:var(--s1);font:600 var(--t-xs) var(--f-body);color:var(--ink-2);cursor:pointer}
@@ -174,10 +202,10 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--n-100);border:1px s
 .preview .mini{position:absolute;bottom:6px;width:var(--ps);height:var(--ps);opacity:var(--op);transition:left 200ms var(--ease)}
 .preview.top .mini{bottom:auto;top:6px}
 .preview .mini svg{width:100%;height:100%}
-.preview .hidden{position:absolute;inset:0;display:grid;place-items:center;font-weight:600;color:var(--ink-2);background:oklch(96% 0.01 262 / .7)}
+.preview .hidden{position:absolute;inset:0;display:grid;place-items:center;font-weight:600;color:var(--ink-2);background:color-mix(in oklch,var(--bg) 70%,transparent)}
 .saved{align-self:flex-start;font-size:var(--t-sm);font-weight:600;color:var(--ink-2);padding:2px var(--s3);border-radius:var(--pill);background:var(--mint-soft);opacity:0;transition:opacity 200ms var(--ease)}
 .saved.on{opacity:1}
-.sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s2) var(--s6) var(--s2)}
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:var(--s2) var(--s6) var(--s2)}
 .sec+.sec{margin-top:var(--s6)}
 .sec h2{font-size:var(--t-lg);padding:var(--s4) 0 var(--s3)}
 .opt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s3) var(--s6);align-items:center;padding:var(--s4) 0;border-top:1px solid var(--line)}
@@ -221,7 +249,7 @@ input[type=number]{width:104px}
 .pd-ctl .pr{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);min-height:32px}
 .fb .pd-ctl .pr label{margin:0;font-size:var(--t-sm);font-weight:600}
 .fb .sw{width:44px;padding:0;border:0;background:var(--n-300)}
-.fb .sw:checked{background:var(--ink)}
+.fb .sw:checked{background:oklch(62% .13 160)}
 .pd-info{min-height:1.4em;margin:0;font-size:var(--t-xs);color:var(--ink-3)}
 /* the outline colour: a card under its switch, the code field beside its title so the swatches get the full width */
 .pd-oc{display:grid;gap:var(--s2);min-width:0;margin:0;padding:var(--s2) var(--s3);border:1px solid var(--line);border-radius:var(--r-md);background:var(--n-100);transition:opacity 150ms var(--ease)}
@@ -245,8 +273,8 @@ input[type=number]{width:104px}
 /* Save and Cancel stay in view when a short window makes the dialog scroll (same spacing as .acts when it does not) */
 .pd .acts{position:sticky;bottom:calc(var(--s6) * -1);margin:var(--s1) 0 calc(var(--s6) * -1);padding:var(--s3) 0 var(--s6);background:var(--surface)}
 .sw{appearance:none;-webkit-appearance:none;margin:0;width:44px;height:26px;border-radius:var(--pill);background:var(--n-300);position:relative;cursor:pointer;flex:none;transition:background 150ms var(--ease)}
-.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--n-50);box-shadow:0 1px 2px oklch(30% 0.04 262 / .3);transition:transform 150ms var(--ease)}
-.sw:checked{background:var(--ink)}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px oklch(30% 0.04 262 / .3);transition:transform 150ms var(--ease)}
+.sw:checked{background:oklch(62% .13 160)}
 .sw:checked::after{transform:translateX(18px)}
 .sw:disabled{opacity:.45;cursor:default}
 .seg{display:inline-flex;flex-wrap:wrap;gap:2px;background:var(--n-200);padding:3px;border-radius:var(--pill)}
@@ -268,7 +296,7 @@ input[type=number]{width:104px}
 .acts{display:flex;gap:var(--s3);flex-wrap:wrap;margin-top:var(--s4)}
 
 /* setup */
-.setup-wrap{max-width:860px;margin:0 auto;padding:var(--s6);display:flex;flex-direction:column;gap:var(--s6)}
+.setup-wrap{max-width:860px;margin:0 auto;padding:var(--s6) clamp(12px,2vw,28px);display:flex;flex-direction:column;gap:var(--s6)}
 .hero{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s6);align-items:center}
 .hero .sprite{width:88px;height:88px;border-radius:var(--r-lg)}
 .hero h2{font-size:var(--t-xl);margin-bottom:var(--s1)}
@@ -295,73 +323,55 @@ input[type=number]{width:104px}
 .toast{display:flex;gap:var(--s3);align-items:center;padding:var(--s3);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--lift);font-size:var(--t-sm);text-align:left;animation:toast-in 250ms var(--ease)}
 @keyframes toast-in{from{opacity:0;transform:translateY(8px)}}
 
-.work-wrap{max-width:980px;margin:0 auto;padding:var(--s6);display:flex;flex-direction:column;gap:var(--s6)}
-.work-top{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:center;justify-content:space-between}
-.work-top .note{margin:0}
-.cmd{display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap;margin-top:var(--s3)}
-.cmd code{background:var(--n-100);border-radius:var(--r-sm, 6px);padding:var(--s1) var(--s3);font-size:var(--t-sm)}
-.issues{list-style:none;margin:0;padding:0}
-.issue{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s2) var(--s4);align-items:center;padding:var(--s3) 0;border-top:1px solid var(--line)}
-.issue:first-child{border-top:0}
-.issue .i-t{font-weight:600;overflow-wrap:anywhere}
-.issue .i-n{color:var(--ink-3);font-weight:500;margin-right:var(--s2)}
-.issue .i-meta{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin-top:var(--s1);font-size:var(--t-xs);color:var(--ink-2)}
-.issue .lab{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
-.issue .overdue{color:var(--coral-ink);font-weight:600}
-.issue .i-acts{display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end}
-.issue.doing .i-t::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--sky, #4aa3df);margin-right:var(--s2);vertical-align:middle}
+.todo{display:flex;flex-direction:column;gap:var(--s2)}
+.todo .note{margin:0;font-size:var(--t-xs)}
+.todo .card{padding:var(--s3);border-radius:var(--r-lg)}
+.todo .card h3{font-size:var(--t-sm);margin-bottom:var(--s1)}
+.todo .acts{margin-top:var(--s2);gap:6px}
+.work-top{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cmd{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin-top:var(--s2)}
+.cmd code{font-size:var(--t-xs)}
+.k.issue{padding:var(--s3)}
+.k.issue .hd{grid-template-columns:30px minmax(0,1fr);align-items:start}
+.egg{width:28px;height:32px}
+.k.issue .t span{color:var(--ink-3);font-weight:500}
+.k.issue .acts{display:flex;flex-wrap:wrap;gap:6px;margin:0}
+.k .overdue{color:var(--coral-ink);font-weight:600}
 .pick{position:relative}
 .pick summary{list-style:none}.pick summary::-webkit-details-marker{display:none}
 .pick summary::after{content:" ▾"}
-.pick-list{position:absolute;z-index:5;top:calc(100% + var(--s2));right:0;min-width:340px;max-width:min(520px,90vw);max-height:360px;overflow:auto;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--lift);padding:var(--s2)}
+.pick-list{position:absolute;z-index:5;top:calc(100% + var(--s2));left:0;min-width:min(340px,80vw);max-width:min(520px,90vw);max-height:360px;overflow:auto;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--lift);padding:var(--s2)}
 .pick-list label{display:flex;gap:var(--s3);align-items:center;padding:var(--s2) var(--s3);border-radius:var(--r-sm, 6px);cursor:pointer;font-size:var(--t-sm);overflow-wrap:anywhere}
-.pick-list label:hover{background:var(--n-100)}
+.pick-list label:hover{background:var(--sunk)}
 .pick-list .n{margin-left:auto;flex:none;padding-left:var(--s3);color:var(--ink-3)}
 .pick-list hr{border:0;border-top:1px solid var(--line);margin:var(--s1) 0}
-.wgroup h2{display:flex;gap:var(--s2);align-items:baseline;flex-wrap:wrap}
-.wgroup h2 .n,.wgroup h2 .dir{font-size:var(--t-sm);font-weight:500;color:var(--ink-3);overflow-wrap:anywhere}
 .gitkv{grid-template-columns:max-content minmax(0,1fr)}
 .gitkv dd{overflow-wrap:anywhere;display:block}
 .gitkv code{overflow-wrap:anywhere}
 .lnk{border:0;background:none;padding:0;font:inherit;color:inherit;text-align:left;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
-@media (max-width:720px){.issue{grid-template-columns:1fr}.issue .i-acts{justify-content:flex-start}}
 @media (max-width:980px){
   .set-wrap{grid-template-columns:minmax(0,1fr)}
   .set-side{position:static}
-  .app.has-pane{grid-template-columns:minmax(0,1fr)}
-  .pane{position:fixed;left:0;right:0;bottom:0;top:auto;z-index:30;max-height:78dvh;border-radius:var(--r-lg) var(--r-lg) 0 0;box-shadow:0 -8px 32px oklch(30% 0.04 262 / .18)}
 }
 @media (max-width:720px){
   .bar{padding:var(--s3) var(--s4)}
-  .counts{order:3;width:100%}
-  .app{padding:var(--s4)}
   .empty{grid-template-columns:1fr}
   .opt{grid-template-columns:1fr}
   .ctl{justify-content:flex-start}
   .kv{grid-template-columns:1fr}
 }
-@container (max-width:700px){
-  .row{grid-template-columns:48px minmax(0,1fr) auto;gap:var(--s1) var(--s3)}
-  .row .status{grid-column:2/4;grid-row:2}
-  .row .ctx{grid-column:2/4;grid-row:3;flex-direction:row;align-items:center;gap:var(--s2)}
-  .row .ctx .meter{flex:1}
-  .row .sprite{grid-row:1/3;align-self:start}
-  .ago{grid-column:3;grid-row:1}
-}
+@media (max-width:560px){.bar h1{display:none}.tab{padding:6px 10px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body class="boot">
 <header class="bar">
-  <h1 data-t="app.name"></h1>
-  <span class="ver" id="ver" hidden></span>
+  <div class="brand"><span class="logo" id="logo"></span><h1 data-t="app.name"></h1><span class="ver" id="ver" hidden></span></div>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-tab="sessions" data-t="tab.sessions"></button>
-    <button class="tab" role="tab" data-tab="work" data-t="tab.work"></button>
     <button class="tab" role="tab" data-tab="settings" data-t="tab.settings"></button>
     <button class="tab" role="tab" data-tab="setup" data-t="tab.setup"></button>
   </nav>
-  <div class="counts" id="counts"></div>
   <button class="btn" type="button" id="showAll" data-t="board.showAll" hidden></button>
   <span class="conn lost" id="conn" role="status"></span>
   <button class="btn" type="button" id="fb-open" data-t="fb.title"></button>
@@ -370,23 +380,25 @@ input[type=number]{width:104px}
 <dialog id="pd-dialog" class="fb pd" aria-labelledby="pd-heading"></dialog>
 
 <section id="tab-sessions">
-  <div class="app" id="app">
-    <main id="board">
-      <div class="intro" id="intro"></div>
-      <div class="card empty" id="empty">
-        <span class="sprite" id="egg" style="width:96px;height:96px"></span>
-        <div><h2 data-t="empty.title"></h2><p data-t="empty.body"></p></div>
-      </div>
-      <section class="group" data-st="waiting" hidden><div class="group-h"><h2 data-t="group.waiting"></h2><span class="n"></span></div><ol class="rows"></ol></section>
-      <section class="group" data-st="working" hidden><div class="group-h"><h2 data-t="group.working"></h2><span class="n"></span></div><ol class="rows"></ol></section>
-      <section class="group" data-st="done" hidden><div class="group-h"><h2 data-t="group.done"></h2><span class="n"></span></div><ol class="rows"></ol></section>
-      <details class="group" data-st="idle" hidden><summary><div class="group-h"><h2 data-t="group.idle"></h2><span class="n"></span></div></summary><ol class="rows"></ol></details>
-    </main>
-    <aside class="card pane" id="pane" hidden aria-live="polite"></aside>
-  </div>
+  <main class="app" id="board">
+    <div class="intro" id="intro"></div>
+    <div class="card empty" id="empty">
+      <span class="sprite" id="egg" style="width:96px;height:96px"></span>
+      <div><h2 data-t="empty.title"></h2><p data-t="empty.body"></p></div>
+    </div>
+    <div class="colpick" id="colpick"></div>
+    <div class="board">
+      <section class="colm" data-k="todo"><h2><i></i><span data-t="group.todo"></span><span class="n"></span></h2><div class="todo" id="work"></div></section>
+      <section class="colm" data-k="waiting"><h2><i></i><span data-t="group.waiting"></span><span class="n"></span></h2><ol class="rows"></ol><p class="none" data-t="col.none.waiting"></p></section>
+      <section class="colm" data-k="working"><h2><i></i><span data-t="group.working"></span><span class="n"></span></h2><ol class="rows"></ol><p class="none" data-t="col.none"></p></section>
+      <section class="colm" data-k="done"><h2><i></i><span data-t="group.done"></span><span class="n"></span></h2><ol class="rows"></ol><p class="none" data-t="col.none"></p></section>
+      <section class="colm" data-k="idle"><h2><i></i><span data-t="group.idle"></span><span class="n"></span></h2><ol class="rows"></ol><p class="none" data-t="col.none"></p></section>
+    </div>
+  </main>
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="pane" id="pane" hidden role="dialog" aria-labelledby="pane-h"></aside>
 </section>
 
-<section id="tab-work" hidden><div class="work-wrap" id="work"></div></section>
 <section id="tab-settings" hidden><div class="set-wrap" id="settings"></div></section>
 <section id="tab-setup" hidden><div class="setup-wrap" id="setup"></div></section>
 <div class="toasts" id="toasts"></div>
@@ -442,9 +454,10 @@ function toast(text, action) {
 // ---------- tabs ----------
 function showTab(name) {
   if (name === 'feedback') return openFeedback(); // from the tray, over whichever tab is open
+  if (name === 'work') { col = 'todo'; name = 'sessions'; } // the GitLab issues are the board's To do column
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
-  for (const n of ['sessions', 'work', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
-  if (name === 'work') renderWork();
+  for (const n of ['sessions', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
+  if (name === 'sessions') render();
   if (name === 'setup') renderSetup();
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -480,18 +493,22 @@ function showMore(root) {
   });
 }
 function rowHTML(s, st) {
-  const hp = s.ctx;
-  const par = s.parent && list.find(x => x.id === s.parent);
-  return `<span class="sprite">${petArt(par || s, st, petColor(s, list))}</span>
-    <span class="main"><span class="title"><strong>${esc(s.title || s.name)}</strong><span class="lv">${T('pet.lv', { n: s.lv })}</span>${s.title ? `<span class="folder">${esc(s.name)}</span>` : ''}${s.issue ? `<span class="folder off" title="${esc(s.issue.title)}">#${s.issue.iid}</span>` : ''}${s.parent ? `<span class="folder">${esc(T('pet.from', { name: titleOf(s.parent) }))}</span>` : ''}${kidsOf(s).length ? `<span class="folder off">${esc(T('pet.kids', { n: kidsOf(s).length }))}</span>` : ''}${offScreen(s) ? `<span class="folder off">${T('pet.offScreen')}</span>` : ''}</span>
-      <span class="quest">${esc(line2(s, st))}</span></span>
-    <span class="status"><span class="pill">${esc(statusText(s, st))}</span></span>
-    <span class="ctx" title="${T('ctx')}"><span class="meter ${hp == null ? 'unk' : hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></span><span>${hp == null ? T('ctx.unknown') : `${T('ctx')} ${hp}%`}</span></span>
-    <span class="ago" data-t-ago="${s.since}">${ago(s.since)}</span>`;
+  const hp = s.ctx, par = s.parent && list.find(x => x.id === s.parent), kids = kidsOf(s).length;
+  const tag = (t, title) => `<span class="tag"${title ? ` title="${esc(title)}"` : ''}>${esc(t)}</span>`;
+  return `<span class="hd"><span class="sprite">${petArt(par || s, st, petColor(s, list))}</span><span class="t">${esc(s.title || s.name)}</span></span>
+    <span class="s">${esc(statusText(s, st))}</span>
+    ${st === 'waiting' ? '' : `<span class="q">${esc(line2(s, st))}</span>`}
+    <span class="chips">${s.title ? `<span>${esc(s.name)}</span>` : ''}<span>${T('pet.lv', { n: s.lv })}</span>${s.issue ? tag('#' + s.issue.iid, s.issue.title) : ''}${par ? tag(T('pet.from', { name: titleOf(s.parent) })) : ''}${kids ? tag(T('pet.kids', { n: kids })) : ''}${offScreen(s) ? tag(T('pet.offScreen')) : ''}</span>
+    <span class="ft"><span class="ctx" title="${T('ctx')}"><span class="meter ${hp == null ? 'unk' : hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 100) / 100}"></i></span>${hp == null ? T('ctx.unknown') : `${hp}%`}</span><span class="ago" data-t-ago="${s.since}">${ago(s.since)}</span></span>`;
 }
+// A waiting session's request on its card: answered right there while Bobix holds it, else where it can be answered.
+const askRowHTML = s => `<div class="k-ask"><code>${esc(s.ask)}</code>${secsLeft(s) && bridge ? `<div class="acts">
+  ${s.answer.always ? `<button class="btn sm" type="button" data-choice="always">${T('ask.always')}</button>` : ''}<button class="btn sm pri" type="button" data-choice="allow">${T('ask.allow')}</button><button class="btn sm danger" type="button" data-choice="deny">${T('ask.deny')}</button></div>`
+  : `<p class="note">${T(approveWhere(s))}</p>`}</div>`;
 
 let list = [], selected = new URLSearchParams(location.search).get('s');
 let hint = null; // why a pet or notification click could not open the selected session: { id, reason, app, folder }
+let col = null; // the column shown below 900 px; null: the most urgent one with something in it
 let reportOpen = true; // the final report folded or not: kept while the panel is open, for every session
 const moreOpen = new Set(); // Quest and log lines opened with "Show more" (the pane is redrawn on every log line)
 const ORDER_IN = { waiting: (a, b) => a.since - b.since, working: (a, b) => b.updated - a.updated, done: (a, b) => b.since - a.since, idle: (a, b) => b.updated - a.updated };
@@ -500,17 +517,17 @@ function render() {
   const by = { waiting: [], working: [], done: [], idle: [] };
   for (const s of list) by[look(s)].push(s);
   for (const st in by) {
-    const g = document.querySelector(`.group[data-st="${st}"]`), ol = g.querySelector('.rows'), items = familyOrder(by[st].sort(ORDER_IN[st]));
-    g.hidden = !items.length;
+    const g = document.querySelector(`.colm[data-k="${st}"]`), ol = g.querySelector('.rows'), items = familyOrder(by[st].sort(ORDER_IN[st]));
     g.querySelector('.n').textContent = items.length;
+    g.querySelector('.none').hidden = items.length > 0;
     const keep = new Set();
     items.forEach((s, i) => {
       let li = [...ol.children].find(c => c.dataset.id === s.id) || [...document.querySelectorAll('li[data-id]')].find(c => c.dataset.id === s.id);
-      if (!li) { li = document.createElement('li'); li.dataset.id = s.id; li.innerHTML = '<button class="row" type="button"></button>'; }
-      const btn = li.firstChild, key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.issue, s.image, s.whole, s.project, petColor(s, list), lang]);
-      if (btn.dataset.key !== key) { btn.dataset.key = key; btn.className = 'row st-' + st; btn.innerHTML = rowHTML(s, st); }
-      li.classList.toggle('side', !!(s.parent && items.some(x => x.id === s.parent)));
-      btn.setAttribute('aria-pressed', String(s.id === selected));
+      if (!li) { li = document.createElement('li'); li.dataset.id = s.id; }
+      const ask = st === 'waiting' && [s.ask, !!secsLeft(s), s.answer?.always, s.hostSession];
+      const key = JSON.stringify([st, s.lv, s.tool, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.since, s.name, s.title, offScreen(s), s.parent, titleOf(s.parent), kidsOf(s).length, s.issue, s.image, s.whole, s.project, petColor(s, list), ask, lang]);
+      if (li.dataset.key !== key) { li.dataset.key = key; li.className = 'k st-' + st; li.innerHTML = `<button class="k-main" type="button">${rowHTML(s, st)}</button>${ask ? askRowHTML(s) : ''}`; }
+      li.firstChild.setAttribute('aria-pressed', String(s.id === selected));
       if (ol.children[i] !== li) ol.insertBefore(li, ol.children[i] || null);
       keep.add(li);
     });
@@ -518,22 +535,30 @@ function render() {
   }
   $('#empty').hidden = list.length > 0;
   renderIntro();
+  renderWork();
   $('#showAll').hidden = !bridge || !list.some(offScreen);
-  const n = st => by[st].length;
-  $('#counts').innerHTML = ['waiting', 'working', 'done', 'idle'].map(st => `<span class="${st === 'waiting' && n(st) ? 'hot' : ''}"><b>${n(st)}</b> ${T('count.' + st)}</span>`).join('');
+  const n = k => k === 'todo' ? todoN : by[k].length;
+  const cur = col || ['waiting', 'working', 'done', 'todo', 'idle'].find(n) || 'waiting';
+  document.querySelectorAll('.colm').forEach(c => c.classList.toggle('on', c.dataset.k === cur));
+  const pick = ['todo', 'waiting', 'working', 'done', 'idle'].map(k => `<button type="button" data-col="${k}" aria-pressed="${k === cur}">${esc(T('group.' + k))}<b>${n(k)}</b></button>`).join('');
+  if ($('#colpick').innerHTML !== pick) $('#colpick').innerHTML = pick; // drawn every second while a request waits: keep focus
+  const tab = document.querySelector('.tab[data-tab="sessions"]');
+  tab.querySelector('.dot')?.remove();
+  if (n('waiting')) tab.insertAdjacentHTML('beforeend', `<span class="dot">${n('waiting')}</span>`);
   document.title = n('waiting') ? `(${n('waiting')}) ${T('app.name')}` : T('app.name');
   document.querySelectorAll('[data-t-ago]').forEach(e => e.textContent = ago(+e.dataset.tAgo));
   renderPane();
 }
+$('#colpick').addEventListener('click', e => { const b = e.target.closest('[data-col]'); if (b) { col = b.dataset.col; render(); } });
 
 function renderPane() {
   const pane = $('#pane'), s = list.find(x => x.id === selected);
-  $('#app').classList.toggle('has-pane', !!s);
-  pane.hidden = !s;
+  pane.hidden = $('#scrim').hidden = !s;
+  document.body.classList.toggle('drawer-on', !!s);
   if (!s) return;
   const st = look(s);
   const kids = kidsOf(s);
-  const key = JSON.stringify([s.id, st, s.lv, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.git, s.issue, s.image, s.whole, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), petColor(s, list), lang]);
+  const key = JSON.stringify([s.id, st, s.lv, s.ctx, s.since, s.name, s.ask, s.quest, s.prompt, s.summary, s.report, s.title, s.log.length, s.log.at(-1)?.t, offScreen(s), secsLeft(s), hint?.id === s.id && hint, s.git, s.issue, s.image, s.whole, s.parent, titleOf(s.parent), kids.map(k => [k.id, look(k), k.title]), petColor(s, list), lang]);
   if (pane.dataset.key === key) return;
   pane.dataset.key = key;
   const time = t => new Date(t).toLocaleTimeString(I18N.pick(lang), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -542,12 +567,13 @@ function renderPane() {
   pane.innerHTML = `
     <div class="pane-top st-${st}">
       <span class="sprite">${petArt(list.find(x => x.id === s.parent) || s, st, petColor(s, list))}</span>
-      <div><h2>${esc(s.title || s.name)}</h2><span class="lv">${T('pet.lv', { n: s.lv })} · ${esc(statusText(s, st))}</span></div>
+      <div><h2 id="pane-h">${esc(s.title || s.name)}</h2><span class="lv">${esc(s.name)} · ${T('pet.lv', { n: s.lv })}</span></div>
+      <button class="icon-btn" type="button" data-act="close" aria-label="${esc(T('pane.close'))}" title="${esc(T('pane.close'))}">✕</button>
     </div>
+    <div class="pane-line st-${st}"><span class="pill">${esc(statusText(s, st))}</span><span class="ctx"><span class="meter ${s.ctx == null ? 'unk' : s.ctx < 25 ? 'low' : ''}"><i style="--v:${(s.ctx ?? 100) / 100}"></i></span>${s.ctx == null ? T('ctx.unknown') : `${T('ctx')} ${s.ctx}%`}</span><span class="note" data-t-ago="${s.since}">${ago(s.since)}</span></div>
     <div class="pane-acts">
       <div>${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>
-        <button class="btn" type="button" data-act="pet"><span>${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</span><span class="alt" aria-hidden="true">${T(offScreen(s) ? 'pane.hidePet' : 'pane.showPet')}</span></button>` : ''}
-        <button class="btn" type="button" data-act="close">${T('pane.close')}</button></div>
+        <button class="btn" type="button" data-act="pet"><span>${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</span><span class="alt" aria-hidden="true">${T(offScreen(s) ? 'pane.hidePet' : 'pane.showPet')}</span></button>` : ''}</div>
       ${bridge ? `<div><button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.pixel ? `<button class="btn" type="button" data-act="picEdit">${T('pane.petAdjust')}</button>` : ''}${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}</div>` : ''}
     </div>
     <p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p>
@@ -593,8 +619,9 @@ function openFail(r) {
   toast(T('pane.openFail.' + (r?.reason || 'notfound')) + where);
 }
 $('#pane').addEventListener('toggle', e => { if (e.target.matches('.fold')) reportOpen = e.target.open; }, true); // toggle does not bubble
+$('#scrim').addEventListener('click', () => select(null));
 $('#pane').addEventListener('click', async e => {
-  const act = e.target.dataset.act;
+  const act = e.target.closest('[data-act]')?.dataset.act;
   if (act === 'close') select(null);
   if (act === 'goto') select(e.target.dataset.id);
   if (act === 'pic' || act === 'picEdit') openPetPicture(act === 'pic' ? 'choose' : 'edit');
@@ -608,53 +635,64 @@ $('#pane').addEventListener('click', async e => {
 });
 
 // ---------- work: GitLab issues assigned to you ----------
-let work = { status: 'off' }, pickOpen = false;
-// Projects the person chose in the Work tab's picker (Settings → workProjects); none chosen = all.
+let work = { status: 'off' }, pickOpen = false, todoN = 0;
+// Projects the person chose in the To do column's picker (Settings → workProjects); none chosen = all.
 const picked = () => state?.settings?.workProjects || [];
 const shown = g => !picked().length || picked().includes(g.path);
 function pickerHTML(groups) {
   const sel = picked(), all = !sel.length;
   const label = all ? T('work.pick.all') : T('work.pick.some', { n: sel.length, of: groups.length });
-  return `<details class="pick"${pickOpen ? ' open' : ''}><summary class="btn">${esc(T('work.pick'))}: ${esc(label)}</summary><div class="pick-list">
+  return `<details class="pick"${pickOpen ? ' open' : ''}><summary class="btn sm">${esc(T('work.pick'))}: ${esc(label)}</summary><div class="pick-list">
     <label><input type="checkbox" data-pick="*"${all ? ' checked' : ''}> ${esc(T('work.pick.all'))}</label><hr>
     ${groups.map(g => `<label><input type="checkbox" data-pick="${esc(g.path)}"${!all && sel.includes(g.path) ? ' checked' : ''}> ${esc(g.path)}<span class="n">${g.issues.length}</span></label>`).join('')}
     ${sel.filter(p => !groups.some(g => g.path === p)).map(p => `<label><input type="checkbox" data-pick="${esc(p)}" checked> ${esc(p)}<span class="n">0</span></label>`).join('')}</div></details>`;
 }
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+// An egg in the pets' pixel style, for an issue nobody works on yet.
+function eggSVG(seed) {
+  const BODY = ['--sky', '--mint', '--lilac', '--peach', '--butter', '--rose'];
+  const col = `var(${BODY[hashStr(seed) % BODY.length]})`, line = `color-mix(in oklch, ${col} 45%, #1d2030)`, shine = 'oklch(98% 0.01 90 / .9)';
+  const rows = ['...xxx...', '..xxxxx..', '.xxxxxxx.', '.xxxxxxx.', 'xxxxxxxxx', 'xxxxxxxxx', 'xxxxxxxxx', 'xxxxxxxxx', '.xxxxxxx.', '..xxxxx..'];
+  const on = new Set(); rows.forEach((r, y) => [...r].forEach((c, x) => c === 'x' && on.add(`${x},${y}`)));
+  const px = (x, y, f) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${f}"/>`;
+  let r = hashStr(seed + 'spots'), out = '';
+  const spots = new Set(); for (let i = 0; i < 4; i++) { r = Math.imul(r ^ (r >>> 13), 2654435761) >>> 0; spots.add(`${2 + r % 5},${3 + (r >>> 8) % 5}`); }
+  for (const k of on) { const [x, y] = k.split(',').map(Number); const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => !on.has(`${x + a},${y + b}`)); out += px(x, y, edge ? line : spots.has(k) ? shine : col); }
+  return `<svg viewBox="0 0 9 10" shape-rendering="crispEdges" aria-hidden="true">${out + px(3, 1, shine) + px(2, 2, shine)}</svg>`;
+}
+// An issue no session in the list works on; one that has a session shows as that session's #number instead.
 function issueHTML(i, g) {
-  const doing = i.sessions.map(id => list.find(x => x.id === id)).filter(Boolean);
   const due = i.due ? `<span class="${i.due < today() ? 'overdue' : ''}">${esc(T(i.due < today() ? 'work.overdue' : 'work.due', { d: i.due }))}</span>` : '';
-  return `<li class="issue${doing.length ? ' doing' : ''}"><div>
-      <div class="i-t"><span class="i-n">#${i.iid}</span>${esc(i.title)}</div>
-      <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}${doing.map(s => `<button class="lnk" type="button" data-goto="${esc(s.id)}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}</div></div>
-    <div class="i-acts">${bridge && g.dir ? `<button class="btn${doing.length ? ' pri' : ''}" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T(doing.length ? 'work.resume.desc' : 'work.new.desc'))}">${T(doing.length ? 'work.resume' : 'work.new')}</button>` : ''}
-      ${bridge ? `<button class="btn" type="button" data-url="${esc(i.url)}">${T('work.open')}</button>` : ''}</div></li>`;
+  const acts = (bridge && g.dir ? `<button class="btn sm pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T('work.new.desc'))}">${T('work.new')}</button>` : '')
+    + (bridge ? `<button class="btn sm" type="button" data-url="${esc(i.url)}">${T('work.open')}</button>` : '');
+  return `<li class="k issue"><span class="hd"><span class="egg">${eggSVG(g.path + i.iid)}</span><span class="t"><span>#${i.iid}</span> ${esc(i.title)}</span></span>
+    <span class="chips"><span title="${esc(g.path)}">${esc(g.path.split('/').pop())}</span>${g.dir ? '' : `<span class="tag" title="${esc(T('work.away.desc'))}">${esc(T('work.away'))}</span>`}${i.labels.map(l => `<span class="tag">${esc(l)}</span>`).join('')}${due}</span>
+    ${acts ? `<div class="acts">${acts}</div>` : ''}</li>`;
 }
 function renderWork() {
-  const box = $('#work');
-  if (!box || $('#tab-work').hidden) return;
-  const w = work, host = esc(w.host || '');
-  const key = JSON.stringify([w, picked(), list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
+  const box = $('#work'), w = work, host = esc(w.host || '');
+  const free = i => !i.sessions.some(id => list.some(x => x.id === id));
+  const groups = [...w.local || [], ...w.away || []], todo = groups.filter(shown).flatMap(g => g.issues.filter(free).map(i => [i, g]));
+  todoN = w.status === 'off' ? 0 : todo.length;
+  $('.colm[data-k="todo"] .n').textContent = todoN;
+  const key = JSON.stringify([w, picked(), list.map(s => s.id), lang, Math.floor(Date.now() / 60e3)]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
-  const login = `<div class="cmd"><code>glab auth login --hostname ${host}</code><button class="btn" type="button" data-copy="glab auth login --hostname ${host}">${T('work.copy')}</button></div>`;
   if (w.status === 'off') {
-    box.innerHTML = `<div class="card"><h2>${T('work.off.title')}</h2><p class="note">${esc(T('work.off.body'))}</p>${bridge ? `<div class="acts"><button class="btn pri" type="button" data-tab-go="settings">${T('work.toSettings')}</button></div>` : ''}</div>`;
+    box.innerHTML = `<div class="card"><h3>${T('work.off.title')}</h3><p class="note">${esc(T('work.off.body'))}</p>${bridge ? `<div class="acts"><button class="btn sm" type="button" data-tab-go="settings">${T('work.toSettings')}</button></div>` : ''}</div>`;
     return;
   }
-  const groups = [...w.local, ...w.away], local = w.local.filter(shown), away = w.away.filter(shown);
-  const n = [...local, ...away].reduce((a, g) => a + g.issues.length, 0);
-  const top = `<div class="work-top"><p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading', { host: w.host }))
+  const login = `<div class="cmd"><code>glab auth login --hostname ${host}</code><button class="btn sm" type="button" data-copy="glab auth login --hostname ${host}">${T('work.copy')}</button></div>`;
+  const n = groups.filter(shown).reduce((a, g) => a + g.issues.length, 0);
+  const top = `<p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading', { host: w.host }))
       : w.status === 'ok' ? esc(T('work.updated', { n, host: w.host, ago: ago(w.at) })) : ''}</p>
-    <div class="acts" style="margin:0">${bridge && groups.length ? pickerHTML(groups) : ''}${bridge ? `<button class="btn" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button>` : ''}</div></div>`;
+    ${bridge ? `<div class="work-top">${groups.length ? pickerHTML(groups) : ''}<button class="btn sm" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button></div>` : ''}`;
   const problem = w.status === 'noglab' ? `<div class="card"><p class="note err">${esc(T('work.noglab'))}</p>${login}</div>`
     : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth', { host: w.host }))}</p>${login}</div>`
     : w.status === 'error' ? `<div class="card"><p class="note err">${esc(T('work.error', { host: w.host, x: w.detail }))}</p></div>` : '';
-  const group = (g, away) => `<section class="card wgroup"><h2>${esc(g.path)} <span class="n">${g.issues.length}</span>${g.dir ? `<span class="dir">${esc(g.dir)}</span>` : ''}</h2><ol class="issues">${g.issues.map(i => issueHTML(i, g)).join('')}</ol></section>`;
   box.innerHTML = top + problem
-    + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: w.host }))}</p></div>` : '')
-    + local.map(g => group(g)).join('')
-    + (away.length ? `<h2>${T('work.away')}</h2><p class="note">${T('work.away.desc')}</p>${away.map(g => group(g, true)).join('')}` : '');
+    + (w.status === 'ok' && !n ? `<p class="none">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: w.host }))}</p>` : '')
+    + (todo.length ? `<ol class="rows">${todo.map(([i, g]) => issueHTML(i, g)).join('')}</ol>` : n ? `<p class="none">${esc(T('col.none'))}</p>` : '');
 }
 $('#work').addEventListener('toggle', e => { if (e.target.matches('.pick')) pickOpen = e.target.open; }, true);
 $('#work').addEventListener('change', e => {
@@ -662,14 +700,13 @@ $('#work').addEventListener('change', e => {
   if (p === undefined) return;
   const cur = new Set(picked());
   if (p === '*') cur.clear(); else e.target.checked ? cur.add(p) : cur.delete(p);
-  save({ workProjects: [...cur] }, { rerender: false }).then(renderWork);
+  save({ workProjects: [...cur] }, { rerender: false }).then(render);
 });
 document.addEventListener('click', e => { const d = $('#work .pick[open]'); if (d && !d.contains(e.target)) d.open = false; }); // closes like a dropdown
 $('#work').addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.tabGo) return showTab(b.dataset.tabGo);
-  if (b.dataset.goto) { showTab('sessions'); return select(b.dataset.goto); }
   if (b.dataset.url) return bridge.openIssue(b.dataset.url);
   if (b.dataset.start) {
     b.disabled = true;
@@ -683,7 +720,13 @@ $('#work').addEventListener('click', async e => {
   if (b.dataset.act === 'refresh') { b.disabled = true; await bridge.refreshWork(); }
 });
 function select(id) { if (hint?.id !== id) hint = null; selected = id; render(); }
-$('#board').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(li.dataset.id === selected ? null : li.dataset.id); });
+$('#board').addEventListener('click', e => {
+  const li = e.target.closest('li[data-id]');
+  if (!li) return;
+  const choice = e.target.closest('[data-choice]')?.dataset.choice, s = list.find(x => x.id === li.dataset.id);
+  if (choice) { if (s?.answer) bridge.answer(s.answer.id, choice); return; }
+  if (e.target.closest('.k-main')) select(li.dataset.id === selected ? null : li.dataset.id);
+});
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && selected && !document.querySelector('dialog[open]')) select(null); }); // a dialog takes the Esc itself
 
 // ---------- settings ----------
@@ -1119,6 +1162,7 @@ function applyLang() {
   if (!$('#tab-setup').hidden) renderSetup();
 }
 $('#egg').innerHTML = creature('bobix', 'idle');
+$('#logo').innerHTML = creature('bobix', 'done');
 // Shown once its language and the first sessions are in, so the bar doesn't jump as they arrive (fallback: top of this script).
 const pending = new Set(['state', 'list']);
 const arrived = k => pending.delete(k) && !pending.size && document.body.classList.remove('boot');
@@ -1130,14 +1174,13 @@ es.onmessage = m => {
   const firstIds = list.slice(0, 4).map(x => x.id).join();
   list = d.sessions || [];
   work = d.work || { status: 'off' };
-  renderWork();
   if (selected && !list.some(s => s.id === selected)) selected = null;
   render();
   if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();
   arrived('list');
 };
-setInterval(() => { render(); renderWork(); }, 15e3);
-setInterval(() => list.some(s => s.answer) && renderPane(), 1000); // countdown of a waiting permission request
+setInterval(render, 15e3);
+setInterval(() => list.some(s => s.answer) && render(), 1000); // countdown of a waiting permission request
 $('#conn').textContent = T('conn.wait');
 (async () => {
   if (bridge) {

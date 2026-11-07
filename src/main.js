@@ -1,5 +1,5 @@
 // Bobix — Electron main process: local server for hooks, pets overlay, control panel, tray, notifications.
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer, clipboard, dialog, nativeTheme } = require('electron');
 const path = require('path');
 const { Worker } = require('worker_threads');
 const fs = require('fs');
@@ -178,7 +178,7 @@ function workView() {
   const { local, away } = work.groupIssues(list, live, live);
   return { view: { status: issues.status, host, at: issues.at || null, detail: issues.detail || '', local, away }, issueOf };
 }
-// The Work tab's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
+// The panel's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
 // New opens a new Claude desktop session in the issue's own folder: a git worktree on its branch (see work.issueWorktree),
 // made the first time, so the session is that issue's by its branch (the link Claude documents, no prompt sent).
 async function startIssue(path, iid) {
@@ -192,7 +192,7 @@ async function startIssue(path, iid) {
   try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(wt.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
   return { ok: true, mode: 'new', dir: wt.dir, branch: wt.branch, created: wt.created };
 }
-// Only links to the configured GitLab open from the Work tab.
+// Only links to the configured GitLab open from the panel.
 function openIssue(url) {
   const base = settings.gitlab && work.hostOf(settings.gitlabUrl) ? settings.gitlabUrl + '/' : null;
   if (!base || typeof url !== 'string' || !url.startsWith(base)) return false;
@@ -525,7 +525,7 @@ function showPanel({ select, tab, fail } = {}) {
     panel.show(); panel.focus();
   } else {
     panel = new BrowserWindow({
-      width: 1180, height: 780, minWidth: 420, minHeight: 480, title: 'Bobix', backgroundColor: '#f3f4f8',
+      width: 1180, height: 780, minWidth: 420, minHeight: 480, title: 'Bobix', backgroundColor: nativeTheme.shouldUseDarkColors ? '#12151f' : '#f9f6f0', // the panel's --bg
       webPreferences: { preload: path.join(__dirname, 'preload.js') },
     });
     panel.removeMenu();
