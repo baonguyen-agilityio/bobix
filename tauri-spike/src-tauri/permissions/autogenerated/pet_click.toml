@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pet-click"
+description = "Enables the pet_click command without any pre-configured scope."
+commands.allow = ["pet_click"]
+
+[[permission]]
+identifier = "deny-pet-click"
+description = "Denies the pet_click command without any pre-configured scope."
+commands.deny = ["pet_click"]
