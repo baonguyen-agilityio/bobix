@@ -29,8 +29,8 @@ const DEFAULTS = {
   guideSeen: false,        // the panel's "How to read the pets" card was closed (see news.js)
   seenVersion: '',         // the last version whose "What's new" was closed, or the version first installed
   gitlab: false,           // Work tab: read the GitLab issues assigned to you through your own glab (off: no network for it)
-  gitlabUrl: '',
-  workProjects: [],        // GitLab project paths the Work tab shows; empty = all           // e.g. https://gitlab.com or a self-hosted GitLab; only its origin is kept
+  workProjects: [],        // GitLab project paths the Work tab shows; empty = all
+  workKeys: {},            // GitLab project path -> its code in session names ("BAK"); none = made from its name (work.keyFor)
   petImages: {},           // project folder -> { src, file, opts } in the app's data folder (see petstore.js), or a file name
 };
 
@@ -59,7 +59,7 @@ function sanitize(input, base = DEFAULTS) {
     else if (RANGES[k]) { const n = Number(v); if (Number.isFinite(n)) out[k] = Math.min(RANGES[k][1], Math.max(RANGES[k][0], k === 'opacity' ? n : Math.round(n))); }
     else if (typeof def === 'boolean') { if (typeof v === 'boolean') out[k] = v; }
     else if (k === 'seenVersion') { if (v === '' || /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v)) out[k] = v; }
-    else if (k === 'gitlabUrl') { if (v === '') out[k] = ''; else if (typeof v === 'string' && v.length < 300) { try { const u = new URL(v.trim()); if (/^https?:$/.test(u.protocol) && u.hostname) out[k] = u.origin; } catch {} } }
+    else if (k === 'workKeys') { if (v && typeof v === 'object' && !Array.isArray(v)) out[k] = Object.fromEntries(Object.entries(v).filter(([p, c]) => /^[\w.-]+(\/[\w.-]+)+$/.test(p) && p.length < 300 && !/(^|\/)\.+(\/|$)/.test(p) && /^[A-Z][A-Z0-9]{0,9}$/.test(c)).slice(0, 500).map(([p, c]) => [p.toLowerCase(), c])); }
     else if (k === 'workProjects') { if (Array.isArray(v)) out[k] = [...new Set(v.filter(p => typeof p === 'string' && /^[\w.-]+(\/[\w.-]+)+$/.test(p) && p.length < 300 && !/(^|\/)\.+(\/|$)/.test(p)).map(p => p.toLowerCase()))].slice(0, 500); }
     else if (k === 'display') { if (typeof v === 'string' && v.length < 40) out[k] = v; }
     else if (k === 'petImages') {

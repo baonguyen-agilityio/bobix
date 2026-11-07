@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('bobix', {
   setPet: (id, mode) => ipcRenderer.invoke('pet:set', id, mode), // mode: auto | hidden | shown; id '*' = every pet
   refreshWork: () => ipcRenderer.invoke('work:refresh'), // GitLab issues, read again now (only while GitLab is on)
   openIssue: url => ipcRenderer.invoke('work:open', url), // in the browser; only links to the configured GitLab
+  cancelNew: dir => ipcRenderer.invoke('work:cancel', dir), // stop waiting for a new session in that folder
+  startIssue: (path, iid) => ipcRenderer.invoke('work:start', path, iid), // Resume its session, or New in its repository
   onSettings: on('settings'),
   onSelect: on('select'),
   onShowTab: on('show-tab'),

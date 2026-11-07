@@ -305,6 +305,8 @@ input[type=number]{width:104px}
 .issue:first-child{border-top:0}
 .issue .i-t{font-weight:600;overflow-wrap:anywhere}
 .issue .i-n{color:var(--ink-3);font-weight:500;margin-right:var(--s2)}
+.keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;text-transform:uppercase}
+.issue .wait{color:var(--accent,var(--ink))}
 .issue .i-meta{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin-top:var(--s1);font-size:var(--t-xs);color:var(--ink-2)}
 .issue .lab{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
 .issue .overdue{color:var(--coral-ink);font-weight:600}
@@ -608,7 +610,7 @@ $('#pane').addEventListener('click', async e => {
 });
 
 // ---------- work: GitLab issues assigned to you ----------
-let work = { status: 'off' }, pickOpen = false;
+let work = { status: 'off' }, lastProjects = '', waiting = [], pickOpen = false; // waiting: New pressed, no new session there yet
 // Projects the person chose in the Work tab's picker (Settings → workProjects); none chosen = all.
 const picked = () => state?.settings?.workProjects || [];
 const shown = g => !picked().length || picked().includes(g.path);
@@ -621,38 +623,39 @@ function pickerHTML(groups) {
     ${sel.filter(p => !groups.some(g => g.path === p)).map(p => `<label><input type="checkbox" data-pick="${esc(p)}" checked> ${esc(p)}<span class="n">0</span></label>`).join('')}</div></details>`;
 }
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-function issueHTML(i) {
+function issueHTML(i, g) {
+  const wait = waiting.find(x => x.dir === g.dir && x.iid === i.iid);
   const doing = i.sessions.map(id => list.find(x => x.id === id)).filter(Boolean);
   const due = i.due ? `<span class="${i.due < today() ? 'overdue' : ''}">${esc(T(i.due < today() ? 'work.overdue' : 'work.due', { d: i.due }))}</span>` : '';
   return `<li class="issue${doing.length ? ' doing' : ''}"><div>
       <div class="i-t"><span class="i-n">#${i.iid}</span>${esc(i.title)}</div>
-      <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}</div></div>
-    <div class="i-acts">${doing.map(s => `<button class="btn" type="button" data-goto="${esc(s.id)}" title="${esc(T('work.inProgress'))}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}
+      <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}${doing.map(s => `<button class="lnk" type="button" data-goto="${esc(s.id)}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}${wait ? `<span class="wait">${esc(T('work.wait'))} <button class="lnk" type="button" data-cancel="${esc(g.dir)}" title="${esc(T('work.wait.desc'))}">✕ ${esc(T('work.wait.cancel'))}</button></span>` : ''}</div></div>
+    <div class="i-acts">${bridge && g.dir ? `<button class="btn${doing.length || i.resume ? ' pri' : ''}" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T(doing.length || i.resume ? 'work.resume.desc' : 'work.new.desc'))}">${T(doing.length || i.resume ? 'work.resume' : 'work.new')}</button>` : ''}
       ${bridge ? `<button class="btn" type="button" data-url="${esc(i.url)}">${T('work.open')}</button>` : ''}</div></li>`;
 }
 function renderWork() {
   const box = $('#work');
   if (!box || $('#tab-work').hidden) return;
-  const w = work, host = esc(w.host || '');
-  const key = JSON.stringify([w, picked(), list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
+  const w = work, hosts = (w.hosts || []).join(', ');
+  const key = JSON.stringify([w, waiting, picked(), list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
-  const login = `<div class="cmd"><code>glab auth login --hostname ${host}</code><button class="btn" type="button" data-copy="glab auth login --hostname ${host}">${T('work.copy')}</button></div>`;
+  const login = `<div class="cmd"><code>glab auth login</code><button class="btn" type="button" data-copy="glab auth login">${T('work.copy')}</button></div>`;
   if (w.status === 'off') {
     box.innerHTML = `<div class="card"><h2>${T('work.off.title')}</h2><p class="note">${esc(T('work.off.body'))}</p>${bridge ? `<div class="acts"><button class="btn pri" type="button" data-tab-go="settings">${T('work.toSettings')}</button></div>` : ''}</div>`;
     return;
   }
   const groups = [...w.local, ...w.away], local = w.local.filter(shown), away = w.away.filter(shown);
   const n = [...local, ...away].reduce((a, g) => a + g.issues.length, 0);
-  const top = `<div class="work-top"><p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading', { host: w.host }))
-      : w.status === 'ok' ? esc(T('work.updated', { n, host: w.host, ago: ago(w.at) })) : ''}</p>
+  const top = `<div class="work-top"><p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading'))
+      : w.status === 'ok' ? esc(T('work.updated', { n, host: hosts, ago: ago(w.at) })) : ''}</p>
     <div class="acts" style="margin:0">${bridge && groups.length ? pickerHTML(groups) : ''}${bridge ? `<button class="btn" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button>` : ''}</div></div>`;
   const problem = w.status === 'noglab' ? `<div class="card"><p class="note err">${esc(T('work.noglab'))}</p>${login}</div>`
-    : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth', { host: w.host }))}</p>${login}</div>`
-    : w.status === 'error' ? `<div class="card"><p class="note err">${esc(T('work.error', { host: w.host, x: w.detail }))}</p></div>` : '';
-  const group = (g, away) => `<section class="card wgroup"><h2>${esc(g.path)} <span class="n">${g.issues.length}</span>${g.dir ? `<span class="dir">${esc(g.dir)}</span>` : ''}</h2><ol class="issues">${g.issues.map(issueHTML).join('')}</ol></section>`;
+    : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth'))}</p>${login}</div>`
+    : (w.failed || []).map(f => `<div class="card"><p class="note err">${esc(T('work.error', { host: f.host, x: f.detail }))}</p></div>`).join('');
+  const group = (g, away) => `<section class="card wgroup"><h2>${esc(g.path)} <span class="n">${g.issues.length}</span>${g.dir ? `<span class="dir">${esc(g.dir)}</span>` : ''}</h2><ol class="issues">${g.issues.map(i => issueHTML(i, g)).join('')}</ol></section>`;
   box.innerHTML = top + problem
-    + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: w.host }))}</p></div>` : '')
+    + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: hosts }))}</p></div>` : '')
     + local.map(g => group(g)).join('')
     + (away.length ? `<h2>${T('work.away')}</h2><p class="note">${T('work.away.desc')}</p>${away.map(g => group(g, true)).join('')}` : '');
 }
@@ -671,6 +674,15 @@ $('#work').addEventListener('click', async e => {
   if (b.dataset.tabGo) return showTab(b.dataset.tabGo);
   if (b.dataset.goto) { showTab('sessions'); return select(b.dataset.goto); }
   if (b.dataset.url) return bridge.openIssue(b.dataset.url);
+  if (b.dataset.start) {
+    b.disabled = true;
+    const r = await bridge.startIssue(b.dataset.path, Number(b.dataset.start));
+    b.disabled = false;
+    if (r?.mode === 'new' && r.ok) toast(T('work.new.done'));
+    else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
+    return;
+  }
+  if (b.dataset.cancel) { bridge.cancelNew(b.dataset.cancel); return; }
   if (b.dataset.copy) { try { await navigator.clipboard.writeText(b.dataset.copy); toast(T('work.copied')); } catch {} return; }
   if (b.dataset.act === 'refresh') { b.disabled = true; await bridge.refreshWork(); }
 });
@@ -715,7 +727,7 @@ const SECTIONS = [
   ]],
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
-    { k: 'gitlabUrl', type: 'url', wide: true },
+    { k: 'workKeys', type: 'keys', wide: true },
   ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
@@ -742,7 +754,11 @@ function control(r, s) {
         <input type="range" class="rng" id="f-${k}" data-k="${k}" min="0" max="100" step="5" value="${s[k]}" style="--fill:${fill(z, s[k])}"><output class="val" for="f-${k}" data-val="${k}">${s[k]}%</output></div>`).join('')}
     </div>`;
   }
-  if (r.type === 'url') return `<div class="rng-row" style="width:100%"><input type="url" id="${id}" value="${esc(v)}" placeholder="https://gitlab.com" aria-labelledby="l-${r.k}" spellcheck="false" style="flex:1;min-width:0"><button class="btn" type="button" data-act="gitlabUrl">${T('set.gitlabUrl.apply')}</button></div>`;
+  if (r.type === 'keys') { // each project's code in session names; the projects are the Work tab's
+    const gs = [...(work.local || []), ...(work.away || [])];
+    if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
+    return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
+  }
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
 }
@@ -811,6 +827,13 @@ $('#settings').addEventListener('input', e => {
   save({ [k]: v }, { rerender: false });
 });
 $('#settings').addEventListener('change', e => {
+  const of = e.target.dataset.keyOf;
+  if (of) {
+    const v = e.target.value.trim().toUpperCase(), keys = { ...(state.settings.workKeys || {}) };
+    if (v && !/^[A-Z][A-Z0-9]{0,9}$/.test(v)) { e.target.value = keys[of] || ''; return toast(T('set.workKeys.bad')); }
+    if (v) keys[of] = v; else delete keys[of];
+    return save({ workKeys: keys });
+  }
   const k = e.target.dataset.k;
   if (!k || e.target.type === 'range') return;
   save({ [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -820,11 +843,6 @@ $('#settings').addEventListener('click', async e => {
   if (!t) return;
   if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
   if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
-  if (t.dataset.act === 'gitlabUrl') {
-    const v = $('#f-gitlabUrl').value.trim();
-    if (v && !/^https?:\/\/[^\s/]+/i.test(v)) return toast(T('set.gitlabUrl.bad'));
-    return save({ gitlabUrl: v });
-  }
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
     if (v === state.settings.port) return;
@@ -1122,7 +1140,10 @@ es.onmessage = m => {
   const firstIds = list.slice(0, 4).map(x => x.id).join();
   list = d.sessions || [];
   work = d.work || { status: 'off' };
+  waiting = d.waiting || [];
   renderWork();
+  const projects = [...(work.local || []), ...(work.away || [])].map(g => g.path + ':' + g.autoKey).join();
+  if (projects !== lastProjects) { lastProjects = projects; if (!$('#tab-settings').hidden && !document.activeElement?.dataset?.keyOf) renderSettings(); } // the codes list
   if (selected && !list.some(s => s.id === selected)) selected = null;
   render();
   if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();

@@ -28,4 +28,36 @@ function parentOf(id, root = sessionsDir()) {
   return null;
 }
 
-module.exports = { parentOf, sessionsDir };
+// Claude desktop sessions that are not archived: [{ id, cwd, title, at }] (at: last activity, ms). Only these fields are
+// kept. A file is parsed again only when it changed (cache: file -> { mtimeMs, rec }).
+const seen = new Map();
+function claudeSessions(root = sessionsDir()) {
+  const out = [], files = new Set();
+  for (const org of dirs(root)) for (const user of dirs(org)) {
+    let names = [];
+    try { names = fs.readdirSync(user).filter(n => ID.test(n.replace(/\.json$/, '')) && n.endsWith('.json')); } catch { continue; }
+    for (const n of names) {
+      const file = path.join(user, n);
+      files.add(file);
+      let st, c = seen.get(file);
+      try { st = fs.statSync(file); } catch { continue; }
+      if (!c || c.mtimeMs !== st.mtimeMs) {
+        let o = null;
+        try { o = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+        c = { mtimeMs: st.mtimeMs, rec: o && !o.isArchived && typeof o.cwd === 'string' && typeof o.title === 'string'
+          ? { id: n.slice(0, -5), cwd: o.cwd, title: o.title, at: Number(o.lastActivityAt) || st.mtimeMs } : null };
+        seen.set(file, c);
+      }
+      if (c.rec) out.push(c.rec);
+    }
+  }
+  for (const f of seen.keys()) if (!files.has(f)) seen.delete(f);
+  return out;
+}
+
+// The newest of those sessions in folder `dir` whose name `named(title)` accepts (an issue's, see work.namesIssue), or null.
+function issueSession(list, dir, named) {
+  return list.filter(s => s.cwd === dir && named(s.title)).sort((a, b) => b.at - a.at)[0]?.id || null;
+}
+
+module.exports = { parentOf, sessionsDir, claudeSessions, issueSession };

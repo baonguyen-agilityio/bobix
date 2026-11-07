@@ -124,7 +124,7 @@ function apply(sessions, e, now = Date.now()) {
 // Reads the transcript's tail (last answer + token usage) and titles. Titles can sit far from the end, so the head is scanned too.
 // interrupted: the latest turn was cut short (Esc, or a denied permission). Claude runs no Stop hook then.
 function readTranscript(file) {
-  const out = { text: null, usage: null, title: null, interrupted: false };
+  const out = { text: null, usage: null, title: null, interrupted: false, branches: [] };
   let fd;
   try {
     if (!fs.statSync(file).isFile()) return out; // never open a FIFO / device: that would block
@@ -142,6 +142,7 @@ function readTranscript(file) {
     for (let i = tail.length - 1; i >= 0; i--) {
       let j; try { j = JSON.parse(tail[i]); } catch { continue; }
       titles(j, true);
+      if (typeof j.gitBranch === 'string' && j.gitBranch && j.gitBranch.length < 256 && out.branches[0] !== j.gitBranch) out.branches.unshift(j.gitBranch);
       if (!lastTurnSeen && (j.type === 'user' || j.type === 'assistant') && !j.isSidechain) {
         lastTurnSeen = true;
         const c = j.message?.content, txt = typeof c === 'string' ? c : Array.isArray(c) ? c.map(x => x.text || '').join(' ') : '';
@@ -156,6 +157,7 @@ function readTranscript(file) {
     }
     if (!custom && !ai && size > 512 * 1024) for (const l of chunk(0, Math.min(size, 256 * 1024))) { try { titles(JSON.parse(l)); } catch {} }
     out.title = custom || ai;
+    out.branches = out.branches.filter((b, i, a) => a.lastIndexOf(b) === i); // each once, at its newest place
   } catch { /* transcript not there yet */ } finally { if (fd !== undefined) fs.closeSync(fd); }
   return out;
 }
@@ -179,6 +181,8 @@ function refresh(s, withSummary, now = Date.now(), forcedWindow) {
   const r = readTranscript(s.transcript);
   if (r.usage) s.ctx = ctxLeft(r.usage, forcedWindow);
   if (r.title) s.title = short(r.title, 80);
+  // Branches seen in the transcript, kept across reads (the tail moves on): a session may switch branches mid-way.
+  if (r.branches.length) s.branches = [...(s.branches || []).filter(b => !r.branches.includes(b)), ...r.branches].slice(-20);
   if (withSummary && r.text) { s.summary = short(plain(r.text), 600); s.report = clip(r.text, TEXT_MAX); }
   if (r.interrupted && (s.state === 'working' || s.state === 'waiting')) {
     s.ask = ''; s.askTool = ''; s.state = 'idle'; s.since = now;
@@ -197,7 +201,7 @@ function pinProject(s) {
 }
 
 // What the outside world sees (no internal bookkeeping fields).
-const publicView = s => { const { readAt, readMark, parentHost, linkTries, linkAt, pidChecked, pidIsClaude, ...rest } = s; return rest; };
+const publicView = s => { const { readAt, readMark, parentHost, linkTries, linkAt, pidChecked, pidIsClaude, branches, ...rest } = s; return rest; };
 
 // A session whose claude process went away without a SessionEnd (its terminal was closed, it crashed, it was killed)
 // would stay on screen for good. claudePid is the hook's parent: the claude process itself where Claude Code runs hooks
