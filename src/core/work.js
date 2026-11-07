@@ -1,7 +1,6 @@
 // Work items: a session's local git status (no network), and the GitLab issues assigned to you, read through your own
 // `glab` (Bobix keeps no token, writes nothing to GitLab). Commands get argument lists, never a shell.
 const { execFile } = require('child_process');
-const path = require('path');
 
 const run = (cmd, args, opts = {}) => new Promise(res => execFile(cmd, args, { timeout: 15000, windowsHide: true, maxBuffer: 8 * 1024 * 1024, ...opts },
   (err, out, errOut) => res({ err, out: String(out || ''), errOut: String(errOut || '') })));
@@ -83,38 +82,6 @@ function issueOfSession(s) {
   return s.parentIid || null;
 }
 
-// After New on an issue, a session that starts in the project's folder is that issue's without asking only when no other
-// session Bobix knows works in that same folder; otherwise Bobix asks. sessions: [{ id, cwd }].
-const aloneIn = (sessions, id, cwd) => !sessions.some(x => x.id !== id && x.cwd === cwd);
-
-// GitLab's branch name for an issue: "<iid>-<title in lower case, words joined by ->", about 50 characters at most.
-function branchFor(iid, title) {
-  const slug = String(title || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 50).replace(/-+$/, '');
-  return slug ? `${iid}-${slug}` : `${iid}-issue`;
-}
-
-// `git worktree list --porcelain` → [{ dir, branch }] (branch null when detached).
-const worktreesOf = text => String(text).split(/\n\n+/).map(b => ({
-  dir: (/^worktree (.+)$/m.exec(b) || [])[1], branch: ((/^branch refs\/heads\/(.+)$/m.exec(b) || [])[1]) || null,
-})).filter(w => w.dir);
-
-// A folder of its own for an issue: the worktree already on its branch, else a new worktree next to the repository
-// ("<repo>-worktrees/<branch>") on its branch, made from the local branch if there is one, else from the default branch.
-// Local only: nothing is fetched or pushed. Returns { dir, branch, created } or { error }.
-async function issueWorktree(repo, iid, title) {
-  const wts = worktreesOf((await git(repo, ['worktree', 'list', '--porcelain'])).out);
-  const have = wts.find(w => issueOfBranch(w.branch) === iid);
-  if (have) return { dir: have.dir, branch: have.branch, created: false };
-  const refs = (await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).out.split('\n').filter(Boolean);
-  const local = refs.find(b => issueOfBranch(b) === iid);
-  const branch = local || branchFor(iid, title);
-  const dir = path.join(path.dirname(repo), `${path.basename(repo)}-worktrees`, branch.replace(/\//g, '-'));
-  const base = (await git(repo, ['rev-parse', '--verify', '--quiet', 'origin/HEAD'])).err ? 'HEAD' : 'origin/HEAD';
-  const r = await git(repo, local ? ['worktree', 'add', dir, branch] : ['worktree', 'add', '-b', branch, dir, base]);
-  return r.err ? { error: (r.errOut || r.err.message).trim().slice(0, 300) } : { dir, branch, created: true };
-}
-
 // The fields Bobix shows of one issue from GitLab's API.
 const slimIssue = i => ({
   iid: i.iid, title: String(i.title || '').slice(0, 300), url: i.web_url,
@@ -153,4 +120,4 @@ async function fetchIssues(glab, host) {
   return { ok: false, reason: 'error', detail: 'unexpected answer from GitLab' };
 }
 
-module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, aloneIn, branchFor, worktreesOf, issueWorktree, sessionTitleFor, slimIssue, groupIssues, fetchIssues };
+module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, sessionTitleFor, slimIssue, groupIssues, fetchIssues };

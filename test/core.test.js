@@ -416,7 +416,7 @@ test('the permission and SessionStart hooks run in the foreground; old backgroun
   assert.equal(tool.async, true);
   assert.equal(hooks.status({ home }).outdated, false);
   const start = cfg.hooks.SessionStart[0].hooks[0];
-  assert.equal(start.async, undefined); assert.ok(start.timeout >= 180);
+  assert.equal(start.async, undefined); assert.equal(start.timeout, 5);
   start.async = true; fs.writeFileSync(file, JSON.stringify(cfg));
   assert.equal(hooks.status({ home }).outdated, true, 'installed before session titles: reinstall');
   start.async = undefined; ask.async = true; fs.writeFileSync(file, JSON.stringify(cfg));
@@ -1266,31 +1266,6 @@ test('work: a session works on the issue its newest branch names, else its paren
   strict.equal(s(['29-x'], null, null), null, 'repository not on this GitLab');
 });
 
-test('work: an issue\'s branch and its own worktree, made once, local only', async () => {
-  strict.equal(work.branchFor(27, '[Bug] Buy - Back leaves without "Leave without saving?"'), '27-bug-buy-back-leaves-without-leave-without-saving');
-  strict.equal(work.branchFor(3, 'Sửa lỗi đăng nhập'), '3-sua-loi-dang-nhap');
-  strict.equal(work.branchFor(4, '!!!'), '4-issue');
-  strict.ok(work.branchFor(5, 'word '.repeat(40)).length <= 52);
-  strict.deepEqual(work.worktreesOf('worktree /r\nHEAD a\nbranch refs/heads/main\n\nworktree /r-w/27-x\nHEAD b\nbranch refs/heads/27-x\n\nworktree /d\nHEAD c\ndetached\n'),
-    [{ dir: '/r', branch: 'main' }, { dir: '/r-w/27-x', branch: '27-x' }, { dir: '/d', branch: null }]);
-  const { execFileSync } = require('child_process');
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-wt-'))), repo = path.join(root, 'shop');
-  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' }).toString().trim();
-  try {
-    fs.mkdirSync(repo); execFileSync('git', ['init', '-q', '-b', 'main', repo]);
-    g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
-    const a = await work.issueWorktree(repo, 27, 'Back leaves');
-    strict.deepEqual(a, { dir: path.join(root, 'shop-worktrees', '27-back-leaves'), branch: '27-back-leaves', created: true });
-    strict.equal(g('-C', a.dir, 'branch', '--show-current'), '27-back-leaves');
-    strict.equal(g('branch', '--show-current'), 'main', 'the main checkout stays on its branch');
-    strict.deepEqual(await work.issueWorktree(repo, 27, 'Renamed title'), { ...a, created: false }, 'the same folder again');
-    g('branch', 'feat/31-from-gitlab');
-    const b = await work.issueWorktree(repo, 31, 'Other');
-    strict.equal(b.branch, 'feat/31-from-gitlab', 'an existing local branch of the issue is used');
-    strict.equal(b.dir, path.join(root, 'shop-worktrees', 'feat-31-from-gitlab'));
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
-});
-
 test('transcript: every gitBranch the session was on, oldest first', () => {
   const f = path.join(os.tmpdir(), `bobix-branches-${process.pid}.jsonl`);
   fs.writeFileSync(f, [{ type: 'user', gitBranch: 'main' }, { type: 'assistant', gitBranch: '29-fix', message: { content: [] } }, { type: 'user', gitBranch: '29-fix' }, { type: 'user', gitBranch: 'feat/31-x' }, { type: 'user' }].map(l => JSON.stringify(l)).join('\n'));
@@ -1304,8 +1279,3 @@ test('work: a session started from an issue is named "<project> #<iid> <short ti
   strict.ok(work.sessionTitleFor('g/api', 5, 'x'.repeat(200)).length <= 52);
 });
 
-test('work: after New, a session alone in the project folder takes the issue without asking', () => {
-  const list = [{ id: 'new', cwd: '/src/a' }, { id: 'side', cwd: '/src/a/.claude/worktrees/x' }, { id: 'other', cwd: '/src/b' }];
-  strict.equal(work.aloneIn(list, 'new', '/src/a'), true, 'sessions in other folders, worktrees included, do not count');
-  strict.equal(work.aloneIn([...list, { id: 'hello', cwd: '/src/a' }], 'new', '/src/a'), false, 'another session in the same folder: ask');
-});

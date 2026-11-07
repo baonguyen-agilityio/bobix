@@ -305,6 +305,7 @@ input[type=number]{width:104px}
 .issue:first-child{border-top:0}
 .issue .i-t{font-weight:600;overflow-wrap:anywhere}
 .issue .i-n{color:var(--ink-3);font-weight:500;margin-right:var(--s2)}
+.issue .wait{color:var(--accent,var(--ink))}
 .issue .i-meta{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin-top:var(--s1);font-size:var(--t-xs);color:var(--ink-2)}
 .issue .lab{border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2)}
 .issue .overdue{color:var(--coral-ink);font-weight:600}
@@ -367,7 +368,6 @@ input[type=number]{width:104px}
   <button class="btn" type="button" id="fb-open" data-t="fb.title"></button>
 </header>
 <dialog id="fb-dialog" class="fb" aria-labelledby="fb-heading"></dialog>
-<dialog id="q-dialog" class="fb" aria-labelledby="q-heading"></dialog>
 <dialog id="pd-dialog" class="fb pd" aria-labelledby="pd-heading"></dialog>
 
 <section id="tab-sessions">
@@ -609,7 +609,7 @@ $('#pane').addEventListener('click', async e => {
 });
 
 // ---------- work: GitLab issues assigned to you ----------
-let work = { status: 'off' }, pickOpen = false;
+let work = { status: 'off' }, waiting = [], pickOpen = false; // waiting: New pressed, no new session there yet
 // Projects the person chose in the Work tab's picker (Settings → workProjects); none chosen = all.
 const picked = () => state?.settings?.workProjects || [];
 const shown = g => !picked().length || picked().includes(g.path);
@@ -623,39 +623,20 @@ function pickerHTML(groups) {
 }
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 function issueHTML(i, g) {
+  const wait = waiting.find(x => x.dir === g.dir && x.iid === i.iid);
   const doing = i.sessions.map(id => list.find(x => x.id === id)).filter(Boolean);
   const due = i.due ? `<span class="${i.due < today() ? 'overdue' : ''}">${esc(T(i.due < today() ? 'work.overdue' : 'work.due', { d: i.due }))}</span>` : '';
   return `<li class="issue${doing.length ? ' doing' : ''}"><div>
       <div class="i-t"><span class="i-n">#${i.iid}</span>${esc(i.title)}</div>
-      <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}${doing.map(s => `<button class="lnk" type="button" data-goto="${esc(s.id)}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}</div></div>
+      <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}${doing.map(s => `<button class="lnk" type="button" data-goto="${esc(s.id)}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}${wait ? `<span class="wait">${esc(T('work.wait'))} <button class="lnk" type="button" data-cancel="${esc(g.dir)}" title="${esc(T('work.wait.desc'))}">✕ ${esc(T('work.wait.cancel'))}</button></span>` : ''}</div></div>
     <div class="i-acts">${bridge && g.dir ? `<button class="btn${doing.length ? ' pri' : ''}" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T(doing.length ? 'work.resume.desc' : 'work.new.desc'))}">${T(doing.length ? 'work.resume' : 'work.new')}</button>` : ''}
       ${bridge ? `<button class="btn" type="button" data-url="${esc(i.url)}">${T('work.open')}</button>` : ''}</div></li>`;
 }
-// "Is this session #25?": asked when a session starts in a project folder after New on one of its issues, while
-// another session works in that folder. A modal dialog, so it can't be missed or hidden behind the list.
-function showQuestion(q) {
-  const d = $('#q-dialog');
-  if (d.dataset.id === (q?.id || '')) return;
-  d.dataset.id = q?.id || '';
-  if (!q || !bridge) { if (d.open) d.close(); return; }
-  d.innerHTML = `<h2 id="q-heading">${esc(T('work.q', { iid: q.iid }))}</h2>
-    <p>${esc(q.title)}</p><p class="note">${esc(T('work.q.where', { folder: q.folder }))}</p>
-    <div class="acts"><button class="btn pri" type="button" data-yes="1">${T('work.q.yes')}</button><button class="btn" type="button" data-yes="">${T('work.q.no')}</button></div>`;
-  if (!d.open) d.showModal();
-  d.querySelector('[data-yes="1"]').focus();
-}
-$('#q-dialog').addEventListener('click', e => {
-  const b = e.target.closest('[data-yes]'), d = $('#q-dialog');
-  if (!b) return;
-  bridge.confirmIssue(d.dataset.id, !!b.dataset.yes);
-  d.close();
-});
-$('#q-dialog').addEventListener('cancel', e => e.preventDefault()); // Esc does not answer: Yes or No only
 function renderWork() {
   const box = $('#work');
   if (!box || $('#tab-work').hidden) return;
   const w = work, host = esc(w.host || '');
-  const key = JSON.stringify([w, picked(), list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
+  const key = JSON.stringify([w, waiting, picked(), list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
   const login = `<div class="cmd"><code>glab auth login --hostname ${host}</code><button class="btn" type="button" data-copy="glab auth login --hostname ${host}">${T('work.copy')}</button></div>`;
@@ -696,10 +677,11 @@ $('#work').addEventListener('click', async e => {
     b.disabled = true;
     const r = await bridge.startIssue(b.dataset.path, Number(b.dataset.start));
     b.disabled = false;
-    if (r?.mode === 'new' && r.ok) toast(T('work.new.done', { b: r.branch }));
-    else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(r.reason === 'worktree' ? T('work.new.wt', { x: r.detail }) : T('work.new.fail'));
+    if (r?.mode === 'new' && r.ok) toast(T('work.new.done'));
+    else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
     return;
   }
+  if (b.dataset.cancel) { bridge.cancelNew(b.dataset.cancel); return; }
   if (b.dataset.copy) { try { await navigator.clipboard.writeText(b.dataset.copy); toast(T('work.copied')); } catch {} return; }
   if (b.dataset.act === 'refresh') { b.disabled = true; await bridge.refreshWork(); }
 });
@@ -1151,7 +1133,7 @@ es.onmessage = m => {
   const firstIds = list.slice(0, 4).map(x => x.id).join();
   list = d.sessions || [];
   work = d.work || { status: 'off' };
-  showQuestion(d.question);
+  waiting = d.waiting || [];
   renderWork();
   if (selected && !list.some(s => s.id === selected)) selected = null;
   render();

@@ -36,7 +36,7 @@ process.stdin.on('end', () => {
   e.bobix_host_shape = host ? host.replace(/[A-Za-z0-9]/g, 'x').slice(0, 80) : null;
   const body = JSON.stringify(e);
   // Headless runs (claude -p, Agent SDK apps) have nobody at Bobix to answer, or their own UI: don't hold them up.
-  const ask = ['PermissionRequest', 'SessionStart'].includes(e.hook_event_name) && !/^sdk/.test(process.env.CLAUDE_CODE_ENTRYPOINT || '');
+  const ask = e.hook_event_name === 'PermissionRequest' && !/^sdk/.test(process.env.CLAUDE_CODE_ENTRYPOINT || '');
   const titled = e.hook_event_name === 'SessionStart'; // Bobix may answer with a title for a session started from an issue
   const req = http.request({
     host: '127.0.0.1', port, path: '/event', method: 'POST', agent: false, // no keep-alive: exit right after
