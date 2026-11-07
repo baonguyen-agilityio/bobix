@@ -55,6 +55,8 @@ Small, they reuse data Bobix already has. Good to do together:
 
 Larger, each needs its own plan:
 
+- [ ] **Bobix on Tauri** (in progress, [plan](../plans/261107-1502-tauri-full-port/plan.md), 7 parts): a smaller app (about 4 MB instead of 258 MB, half the memory for the pets). Part 1 is in `src-tauri/`: the Rust core (local server with the token, hook events, session state, transcripts, settings file) and the pets overlay. It is not shipped: the released app and everything people install is still Electron until the last part. Checked: Rust tests, and a smoke run on macOS (a pretend session and a real one sent by `hook.js` show as pets); Windows and Linux by CI only.
+
 - [ ] **Several machines (peer)**: see pets of sessions on a devbox or a second computer, labeled with the machine name. First version: the remote hook sends to your laptop over a private network (Tailscale / LAN) or an SSH tunnel, paired with a one-time code, view only. Approving from another machine is a separate opt-in, because it changes the security model (today Bobix only accepts connections from the same computer).
 - [ ] **Daily recap**: what each session did today and its last answer.
 - [ ] **Group by project**: pets of the same folder stand together; the panel groups sessions by repository.

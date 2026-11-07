@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-smoke-page"
+description = "Enables the smoke_page command without any pre-configured scope."
+commands.allow = ["smoke_page"]
+
+[[permission]]
+identifier = "deny-smoke-page"
+description = "Denies the smoke_page command without any pre-configured scope."
+commands.deny = ["smoke_page"]
