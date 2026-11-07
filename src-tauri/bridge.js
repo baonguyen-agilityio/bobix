@@ -18,9 +18,9 @@
   window.bobix = {
     getState: () => invoke('state'),
     setSettings: later, resetSettings: later, revealSettings: later, copyDiagnostics: later, feedbackInfo: later, sendFeedback: later,
-    installHooks: later, uninstallHooks: later,
+    installHooks: () => invoke('install_hooks'), uninstallHooks: () => invoke('uninstall_hooks'),
     testEvent: () => invoke('test_event'),
-    openSession: later,
+    openSession: id => invoke('open_session', { id }),
     answer: (id, choice) => invoke('answer', { id, choice }),
     petImage: later,
     setPet: (id, mode) => invoke('pet_set', { id, mode }),

@@ -1,12 +1,12 @@
-// BOBIX_SMOKE=<dir>: start, show a pretend session and a real one delivered by hook.js, check the pets overlay is on
-// screen, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke() in src/main.js; focus, the pet
+// BOBIX_SMOKE=<dir>: start, install the hooks (run it with BOBIX_HOME set to a scratch folder), show a pretend session
+// and a real one delivered by the installed hook.js, answer a permission request it holds, check the pets overlay is
+// on screen, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke() in src/main.js; the pet
 // picture worker and the screenshots come with those parts of the port.
-use crate::{overlay, paths, Bobix};
+use crate::{answers, hooks, overlay, paths, Bobix};
 use serde_json::{json, Value};
 use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
 use tauri::{AppHandle, Manager};
 
-const HOOK: &str = include_str!("../../src/hook/hook.js");
 static PAGE: Mutex<Option<Value>> = Mutex::new(None);
 
 pub fn page_result(v: Value) { *PAGE.lock().unwrap() = Some(v); }
@@ -28,6 +28,10 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             });
         }
         thread::sleep(Duration::from_millis(1500)); // the page loads and subscribes
+        if b.core.lock().unwrap().node_path.is_none() { let n = crate::find_bin("node"); b.core.lock().unwrap().node_path = n; }
+        // Never into the person's own ~/.claude/settings.json.
+        report["install"] = if std::env::var_os("BOBIX_HOME").is_some() { crate::install(&b) } else { json!({ "error": "set BOBIX_HOME to a scratch folder" }) };
+        report["hooks"] = hooks::status(&paths::home());
         b.test_event();
 
         // A session delivered the way Claude Code delivers it: hook.js on stdin, real cwd, a transcript, CLAUDE_PID.
@@ -37,9 +41,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         let _ = fs::write(&transcript, lines.iter().map(|l| l.to_string() + "\n").collect::<String>());
         let cwd = std::env::current_dir().unwrap_or_default().to_string_lossy().into_owned();
         let sid = "3f1c2a9e-7b4d-4e21-9a0c-5d6e7f8a9b0c";
-        // Next to the token, as an installed hook is; never over the installed hook.js.
-        let hook = paths::app_dir().join("smoke-hook.js");
-        let _ = fs::write(&hook, HOOK);
+        let hook = hooks::hook_target(&paths::home()); // the copy the install above made
         let mut runs = vec![];
         for ev in [json!({ "hook_event_name": "SessionStart", "source": "startup" }), json!({ "hook_event_name": "UserPromptSubmit", "prompt": "Fix the login bug" }),
             json!({ "hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": { "file_path": format!("{cwd}/README.md") } })] {
@@ -47,8 +49,29 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             for (k, v) in ev.as_object().unwrap() { e[k] = v.clone(); }
             runs.push(json!(run_hook(&hook, b.port, &e.to_string())));
         }
-        let _ = fs::remove_file(&hook);
         report["hookRuns"] = json!(runs);
+        // A permission request the hook holds until it is answered here, as a click on Allow would.
+        let ask = json!({ "session_id": sid, "cwd": cwd, "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": { "command": "ls" } }).to_string();
+        let (h, port) = (hook.clone(), b.port);
+        let held = thread::spawn(move || run_hook_out(&h, port, &ask));
+        let until = Instant::now() + Duration::from_secs(5);
+        let mut aid = None;
+        while aid.is_none() && Instant::now() < until {
+            thread::sleep(Duration::from_millis(100));
+            aid = b.core.lock().unwrap().sessions.get(sid).and_then(|s| s.answer.as_ref()?["id"].as_str().map(String::from));
+        }
+        report["answer"] = match aid {
+            None => json!("error: not held"),
+            Some(id) => {
+                answers::answer(&b, &id, "allow");
+                let out = held.join().unwrap_or_default();
+                json!(if out.contains("\"behavior\":\"allow\"") { "ok".to_string() } else { format!("error: hook printed {out:?}") })
+            }
+        };
+        // The process chain of this app and bringing its window forward (the pet click path); not part of the verdict.
+        let chain = crate::procs::ancestors(std::process::id());
+        report["chain"] = json!(chain);
+        report["focus"] = json!(crate::procs::focus_pids(&chain));
         thread::sleep(Duration::from_secs(6));
         {
             let c = b.core.lock().unwrap();
@@ -75,7 +98,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             _ => report["pets"] = json!("error: no answer from the page"),
         }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors);
-        let pass = report["visible"] == true && report["onTop"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
+        let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object();
         report["pass"] = json!(pass);
         write(&report);
@@ -83,6 +106,13 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         let _ = fs::write(dir.join("done"), ""); // CI waits for this, then stops the app itself
         app.exit(if pass { 0 } else { 1 });
     });
+}
+
+// The hook's stdout: what Claude Code would read.
+fn run_hook_out(hook: &PathBuf, port: u16, input: &str) -> String {
+    let Ok(mut child) = Command::new("node").arg(hook).arg(port.to_string()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else { return String::new() };
+    if let Some(mut i) = child.stdin.take() { let _ = i.write_all(input.as_bytes()); }
+    child.wait_with_output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
 }
 
 fn run_hook(hook: &PathBuf, port: u16, input: &str) -> String {

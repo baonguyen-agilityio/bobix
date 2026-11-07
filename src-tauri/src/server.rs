@@ -19,9 +19,9 @@ pub enum Reply {
     // A session title (SessionStart): answered as soon as it is known, well inside the hook's wait.
     Output(oneshot::Receiver<Option<Value>>),
     // A permission request held for an answer: the reply's headers go out at once with the wait time (seconds or
-    // "Infinity"), so the hook knows when to give up; the request closing (Claude moved on) drops `rx`, which the app
-    // sees as its sender closing.
-    Answer { secs: String, rx: oneshot::Receiver<Option<Value>> },
+    // "forever"), so the hook knows when to give up. `gone` is dropped when the reply ends, also when the hook's
+    // request closes first (Claude moved on).
+    Answer { secs: String, rx: oneshot::Receiver<Option<Value>>, gone: oneshot::Sender<()> },
 }
 
 pub type OnEvent = dyn Fn(Value, bool) -> Option<Reply> + Send + Sync;
@@ -93,9 +93,10 @@ async fn handle(State(ctx): State<Arc<Ctx>>, req: Request) -> Response {
                 Some(o) => ([(header::CONTENT_TYPE, "application/json")], o.to_string()).into_response(),
                 None => status(StatusCode::NO_CONTENT),
             },
-            Some(Reply::Answer { secs, rx }) if wait => {
+            Some(Reply::Answer { secs, rx, gone }) if wait => {
                 let body = stream::once(async move {
                     let a = rx.await.ok().flatten();
+                    drop(gone);
                     Ok::<Bytes, Infallible>(Bytes::from(a.map(|v| v.to_string()).unwrap_or_default()))
                 });
                 Response::builder().header(header::CONTENT_TYPE, "application/json").header("x-bobix-wait", secs)
@@ -200,6 +201,72 @@ mod tests {
         assert_eq!(post(&format!("x-bobix: {token}\r\n"), &local), 204);
         assert_eq!(http(port, &format!("PUT / HTTP/1.1\r\nHost: {local}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")), 405);
         assert_eq!(*got.lock().unwrap(), 1);
+    }
+
+    // The real hook.js (node) against this server: a held permission request prints the answer for Claude Code,
+    // one nobody answers gives up soon after its wait and closes (the app sees it go), and headless runs never wait.
+    #[test]
+    fn hook_js_waits_for_the_answer() {
+        use std::process::{Command, Stdio};
+        let home = std::env::temp_dir().join(format!("bobix-hookjs-{}", std::process::id()));
+        let token = crate::paths::ensure_token_in(&home).unwrap();
+        let mode = Arc::new(Mutex::new(0)); // 0: answer after 300 ms, 1: never answer, 2: record wait flags
+        let (gone_seen, waits) = (Arc::new(Mutex::new(false)), Arc::new(Mutex::new(vec![])));
+        let (m, g, w) = (mode.clone(), gone_seen.clone(), waits.clone());
+        let (tx, _) = broadcast::channel(4);
+        let ctx = Arc::new(Ctx {
+            token,
+            on_event: Box::new(move |_, wait| {
+                w.lock().unwrap().push(wait);
+                if !wait { return None; }
+                let (atx, rx) = oneshot::channel();
+                let (gone, gone_rx) = oneshot::channel::<()>();
+                let mode = *m.lock().unwrap();
+                let g = g.clone();
+                std::thread::spawn(move || {
+                    if mode == 0 {
+                        std::thread::sleep(Duration::from_millis(300));
+                        let _ = atx.send(Some(serde_json::json!({ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": { "behavior": "allow" } } })));
+                    } else {
+                        let _keep = atx; // nobody answers
+                        if tauri::async_runtime::block_on(gone_rx).is_err() { *g.lock().unwrap() = true; }
+                    }
+                });
+                Some(Reply::Answer { secs: if mode == 0 { "5".into() } else { "1".into() }, rx, gone })
+            }),
+            snapshot: Box::new(|| "{}".into()),
+            asset: Box::new(|_| None),
+            tx,
+        });
+        let port = start(0, ctx).unwrap();
+        let hook = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/hook/hook.js");
+        let run = |ev: &str, sdk: bool| -> (String, Duration) {
+            let t0 = std::time::Instant::now();
+            let mut c = Command::new("node");
+            c.arg(hook).arg(port.to_string()).env("HOME", &home).env("USERPROFILE", &home).env_remove("CLAUDE_CODE_ENTRYPOINT")
+                .stdin(Stdio::piped()).stdout(Stdio::piped());
+            if sdk { c.env("CLAUDE_CODE_ENTRYPOINT", "sdk-cli"); }
+            let mut child = c.spawn().expect("node");
+            child.stdin.take().unwrap().write_all(ev.as_bytes()).unwrap();
+            let out = child.wait_with_output().unwrap();
+            (String::from_utf8_lossy(&out.stdout).into_owned(), t0.elapsed())
+        };
+        let ask = r#"{"session_id":"s3","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+        let (out, took) = run(ask, false);
+        let v: serde_json::Value = serde_json::from_str(&out).expect("decision printed");
+        assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], "allow");
+        assert!(took < Duration::from_secs(2), "exits as soon as the answer is in");
+        *mode.lock().unwrap() = 1;
+        let (out, took) = run(ask, false);
+        assert_eq!(out, "", "no answer: nothing printed, Claude asks as usual");
+        assert!(took < Duration::from_secs(6), "gives up soon after the wait time");
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(*gone_seen.lock().unwrap(), "the app sees the hook go");
+        waits.lock().unwrap().clear();
+        let (out, _) = run(ask, true);
+        assert_eq!(out, "");
+        assert_eq!(*waits.lock().unwrap(), [false], "headless runs arrive without asking the app to wait");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
