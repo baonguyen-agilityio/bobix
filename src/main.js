@@ -13,7 +13,7 @@ const autostart = require('./core/autostart');
 const { focusPids, ancestors, processNames, hostApp } = require('./core/focus');
 const { startServer } = require('./core/server');
 const { checkLatest } = require('./core/update');
-const { parentOf } = require('./core/links');
+const { parentOf, claudeSessions, issueSession } = require('./core/links');
 const feedback = require('./core/feedback');
 const { bitmap } = require('./core/icon');
 const petstore = require('./core/petstore');
@@ -86,6 +86,7 @@ function onEvent(e, signal) {
   };
   isStop ? setTimeout(finish, 300) : finish(); // let Claude flush the final answer to the transcript first
   // A session that starts on an issue's branch gets its name from Bobix, the way /rename names it; one that has a name keeps it.
+  if (['SessionStart', 'SessionEnd'].includes(e.hook_event_name) && settings.gitlab) setTimeout(() => { readClaudeList(); server.broadcast(snapshot()); }, 3000); // Claude writes the name after
   if (r.s && e.hook_event_name === 'SessionStart' && e.source === 'startup' && !e.session_title && newFor.has(r.s.cwd)) return takeIssue(r.s);
   if (r.s && e.hook_event_name === 'SessionStart' && ['startup', 'resume', 'fork'].includes(e.source) && !e.session_title) return { output: titleFor(r.s) };
   return answered;
@@ -114,6 +115,10 @@ function findParent(s, now = Date.now()) {
 const gitCache = new Map(); // folder -> { at, busy, git }
 const remotesOf = new Map(); // repository top folder -> its remote URLs (kept here, never sent to the pages: they may hold credentials)
 let glabPath = null, issues = { status: 'off' }, issuesBusy = false;
+// Claude desktop's own sessions (id, folder, name), read when issues are read and when a session starts or ends: an
+// issue's session that Bobix has not seen since it started is found by its name (see links.issueSession).
+let claudeList = [];
+const readClaudeList = () => { try { claudeList = claudeSessions(); } catch { claudeList = []; } };
 // A session is named after an issue only when its own folder is on that issue's branch ("<iid>-…") of a repository of
 // that GitLab project, and the issue is one assigned to you. Nothing is guessed from timing; other sessions keep Claude's name.
 // New opens a new session in the project's own folder and leaves "#25 waits" here, in memory. The first session that is
@@ -178,6 +183,7 @@ async function refreshIssues() {
     }
   } catch (err) { next = { status: 'error', hosts: [], at: Date.now(), failed: [{ host: 'glab', detail: err.message }] }; } finally { issuesBusy = false; }
   issues = settings.gitlab ? next : { status: 'off' }; // switched off meanwhile
+  readClaudeList();
   server.broadcast(snapshot());
 }
 // What the pages see: issues grouped by project, and for each session the issue its branch names (GitLab's "<iid>-…").
@@ -197,6 +203,7 @@ function workView() {
     if (s.iid) { const i = list.find(x => x.project === s.path && x.iid === s.iid); issueOf.set(s.id, { iid: s.iid, title: i?.title || '', url: i?.url || '' }); }
   }
   const { local, away } = work.groupIssues(list, live, live);
+  for (const g of local) for (const i of g.issues) if (!i.sessions.length) i.resume = issueSession(claudeList, g.dir, g.path.split('/').pop(), i.iid);
   return { view: { status: issues.status, hosts, at: issues.at || null, failed: issues.failed || [], local, away }, issueOf };
 }
 // The Work tab's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
@@ -207,6 +214,9 @@ async function startIssue(path, iid) {
   if (!g || !i) return { ok: false, reason: 'gone' };
   const id = i.sessions.map(x => sessions.get(x)).filter(Boolean).sort((a, b) => b.updated - a.updated)[0]?.id;
   if (id) return { mode: 'resume', ...(await openSession(id, true, false)) };
+  if (i.resume) { // named after the issue in Claude desktop, not seen by Bobix since it started
+    try { await shell.openExternal(`claude://code/continue?session=${encodeURIComponent(i.resume)}`); return { ok: true, mode: 'resume' }; } catch (err) { return { ok: false, mode: 'resume', reason: 'notfound' }; }
+  }
   newFor.set(g.dir, { path, iid, title: i.title });
   server.broadcast(snapshot());
   try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(g.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }

@@ -443,6 +443,30 @@ test('new version check: only a newer, non-pre-release version is offered', asyn
   assert.equal(await checkLatest({ repo, current: '0.1.1', fetchImpl: async () => ({ ok: false }) }), null);
 });
 
+test('an issue\'s Claude desktop session is found by its name, in its folder, newest first, archived ones left out', () => {
+  const { claudeSessions, issueSession } = require('../src/core/links');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-cs-')), u = path.join(root, 'org', 'user');
+  fs.mkdirSync(u, { recursive: true });
+  const put = (id, o) => fs.writeFileSync(path.join(u, `local_${id}.json`), JSON.stringify(o));
+  try {
+    put('a', { cwd: '/src/shop', title: 'shop #23 Item list...', lastActivityAt: 100 });
+    put('b', { cwd: '/src/shop', title: 'shop #23 Item list...', lastActivityAt: 300 });
+    put('c', { cwd: '/src/shop', title: 'shop #23 newer but archived', lastActivityAt: 900, isArchived: true });
+    put('d', { cwd: '/src/shop', title: 'shop #231 other issue', lastActivityAt: 950 });
+    put('e', { cwd: '/src/other', title: 'shop #23 other folder', lastActivityAt: 990 });
+    put('f', { cwd: '/src/shop', title: 'shop #24', lastActivityAt: 10 });
+    fs.writeFileSync(path.join(u, 'notes.json'), '{}');
+    const list = claudeSessions(root);
+    strict.equal(list.length, 5);
+    strict.equal(issueSession(list, '/src/shop', 'shop', 23), 'local_b');
+    strict.equal(issueSession(list, '/src/shop', 'shop', 24), 'local_f', 'the name alone');
+    strict.equal(issueSession(list, '/src/shop', 'shop', 25), null);
+    put('b', { cwd: '/src/shop', title: 'renamed by hand', lastActivityAt: 400 });
+    fs.utimesSync(path.join(u, 'local_b.json'), new Date(), new Date(Date.now() + 5000));
+    strict.equal(issueSession(claudeSessions(root), '/src/shop', 'shop', 23), 'local_a', 'a changed file is read again');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('a Claude desktop side session knows the session it was started from', () => {
   const { parentOf } = require('../src/core/links');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-ccd-'));

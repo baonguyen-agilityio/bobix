@@ -629,7 +629,7 @@ function issueHTML(i, g) {
   return `<li class="issue${doing.length ? ' doing' : ''}"><div>
       <div class="i-t"><span class="i-n">#${i.iid}</span>${esc(i.title)}</div>
       <div class="i-meta">${i.labels.map(l => `<span class="lab">${esc(l)}</span>`).join('')}${due}${doing.map(s => `<button class="lnk" type="button" data-goto="${esc(s.id)}">${esc(T('work.inProgress'))}: ${esc(s.title || s.name)}</button>`).join('')}${wait ? `<span class="wait">${esc(T('work.wait'))} <button class="lnk" type="button" data-cancel="${esc(g.dir)}" title="${esc(T('work.wait.desc'))}">✕ ${esc(T('work.wait.cancel'))}</button></span>` : ''}</div></div>
-    <div class="i-acts">${bridge && g.dir ? `<button class="btn${doing.length ? ' pri' : ''}" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T(doing.length ? 'work.resume.desc' : 'work.new.desc'))}">${T(doing.length ? 'work.resume' : 'work.new')}</button>` : ''}
+    <div class="i-acts">${bridge && g.dir ? `<button class="btn${doing.length || i.resume ? ' pri' : ''}" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(T(doing.length || i.resume ? 'work.resume.desc' : 'work.new.desc'))}">${T(doing.length || i.resume ? 'work.resume' : 'work.new')}</button>` : ''}
       ${bridge ? `<button class="btn" type="button" data-url="${esc(i.url)}">${T('work.open')}</button>` : ''}</div></li>`;
 }
 function renderWork() {
