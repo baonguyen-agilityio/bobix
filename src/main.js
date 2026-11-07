@@ -1,5 +1,5 @@
 // Bobix — Electron main process: local server for hooks, pets overlay, control panel, tray, notifications.
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, Notification, nativeImage, shell, desktopCapturer, clipboard, dialog, nativeTheme } = require('electron');
 const path = require('path');
 const { Worker } = require('worker_threads');
 const fs = require('fs');
@@ -123,7 +123,7 @@ const readClaudeList = () => { try { claudeList = claudeSessions(); } catch { cl
 // that GitLab project, and the issue is one assigned to you. Nothing is guessed from timing; other sessions keep Claude's name.
 // New opens a new session in the project's own folder and leaves "#25 waits" here, in memory. The first session that is
 // created in exactly that folder afterwards takes #25 and its name. Sessions already open there never start again, so they
-// can't take it; resumed, cleared or forked ones start with another source. The wait shows in the Work tab until a session
+// can't take it; resumed, cleared or forked ones start with another source. The wait shows on the issue's card until a session
 // takes it, New is pressed again for that folder, or you cancel it there.
 const newFor = new Map(); // project folder -> { path, iid, title }
 function takeIssue(s) {
@@ -209,7 +209,7 @@ function workView() {
   for (const g of [...local, ...away]) { g.key = keyOf(g.path); g.autoKey = work.keyFor(g.path); }
   return { view: { status: issues.status, hosts, at: issues.at || null, failed: issues.failed || [], local, away }, issueOf };
 }
-// The Work tab's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
+// The panel's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
 // New opens a new Claude desktop session in the project's folder (the link Claude documents, no prompt sent); see newFor.
 async function startIssue(path, iid) {
   const { view } = workView();
@@ -225,7 +225,7 @@ async function startIssue(path, iid) {
   try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(g.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
   return { ok: true, mode: 'new', dir: g.dir };
 }
-// Only the links of the issues Bobix read open from the Work tab.
+// Only the links of the issues Bobix read open from the panel.
 function openIssue(url) {
   if (!settings.gitlab || typeof url !== 'string' || !(issues.list || []).some(i => i.url === url)) return false;
   shell.openExternal(url);
@@ -557,7 +557,7 @@ function showPanel({ select, tab, fail } = {}) {
     panel.show(); panel.focus();
   } else {
     panel = new BrowserWindow({
-      width: 1180, height: 780, minWidth: 420, minHeight: 480, title: 'Bobix', backgroundColor: '#f3f4f8',
+      width: 1180, height: 780, minWidth: 420, minHeight: 480, title: 'Bobix', backgroundColor: nativeTheme.shouldUseDarkColors ? '#12151f' : '#f9f6f0', // the panel's --bg
       webPreferences: { preload: path.join(__dirname, 'preload.js') },
     });
     panel.removeMenu();

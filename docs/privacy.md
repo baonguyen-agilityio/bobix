@@ -1,6 +1,6 @@
 # Privacy and security
 
-Bobix runs entirely on your computer. It has no account and no analytics. Its only network request on its own asks GitHub, once a day, whether a newer version exists; you can turn that off. The Work tab can also read your GitLab issues, only if you turn it on (off by default).
+Bobix runs entirely on your computer. It has no account and no analytics. Its only network request on its own asks GitHub, once a day, whether a newer version exists; you can turn that off. The panel can also read your GitLab issues, only if you turn it on (off by default).
 
 ## What it reads
 
@@ -20,7 +20,7 @@ The hook script drops file contents and tool output before sending anything. All
 | `~/.claude/settings.json` | Bobix's hook entries (only when you click Install hooks; removed by Remove hooks) |
 | `~/.claude/settings.json.bak-bobix-*` | a copy of that file before each change, same permissions, newest 3 kept. It contains whatever your settings file contains. |
 | `~/.claude/bobix/hook.js`, `token`, `header` | the forwarder and a random per-user token (mode 0600) |
-| The app's settings folder → `settings.json` | your Bobix preferences, including the GitLab projects you picked in the Work tab and the short code you set for a project, which picture each project uses and the pixel-art settings you chose for it |
+| The app's settings folder → `settings.json` | your Bobix preferences, including the GitLab projects you picked in the panel's To do column and the short code you set for a project, which picture each project uses and the pixel-art settings you chose for it |
 | The app's settings folder → `pets/` | the pixel-art version of each project's picture (the face the pets wear), and in `pets/originals/` the original picture as you chose it, kept so Edit picture can start from it and never shown or served by Bobix; both removed when no project uses them |
 | Start at login (only if you turn it on) | a login item (macOS / Windows), a LaunchAgent (macOS, from source) or `~/.config/autostart/bobix.desktop` (Linux) |
 
@@ -39,7 +39,7 @@ The hook script drops file contents and tool output before sending anything. All
 - When you click a pet: `open -a <app>` (macOS), `WScript.Shell.AppActivate` via PowerShell (Windows) or `xdotool` (Linux) to bring the session's window forward, and `ps` / `Get-CimInstance` to find that window's process. In the Claude desktop app it opens `claude://code/continue?session=<id>`, a link that app registers. It is not a documented public API and may change; if it stops working, the click falls back to the session's details.
 - For each folder a session works in, at most every 30 s (and on a session's start and end): `git status --porcelain=v2 --branch`, `git rev-parse --show-toplevel`, `git log -1`, `git rev-list --count HEAD --not --remotes`, `git worktree list --porcelain`, `git remote -v`. Read-only, without taking git's index lock; nothing is fetched or pushed.
 - Only while GitLab is on: `glab auth status` and `glab api …` as above, and once a login shell (`command -v glab`) to find where glab is installed.
-- **New** on an issue in the Work tab (only when you press it): opens `claude://code/new?folder=<the project's folder>`, Claude's documented link for a new session (the Claude app asks you to confirm the folder). No prompt or other text is sent. The first session then created in that folder (SessionStart with source `startup`) is linked to the issue, and Bobix's SessionStart hook answers with its name (`[<code>-<number>] <short title>`, as `/rename` would set it); this is the only hook output besides permission answers. Until then the issue shows "waiting for a new session" with ✕ to cancel. **Resume** does what a click on the session's pet does, or, for a session Bobix doesn't see running, opens `claude://code/continue?session=<id>` for the newest Claude desktop session in that folder with the issue's name.
+- **New** on an issue in the panel's To do column (only when you press it): opens `claude://code/new?folder=<the project's folder>`, Claude's documented link for a new session (the Claude app asks you to confirm the folder). No prompt or other text is sent. The first session then created in that folder (SessionStart with source `startup`) is linked to the issue, and Bobix's SessionStart hook answers with its name (`[<code>-<number>] <short title>`, as `/rename` would set it); this is the only hook output besides permission answers. Until then the issue shows "waiting for a new session" with ✕ to cancel. **Resume** does what a click on the session's pet does, or, for a session Bobix doesn't see running, opens `claude://code/continue?session=<id>` for the newest Claude desktop session in that folder with the issue's name.
 - Arguments are always passed as lists, never through a shell.
 
 ## Your organization's policies

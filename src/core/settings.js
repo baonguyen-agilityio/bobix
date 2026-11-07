@@ -28,8 +28,8 @@ const DEFAULTS = {
   checkUpdates: true,      // once a day, ask GitHub whether a newer release exists (nothing about you is sent)
   guideSeen: false,        // the panel's "How to read the pets" card was closed (see news.js)
   seenVersion: '',         // the last version whose "What's new" was closed, or the version first installed
-  gitlab: false,           // Work tab: read the GitLab issues assigned to you through your own glab (off: no network for it)
-  workProjects: [],        // GitLab project paths the Work tab shows; empty = all
+  gitlab: false,           // To do column: read the GitLab issues assigned to you through your own glab (off: no network for it)
+  workProjects: [],        // GitLab project paths the To do column shows; empty = all
   workKeys: {},            // GitLab project path -> its code in session names ("BAK"); none = made from its name (work.keyFor)
   petImages: {},           // project folder -> { src, file, opts } in the app's data folder (see petstore.js), or a file name
 };
