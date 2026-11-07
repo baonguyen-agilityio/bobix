@@ -12,7 +12,12 @@ struct Rects(Mutex<Vec<[f64; 4]>>);
 
 #[tauri::command]
 fn rects(r: Vec<[f64; 4]>, state: tauri::State<Rects>) {
-    *state.0.lock().unwrap() = r.into_iter().filter(|x| x.iter().all(|v| v.is_finite())).collect();
+    let r: Vec<[f64; 4]> = r.into_iter().filter(|x| x.iter().all(|v| v.is_finite())).collect();
+    let mut cur = state.0.lock().unwrap();
+    if r.len() != cur.len() {
+        println!("[spike] {} pet rects: {:?}", r.len(), r.iter().map(|x| [x[0].round(), x[1].round()]).collect::<Vec<_>>());
+    }
+    *cur = r;
 }
 
 #[tauri::command]
@@ -55,7 +60,10 @@ fn main() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement
-            let settings = bobix_settings();
+            let mut settings = bobix_settings();
+            // BOBIX_SPIKE_EDGE=top puts the spike's pets at the top, apart from a running Electron Bobix's.
+            let top = std::env::var("BOBIX_SPIKE_EDGE").as_deref() == Ok("top");
+            if top { settings["edge"] = "top".into(); }
             let port = std::env::var("BOBIX_PORT").unwrap_or_else(|_| "4747".into());
             let token = std::fs::read_to_string(home().join(".claude/bobix/token")).unwrap_or_default();
             let url = format!("http://127.0.0.1:{port}/pets?t={}", token.trim());
@@ -76,7 +84,8 @@ fn main() {
                 .visible(false)
                 .build()?;
             win.set_size(PhysicalSize::new(wa.size.width, h))?;
-            win.set_position(PhysicalPosition::new(wa.position.x, wa.position.y + wa.size.height as i32 - h as i32))?;
+            let y = if top { wa.position.y } else { wa.position.y + wa.size.height as i32 - h as i32 };
+            win.set_position(PhysicalPosition::new(wa.position.x, y))?;
             win.set_ignore_cursor_events(true)?;
             win.show()?;
 
@@ -95,6 +104,7 @@ fn main() {
                     if over != interactive {
                         interactive = over;
                         let _ = win.set_ignore_cursor_events(!over);
+                        println!("[spike] {} at {x:.0},{y:.0}", if over { "takes the mouse" } else { "click-through" });
                     }
                     if (x, y) != last {
                         last = (x, y);
