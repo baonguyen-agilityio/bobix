@@ -127,7 +127,7 @@ jobs:
           ./src-tauri/target/debug/bobix > smoke.log 2>&1 &
           for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done
           if [ "$RUNNER_OS" = Windows ]; then taskkill //F //IM bobix.exe > /dev/null 2>&1 || true; else pkill -9 -f target/debug/bobix || true; fi
-          grep "\[bobix\]" smoke.log || tail -40 smoke.log
+          grep "\[bobix\]" smoke.log || grep -m1 -A3 panicked smoke.log || tail -40 smoke.log
           node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.pass ? 0 : 1)"
       - uses: actions/upload-artifact@v4
         if: always()
