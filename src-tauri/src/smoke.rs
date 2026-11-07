@@ -1,0 +1,98 @@
+// BOBIX_SMOKE=<dir>: start, show a pretend session and a real one delivered by hook.js, check the pets overlay is on
+// screen, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke() in src/main.js; focus, the pet
+// picture worker and the screenshots come with those parts of the port.
+use crate::{overlay, paths, Bobix};
+use serde_json::{json, Value};
+use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
+use tauri::{AppHandle, Manager};
+
+const HOOK: &str = include_str!("../../src/hook/hook.js");
+static PAGE: Mutex<Option<Value>> = Mutex::new(None);
+
+pub fn page_result(v: Value) { *PAGE.lock().unwrap() = Some(v); }
+
+fn log(m: &str) { println!("[bobix] smoke: {m}"); }
+
+pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
+    thread::spawn(move || {
+        let _ = fs::create_dir_all(&dir);
+        let mut report = json!({ "platform": crate::platform(), "build": "tauri" });
+        let write = |r: &Value| { let _ = fs::write(dir.join("report.json"), serde_json::to_string_pretty(r).unwrap()); };
+        {
+            let (dir, app) = (dir.clone(), app.clone());
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(60));
+                let _ = fs::write(dir.join("report.json"), json!({ "watchdog": "gave up after 60 s" }).to_string());
+                log("gave up after 60 s");
+                app.exit(2);
+            });
+        }
+        thread::sleep(Duration::from_millis(1500)); // the page loads and subscribes
+        b.test_event();
+
+        // A session delivered the way Claude Code delivers it: hook.js on stdin, real cwd, a transcript, CLAUDE_PID.
+        let transcript = dir.join("real-session.jsonl");
+        let lines = [json!({ "type": "ai-title", "aiTitle": "Smoke real session" }),
+            json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "Looking at the code." }], "usage": { "input_tokens": 10, "cache_read_input_tokens": 40000 } } })];
+        let _ = fs::write(&transcript, lines.iter().map(|l| l.to_string() + "\n").collect::<String>());
+        let cwd = std::env::current_dir().unwrap_or_default().to_string_lossy().into_owned();
+        let sid = "3f1c2a9e-7b4d-4e21-9a0c-5d6e7f8a9b0c";
+        // Next to the token, as an installed hook is; never over the installed hook.js.
+        let hook = paths::app_dir().join("smoke-hook.js");
+        let _ = fs::write(&hook, HOOK);
+        let mut runs = vec![];
+        for ev in [json!({ "hook_event_name": "SessionStart", "source": "startup" }), json!({ "hook_event_name": "UserPromptSubmit", "prompt": "Fix the login bug" }),
+            json!({ "hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": { "file_path": format!("{cwd}/README.md") } })] {
+            let mut e = json!({ "session_id": sid, "cwd": cwd, "transcript_path": transcript });
+            for (k, v) in ev.as_object().unwrap() { e[k] = v.clone(); }
+            runs.push(json!(run_hook(&hook, b.port, &e.to_string())));
+        }
+        let _ = fs::remove_file(&hook);
+        report["hookRuns"] = json!(runs);
+        thread::sleep(Duration::from_secs(6));
+        {
+            let c = b.core.lock().unwrap();
+            report["realSession"] = c.sessions.get(sid).map(|s| json!({ "state": s.state, "title": s.title, "name": s.name, "claudePid": s.claude_pid, "hostSession": s.host_session }))
+                .unwrap_or(json!("not received"));
+            report["sessions"] = json!(c.sessions.len());
+        }
+        if let Some(w) = app.get_webview_window(overlay::LABEL) {
+            let scale = w.scale_factor().unwrap_or(1.0);
+            let (p, s) = (w.outer_position().unwrap_or_default().to_logical::<f64>(scale), w.outer_size().unwrap_or_default().to_logical::<f64>(scale));
+            report["visible"] = json!(w.is_visible().unwrap_or(false));
+            report["onTop"] = json!(w.is_always_on_top().unwrap_or(false));
+            report["bounds"] = json!({ "x": p.x, "y": p.y, "width": s.width, "height": s.height });
+            report["loadedUrl"] = json!(w.url().map(|u| u.path().to_string()).unwrap_or_default());
+            // The page counts its pets and sends them back through the bridge (the IPC path the pets use).
+            let _ = w.eval("window.__TAURI_INTERNALS__.invoke('smoke_page', { data: { pets: document.querySelectorAll('.pet').length, \
+                petLabels: [...document.querySelectorAll('.pet .tag')].map(t => t.textContent), \
+                petRects: [...document.querySelectorAll('.pet')].map(p => { const r = p.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); }) } })");
+        }
+        let until = Instant::now() + Duration::from_secs(5);
+        while PAGE.lock().unwrap().is_none() && Instant::now() < until { thread::sleep(Duration::from_millis(100)); }
+        match PAGE.lock().unwrap().take() {
+            Some(Value::Object(m)) => for (k, v) in m { report[k] = v; },
+            _ => report["pets"] = json!("error: no answer from the page"),
+        }
+        report["pageErrors"] = json!(b.core.lock().unwrap().page_errors);
+        let pass = report["visible"] == true && report["onTop"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
+            && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object();
+        report["pass"] = json!(pass);
+        write(&report);
+        log(&format!("done {report}"));
+        let _ = fs::write(dir.join("done"), ""); // CI waits for this, then stops the app itself
+        app.exit(if pass { 0 } else { 1 });
+    });
+}
+
+fn run_hook(hook: &PathBuf, port: u16, input: &str) -> String {
+    let child = Command::new("node").arg(hook).arg(port.to_string()).env("CLAUDE_PID", std::process::id().to_string())
+        .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn();
+    let mut child = match child { Ok(c) => c, Err(e) => return format!("error: {e}") };
+    if let Some(mut i) = child.stdin.take() { let _ = i.write_all(input.as_bytes()); }
+    match child.wait_with_output() {
+        Ok(o) if o.status.success() => "ok".into(),
+        Ok(o) => format!("error: {} {}", o.status, String::from_utf8_lossy(&o.stderr).chars().take(200).collect::<String>()),
+        Err(e) => format!("error: {e}"),
+    }
+}

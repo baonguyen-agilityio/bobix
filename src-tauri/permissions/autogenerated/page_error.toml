@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-page-error"
+description = "Enables the page_error command without any pre-configured scope."
+commands.allow = ["page_error"]
+
+[[permission]]
+identifier = "deny-page-error"
+description = "Denies the page_error command without any pre-configured scope."
+commands.deny = ["page_error"]
