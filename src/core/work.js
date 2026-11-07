@@ -40,9 +40,13 @@ async function gitStatus(dir) {
   };
 }
 
-// "host" (with its port) of the configured GitLab URL, or '' when it isn't one.
-function hostOf(url) {
-  try { const u = new URL(url); return /^https?:$/.test(u.protocol) && u.hostname ? u.host.toLowerCase() : ''; } catch { return ''; }
+// The GitLab hosts glab is signed in to, from `glab auth status` (it names each host it can reach with "Logged in to <host> as …";
+// a host whose sign-in fails has no such line). glab masks the token there; Bobix reads only these lines and keeps nothing else.
+const loggedInHosts = text => [...new Set([...String(text).matchAll(/Logged in to (\S+) as /g)].map(m => m[1].toLowerCase()))];
+// null when glab is missing, else the hosts (none when it is signed in nowhere). glab exits non-zero when any host fails.
+async function glabHosts(glab) {
+  const r = await run(glab, ['auth', 'status'], { timeout: 30000 });
+  return r.err?.code === 'ENOENT' ? null : loggedInHosts(r.out + '\n' + r.errOut);
 }
 
 // A git remote URL → GitLab project path ("group/sub/project", lower case) when it points at `host`, else null.
@@ -120,4 +124,4 @@ async function fetchIssues(glab, host) {
   return { ok: false, reason: 'error', detail: 'unexpected answer from GitLab' };
 }
 
-module.exports = { parseStatus, gitStatus, hostOf, projectPath, issueOfBranch, issueOfSession, sessionTitleFor, slimIssue, groupIssues, fetchIssues };
+module.exports = { parseStatus, gitStatus, loggedInHosts, glabHosts, projectPath, issueOfBranch, issueOfSession, sessionTitleFor, slimIssue, groupIssues, fetchIssues };

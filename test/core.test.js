@@ -1209,9 +1209,11 @@ test('work: git remote URL → GitLab project path, only on the configured host'
   strict.equal(work.projectPath('/Users/me/repo.git', h), null, 'local path');
   strict.equal(work.projectPath('git@gitlab.example.com:onlyname.git', h), null, 'no namespace');
   strict.equal(work.projectPath('git@gitlab.example.com:g/p.git', ''), null, 'GitLab off');
-  strict.equal(work.hostOf('https://GitLab.com/'), 'gitlab.com');
-  strict.equal(work.hostOf('ftp://gitlab.com'), '');
-  strict.equal(work.hostOf(''), '');
+  const status = 'gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/v4/user: 401\n  ✓ Git operations for gitlab.com configured to use ssh protocol.\n'
+    + 'git.example.com:8443\n  ✓ Logged in to git.example.com:8443 as someone (keyring)\n  ✓ Token: **************************\n'
+    + 'Gitlab.Example.org\n  ✓ Logged in to Gitlab.Example.org as other (config.yml)\n';
+  strict.deepEqual(work.loggedInHosts(status), ['git.example.com:8443', 'gitlab.example.org'], 'a host whose sign-in fails is left out');
+  strict.deepEqual(work.loggedInHosts('X could not authenticate'), []);
 });
 
 test('work: a branch named from an issue ("<iid>-…") links to that issue of the same project', () => {
@@ -1245,10 +1247,7 @@ test('work: git status --porcelain=v2 parsing', () => {
 
 test('settings: GitLab is off by default and keeps only the URL\'s origin', () => {
   strict.equal(DEFAULTS.gitlab, false);
-  strict.equal(DEFAULTS.gitlabUrl, '');
-  strict.equal(sanitize({ gitlabUrl: 'https://user:pw@gitlab.example.com/some/path?x=1' }).gitlabUrl, 'https://gitlab.example.com');
-  strict.equal(sanitize({ gitlabUrl: 'javascript:alert(1)' }).gitlabUrl, '');
-  strict.equal(sanitize({ gitlabUrl: '' }, { ...DEFAULTS, gitlabUrl: 'https://a.b' }).gitlabUrl, '');
+  strict.equal(sanitize({ gitlabUrl: 'https://gitlab.example.com' }).gitlabUrl, undefined, 'no GitLab URL to set: glab knows where it is signed in');
 });
 
 test('settings: the Work tab\'s chosen projects are GitLab paths, lower case, no duplicates', () => {

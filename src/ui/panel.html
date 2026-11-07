@@ -635,26 +635,26 @@ function issueHTML(i, g) {
 function renderWork() {
   const box = $('#work');
   if (!box || $('#tab-work').hidden) return;
-  const w = work, host = esc(w.host || '');
+  const w = work, hosts = (w.hosts || []).join(', ');
   const key = JSON.stringify([w, waiting, picked(), list.map(s => [s.id, s.title, s.name]), lang, Math.floor(Date.now() / 60e3)]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
-  const login = `<div class="cmd"><code>glab auth login --hostname ${host}</code><button class="btn" type="button" data-copy="glab auth login --hostname ${host}">${T('work.copy')}</button></div>`;
+  const login = `<div class="cmd"><code>glab auth login</code><button class="btn" type="button" data-copy="glab auth login">${T('work.copy')}</button></div>`;
   if (w.status === 'off') {
     box.innerHTML = `<div class="card"><h2>${T('work.off.title')}</h2><p class="note">${esc(T('work.off.body'))}</p>${bridge ? `<div class="acts"><button class="btn pri" type="button" data-tab-go="settings">${T('work.toSettings')}</button></div>` : ''}</div>`;
     return;
   }
   const groups = [...w.local, ...w.away], local = w.local.filter(shown), away = w.away.filter(shown);
   const n = [...local, ...away].reduce((a, g) => a + g.issues.length, 0);
-  const top = `<div class="work-top"><p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading', { host: w.host }))
-      : w.status === 'ok' ? esc(T('work.updated', { n, host: w.host, ago: ago(w.at) })) : ''}</p>
+  const top = `<div class="work-top"><p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading'))
+      : w.status === 'ok' ? esc(T('work.updated', { n, host: hosts, ago: ago(w.at) })) : ''}</p>
     <div class="acts" style="margin:0">${bridge && groups.length ? pickerHTML(groups) : ''}${bridge ? `<button class="btn" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button>` : ''}</div></div>`;
   const problem = w.status === 'noglab' ? `<div class="card"><p class="note err">${esc(T('work.noglab'))}</p>${login}</div>`
-    : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth', { host: w.host }))}</p>${login}</div>`
-    : w.status === 'error' ? `<div class="card"><p class="note err">${esc(T('work.error', { host: w.host, x: w.detail }))}</p></div>` : '';
+    : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth'))}</p>${login}</div>`
+    : (w.failed || []).map(f => `<div class="card"><p class="note err">${esc(T('work.error', { host: f.host, x: f.detail }))}</p></div>`).join('');
   const group = (g, away) => `<section class="card wgroup"><h2>${esc(g.path)} <span class="n">${g.issues.length}</span>${g.dir ? `<span class="dir">${esc(g.dir)}</span>` : ''}</h2><ol class="issues">${g.issues.map(i => issueHTML(i, g)).join('')}</ol></section>`;
   box.innerHTML = top + problem
-    + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: w.host }))}</p></div>` : '')
+    + (w.status === 'ok' && !n ? `<div class="card"><p class="note">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: hosts }))}</p></div>` : '')
     + local.map(g => group(g)).join('')
     + (away.length ? `<h2>${T('work.away')}</h2><p class="note">${T('work.away.desc')}</p>${away.map(g => group(g, true)).join('')}` : '');
 }
@@ -726,7 +726,6 @@ const SECTIONS = [
   ]],
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
-    { k: 'gitlabUrl', type: 'url', wide: true },
   ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
@@ -753,7 +752,6 @@ function control(r, s) {
         <input type="range" class="rng" id="f-${k}" data-k="${k}" min="0" max="100" step="5" value="${s[k]}" style="--fill:${fill(z, s[k])}"><output class="val" for="f-${k}" data-val="${k}">${s[k]}%</output></div>`).join('')}
     </div>`;
   }
-  if (r.type === 'url') return `<div class="rng-row" style="width:100%"><input type="url" id="${id}" value="${esc(v)}" placeholder="https://gitlab.com" aria-labelledby="l-${r.k}" spellcheck="false" style="flex:1;min-width:0"><button class="btn" type="button" data-act="gitlabUrl">${T('set.gitlabUrl.apply')}</button></div>`;
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
 }
@@ -831,11 +829,6 @@ $('#settings').addEventListener('click', async e => {
   if (!t) return;
   if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
   if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
-  if (t.dataset.act === 'gitlabUrl') {
-    const v = $('#f-gitlabUrl').value.trim();
-    if (v && !/^https?:\/\/[^\s/]+/i.test(v)) return toast(T('set.gitlabUrl.bad'));
-    return save({ gitlabUrl: v });
-  }
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
     if (v === state.settings.port) return;

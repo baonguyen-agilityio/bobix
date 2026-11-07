@@ -110,7 +110,7 @@ function findParent(s, now = Date.now()) {
 
 // ---------- work items: git status, GitLab issues ----------
 // Git: per folder, read on a session's events and by the 30 s timer, at most every 30 s (on Stop and SessionStart at once).
-// GitLab: only while its switch is on and a URL is set, through the person's own glab (see core/work.js and docs/privacy.md).
+// GitLab: only while its switch is on, from every GitLab the person's own glab is signed in to (see core/work.js and docs/privacy.md).
 const gitCache = new Map(); // folder -> { at, busy, git }
 const remotesOf = new Map(); // repository top folder -> its remote URLs (kept here, never sent to the pages: they may hold credentials)
 let glabPath = null, issues = { status: 'off' }, issuesBusy = false;
@@ -129,10 +129,10 @@ function takeIssue(s) {
   return { output: { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(n.path, n.iid, n.title) } } };
 }
 async function titleFor(s) {
-  const host = gitlabHost(), dir = s.cwd;
-  if (!host || !dir || !path.isAbsolute(dir)) return null;
+  const hosts = gitlabHosts(), dir = s.cwd;
+  if (!hosts.length || !dir || !path.isAbsolute(dir)) return null;
   const g = await work.gitStatus(dir).catch(() => null);
-  const project = g && g.remotes.map(u => work.projectPath(u, host)).find(Boolean), iid = g && work.issueOfBranch(g.branch);
+  const project = g && pathIn(g.remotes, hosts), iid = g && work.issueOfBranch(g.branch);
   const i = project && iid && (issues.list || []).find(x => x.project === project && x.iid === iid);
   return i ? { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: work.sessionTitleFor(project, iid, i.title) } } : null;
 }
@@ -156,27 +156,35 @@ async function refreshGit(s, force = false) {
   for (const x of sessions.values()) if (x.cwd === dir && x.git !== git) { changed ||= JSON.stringify(x.git) !== was; x.git = git; }
   if (changed && server) server.broadcast(snapshot());
 }
-const gitlabHost = () => (settings.gitlab ? work.hostOf(settings.gitlabUrl) : '');
+const gitlabHosts = () => (settings.gitlab ? issues.hosts || [] : []);
+// A repository's GitLab project path: the first signed-in host one of its remotes points at.
+// ponytail: the same path on two GitLabs counts as one project; key by host too if anyone works like that.
+const pathIn = (remotes, hosts) => { for (const h of hosts) for (const u of remotes) { const p = work.projectPath(u, h); if (p) return p; } return null; };
 async function refreshIssues() {
-  const host = gitlabHost();
-  if (!host) { issues = { status: 'off' }; return server?.broadcast(snapshot()); }
+  if (!settings.gitlab) { issues = { status: 'off' }; return server?.broadcast(snapshot()); }
   if (issuesBusy) return;
   issuesBusy = true;
-  if (issues.host !== host) { issues = { status: 'loading', host }; server.broadcast(snapshot()); }
+  if (issues.status === 'off') { issues = { status: 'loading' }; server.broadcast(snapshot()); }
+  let next;
   try {
     glabPath ??= await findBin('glab');
-    const r = await work.fetchIssues(glabPath, host);
-    if (r.reason === 'noglab') glabPath = null; // look again next time: it may be installed by then
-    if (gitlabHost() !== host) return; // switched off or to another GitLab meanwhile
-    issues = r.ok ? { status: 'ok', host, at: Date.now(), list: r.issues } : { status: r.reason, host, at: Date.now(), detail: r.detail || '' };
-  } catch (err) { issues = { status: 'error', host, at: Date.now(), detail: err.message }; } finally { issuesBusy = false; }
+    const hosts = glabPath && await work.glabHosts(glabPath), at = Date.now();
+    if (!hosts) { glabPath = null; next = { status: 'noglab', at }; } // look again next time: it may be installed by then
+    else if (!hosts.length) next = { status: 'auth', hosts, at };
+    else {
+      const rs = await Promise.all(hosts.map(h => work.fetchIssues(glabPath, h)));
+      const failed = rs.map((r, i) => !r.ok && { host: hosts[i], detail: r.detail || r.reason }).filter(Boolean);
+      next = failed.length === hosts.length ? { status: 'error', hosts, at, failed } : { status: 'ok', hosts, at, failed, list: rs.flatMap(r => r.issues || []) };
+    }
+  } catch (err) { next = { status: 'error', hosts: [], at: Date.now(), failed: [{ host: 'glab', detail: err.message }] }; } finally { issuesBusy = false; }
+  issues = settings.gitlab ? next : { status: 'off' }; // switched off meanwhile
   server.broadcast(snapshot());
 }
 // What the pages see: issues grouped by project, and for each session the issue its branch names (GitLab's "<iid>-…").
 function workView() {
-  const host = gitlabHost(), issueOf = new Map();
-  if (!host) return { view: { status: 'off' }, issueOf };
-  const pathOf = top => (remotesOf.get(top) || []).map(u => work.projectPath(u, host)).find(Boolean) || null;
+  const hosts = gitlabHosts(), issueOf = new Map();
+  if (!settings.gitlab) return { view: { status: 'off' }, issueOf };
+  const pathOf = top => pathIn(remotesOf.get(top) || [], hosts);
   const own = s => work.issueOfSession({ path: pathOf(s.git.top), started: s.started, branches: [...(s.branches || []), s.git.branch].filter(Boolean) });
   const byHost = new Map([...sessions.values()].filter(s => s.hostSession && s.git).map(s => [s.hostSession, s]));
   const live = [...sessions.values()].filter(s => s.git).map(s => {
@@ -189,7 +197,7 @@ function workView() {
     if (s.iid) { const i = list.find(x => x.project === s.path && x.iid === s.iid); issueOf.set(s.id, { iid: s.iid, title: i?.title || '', url: i?.url || '' }); }
   }
   const { local, away } = work.groupIssues(list, live, live);
-  return { view: { status: issues.status, host, at: issues.at || null, detail: issues.detail || '', local, away }, issueOf };
+  return { view: { status: issues.status, hosts, at: issues.at || null, failed: issues.failed || [], local, away }, issueOf };
 }
 // The Work tab's button on an issue: Resume opens the session working on it, exactly like a click on its pet;
 // New opens a new Claude desktop session in the project's folder (the link Claude documents, no prompt sent); see newFor.
@@ -204,10 +212,9 @@ async function startIssue(path, iid) {
   try { await shell.openExternal(`claude://code/new?folder=${encodeURIComponent(g.dir)}`); } catch (err) { return { ok: false, mode: 'new', reason: err.message }; }
   return { ok: true, mode: 'new', dir: g.dir };
 }
-// Only links to the configured GitLab open from the Work tab.
+// Only the links of the issues Bobix read open from the Work tab.
 function openIssue(url) {
-  const base = settings.gitlab && work.hostOf(settings.gitlabUrl) ? settings.gitlabUrl + '/' : null;
-  if (!base || typeof url !== 'string' || !url.startsWith(base)) return false;
+  if (!settings.gitlab || typeof url !== 'string' || !(issues.list || []).some(i => i.url === url)) return false;
   shell.openExternal(url);
   return true;
 }
@@ -626,7 +633,7 @@ async function updateSettings(patch) {
   if (settings.petsVisible !== prev.petsVisible) showOverlay();
   if (['petsVisible', 'paused', 'language', 'seenVersion'].some(k => settings[k] !== prev[k])) buildTray();
   releaseUnseen();
-  if (settings.gitlab !== prev.gitlab || settings.gitlabUrl !== prev.gitlabUrl) refreshIssues();
+  if (settings.gitlab !== prev.gitlab) refreshIssues();
   if (settings.checkUpdates && !prev.checkUpdates) checkForUpdate();
   if (!settings.checkUpdates && update) { update = null; buildTray(); }
   broadcastSettings();
