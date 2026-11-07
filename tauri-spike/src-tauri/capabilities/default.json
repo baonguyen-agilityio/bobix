@@ -1,0 +1,7 @@
+{
+  "identifier": "pets",
+  "description": "The pets page is served by the running Bobix on 127.0.0.1; it may call the spike's own commands only.",
+  "windows": ["pets"],
+  "remote": { "urls": ["http://127.0.0.1:*/*"] },
+  "permissions": []
+}
