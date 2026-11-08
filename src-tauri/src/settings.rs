@@ -1,0 +1,390 @@
+// User settings: defaults, validation and a JSON file in the app's data folder. Same file, keys and rules as
+// src/core/settings.js, so the Electron and Tauri builds read and write the same settings.json.
+use crate::js::{js_number, round};
+use serde_json::{json, Map, Value};
+use std::{fs, path::Path};
+
+pub const UNTIL_ANSWER: f64 = -1.0; // approveWait: no countdown, the request waits until you answer (or Claude moves on)
+
+pub fn defaults() -> Value {
+    json!({
+        "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "zoneStart": 0, "zoneEnd": 100,
+        "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "sleepHide": 30,
+        "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
+        "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
+        "seenVersion": "", "gitlab": false, "workProjects": [], "workKeys": {}, "petImages": {},
+    })
+}
+
+fn enum_of(k: &str) -> Option<&'static [&'static str]> {
+    Some(match k {
+        "language" => &["auto", "en", "vi"],
+        "edge" => &["bottom", "top"],
+        "label" => &["title", "folder", "both"],
+        "clickAction" => &["focus", "panel"],
+        _ => return None,
+    })
+}
+
+fn range_of(k: &str) -> Option<(f64, f64)> {
+    Some(match k {
+        "port" => (1024.0, 65535.0),
+        "zoneStart" => (0.0, 95.0),
+        "zoneEnd" => (5.0, 100.0),
+        "size" => (32.0, 128.0),
+        "opacity" => (0.2, 1.0),
+        "sleepHide" => (0.0, 1440.0),
+        "approveWait" => (0.0, 300.0),
+        _ => return None,
+    })
+}
+
+fn num_value(n: f64) -> Value {
+    if n.fract() == 0.0 && n.abs() < 9e15 { json!(n as i64) } else { json!(n) }
+}
+
+fn is_hex(s: &str, n: usize) -> bool { s.len() == n && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) }
+
+// "<24 hex>.<ext>" with ext in `exts`.
+fn hashed_name(s: &str, exts: &[&str]) -> bool {
+    s.split_once('.').is_some_and(|(h, e)| is_hex(h, 24) && exts.contains(&e))
+}
+pub fn pet_file(s: &str) -> bool { hashed_name(s, &["png", "gif"]) }
+fn pet_src(s: &str) -> bool { hashed_name(s, &["png", "jpg", "gif", "webp"]) }
+
+// A GitLab project path: "group/name", segments of [\w.-], no "." or ".." segment.
+fn project_path(p: &str) -> bool {
+    let segs: Vec<&str> = p.split('/').collect();
+    p.len() < 300 && segs.len() >= 2
+        && segs.iter().all(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) && !s.bytes().all(|b| b == b'.'))
+}
+
+// A project's code in session names: [A-Z][A-Z0-9]{0,9}.
+fn project_code(c: &str) -> bool {
+    let b = c.as_bytes();
+    !b.is_empty() && b.len() <= 10 && b[0].is_ascii_uppercase() && b.iter().all(|x| x.is_ascii_uppercase() || x.is_ascii_digit())
+}
+
+// A picture entry: a file name (made before pictures were processed) or { src, file, opts }; None when it is neither.
+fn pet_entry(e: &Value) -> Option<Value> {
+    match e {
+        Value::String(s) => pet_file(s).then(|| e.clone()),
+        Value::Object(o) => {
+            let src = o.get("src")?.as_str().filter(|s| pet_src(s))?;
+            let file = o.get("file")?.as_str().filter(|s| pet_file(s))?;
+            Some(json!({ "src": src, "file": file, "opts": normalize_opts(o.get("opts"), false) }))
+        }
+        _ => None,
+    }
+}
+
+// Keeps only known keys with valid values; anything else falls back to the current value.
+pub fn sanitize(input: &Value, base: &Value) -> Value {
+    let mut out = base.as_object().cloned().unwrap_or_default();
+    let defs = defaults();
+    let empty = Map::new();
+    let input = input.as_object().unwrap_or(&empty);
+    for (k, def) in defs.as_object().unwrap() {
+        let Some(v) = input.get(k) else { continue };
+        let k = k.as_str();
+        if let Some(allowed) = enum_of(k) {
+            if v.as_str().is_some_and(|s| allowed.contains(&s)) { out.insert(k.into(), v.clone()); }
+        } else if k == "port" {
+            // reject, never clamp: a guessed port could be busy
+            let n = js_number(v);
+            if n.fract() == 0.0 && (1024.0..=65535.0).contains(&n) { out.insert(k.into(), json!(n as i64)); }
+        } else if k == "approveWait" && js_number(v) == UNTIL_ANSWER {
+            out.insert(k.into(), json!(-1)); // any other negative number is clamped to 0 (off) below
+        } else if let Some((lo, hi)) = range_of(k) {
+            let n = js_number(v);
+            if n.is_finite() {
+                let n = if k == "opacity" { n } else { round(n) };
+                out.insert(k.into(), num_value(n.max(lo).min(hi)));
+            }
+        } else if def.is_boolean() {
+            if v.is_boolean() { out.insert(k.into(), v.clone()); }
+        } else if k == "seenVersion" {
+            if let Some(s) = v.as_str() {
+                let ok = s.is_empty() || { let p: Vec<&str> = s.split('.').collect(); p.len() == 3 && p.iter().all(|x| (1..=4).contains(&x.len()) && x.bytes().all(|b| b.is_ascii_digit())) };
+                if ok { out.insert(k.into(), v.clone()); }
+            }
+        } else if k == "workKeys" {
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter()
+                    .filter(|(p, c)| project_path(p) && c.as_str().is_some_and(project_code))
+                    .take(500).map(|(p, c)| (p.to_lowercase(), c.clone())).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "workProjects" {
+            if let Some(a) = v.as_array() {
+                let mut seen: Vec<String> = Vec::new();
+                for p in a.iter().filter_map(|p| p.as_str()).filter(|p| project_path(p)) {
+                    let p = p.to_lowercase();
+                    if !seen.contains(&p) { seen.push(p); }
+                }
+                seen.truncate(500);
+                out.insert(k.into(), json!(seen));
+            }
+        } else if k == "display" {
+            if v.as_str().is_some_and(|s| s.encode_utf16().count() < 40) { out.insert(k.into(), v.clone()); }
+        } else if k == "petImages" {
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter()
+                    .filter_map(|(p, e)| Some((p.clone(), pet_entry(e)?)))
+                    .filter(|(p, _)| p.encode_utf16().count() < 1024).take(200).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        }
+    }
+    let (zs, ze) = (out["zoneStart"].as_f64().unwrap_or(0.0), out["zoneEnd"].as_f64().unwrap_or(100.0));
+    if ze - zs < 5.0 { out.insert("zoneEnd".into(), num_value((zs + 5.0).min(100.0))); }
+    Value::Object(out)
+}
+
+// How long a permission request of a session waits for an answer in Bobix: seconds, infinity (until answered) or 0
+// (don't hold it, Claude asks as usual). Never holds what the person may not see: pets hidden, notifications paused,
+// or this pet hidden by hand.
+#[allow(dead_code)] // the permission answers use it (hooks part of the port)
+pub fn hold_secs(settings: &Value, pet: &str) -> f64 {
+    let w = settings["approveWait"].as_f64().unwrap_or(0.0);
+    if w == 0.0 || settings["paused"] == true || settings["petsVisible"] != true || pet == "hidden" { return 0.0; }
+    if w == UNTIL_ANSWER { f64::INFINITY } else { w }
+}
+
+pub fn load(file: &Path) -> Value {
+    let d = defaults();
+    fs::read_to_string(file).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .map(|v| sanitize(&v, &d)).unwrap_or(d)
+}
+
+// ---------- pet picture options (src/core/pixelate.js normalizeOpts / parseColor) ----------
+const SIZES: [f64; 3] = [32.0, 48.0, 64.0];
+
+// Untrusted options (IPC, settings.json) -> options pixelate can use. removeBg defaults to whether the picture has no
+// alpha. outlineColor is left out for the automatic dark outline; it is kept while the outline is off.
+pub fn normalize_opts(input: Option<&Value>, plain_bg: bool) -> Value {
+    let empty = Map::new();
+    let o = input.and_then(|v| v.as_object()).unwrap_or(&empty);
+    let num = |k: &str| o.get(k).and_then(|v| v.as_f64()).filter(|n| n.is_finite());
+    let int = |k: &str, lo: f64, hi: f64, def: f64| num(k).map(|n| round(n).max(lo).min(hi)).unwrap_or(def);
+    let boolean = |k: &str, def: bool| o.get(k).and_then(|v| v.as_bool()).unwrap_or(def);
+    let size = num("size").map(|n| SIZES.iter().copied().fold(SIZES[0], |a, b| if (b - n).abs() < (a - n).abs() { b } else { a })).unwrap_or(48.0);
+    let colors = int("colors", 4.0, 32.0, 16.0);
+    let outline = boolean("outline", true);
+    let accents = int("accents", 0.0, 8.0, 3.0).min(colors - if outline { 1.0 } else { 0.0 } - 2.0);
+    let mut out = json!({
+        "size": num_value(size), "colors": num_value(colors), "accents": num_value(accents), "clean": boolean("clean", true),
+        "outline": outline, "removeBg": boolean("removeBg", plain_bg), "whole": boolean("whole", false),
+    });
+    if let Some(c) = o.get("outlineColor").and_then(parse_color) { out["outlineColor"] = json!(c); }
+    out
+}
+
+// A colour as a person types it -> "#rrggbb", or None: #rgb, #rgba, #rrggbb, #rrggbbaa, rgb()/rgba() and hsl()/hsla()
+// with commas or spaces, numbers or percentages. Alpha must be a number but is dropped.
+pub fn parse_color(v: &Value) -> Option<String> {
+    let v = v.as_str()?;
+    if v.encode_utf16().count() > 64 { return None; }
+    let s = v.trim().to_lowercase();
+    if let Some(h) = s.strip_prefix('#') {
+        if matches!(h.len(), 3 | 4 | 6 | 8) && h.bytes().all(|b| b.is_ascii_hexdigit()) {
+            let full: String = if h.len() < 6 { h.chars().flat_map(|c| [c, c]).collect() } else { h.into() };
+            return Some(format!("#{}", &full[..6]));
+        }
+        return None;
+    }
+    let (name, rest) = s.split_once('(')?;
+    let hsl = match name { "rgb" | "rgba" => false, "hsl" | "hsla" => true, _ => return None };
+    let inner = rest.strip_suffix(')')?;
+    if inner.contains(['(', ')']) { return None; }
+    let parts: Vec<&str> = split_args(inner.trim());
+    if parts.len() < 3 || parts.len() > 4 { return None; }
+    let mut n = Vec::new();
+    let mut unit = Vec::new();
+    for p in &parts {
+        let (x, u) = parse_num_unit(p)?;
+        n.push(x);
+        unit.push(u);
+    }
+    if !n.iter().all(|x| x.is_finite()) { return None; }
+    let hue = |u: &str| -> Option<f64> { Some(match u { "" | "deg" => 1.0, "grad" => 0.9, "rad" => 180.0 / std::f64::consts::PI, "turn" => 360.0, _ => return None }) };
+    if hsl && hue(unit[0]).is_none() { return None; }
+    if unit[if hsl { 1 } else { 0 }..].iter().any(|u| !u.is_empty() && *u != "%") { return None; }
+    let byte = |x: f64| round(x.max(0.0).min(255.0)) as u8;
+    let rgb: Vec<u8> = if hsl {
+        // CSS Color 4's hsl-to-rgb
+        let h = ((n[0] * hue(unit[0]).unwrap()) % 360.0 + 360.0) % 360.0;
+        let (sat, l) = (n[1].max(0.0).min(100.0) / 100.0, n[2].max(0.0).min(100.0) / 100.0);
+        let a = sat * l.min(1.0 - l);
+        [0.0, 8.0, 4.0].iter().map(|k| { let k = (k + h / 30.0) % 12.0; byte((l - a * (k - 3.0).min(9.0 - k).min(1.0).max(-1.0)) * 255.0) }).collect()
+    } else {
+        (0..3).map(|i| byte(if unit[i] == "%" { n[i] * 255.0 / 100.0 } else { n[i] })).collect()
+    };
+    Some(format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]))
+}
+
+// JS: str.split(/\s*[,/]\s*|\s+/)
+fn split_args(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let b = s.as_bytes();
+    let (mut start, mut i) = (0, 0);
+    while i < b.len() {
+        if b[i].is_ascii_whitespace() || b[i] == b',' || b[i] == b'/' {
+            let mut j = i;
+            while j < b.len() && b[j].is_ascii_whitespace() { j += 1; }
+            if j < b.len() && (b[j] == b',' || b[j] == b'/') {
+                j += 1;
+                while j < b.len() && b[j].is_ascii_whitespace() { j += 1; }
+            }
+            out.push(&s[start..i]);
+            start = j;
+            i = j;
+        } else { i += 1; }
+    }
+    out.push(&s[start..]);
+    out
+}
+
+// /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(%|deg|g?rad|turn)?$/
+fn parse_num_unit(p: &str) -> Option<(f64, &str)> {
+    let unit_at = p.find(|c: char| c == '%' || ('a'..='z').contains(&c) && c != 'e').unwrap_or(p.len());
+    let (num, unit) = p.split_at(unit_at);
+    if !matches!(unit, "" | "%" | "deg" | "rad" | "grad" | "turn") { return None; }
+    let b = num.as_bytes();
+    let mut i = 0;
+    if i < b.len() && (b[i] == b'+' || b[i] == b'-') { i += 1; }
+    let int_start = i;
+    while i < b.len() && b[i].is_ascii_digit() { i += 1; }
+    let ints = i - int_start;
+    if i < b.len() && b[i] == b'.' {
+        i += 1;
+        let f = i;
+        while i < b.len() && b[i].is_ascii_digit() { i += 1; }
+        if ints == 0 && i == f { return None; }
+    } else if ints == 0 { return None; }
+    if i < b.len() && b[i] == b'e' {
+        i += 1;
+        if i < b.len() && (b[i] == b'+' || b[i] == b'-') { i += 1; }
+        let e = i;
+        while i < b.len() && b[i].is_ascii_digit() { i += 1; }
+        if i == e { return None; }
+    }
+    if i != b.len() { return None; }
+    Some((num.parse::<f64>().ok()?, unit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(v: Value) -> Value { sanitize(&v, &defaults()) }
+
+    #[test]
+    fn settings_sanitize() {
+        let o = s(json!({ "size": 9999, "edge": "left", "opacity": 0, "zoneStart": 90, "zoneEnd": 91, "evil": 1, "sound": "yes" }));
+        assert_eq!(o["size"], 128);
+        assert_eq!(o["edge"], "bottom");
+        assert_eq!(o["opacity"], json!(0.2));
+        assert_eq!(o["zoneEnd"], 95);
+        assert!(o.get("evil").is_none());
+        assert_eq!(o["sound"], true);
+        assert_eq!(s(json!({ "sleepHide": "60" }))["sleepHide"], 60);
+        assert_eq!(s(json!({ "sleepHide": -5 }))["sleepHide"], 0);
+    }
+
+    #[test]
+    fn until_answer_is_validated() {
+        assert_eq!(defaults()["approveWait"], -1);
+        assert_eq!(s(json!({}))["approveWait"], -1);
+        assert_eq!(s(json!({ "approveWait": 45 }))["approveWait"], 45);
+        assert_eq!(s(json!({ "approveWait": "-1" }))["approveWait"], -1);
+        assert_eq!(s(json!({ "approveWait": -5 }))["approveWait"], 0);
+        assert_eq!(s(json!({ "approveWait": 9999 }))["approveWait"], 300);
+        let mut base = defaults();
+        base["approveWait"] = json!(20);
+        assert_eq!(sanitize(&json!({ "approveWait": "x" }), &base)["approveWait"], 20);
+    }
+
+    #[test]
+    fn hold_only_where_seen() {
+        let mut on = defaults();
+        on["approveWait"] = json!(60);
+        assert_eq!(hold_secs(&on, "auto"), 60.0);
+        on["approveWait"] = json!(-1);
+        assert_eq!(hold_secs(&on, "auto"), f64::INFINITY);
+        assert_eq!(hold_secs(&on, "hidden"), 0.0);
+        assert_eq!(hold_secs(&on, "shown"), f64::INFINITY);
+        on["paused"] = json!(true);
+        assert_eq!(hold_secs(&on, "auto"), 0.0);
+        on["paused"] = json!(false);
+        on["petsVisible"] = json!(false);
+        assert_eq!(hold_secs(&on, "auto"), 0.0);
+        on["approveWait"] = json!(0);
+        on["petsVisible"] = json!(true);
+        assert_eq!(hold_secs(&on, "auto"), 0.0);
+    }
+
+    #[test]
+    fn work_settings() {
+        assert_eq!(defaults()["gitlab"], false);
+        assert!(s(json!({ "gitlabUrl": "https://x" })).get("gitlabUrl").is_none());
+        assert_eq!(s(json!({ "workProjects": ["Team/Shop-App", "team/shop-app", "g/sub/p", "nopath", "../x", 3, "a/b c"] }))["workProjects"], json!(["team/shop-app", "g/sub/p"]));
+        assert_eq!(s(json!({ "workProjects": "team/x" }))["workProjects"], json!([]));
+        assert_eq!(s(json!({ "workKeys": { "Team/App": "BAK", "x": "BAK", "a/b": "bad" } }))["workKeys"], json!({ "team/app": "BAK" }));
+    }
+
+    #[test]
+    fn pet_images_kept_and_dropped() {
+        let (a, b) = ("0123456789abcdef01234567", "fedcba9876543210fedcba98");
+        let opts = normalize_opts(None, false);
+        let mut big = opts.clone();
+        big["size"] = json!(64);
+        let good = json!({ "src": format!("{a}.webp"), "file": format!("{b}.gif"), "opts": big });
+        let out = s(json!({ "petImages": {
+            "/legacy": format!("{a}.png"), "/new": good,
+            "/badname": "../../etc/passwd", "/badfile": { "src": format!("{a}.png"), "file": "../x.png", "opts": opts },
+            "/badsrc": { "src": format!("{a}.bmp"), "file": format!("{b}.png"), "opts": opts },
+            "/traversal": { "src": format!("../{a}.png"), "file": format!("{b}.png"), "opts": opts }, "/nums": 5, "/null": null,
+            "/gifresult-as-jpg": { "src": format!("{a}.png"), "file": format!("{b}.jpg"), "opts": opts },
+        } }))["petImages"].clone();
+        let mut keys: Vec<&String> = out.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["/legacy", "/new"]);
+        assert_eq!(out["/new"], good);
+        let e = s(json!({ "petImages": { "/p": { "src": format!("{a}.png"), "file": format!("{a}.png"), "opts": { "size": 9999, "colors": 1000, "accents": -4, "clean": "yes", "outline": 0, "removeBg": 1, "whole": 1 } } } }));
+        assert_eq!(e["petImages"]["/p"]["opts"], json!({ "size": 64, "colors": 32, "accents": 0, "clean": true, "outline": true, "removeBg": false, "whole": false }));
+    }
+
+    #[test]
+    fn normalize_opts_clamps() {
+        let d = json!({ "size": 48, "colors": 16, "accents": 3, "clean": true, "outline": true, "removeBg": false, "whole": false });
+        assert_eq!(normalize_opts(None, false), d);
+        assert_eq!(normalize_opts(Some(&json!({})), true)["removeBg"], true);
+        assert_eq!(normalize_opts(Some(&json!({ "removeBg": false })), true)["removeBg"], false);
+        assert_eq!(normalize_opts(Some(&json!({ "size": 41 })), false)["size"], 48);
+        assert_eq!(normalize_opts(Some(&json!({ "size": "64" })), false)["size"], 48);
+        assert_eq!(normalize_opts(Some(&json!({ "colors": 4, "accents": 8 })), false)["accents"], 1);
+        assert_eq!(normalize_opts(Some(&json!({ "colors": 4, "accents": 8, "outline": false })), false)["accents"], 2);
+    }
+
+    #[test]
+    fn outline_colours() {
+        let good = [
+            ("#f0a", "#ff00aa"), ("#F0A8", "#ff00aa"), ("#ff00AA", "#ff00aa"), ("#ff00aa80", "#ff00aa"), ("  #AbC  ", "#aabbcc"),
+            ("rgb(255, 0, 128)", "#ff0080"), ("rgb(255 0 128)", "#ff0080"), ("RGBA(255,0,128,0.5)", "#ff0080"), ("rgb(255 0 128 / 50%)", "#ff0080"),
+            ("rgb(100% 0% 50%)", "#ff0080"), ("rgb(300 -5 12.6)", "#ff000d"),
+            ("hsl(200, 80%, 40%)", "#1481b8"), ("hsl(200 80% 40%)", "#1481b8"), ("hsla(200deg, 80%, 40%, .3)", "#1481b8"), ("hsl(200 80 40)", "#1481b8"),
+            ("hsl(0.5turn 100% 50%)", "#00ffff"), ("hsl(-120 100% 50%)", "#0000ff"), ("hsl(400grad 100% 50% / 0)", "#ff0000"), ("hsl(0 0% 100%)", "#ffffff"),
+        ];
+        for (v, want) in good { assert_eq!(parse_color(&json!(v)).as_deref(), Some(want), "{v}"); }
+        let long = format!("#{}", "a".repeat(70));
+        let bad = ["red", "#ff", "#ggg", "f0a", "#f0a8c", "rgb(1 2)", "rgb(1 2 3 4 5)", "rgb(1,,2,3)", "rgb(1 2 3x)", "rgb(10deg 0 0)",
+            "hsl(10% 50% 50%)", "rgb(1e999 0 0)", "rgb((1 2 3))", "rgb(1 2 3) x", "cmyk(1 2 3)", &long, ""];
+        for v in bad { assert_eq!(parse_color(&json!(v)), None, "{v}"); }
+        assert_eq!(parse_color(&json!(5)), None);
+        assert!(normalize_opts(Some(&json!({})), false).get("outlineColor").is_none());
+        let off = normalize_opts(Some(&json!({ "outline": false, "outlineColor": "rgb(255 0 128)" })), false);
+        assert_eq!(off["outlineColor"], "#ff0080");
+        assert_eq!(normalize_opts(Some(&off), false), off);
+    }
+}
