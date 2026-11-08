@@ -369,7 +369,7 @@ function fxClip(all) {
 // Where a pet's tool prop goes: beside it, on the side away from its family when that side is free of other pets, else
 // on the other free side, else (a packed row) over its head. Pets are taken where they stand once settled.
 function propPlace(p) {
-  const all = [...pets.values()], size = cfg.size, c = fxCell(), at = q => (attached(q.s) ? sideSpot(q, all) ?? q.x : q.x) + size / 2, cx = at(p);
+  const all = [...pets.values(), ...leaving], size = cfg.size, c = fxCell(), at = q => (attached(q.s) ? sideSpot(q, all) ?? q.x : q.x) + size / 2, cx = at(p);
   // A side is free when the next pet there is far enough for the prop (37 cells out) to stay in this pet's own slot.
   const blocked = d => all.some(q => q !== p && !q.veil && d * (at(q) - cx) > -1e-6 && d * (at(q) - cx) < 2 * 37 * c);
   const away = familyRight(p) ? -1 : 1, side = !blocked(away) ? away : !blocked(-away) ? -away : 0;
