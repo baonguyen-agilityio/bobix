@@ -2,7 +2,7 @@
 // It holds the decoded source of the one import in progress, so adjusting an option only repeats the pixel art.
 // { id, token, input?, opts } in -> { id, data, ext, opts, opaque, frames, ms } | { id, gone } | { id, error } out.
 const { parentPort } = require('worker_threads');
-const P = require('./pixelate');
+const P = require('../ui/pixelate');
 const { fromBitmap } = require('./petstore');
 
 let held = null; // { token, source }

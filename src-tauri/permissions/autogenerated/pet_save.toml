@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pet-save"
+description = "Enables the pet_save command without any pre-configured scope."
+commands.allow = ["pet_save"]
+
+[[permission]]
+identifier = "deny-pet-save"
+description = "Denies the pet_save command without any pre-configured scope."
+commands.deny = ["pet_save"]

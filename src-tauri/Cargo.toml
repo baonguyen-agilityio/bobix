@@ -19,6 +19,9 @@ indexmap = "2"
 getrandom = "0.3"
 tauri-plugin-opener = "2"
 percent-encoding = "2"
+sha2 = "0.10"
+base64 = "0.22"
+tauri-plugin-dialog = "2"
 arboard = { version = "3", default-features = false }
 
 [target.'cfg(unix)'.dependencies]

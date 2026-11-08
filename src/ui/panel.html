@@ -948,7 +948,7 @@ $('#fb-dialog').addEventListener('click', async e => {
 // choose / edit return a Preview and keep the picture pending in the main process; every change asks for a new preview
 // (debounced), save and cancel end it. Only the reply to the newest request is shown.
 const pd = { id: null, opts: null, preview: '', sent: 0, timer: 0, saved: false };
-const PD_SIZES = [32, 48, 64]; // SIZES in core/pixelate.js
+const PD_SIZES = [32, 48, 64]; // SIZES in ui/pixelate.js
 const PD_VIEW = 256;           // the preview is scaled up by whole pixels to at most this
 const PD_DEBOUNCE = 150;       // ms: a typed number or held arrow key asks once
 // Outline colours offered as swatches (i18n pd.oc.<name>); 'Auto' before them is the picture's own darkest colour, darker.

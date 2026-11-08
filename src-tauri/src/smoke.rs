@@ -2,7 +2,7 @@
 // and a real one delivered by the installed hook.js, answer a permission request it holds, check the pets overlay is
 // on screen, open the panel and use its bridge (state, a settings change that is saved, feedback), check the tray, the
 // session's git status and a second start, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke()
-// in src/main.js; the pet picture worker and the screenshots come with those parts of the port.
+// in src/main.js. The panel also imports a picture it draws (decode, pixel art in the worker, save, served, reset).
 use crate::{answers, hooks, overlay, panel, paths, Bobix};
 use serde_json::{json, Value};
 use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
@@ -109,11 +109,22 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         match app.get_webview_window(panel::LABEL) {
             None => report["panel"] = json!("error: no window"),
             Some(w) => {
-                let _ = w.eval("(async () => { const r = {}; try { \
+                let project = b.core.lock().unwrap().sessions.get(sid).and_then(|s| s.project.clone()).unwrap_or_default();
+                let _ = w.eval(format!("(async () => {{ const r = {{}}, sid = {sid:?}, project = {project}; try {{ \
                     const st = await bobix.getState(); r.displays = (st.displays || []).length; r.screen = !!(st.screen && st.screen.width); \
-                    r.size = (await bobix.setSettings({ size: 64 })).size; r.feedbackLines = ((await bobix.feedbackInfo()).lines || []).length; \
+                    r.size = (await bobix.setSettings({{ size: 64 }})).size; r.feedbackLines = ((await bobix.feedbackInfo()).lines || []).length; \
                     r.tabs = document.querySelectorAll('.tab[data-tab]').length; r.selected = document.querySelector('.tab[aria-selected=true]')?.dataset.tab || null; \
-                    } catch (e) { r.error = String(e); } window.__TAURI_INTERNALS__.invoke('smoke_page', { data: { panel: r } }); })()");
+                    const c = document.createElement('canvas'); c.width = c.height = 80; const g = c.getContext('2d'); \
+                    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 80, 80); g.fillStyle = '#e04040'; g.beginPath(); g.arc(40, 40, 28, 0, 7); g.fill(); \
+                    g.fillStyle = '#202020'; g.fillRect(28, 30, 8, 8); g.fillRect(46, 30, 8, 8); \
+                    const png = new Uint8Array(await (await new Promise(ok => c.toBlob(ok, 'image/png'))).arrayBuffer()); \
+                    await bobix.petImage(sid, 'cancel'); const pi = await window.__bobixPetImage.startImport(project, png, 'png'); \
+                    const pic = r.picture = {{ preview: !!pi.ok && pi.preview.startsWith('data:image/png;base64,'), ms: pi.ms }}; \
+                    pic.save = !!(await bobix.petImage(sid, 'save', pi.opts))?.ok; \
+                    const file = (await bobix.getState()).settings.petImages[project]?.file; \
+                    pic.served = !!file && (await fetch('/pet-image/' + file + '?t=' + new URLSearchParams(location.search).get('t'))).status === 200; \
+                    pic.reset = !!(await bobix.petImage(sid, 'reset'))?.ok; \
+                    }} catch (e) {{ r.error = String(e); }} window.__TAURI_INTERNALS__.invoke('smoke_page', {{ data: {{ panel: r }} }}); }})()", project = json!(project)));
                 let until = Instant::now() + Duration::from_secs(10);
                 while PAGE.lock().unwrap().is_none() && Instant::now() < until { thread::sleep(Duration::from_millis(100)); }
                 report["panel"] = PAGE.lock().unwrap().take().map(|v| v["panel"].clone()).unwrap_or(json!("error: no answer from the panel"));
@@ -135,6 +146,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object()
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 3 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
+            && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
             && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
         write(&report);

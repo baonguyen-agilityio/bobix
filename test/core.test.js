@@ -13,7 +13,7 @@ const markdown = require('../src/ui/markdown');
 const LOG = require('../src/ui/log');
 const strict = require('node:assert/strict');
 const zlib = require('zlib');
-const P = require('../src/core/pixelate');
+const P = require('../src/ui/pixelate');
 const petstore = require('../src/core/petstore');
 
 test('session lifecycle', () => {
@@ -743,7 +743,7 @@ test('a damaged GIF keeps its whole images, and one without any throws', () => {
 
 test('decodeGif shrinks to 256 and caps the frame count', () => {
   // a 600×300 GIF with MAX_FRAMES + 5 one-pixel frames, written with gifenc
-  const { GIFEncoder } = require('../src/core/gif/gifenc'), g = GIFEncoder();
+  const { GIFEncoder } = require('../src/ui/gif/gifenc'), g = GIFEncoder();
   for (let i = 0; i < P.MAX_FRAMES + 5; i++) g.writeFrame(new Uint8Array(i ? 1 : 600 * 300), i ? 1 : 600, i ? 1 : 300, { palette: i ? undefined : [[10, 20, 30], [0, 0, 0]], delay: 50 });
   g.finish();
   const s = P.decodeGif(Buffer.from(g.bytes()));
