@@ -183,6 +183,49 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   strict.deepEqual([...ctx.flip], [true, true, true, true], 'pet upright top-down, text upright top-down, pet upright left-right');
 });
 
+test('no effect pixel lands on another pet, a name tag or a balloon, in a packed family, on both edges and two sizes', () => {
+  const ctx = {};
+  require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
+  // The clip as CSS draws it: inside the outer rect and not inside a hole (path(evenodd, "M0 0H..Z" + holes)).
+  const holesOf = clip => [...clip.matchAll(/M([\d.-]+) ([\d.-]+)H([\d.-]+)V([\d.-]+)H[\d.-]+Z/g)].slice(1).map(m => m.slice(1).map(Number));
+  require('vm').runInContext(`globalThis.overlapCheck = (holesOf) => {
+    const bad = [], W2 = GW * 2, H2 = GH * 2;
+    for (const size of [40, 72]) for (const flipY of [false, true]) {
+      // A parent and three side sessions trailing it on the left (spacing and the side pets' 80% as in pets.html), a
+      // family name tag under them, a waiting balloon over the parent and over the middle side pet.
+      const top = flipY ? 4 : 300 - size, P = 400, xs = [P, ...[0, 1, 2].map(i => P - (size * .9 + 4) - i * (size * .8 + 4))], k = i => (i ? .8 : 1);
+      const body = i => { const s = k(i), cx = xs[i] + size / 2; return [cx - size * s / 2, top + size - size * s, cx + size * s / 2, top + size]; };
+      const tag = [Math.min(...xs) - 8, top + size, P + size + 8, top + size + 18];
+      const balloon = i => { const b = body(i), w = (b[2] - b[0]) / 2, cx = (b[0] + b[2]) / 2; return flipY ? [cx - w / 2, tag[3] + 2, cx + w / 2, tag[3] + 2 + w * 2] : [cx - w / 2, b[1] - w * 2, cx + w / 2, b[1] + size * .08]; };
+      const things = [tag, balloon(0), balloon(2)];
+      for (const i of [0, 2]) for (const [kind, o] of [['aura', {}], ['tool', { seg: 1 }], ['xp', { f0: 2 / 3, f1: 1, lv: 9 }], ['ctx', {}], ['child', { dir: -1, dist: (size * .9 + 4) / (size / 18) }], ['end', {}]]) {
+        const flipX = kind === 'tool' && i > 0, fy = flipY && kind !== 'tool', s = k(i), at = fxPlace(size, FX[kind].ox, flipX, fy);
+        const L = xs[i] + size / 2 + (at.left - size / 2) * s, T = top + size + (at.top - size) * s, box = [L, T, L + at.width * s, T + at.height * s];
+        const own = body(i), avoid = [...things, ...xs.map((_, j) => j).filter(j => j !== i).map(body)];
+        const holes = holesOf(fxClipPath(box, fxHoles(box, own, avoid), at.width, at.height));
+        const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, kid: pet, ...o, flipX, flipY: fy }), b = new Buf(), img = { data: new Uint8ClampedArray(W2 * H2 * 4) }, px = new Uint32Array(img.data.buffer);
+        for (let f = 0; f < 140 && !r.done; f++) {
+          r.step(1 / 30); if (f % 3) continue; r.draw(b); b.toImage(img);
+          for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+            if (!(px[y * W2 + x] >>> 24)) continue;
+            const lx = (x + .5) * at.width / W2, ly = (y + .5) * at.height / H2; // in the element, CSS px
+            if (holes.some(h => lx > h[0] && lx < h[2] && ly > h[1] && ly < h[3])) continue; // cut out
+            const sx = box[0] + lx * s, sy = box[1] + ly * s, e = .01, inside = rr => sx > rr[0] + e && sx < rr[2] - e && sy > rr[1] + e && sy < rr[3] - e; // e: a centre right on an edge
+            if (avoid.some(inside) && !inside(own)) { bad.push([size, flipY, i, kind, f]); x = W2; y = H2; f = 1e9; }
+          }
+        }
+      }
+    }
+    return bad;
+  }`, ctx);
+  strict.deepEqual(JSON.parse(JSON.stringify(ctx.overlapCheck(holesOf))), []);
+  // The rect maths the clip is made of.
+  strict.deepEqual(JSON.parse(JSON.stringify(ctx.rectMinus([0, 0, 10, 10], [3, 3, 6, 6]))), [[0, 0, 10, 3], [0, 6, 10, 10], [0, 3, 3, 6], [6, 3, 10, 6]]);
+  const hs = JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [[30, 50, 70, 70], [50, 60, 90, 80], [200, 0, 300, 10]])));
+  const area = rs => rs.reduce((a, r) => a + (r[2] - r[0]) * (r[3] - r[1]), 0);
+  strict.equal(area(hs), 20 * 10 + 10 * 20 + 30 * 20 - 10 * 10, 'the union of both minus the own pet, nothing counted twice, nothing outside the box');
+});
+
 test('sessions of one project share a shape; colours tell them apart', () => {
   const ctx = {};
   require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);

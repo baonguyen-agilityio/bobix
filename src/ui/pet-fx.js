@@ -459,6 +459,42 @@ const FX = {
   },
 };
 
+// ---- staying off other things ---------------------------------------------------------------------------------
+// Where the effect canvas sits in its pet's sprite box (size px square, before the box's own scale): the pet's middle on
+// column ox, its feet on the box's bottom (mirrored left-right / top-down as the effect is).
+function fxPlace(size, ox, flipX, flipY) {
+  const c = size / 18;
+  return { left: size / 2 - (flipX ? GW - ox : ox) * c, top: flipY ? -(GH - FEET) * c : size - FEET * c, width: GW * c, height: GH * c };
+}
+// Rects are [left, top, right, bottom]. a minus b: up to 4 rects that cover a and not b.
+function rectMinus(a, b) {
+  if (b[0] >= a[2] || b[2] <= a[0] || b[1] >= a[3] || b[3] <= a[1]) return [a];
+  const out = [], t = Math.max(a[1], b[1]), bo = Math.min(a[3], b[3]);
+  if (a[1] < b[1]) out.push([a[0], a[1], a[2], b[1]]);
+  if (b[3] < a[3]) out.push([a[0], b[3], a[2], a[3]]);
+  if (a[0] < b[0]) out.push([a[0], t, b[0], bo]);
+  if (b[2] < a[2]) out.push([b[2], t, a[2], bo]);
+  return out;
+}
+// The parts of an effect's box (on screen) it must leave empty: everything in avoid (other pets, name tags, balloons,
+// bubbles, cards), except where its own pet is, which it always draws. Disjoint, clipped to the box.
+function fxHoles(box, own, avoid) {
+  const out = [];
+  for (const a of avoid) {
+    if (!(a[2] > box[0] && a[0] < box[2] && a[3] > box[1] && a[1] < box[3])) continue;
+    let pieces = rectMinus([Math.max(a[0], box[0]), Math.max(a[1], box[1]), Math.min(a[2], box[2]), Math.min(a[3], box[3])], own);
+    for (const o of out) pieces = pieces.flatMap(p => rectMinus(p, o));
+    out.push(...pieces.filter(p => p[2] - p[0] > .01 && p[3] - p[1] > .01));
+  }
+  return out;
+}
+// Those holes as a CSS clip-path for the effect's element (w x h CSS px, drawn in box on screen).
+function fxClipPath(box, holes, w, h) {
+  if (!holes.length) return '';
+  const sx = w / (box[2] - box[0]), sy = h / (box[3] - box[1]), n = v => +v.toFixed(2);
+  return `path(evenodd, "M0 0H${n(w)}V${n(h)}H0Z${holes.map(([l, t, r, b]) => `M${n((l - box[0]) * sx)} ${n((t - box[1]) * sy)}H${n((r - box[0]) * sx)}V${n((b - box[1]) * sy)}H${n((l - box[0]) * sx)}Z`).join('')}")`;
+}
+
 // ---- running ------------------------------------------------------------------------------------------------------
 // One effect playing on one pet: a fixed 60 Hz simulation, drawn when the overlay draws (at most ~30 times a second).
 // A loop effect starts over at its end (the tool prop keeps its clock, so only its first loop pops in); a one-shot

@@ -86,7 +86,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
    nothing but itself. */
 .pet.fx .spr>svg,.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
 .pet.leaving>:not(.spr){opacity:0;transition:opacity 600ms var(--ease)}
-.fxc,.fxs{position:absolute;pointer-events:none;image-rendering:pixelated}
+.fxc,.fxs{position:absolute;pointer-events:none;image-rendering:pixelated;z-index:0}
+/* A pet's balloon, bubble, card and name tag stay above its own effect; other pets' are cut out of it (fxClip). */
+.pet>.bb,.pet>.say,.pet>.card,.pet>.tag{z-index:1}
 .fxs{overflow:hidden}.fxs img{display:block;image-rendering:pixelated;will-change:transform}
 .spr svg.faced{position:absolute;left:-5%;bottom:0;width:110%;height:110%}
 .edge-top .spr svg.faced{bottom:auto;top:0}
@@ -317,8 +319,8 @@ function fxStart(p, kind, o = {}) {
   // On the top edge the effect is mirrored down (the screen's edge is its ground); a tool's prop stays level with the
   // pet and goes to the side where no pet of its family stands.
   o = { ...o, flipY: cfg.edge === 'top' && kind !== 'tool', flipX: kind === 'tool' && familyRight(p) };
-  const run = fxRun(kind, { pet, ...o }), c = fxCell(), size = cfg.size;
-  Object.assign(p.cv.style, { width: GW * c + 'px', height: GH * c + 'px', left: size / 2 - (o.flipX ? GW - run.ox : run.ox) * c + 'px', top: (o.flipY ? -(GH - FEET) * c : size - FEET * c) + 'px', translate: '' });
+  const run = fxRun(kind, { pet, ...o }), at = fxPlace(cfg.size, run.ox, o.flipX, o.flipY);
+  Object.assign(p.cv.style, { width: at.width + 'px', height: at.height + 'px', left: at.left + 'px', top: at.top + 'px', translate: '', clipPath: '' }); p.clip = '';
   if (kind === 'child') pets.get(o.kidId).veil = run; // the side session's pet shows once it has landed
   p.fx = run; p.fxSeg = o.seg; p.fxFlip = o.flipX; p.sheet = run.loop ? sheetFor(kind, o, art, color, pet) : null;
   p.el.classList.add('fx'); p.el.classList.toggle('fx-over', kind === 'xp' || kind === 'ctx'); p.el.querySelector('.spr')?.append(p.cv);
@@ -330,6 +332,26 @@ function familyRight(p) {
   const all = [...pets.values()], par = attached(p.s) && pets.get(p.s.parent);
   if (par) return (sideSpot(p, all) ?? p.x) < par.x;
   return kidsOf(p.s).some(k => { const q = pets.get(k.id); return q && (sideSpot(q, all) ?? q.x) > p.x; });
+}
+// No effect pixel on another pet, on any name tag, "+N", balloon, bubble or card: each effect is clipped around them
+// (its own pet always shows whole). All rects are read first, then the clips written, so layout is worked out once.
+function fxClip(all) {
+  const everyone = [...all, ...leaving], shown = everyone.filter(p => p.fx);
+  if (!shown.length) return;
+  const R = n => { const b = n.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; }, body = new Map(), things = [];
+  for (const q of everyone) {
+    if (q.el.style.visibility === 'hidden') continue; // a side pet hidden while it dashes out
+    body.set(q, R(q.el.querySelector('.spr')));
+    if (q.leaving) continue; // only its pet is left
+    const over = q.el.classList.contains('fx-over'); // its balloon and tool bubble are hidden under its own effect
+    for (const n of q.el.querySelectorAll(over ? '.tag:not(.ghost),.say.waiting,.card,.more' : '.tag:not(.ghost),.bb,.say,.card,.more')) things.push(R(n));
+  }
+  const jobs = shown.map(p => { const node = p.sheetShown ? p.sheetEl : p.cv; return [p, node, R(node), body.get(p) || R(p.el.querySelector('.spr'))]; });
+  for (const [p, node, box, own] of jobs) {
+    const avoid = [...things]; for (const [q, r] of body) if (q !== p) avoid.push(r);
+    const clip = fxClipPath(box, fxHoles(box, own, avoid), node.offsetWidth, node.offsetHeight);
+    if (clip !== (node === p.cv ? p.clip : p.sheetClip)) { node.style.clipPath = clip; if (node === p.cv) p.clip = clip; else p.sheetClip = clip; }
+  }
 }
 function fxStop(p) { if (p.fx) p.fx.done = true; sheetOff(p); p.fx = p.sheet = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
 // Loops play from a sheet of frames drawn once (fxSheet) as soon as it is ready: a CSS animation, nothing drawn per frame.
@@ -350,7 +372,7 @@ function sheetOn(p) {
   Object.assign(wrap.style, { left: parseFloat(p.cv.style.left) + s.x * q + 'px', top: parseFloat(p.cv.style.top) + s.y * q + 'px', width: s.fw * q + 'px', height: s.fh * q + 'px' });
   Object.assign(im.style, { width: s.cols * s.fw * q + 'px', height: Math.ceil(s.n / s.cols) * s.fh * q + 'px' });
   const at = i => `translate(${(-(i % s.cols) * s.fw + s.shakes[i][0] * 2) * q}px, ${(-Math.floor(i / s.cols) * s.fh + s.shakes[i][1] * 2) * q}px)`;
-  p.sheetEl = wrap; // claimed now; shown once the picture is decoded (the live canvas plays until then)
+  p.sheetClip = ''; p.sheetEl = wrap; // claimed now; shown once the picture is decoded (the live canvas plays until then)
   im.src = s.url;
   im.decode().then(() => {
     if (p.sheetEl !== wrap || p.fx !== run) return;
@@ -569,6 +591,7 @@ function frame(t) {
     if (el.textContent !== txt) el.textContent = txt;
   }
   groundTags(all);
+  if (FX_ON) fxClip(all);
   if (bridge && t - rectAt > 100) {
     rectAt = t;
     const rects = [];
