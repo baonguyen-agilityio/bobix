@@ -100,6 +100,7 @@ jobs:
           if [ -d /opt/Bobix ]; then echo "/opt/Bobix (the Electron build) is still there"; exit 1; fi
           echo "APP_BIN=$(command -v bobix)" >> "$GITHUB_ENV"
           Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+          for i in $(seq 1 50); do DISPLAY=:99 xdotool getdisplaygeometry > /dev/null 2>&1 && break; sleep 0.2; done # ready before the app starts
           echo "DISPLAY=:99" >> "$GITHUB_ENV"
 
       - name: Smoke the installed app
