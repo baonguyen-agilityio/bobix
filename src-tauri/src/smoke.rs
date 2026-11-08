@@ -175,11 +175,18 @@ fn ask(app: &AppHandle, label: &str, expr: &str) -> Value {
     PAGE.lock().unwrap().take().map(|v| v["v"].clone()).unwrap_or(json!("no answer"))
 }
 
-// Drags the pet toward the middle of the screen (so the zone never clamps it), as scripts/smoke-drag.mjs did.
+// Drags the pet toward the middle of the screen (so the zone never clamps it), as scripts/smoke-drag.mjs did. Screen
+// coordinates come from the window's position (WebKitGTK may not know screenX without a window manager); the page
+// counts the pointer presses it gets, so a failure says whether the mouse reached it.
 fn drag(app: &AppHandle, sid: &str) -> Value {
-    let at = ask(app, overlay::LABEL, &format!("(() => {{ const p = pets.get({sid:?}); if (!p) return null; const b = p.el.querySelector('.spr').getBoundingClientRect(); \
-        return {{ x: Math.round(screenX + b.left + b.width / 2), y: Math.round(screenY + b.top + b.height / 2), petX: Math.round(p.x), w: innerWidth }}; }})()"));
-    let (Some(x), Some(y), Some(px), Some(w)) = (at["x"].as_i64(), at["y"].as_i64(), at["petX"].as_f64(), at["w"].as_f64()) else { return json!({ "error": "no pet", "at": at }) };
+    let Some(win) = app.get_webview_window(overlay::LABEL) else { return json!({ "error": "no window" }) };
+    let at = ask(app, overlay::LABEL, &format!("(() => {{ window.__downs = 0; addEventListener('pointerdown', () => window.__downs++, true); \
+        const p = pets.get({sid:?}); if (!p) return null; const b = p.el.querySelector('.spr').getBoundingClientRect(); \
+        return {{ x: b.left + b.width / 2, y: b.top + b.height / 2, petX: Math.round(p.x), w: innerWidth, screenX, screenY }}; }})()"));
+    let (Some(cx), Some(cy), Some(px), Some(w)) = (at["x"].as_f64(), at["y"].as_f64(), at["petX"].as_f64(), at["w"].as_f64()) else { return json!({ "error": "no pet", "at": at }) };
+    let f = win.scale_factor().unwrap_or(1.0);
+    let pos = win.inner_position().unwrap_or_default();
+    let (x, y) = ((pos.x as f64 / f + cx).round() as i64, (pos.y as f64 / f + cy).round() as i64);
     let dir = if px > w / 2.0 { -1 } else { 1 };
     let xdo = |a: &[String]| { let a: Vec<&str> = a.iter().map(String::as_str).collect(); crate::procs::exec("xdotool", &a, 5, &[]); };
     xdo(&["mousemove".into(), x.to_string(), y.to_string()]);
@@ -189,8 +196,8 @@ fn drag(app: &AppHandle, sid: &str) -> Value {
     for i in 1..=15 { xdo(&["mousemove".into(), (x + dir * i * 20).to_string(), y.to_string()]); thread::sleep(Duration::from_millis(40)); }
     xdo(&["mouseup".into(), "1".into()]);
     thread::sleep(Duration::from_millis(800));
-    let after = ask(app, overlay::LABEL, &format!("Math.round(pets.get({sid:?}).x)"));
-    json!({ "from": px, "to": after, "moved": after.as_f64().map(|a| (a - px) * dir as f64) })
+    let after = ask(app, overlay::LABEL, &format!("({{ x: Math.round(pets.get({sid:?}).x), downs: window.__downs }})"));
+    json!({ "at": [x, y], "page": at, "from": px, "to": after["x"], "downs": after["downs"], "moved": after["x"].as_f64().map(|a| (a - px) * dir as f64) })
 }
 
 // The hook's stdout: what Claude Code would read.
