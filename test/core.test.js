@@ -165,6 +165,22 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
     return shots.slice(0, n).every((x, i) => x === shots[i + n]);
   })`);
   strict.deepEqual([...ctx.rep], [true, true, true, true, true]);
+  // One of each kind waits: a burst of side sessions plays one dash; a second XP keeps the first one's starting bar.
+  const Q = (q, playing, kind, o) => JSON.parse(JSON.stringify(ctx.fxQueue(q, playing, kind, o)));
+  strict.deepEqual(Q(Q([], null, 'child', { kidId: 'a' }), null, 'child', { kidId: 'b' }), [['child', { kidId: 'a' }]]);
+  strict.deepEqual(Q([], 'child', 'child', { kidId: 'b' }), [], 'one is dashing out already');
+  strict.deepEqual(Q([['xp', { f0: 0, f1: 1 / 3, lv: 1 }]], null, 'xp', { f0: 1 / 3, f1: 2 / 3, lv: 1 }), [['xp', { f0: 0, f1: 2 / 3, lv: 1 }]]);
+  strict.deepEqual(Q([['ctx']], null, 'xp', { f0: 0, f1: 1 / 3, lv: 1 }).map(e => e[0]), ['ctx', 'xp']);
+  // Mirrored for the top edge (or a prop on the other side): the pet and the text come out upright, not upside down.
+  run(`globalThis.flip = (() => {
+    const spr = { ...fineSprite('/p', 'working', 0), k: 1 }, W2 = GW * 2, H2 = GH * 2;
+    const draw = (fx, fy) => { const b = new Buf(); b.fx = fx; b.fy = fy; b.clear(); blit(b, spr, CX, FEET); text(b, 'LV 2', CX, 10, WARM[3]); const im = { data: new Uint8ClampedArray(W2 * H2 * 4) }; b.toImage(im); return new Uint32Array(im.data.buffer); };
+    const a = draw(false, false), m = draw(false, true), h = draw(true, false);
+    const rows = (img, r0, n, x0 = 0, x1 = W2) => { const o = []; for (let j = 0; j < n; j++) o.push(img.slice((r0 + j) * W2 + x0, (r0 + j) * W2 + x1).join()); return o.join('|'); };
+    return [rows(a, 2 * (FEET - 18), 36) === rows(m, H2 - 2 * FEET, 36), rows(a, 18, 14) === rows(m, H2 - 32, 14),
+      rows(a, 2 * (FEET - 18), 36, 2 * CX - 18, 2 * CX + 18) === rows(h, 2 * (FEET - 18), 36, W2 - 2 * CX - 18, W2 - 2 * CX + 18), rows(a, 2 * (FEET - 18), 36) !== rows(a, H2 - 2 * FEET, 36)];
+  })()`);
+  strict.deepEqual([...ctx.flip], [true, true, true, true], 'pet upright top-down, text upright top-down, pet upright left-right');
 });
 
 test('sessions of one project share a shape; colours tell them apart', () => {

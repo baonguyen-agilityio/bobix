@@ -275,17 +275,17 @@ function sync(list) {
       pets.set(s.id, p);
     }
     if (p.s && s.tool !== p.s.tool && s.hits !== p.s.hits) p.actAt = Date.now();
-    if (FX_ON) for (const [kind, o] of fxEvents(p.s || null, s, isNew)) kind === 'child' ? born.push(s) : (p.queue ||= []).push([kind, o]);
+    if (FX_ON) for (const [kind, o] of fxEvents(p.s || null, s, isNew)) kind === 'child' ? born.push(s) : (p.queue = fxQueue(p.queue || [], p.fx?.kind, kind, o));
     p.s = s;
   }
-  for (const k of born) { const par = pets.get(k.parent); if (par) (par.queue ||= []).push(['child', { kidId: k.id }]); }
+  for (const k of born) { const par = pets.get(k.parent); if (par) par.queue = fxQueue(par.queue || [], par.fx?.kind, 'child', { kidId: k.id }); }
   const ended = new Set(pets.keys());
   for (const s of list) ended.delete(s.id);
   for (const [id, p] of pets) if (!seen.has(id)) {
     pets.delete(id);
     // A session that ended (gone from the list, not just off screen) waves goodbye before its pet goes.
     if (FX_ON && ended.has(id) && fxStart(p, 'end')) { p.leaving = true; p.queue = []; p.el.style.pointerEvents = 'none'; p.el.classList.add('leaving'); leaving.add(p); }
-    else p.el.remove();
+    else { if (p.fx) p.fx.done = true; p.el.remove(); } // done: a side session it was dashing out shows again
   }
   booted = true;
 }
@@ -314,18 +314,28 @@ function fxStart(p, kind, o = {}) {
     p.cg = p.cv.getContext('2d'); p.img = p.cg.createImageData(GW * 2, GH * 2); p.buf = new Buf();
   }
   if (p.fx) { p.fx.done = true; sheetOff(p); }
+  // On the top edge the effect is mirrored down (the screen's edge is its ground); a tool's prop stays level with the
+  // pet and goes to the side where no pet of its family stands.
+  o = { ...o, flipY: cfg.edge === 'top' && kind !== 'tool', flipX: kind === 'tool' && familyRight(p) };
   const run = fxRun(kind, { pet, ...o }), c = fxCell(), size = cfg.size;
-  Object.assign(p.cv.style, { width: GW * c + 'px', height: GH * c + 'px', left: size / 2 - run.ox * c + 'px', top: size - FEET * c + 'px', translate: '' });
+  Object.assign(p.cv.style, { width: GW * c + 'px', height: GH * c + 'px', left: size / 2 - (o.flipX ? GW - run.ox : run.ox) * c + 'px', top: (o.flipY ? -(GH - FEET) * c : size - FEET * c) + 'px', translate: '' });
   if (kind === 'child') pets.get(o.kidId).veil = run; // the side session's pet shows once it has landed
-  p.fx = run; p.fxSeg = o.seg; p.sheet = run.loop ? sheetFor(kind, o, art, color, pet) : null;
+  p.fx = run; p.fxSeg = o.seg; p.fxFlip = o.flipX; p.sheet = run.loop ? sheetFor(kind, o, art, color, pet) : null;
   p.el.classList.add('fx'); p.el.classList.toggle('fx-over', kind === 'xp' || kind === 'ctx'); p.el.querySelector('.spr')?.append(p.cv);
   return true;
 }
-function fxStop(p) { sheetOff(p); p.fx = p.sheet = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
+// A pet of its family stands to its right: its parent (for a side session) or a side session (for a parent), by where
+// they stand once settled, so a family turning round swaps the side once.
+function familyRight(p) {
+  const all = [...pets.values()], par = attached(p.s) && pets.get(p.s.parent);
+  if (par) return (sideSpot(p, all) ?? p.x) < par.x;
+  return kidsOf(p.s).some(k => { const q = pets.get(k.id); return q && (sideSpot(q, all) ?? q.x) > p.x; });
+}
+function fxStop(p) { if (p.fx) p.fx.done = true; sheetOff(p); p.fx = p.sheet = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
 // Loops play from a sheet of frames drawn once (fxSheet) as soon as it is ready: a CSS animation, nothing drawn per frame.
 const SHEETS = new Map(); // kind|prop|look -> fxSheet, the 6 latest
 function sheetFor(kind, o, art, color, pet) {
-  const key = [kind, o.seg, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
+  const key = [kind, o.seg, o.flipX, o.flipY, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
   let sh = SHEETS.get(key);
   if (sh) SHEETS.delete(key); else sh = fxSheet(kind, { pet, ...o });
   SHEETS.set(key, sh);
@@ -361,7 +371,7 @@ function fxTick(p, dt) {
     else if (!p.leaving) {
       const want = fxLoop(p.s, look(p.s));
       if (!want) { if (p.fx) fxStop(p); }
-      else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1]) fxStart(p, want[0], { seg: want[1], first: true });
+      else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1] || (want[0] === 'tool' && p.fxFlip !== familyRight(p))) fxStart(p, want[0], { seg: want[1], first: true });
     }
   }
   if (p.sheetShown && p.sheetDraw) p.sheetDraw();
@@ -584,7 +594,7 @@ function applySettings(s) {
   lang = cfg.language === 'auto' ? navigator.language : cfg.language;
   document.body.classList.toggle('edge-top', cfg.edge === 'top');
   document.documentElement.style.setProperty('--size', cfg.size + 'px');
-  for (const p of pets.values()) p.key = null;
+  for (const p of pets.values()) { p.key = null; if (p.fx) fxStop(p); } // effects start again for the new edge and size
   if (lastList) sync(lastList);
   wake();
 }

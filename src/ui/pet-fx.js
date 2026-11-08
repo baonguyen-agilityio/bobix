@@ -20,6 +20,14 @@ function fxEvents(prev, s, born) {
   if (s.parent && (prev ? prev.parent !== s.parent : born)) out.push(['child']); // played by the parent's pet
   return out;
 }
+// Queue a one-shot on a pet: one of each kind waits at most. A second XP keeps the first's starting bar; a side session
+// born while another one's dash is queued or playing just appears (a burst of side sessions plays one dash).
+function fxQueue(queue, playing, kind, o) {
+  const i = queue.findIndex(e => e[0] === kind);
+  if (kind === 'child' && (i >= 0 || playing === 'child')) return queue;
+  if (i < 0) return [...queue, o ? [kind, o] : [kind]];
+  return queue.map((e, j) => (j !== i ? e : kind === 'xp' ? [kind, { ...o, f0: e[1].f0 }] : o ? [kind, o] : [kind]));
+}
 // The effect that repeats while a state lasts: the aura while it waits for you, the tool's prop while it works.
 function fxLoop(s, st) {
   if (st === 'waiting') return ['aura'];
@@ -64,7 +72,7 @@ const dith = (a, x, y) => a >= 1 || a > bayer(x, y);
 // A sprite here is { w, h, data, k }: k fine pixels per sprite pixel (1 for the 36×36 pet). It stands on the bottom
 // of the pet's box, as the pet's art does.
 class Buf {
-  constructor() { this.c = new Uint32Array(GW * GH); this.l = new Float32Array(GW * GH); this.lc = new Uint32Array(GW * GH); this.m = new Uint8Array(GW * GH); this.f = new Uint8Array(GW * GH); this.pets = []; this.shake = [0, 0]; this.was = null; }
+  constructor() { this.c = new Uint32Array(GW * GH); this.l = new Float32Array(GW * GH); this.lc = new Uint32Array(GW * GH); this.m = new Uint8Array(GW * GH); this.f = new Uint8Array(GW * GH); this.pets = []; this.shake = [0, 0]; this.was = null; this.fx = this.fy = false; }
   clear() { this.c.fill(0); this.l.fill(0); this.m.fill(0); this.f.fill(0); this.pets.length = 0; this.shake = [0, 0]; }
   at(x, y) { x = Math.floor(x); y = Math.floor(y); return x < 0 || y < 0 || x >= GW || y >= GH ? -1 : y * GW + x; }
   set(x, y, c) { const i = this.at(x, y); if (i >= 0) { this.c[i] = c; if (this.m[i]) this.f[i] = 1; } } // f: an effect pixel drawn over the pet
@@ -95,26 +103,29 @@ class Buf {
   // Composed at twice the grid: effects keep their size, while the pets drawn this frame are painted again from their
   // fine pixels on top (effect pixels drawn over a pet stay in front of it). Only the part of the image that holds
   // something now or did last frame is written; returns that part [x, y, w, h] in image pixels, for putImageData.
+  // fx / fy mirror the image left-right / top-down (a prop on the other side; the top edge of the screen): pets and
+  // text are drawn into the grid mirrored already (blit, text, bmp), so they come out upright.
   toImage(img) {
-    const out = this.out?.buffer === img.data.buffer ? this.out : (this.out = new Uint32Array(img.data.buffer)), W2 = GW * 2, H2 = GH * 2, c = this.c, l = this.l;
+    const out = this.out?.buffer === img.data.buffer ? this.out : (this.out = new Uint32Array(img.data.buffer)), W2 = GW * 2, H2 = GH * 2, c = this.c, l = this.l, fx = this.fx, fy = this.fy;
     let x0 = GW, y0 = GH, x1 = -1, y1 = -1;
     for (let y = 0, i = 0; y < GH; y++) for (let x = 0; x < GW; x++, i++) if (c[i] || l[i] > .08) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
     const grow = (a, r) => (a ? [Math.min(a[0], r[0]), Math.min(a[1], r[1]), Math.max(a[2], r[2]), Math.max(a[3], r[3])] : r);
-    let cur = x1 < 0 ? null : [x0 * 2, y0 * 2, x1 * 2 + 2, y1 * 2 + 2];
+    let cur = x1 < 0 ? null : this.mirror([x0 * 2, y0 * 2, x1 * 2 + 2, y1 * 2 + 2]);
     for (const p of this.pets) { const r = this.petRect(p); if (r) cur = grow(cur, r); }
     const box = this.was ? (cur ? grow(this.was, cur) : this.was) : cur; // last frame's pixels are cleared too
     this.was = cur;
     if (!box) return [0, 0, 0, 0];
-    for (let cy = box[1] >> 1; cy < box[3] >> 1; cy++) for (let cx = box[0] >> 1; cx < box[2] >> 1; cx++) {
-      const i = cy * GW + cx, ci = c[i], li = l[i];
+    for (let oy = box[1] >> 1; oy < box[3] >> 1; oy++) for (let ox = box[0] >> 1; ox < box[2] >> 1; ox++) {
+      const i = (fy ? GH - 1 - oy : oy) * GW + (fx ? GW - 1 - ox : ox), ci = c[i], li = l[i];
       const v = ci >>> 24 && !(this.m[i] && !this.f[i]) ? ci : li > .08 ? ((li > .55 ? 200 : li > .32 ? 150 : li > .18 ? 100 : 55) << 24 | (this.lc[i] & 0xffffff)) >>> 0 : 0;
-      const o = cy * 2 * W2 + cx * 2; out[o] = out[o + 1] = out[o + W2] = out[o + W2 + 1] = v;
+      const o = oy * 2 * W2 + ox * 2; out[o] = out[o + 1] = out[o + W2] = out[o + W2 + 1] = v;
     }
     for (const p of this.pets) {
-      const spr = p.spr, SX = p.sx * spr.k, SY = p.sy * spr.k, cx = p.cx * 2, feet = p.feet * 2, hw = spr.w * SX / 2, h = spr.h * SY, top = feet - h, keep = spr.h * p.clip;
-      for (let y = Math.max(0, Math.floor(top)); y < Math.min(H2, Math.ceil(feet)); y++) for (let x = Math.max(0, Math.floor(cx - hw)); x < Math.min(W2, Math.ceil(cx + hw)); x++) {
-        if (this.f[(y >> 1) * GW + (x >> 1)]) continue;
-        const u = Math.floor((x + .5 - cx) / SX + spr.w / 2), v = Math.floor((y + .5 - top) / SY);
+      const spr = p.spr, SX = p.sx * spr.k, SY = p.sy * spr.k, hw = spr.w * SX / 2, h = spr.h * SY, keep = spr.h * p.clip;
+      const [L, T, R, B] = this.mirror([p.cx * 2 - hw, p.feet * 2 - h, p.cx * 2 + hw, p.feet * 2]);
+      for (let y = Math.max(0, Math.floor(T)); y < Math.min(H2, Math.ceil(B)); y++) for (let x = Math.max(0, Math.floor(L)); x < Math.min(W2, Math.ceil(R)); x++) {
+        if (this.f[((fy ? H2 - 1 - y : y) >> 1) * GW + ((fx ? W2 - 1 - x : x) >> 1)]) continue;
+        const u = Math.floor((x + .5 - L) / SX), v = Math.floor((y + .5 - T) / SY);
         if (u < 0 || v < 0 || u >= spr.w || v >= spr.h || v >= keep) continue;
         let c = spr.data[v * spr.w + u];
         if (!(c >>> 24) || !dith(p.a, x, y)) continue;
@@ -124,10 +135,12 @@ class Buf {
     }
     return [box[0], box[1], box[2] - box[0], box[3] - box[1]];
   }
+  // A rect [l, t, r, b] of image pixels as it lands in the (mirrored) image.
+  mirror([l, t, r, b]) { const W2 = GW * 2, H2 = GH * 2; return [this.fx ? W2 - r : l, this.fy ? H2 - b : t, this.fx ? W2 - l : r, this.fy ? H2 - t : b]; }
   // The image pixels a pet drawn this frame can cover, cell-aligned and inside the image, or null.
   petRect(p) {
-    const spr = p.spr, hw = spr.w * p.sx * spr.k / 2, h = spr.h * p.sy * spr.k, cx = p.cx * 2, feet = p.feet * 2;
-    const r = [Math.max(0, Math.floor((cx - hw) / 2) * 2), Math.max(0, Math.floor((feet - h) / 2) * 2), Math.min(GW * 2, Math.ceil((cx + hw) / 2) * 2), Math.min(GH * 2, Math.ceil(feet / 2) * 2)];
+    const spr = p.spr, hw = spr.w * p.sx * spr.k / 2, h = spr.h * p.sy * spr.k, [l, t, rr, b] = this.mirror([p.cx * 2 - hw, p.feet * 2 - h, p.cx * 2 + hw, p.feet * 2]);
+    const r = [Math.max(0, Math.floor(l / 2) * 2), Math.max(0, Math.floor(t / 2) * 2), Math.min(GW * 2, Math.ceil(rr / 2) * 2), Math.min(GH * 2, Math.ceil(b / 2) * 2)];
     return r[2] > r[0] && r[3] > r[1] ? r : null;
   }
 }
@@ -158,13 +171,13 @@ const FONT = {
 function text(b, s, cx, top, fill, k = 1, a = 1) {
   const cells = []; let x = 0;
   for (const ch of s) { const g = FONT[ch] || FONT[' ']; g.forEach((row, j) => [...row].forEach((v, i) => v === 'X' && cells.push([x + i, j]))); x += g[0].length + 1; }
-  const w = (x - 1) * k, x0 = Math.round(cx - w / 2), on = new Set();
-  for (const [i, j] of cells) for (let u = 0; u < k; u++) for (let v = 0; v < k; v++) on.add(`${x0 + i * k + u},${top + j * k + v}`);
+  const w = (x - 1) * k, x0 = Math.round(cx - w / 2), on = new Set(), lit = new Set(); // lit: the glyphs' top row, a shade lighter
+  for (const [i, j] of cells) for (let u = 0; u < k; u++) for (let v = 0; v < k; v++) { const key = `${x0 + i * k + u},${top + (b.fy ? 4 - j : j) * k + (b.fy ? k - 1 - v : v)}`; on.add(key); if (j === 0) lit.add(key); }
   for (const key of on) { const [px, py] = key.split(',').map(Number); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) if (!on.has(`${px + dx},${py + dy}`)) dot(b, px + dx, py + dy, INK, a); }
-  for (const key of on) { const [px, py] = key.split(',').map(Number); dot(b, px, py, py - top < k ? scale(fill, 1.15) : fill, a); }
+  for (const key of on) { const [px, py] = key.split(',').map(Number); dot(b, px, py, lit.has(key) ? scale(fill, 1.15) : fill, a); }
 }
 // Small bitmaps: o = outline, digits index a ramp, W = white.
-function bmp(b, rows, x0, y0, r, a = 1) { rows.forEach((row, j) => [...row].forEach((ch, i) => { if (ch === '.') return; dot(b, x0 + i, y0 + j, ch === 'o' ? INK : ch === 'W' ? WHITE : r[+ch], a); })); }
+function bmp(b, rows, x0, y0, r, a = 1) { rows.forEach((row, j) => [...row].forEach((ch, i) => { if (ch === '.') return; dot(b, x0 + i, y0 + (b.fy ? rows.length - 1 - j : j), ch === 'o' ? INK : ch === 'W' ? WHITE : r[+ch], a); })); }
 
 // Draw a pet standing on (cx, feet) cells, stretched by sx/sy, optionally flashed toward a ramp (by brightness, like
 // power-up's silhouette flash). The cells it covers are marked so the aura can grow from them; its fine pixels are
@@ -172,8 +185,10 @@ function bmp(b, rows, x0, y0, r, a = 1) { rows.forEach((row, j) => [...row].forE
 function blit(b, spr, cx, feet, sx = 1, sy = 1, flash = null, fa = 0, o = {}) {
   const SX = sx * spr.k / 2, SY = sy * spr.k / 2, hw = spr.w * SX / 2, h = spr.h * SY, top = feet - h, a = o.a ?? 1, clip = o.clip ?? 1;
   for (let y = Math.floor(top); y < Math.ceil(feet); y++) for (let x = Math.floor(cx - hw); x < Math.ceil(cx + hw); x++) {
-    const u = Math.floor((x + .5 - cx) / SX + spr.w / 2), v = Math.floor((y + .5 - top) / SY);
-    if (u < 0 || v < 0 || u >= spr.w || v >= spr.h * clip) continue;
+    let u = Math.floor((x + .5 - cx) / SX + spr.w / 2), v = Math.floor((y + .5 - top) / SY);
+    if (u < 0 || v < 0 || u >= spr.w || v >= spr.h) continue;
+    if (b.fx) u = spr.w - 1 - u; if (b.fy) v = spr.h - 1 - v; // mirrored here, upright in the image
+    if (v >= spr.h * clip) continue;
     const c = spr.data[v * spr.w + u]; if (!(c >>> 24) || !dith(a, x, y)) continue;
     b.set(x, y, c); const i = b.at(x, y); if (i >= 0) b.m[i] = 1;
   }
@@ -462,7 +477,7 @@ function fxRun(kind, o) {
         fx.update(SIM, k * SIM, steps * SIM);
       }
     },
-    draw(b) { b.clear(); fx.draw(b, k * SIM, steps * SIM); },
+    draw(b) { b.fx = !!o.flipX; b.fy = !!o.flipY; b.clear(); fx.draw(b, k * SIM, steps * SIM); },
   };
 }
 
