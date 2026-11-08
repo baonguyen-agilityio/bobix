@@ -47,8 +47,9 @@ const outCubic = t => 1 - Math.pow(1 - clamp(t), 3), outExpo = t => (t >= 1 ? 1 
 const gauss = (t, c, w) => Math.exp(-(((t - c) / w) ** 2));
 const hash = (n, k = 0) => ((Math.imul(n + 1 + k * 7919, 2654435761) >>> 0) % 100000) / 100000;
 const noise2 = (x, y, seed = 0) => {
-  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), h = (a, b) => hash(a * 73 + b * 9301, seed) * 2 - 1;
-  const top = h(ix, iy) + (h(ix + 1, iy) - h(ix, iy)) * u, bot = h(ix, iy + 1) + (h(ix + 1, iy + 1) - h(ix, iy + 1)) * u; return top + (bot - top) * v;
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const h00 = hash(ix * 73 + iy * 9301, seed) * 2 - 1, h10 = hash((ix + 1) * 73 + iy * 9301, seed) * 2 - 1, h01 = hash(ix * 73 + (iy + 1) * 9301, seed) * 2 - 1, h11 = hash((ix + 1) * 73 + (iy + 1) * 9301, seed) * 2 - 1;
+  const top = h00 + (h10 - h00) * u, bot = h01 + (h11 - h01) * u; return top + (bot - top) * v;
 };
 class Rng {
   constructor(s = 1) { this.s = s >>> 0 || 1; }
@@ -63,15 +64,19 @@ const dith = (a, x, y) => a >= 1 || a > bayer(x, y);
 // A sprite here is { w, h, data, k }: k fine pixels per sprite pixel (1 for the 36×36 pet). It stands on the bottom
 // of the pet's box, as the pet's art does.
 class Buf {
-  constructor() { this.c = new Uint32Array(GW * GH); this.l = new Float32Array(GW * GH); this.lc = new Uint32Array(GW * GH); this.m = new Uint8Array(GW * GH); this.f = new Uint8Array(GW * GH); this.pets = []; this.shake = [0, 0]; }
+  constructor() { this.c = new Uint32Array(GW * GH); this.l = new Float32Array(GW * GH); this.lc = new Uint32Array(GW * GH); this.m = new Uint8Array(GW * GH); this.f = new Uint8Array(GW * GH); this.pets = []; this.shake = [0, 0]; this.was = null; }
   clear() { this.c.fill(0); this.l.fill(0); this.m.fill(0); this.f.fill(0); this.pets.length = 0; this.shake = [0, 0]; }
   at(x, y) { x = Math.floor(x); y = Math.floor(y); return x < 0 || y < 0 || x >= GW || y >= GH ? -1 : y * GW + x; }
   set(x, y, c) { const i = this.at(x, y); if (i >= 0) { this.c[i] = c; if (this.m[i]) this.f[i] = 1; } } // f: an effect pixel drawn over the pet
   glow(cx, cy, r, c, k) {
     if (r < 1 || k <= .01) return;
-    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-      const dx = (x + .5 - cx) / r, dy = (y + .5 - cy) / r, d = dx * dx + dy * dy; if (d >= 1) continue;
-      const f = (1 - Math.sqrt(d)) ** 2 * k, i = this.at(x, y); if (i >= 0 && f > this.l[i]) { this.l[i] = f; this.lc[i] = c; }
+    const l = this.l, lc = this.lc, x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(GW - 1, Math.ceil(cx + r));
+    for (let y = Math.max(0, Math.floor(cy - r)), y1 = Math.min(GH - 1, Math.ceil(cy + r)); y <= y1; y++) {
+      const dy = (y + .5 - cy) / r, dy2 = dy * dy; if (dy2 >= 1) continue;
+      for (let x = x0; x <= x1; x++) {
+        const dx = (x + .5 - cx) / r, d = dx * dx + dy2; if (d >= 1) continue;
+        const f = (1 - Math.sqrt(d)) ** 2 * k, i = y * GW + x; if (f > l[i]) { l[i] = f; lc[i] = c; }
+      }
     }
   }
   rect(x, y, w, h, c) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) this.set(x + i, y + j, c); }
@@ -88,14 +93,22 @@ class Buf {
   }
   // Light is drawn as see-through pixels in a few steps, so it shows on any wallpaper over the transparent overlay.
   // Composed at twice the grid: effects keep their size, while the pets drawn this frame are painted again from their
-  // fine pixels on top (effect pixels drawn over a pet stay in front of it).
+  // fine pixels on top (effect pixels drawn over a pet stay in front of it). Only the part of the image that holds
+  // something now or did last frame is written; returns that part [x, y, w, h] in image pixels, for putImageData.
   toImage(img) {
-    const out = new Uint32Array(img.data.buffer), W2 = GW * 2, H2 = GH * 2;
-    for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
-      const i = (y >> 1) * GW + (x >> 1), o = y * W2 + x, c = this.c[i];
-      if (c >>> 24 && !(this.m[i] && !this.f[i])) { out[o] = c; continue; }
-      const l = this.l[i];
-      out[o] = l > .08 ? ((l > .55 ? 200 : l > .32 ? 150 : l > .18 ? 100 : 55) << 24 | (this.lc[i] & 0xffffff)) >>> 0 : 0;
+    const out = this.out?.buffer === img.data.buffer ? this.out : (this.out = new Uint32Array(img.data.buffer)), W2 = GW * 2, H2 = GH * 2, c = this.c, l = this.l;
+    let x0 = GW, y0 = GH, x1 = -1, y1 = -1;
+    for (let y = 0, i = 0; y < GH; y++) for (let x = 0; x < GW; x++, i++) if (c[i] || l[i] > .08) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    const grow = (a, r) => (a ? [Math.min(a[0], r[0]), Math.min(a[1], r[1]), Math.max(a[2], r[2]), Math.max(a[3], r[3])] : r);
+    let cur = x1 < 0 ? null : [x0 * 2, y0 * 2, x1 * 2 + 2, y1 * 2 + 2];
+    for (const p of this.pets) { const r = this.petRect(p); if (r) cur = grow(cur, r); }
+    const box = this.was ? (cur ? grow(this.was, cur) : this.was) : cur; // last frame's pixels are cleared too
+    this.was = cur;
+    if (!box) return [0, 0, 0, 0];
+    for (let cy = box[1] >> 1; cy < box[3] >> 1; cy++) for (let cx = box[0] >> 1; cx < box[2] >> 1; cx++) {
+      const i = cy * GW + cx, ci = c[i], li = l[i];
+      const v = ci >>> 24 && !(this.m[i] && !this.f[i]) ? ci : li > .08 ? ((li > .55 ? 200 : li > .32 ? 150 : li > .18 ? 100 : 55) << 24 | (this.lc[i] & 0xffffff)) >>> 0 : 0;
+      const o = cy * 2 * W2 + cx * 2; out[o] = out[o + 1] = out[o + W2] = out[o + W2 + 1] = v;
     }
     for (const p of this.pets) {
       const spr = p.spr, SX = p.sx * spr.k, SY = p.sy * spr.k, cx = p.cx * 2, feet = p.feet * 2, hw = spr.w * SX / 2, h = spr.h * SY, top = feet - h, keep = spr.h * p.clip;
@@ -109,6 +122,13 @@ class Buf {
         out[y * W2 + x] = c;
       }
     }
+    return [box[0], box[1], box[2] - box[0], box[3] - box[1]];
+  }
+  // The image pixels a pet drawn this frame can cover, cell-aligned and inside the image, or null.
+  petRect(p) {
+    const spr = p.spr, hw = spr.w * p.sx * spr.k / 2, h = spr.h * p.sy * spr.k, cx = p.cx * 2, feet = p.feet * 2;
+    const r = [Math.max(0, Math.floor((cx - hw) / 2) * 2), Math.max(0, Math.floor((feet - h) / 2) * 2), Math.min(GW * 2, Math.ceil((cx + hw) / 2) * 2), Math.min(GH * 2, Math.ceil(feet / 2) * 2)];
+    return r[2] > r[0] && r[3] > r[1] ? r : null;
   }
 }
 const dot = (b, x, y, c, a = 1) => { const px = Math.floor(x), py = Math.floor(y); if (dith(a, px, py)) b.set(px, py, c); };
@@ -185,13 +205,19 @@ function shock(b, cx, fy, t, z, L) {
 }
 // Aura that grips the pet's outline and licks upward (power-up): distance from the pet, pushed out by rising noise.
 const DIST = new Uint8Array(GW * GH);
+// Only cells within 21 of the pet can be painted (reach ≤ 20), and a chamfer path that leaves that box is longer than
+// 60 (3 per step), so the distances are worked out in that box alone: the same pixels as over the whole grid.
 function aura(b, a, t, pulse, L, midY) {
   if (a <= .02) return;
-  for (let i = 0; i < DIST.length; i++) DIST[i] = b.m[i] ? 0 : 255;
+  let X0 = GW, Y0 = GH, X1 = -1, Y1 = -1;
+  for (let y = 0, i = 0; y < GH; y++) for (let x = 0; x < GW; x++, i++) if (b.m[i]) { if (x < X0) X0 = x; if (x > X1) X1 = x; if (y < Y0) Y0 = y; if (y > Y1) Y1 = y; }
+  if (X1 < 0) return;
+  X0 = Math.max(0, X0 - 21); Y0 = Math.max(0, Y0 - 21); X1 = Math.min(GW - 1, X1 + 21); Y1 = Math.min(GH - 1, Y1 + 21);
+  for (let y = Y0; y <= Y1; y++) for (let x = X0, i = y * GW + X0; x <= X1; x++, i++) DIST[i] = b.m[i] ? 0 : 255;
   const relax = (i, j, w) => { if (DIST[j] + w < DIST[i]) DIST[i] = DIST[j] + w; };
-  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { const i = y * GW + x; if (x > 0) relax(i, i - 1, 3); if (y > 0) { relax(i, i - GW, 3); if (x > 0) relax(i, i - GW - 1, 4); if (x < GW - 1) relax(i, i - GW + 1, 4); } }
-  for (let y = GH - 1; y >= 0; y--) for (let x = GW - 1; x >= 0; x--) { const i = y * GW + x; if (x < GW - 1) relax(i, i + 1, 3); if (y < GH - 1) { relax(i, i + GW, 3); if (x < GW - 1) relax(i, i + GW + 1, 4); if (x > 0) relax(i, i + GW - 1, 4); } }
-  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+  for (let y = Y0; y <= Y1; y++) for (let x = X0; x <= X1; x++) { const i = y * GW + x; if (x > X0) relax(i, i - 1, 3); if (y > Y0) { relax(i, i - GW, 3); if (x > X0) relax(i, i - GW - 1, 4); if (x < X1) relax(i, i - GW + 1, 4); } }
+  for (let y = Y1; y >= Y0; y--) for (let x = X1; x >= X0; x--) { const i = y * GW + x; if (x < X1) relax(i, i + 1, 3); if (y < Y1) { relax(i, i + GW, 3); if (x < X1) relax(i, i + GW + 1, 4); if (x > X0) relax(i, i + GW - 1, 4); } }
+  for (let y = Y0; y <= Y1; y++) for (let x = X0; x <= X1; x++) {
     const i = y * GW + x, d = DIST[i] / 3; if (d === 0 || d > 20 || b.c[i]) continue;
     const n = Math.pow(noise2(x * .45, (y + t * 30) * .24, 7) * .5 + .5, 1.4), up = clamp((midY - y) / 12), reach = a * (2 + 10 * n * (.3 + 1.15 * up)) * (1 + .35 * pulse);
     if (d > reach) continue; const band = d / reach;
@@ -215,7 +241,7 @@ const FX = {
   // Waiting for your approval: orange fire grips the pet's outline and rises, pulsing; at each pulse it hops, flashes
   // and a wave runs along the ground. (Power Up.)
   aura: {
-    D: 2.4, ox: CX, loop: true,
+    D: 2.4, ox: CX, loop: true, cycle: 2.4,
     make(o) {
       const R = new Rng(21), m = [];
       return {
@@ -293,13 +319,13 @@ const FX = {
   // Working: the pet holds the prop of the tool Claude is running (o.seg, see TOOL_PROP): writes with a pen on paper,
   // types on a small terminal, turns a book's page, sweeps a magnifier. One run is one 1.2 s loop; o.first pops it in.
   tool: {
-    D: 1.2, ox: CX - 8, loop: true,
+    D: 1.2, ox: CX - 8, loop: true, cycle: 6, // the pet's bob (1/3 s) and the cursor (1/2 s) repeat with the loop every 6 s
     make(o) {
       const R = new Rng(41), sp = [], seg = o.seg;
       return {
         update(dt, lt) { if (seg === 0 && R.chance(.4)) { const tip = pencilTip(lt); sp.push({ x: tip[0], y: tip[1], vx: R.range(-10, 10), vy: -R.range(5, 15), life: .3, max: .3, c: WARM[2] }); } stepList(sp, dt, 2, 20); },
         draw(b, lt, t) {
-          const bob = Math.floor(t * 6) % 2;
+          const bob = Math.floor(t * 6 + 1e-6) % 2; // + 1e-6: whole steps land on the same side every cycle
           shadow(b, CX - 8, FEET); blit(b, o.pet('working'), CX - 8, FEET - bob);
           const PX0 = CX + 4, PY0 = FEET - 20;
           if (o.first && lt < .1) for (let i = 0; i < 8; i++) { const a = i / 8 * TAU, r = 4 + lt / .1 * 8; dot(b, PX0 + 10 + Math.cos(a) * r, PY0 + 10 + Math.sin(a) * r * .7, WHITE, 1 - lt / .1); }
@@ -312,7 +338,7 @@ const FX = {
             b.frame(PX0 - 1, PY0 + 1, 24, 18, SCREEN); b.rect(PX0 + 7, PY0 + 19, 8, 2, INK); b.rect(PX0 + 4, PY0 + 21, 14, 1, INK);
             const G = GREEN[3], lines = [10, 14, 7], typed = lt / 1.05 * 31; let left = typed;
             lines.forEach((n, r) => { const k = Math.max(0, Math.min(n, left)); left -= n; for (let i = 0; i < k; i++) if ((i * 7 + r) % 5 !== 3) b.set(PX0 + 2 + i, PY0 + 4 + r * 4, r === 0 && i < 2 ? WARM[3] : G); });
-            const row = typed < 10 ? 0 : typed < 24 ? 1 : 2, col = Math.min(lines[row], Math.max(0, typed - [0, 10, 24][row])); if (lt < 1.05 && Math.floor(t * 4) % 2) b.rect(PX0 + 2 + col, PY0 + 3 + row * 4, 2, 3, G);
+            const row = typed < 10 ? 0 : typed < 24 ? 1 : 2, col = Math.min(lines[row], Math.max(0, typed - [0, 10, 24][row])); if (lt < 1.05 && Math.floor(t * 4 + 1e-6) % 2) b.rect(PX0 + 2 + col, PY0 + 3 + row * 4, 2, 3, G);
             if (lt > 1.05) { bmp(b, ['.......3', '......3.', '3....3..', '.3..3...', '..33....'], PX0 + 7, PY0 + 7, GREEN); b.glow(PX0 + 11, PY0 + 9, 14, GREEN[3], .6); } b.glow(PX0 + 11, PY0 + 9, 16, GREEN[3], .25);
           }
           if (seg === 2) {
@@ -424,20 +450,56 @@ const FX = {
 // reports done.
 function fxRun(kind, o) {
   const def = FX[kind];
-  let fx = def.make(o), t = 0, total = 0, acc = 0;
-  const D = () => fx.D ?? def.D;
+  let fx = def.make(o), k = 0, steps = 0, acc = 0; // steps of this loop and in all, counted whole so loops repeat exactly
+  const N = () => Math.round((fx.D ?? def.D) / SIM);
   return {
-    kind, ox: def.ox, loop: !!def.loop, done: false,
+    kind, ox: def.ox, loop: !!def.loop, done: false, get total() { return steps * SIM; },
     step(dt) {
       acc += Math.min(.1, dt);
       while (acc >= SIM && !this.done) {
-        acc -= SIM; t += SIM; total += SIM;
-        if (t > D()) { if (!this.loop) { this.done = true; break; } t -= D(); fx = def.make({ ...o, first: false }); }
-        fx.update(SIM, t, total);
+        acc -= SIM; k++; steps++;
+        if (k > N()) { if (!this.loop) { this.done = true; break; } k -= N(); fx = def.make({ ...o, first: false }); }
+        fx.update(SIM, k * SIM, steps * SIM);
       }
     },
-    draw(b) { b.clear(); fx.draw(b, t, total); },
+    draw(b) { b.clear(); fx.draw(b, k * SIM, steps * SIM); },
   };
+}
+
+// A loop effect's steady part drawn once as a sheet of frames (30 a second, cycle seconds long, from its second loop:
+// the first one starts from nothing and may pop the prop in), so the overlay plays it as a CSS animation instead of drawing every frame: the same
+// pixels for no work per frame. Built a few frames at a time (step) while the effect plays live meanwhile.
+// ready: { url, fw, fh, cols, n, ms, lead, x, y }: the sheet's image, one frame's size with a 1 px gutter all round,
+// frames per row, frame count, period, the live time before it starts, where a frame sits in the effect's image, and
+// each frame's shake (cells). The gutter is 3 px so a 1-cell shake never shows the next frame.
+function fxSheet(kind, o) {
+  const def = FX[kind], n = Math.round(def.cycle * 30), lead = def.D, run = fxRun(kind, o), b = new Buf(); // from the 2nd loop on
+  const img = { data: new Uint8ClampedArray(GW * GH * 16) }, frames = [], shakes = [], W2 = GW * 2, G = 3;
+  let sim = 0, box = null;
+  const sheet = {
+    ready: null,
+    step(budget) {
+      while (budget-- > 0 && frames.length < n) {
+        for (const until = Math.round((lead + frames.length / 30) / SIM); sim < until; sim++) run.step(SIM);
+        run.draw(b); b.toImage(img); shakes.push(b.shake.slice());
+        const r = b.was; if (!r) { frames.push(null); continue; }
+        const w = r[2] - r[0], h = r[3] - r[1], px = new Uint32Array(w * h), all = new Uint32Array(img.data.buffer);
+        for (let y = 0; y < h; y++) px.set(all.subarray((r[1] + y) * W2 + r[0], (r[1] + y) * W2 + r[2]), y * w);
+        frames.push({ r, px });
+        box = box ? [Math.min(box[0], r[0]), Math.min(box[1], r[1]), Math.max(box[2], r[2]), Math.max(box[3], r[3])] : r.slice();
+      }
+      if (frames.length === n && !this.ready && !this.packing) this.pack();
+    },
+    pack() {
+      this.packing = true;
+      const fw = (box ? box[2] - box[0] : 1) + 2 * G, fh = (box ? box[3] - box[1] : 1) + 2 * G, cols = Math.ceil(Math.sqrt(n * fh / fw)), rows = Math.ceil(n / cols); // near square: one layer, no tiles
+      const cv = Object.assign(document.createElement('canvas'), { width: cols * fw, height: rows * fh }), g = cv.getContext('2d');
+      frames.forEach((f, i) => { if (f) g.putImageData(new ImageData(new Uint8ClampedArray(f.px.buffer), f.r[2] - f.r[0], f.r[3] - f.r[1]), (i % cols) * fw + G + f.r[0] - box[0], Math.floor(i / cols) * fh + G + f.r[1] - box[1]); });
+      frames.length = 0;
+      cv.toBlob(bl => { this.ready = { url: URL.createObjectURL(bl), fw, fh, cols, n, ms: def.cycle * 1000, lead, x: (box ? box[0] : 0) - G, y: (box ? box[1] : 0) - G, shakes }; });
+    },
+  };
+  return sheet;
 }
 
 // Sprites for the effects: the pet as petArt draws it (creature.js). A picture pet is painted into a canvas once its

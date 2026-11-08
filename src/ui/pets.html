@@ -84,9 +84,10 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 /* While an effect plays (pet-fx.js) its canvas draws the pet, so the pet's own art steps aside; an effect that draws
    over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and a pet saying goodbye keeps
    nothing but itself. */
-.pet.fx .spr>svg,.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden}
+.pet.fx .spr>svg,.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
 .pet.leaving>:not(.spr){opacity:0;transition:opacity 600ms var(--ease)}
-.fxc{position:absolute;pointer-events:none;image-rendering:pixelated}
+.fxc,.fxs{position:absolute;pointer-events:none;image-rendering:pixelated}
+.fxs{overflow:hidden}.fxs img{display:block;image-rendering:pixelated;will-change:transform}
 .spr svg.faced{position:absolute;left:-5%;bottom:0;width:110%;height:110%}
 .edge-top .spr svg.faced{bottom:auto;top:0}
 .walking .spr svg{animation:step 320ms steps(2) infinite}
@@ -251,7 +252,7 @@ function paint(p, now) {
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(parent || s, st, color)}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}${extra ? `<span class="more${extraHot ? ' hot' : ''}" data-group title="${esc(T('fam.more', { n: extra }))}">+${extra}${extraHot && !p.hover ? `<span class="bb ${extraHot}">${balloonSVG(extraHot)}</span>` : ''}</span>` : ''}</div>`}`;
-  if (p.fx) p.el.querySelector('.spr').append(p.cv);
+  if (p.fx) p.el.querySelector('.spr').append(p.sheetShown ? p.sheetEl : p.cv);
 }
 
 function sync(list) {
@@ -312,15 +313,43 @@ function fxStart(p, kind, o = {}) {
     p.cv = Object.assign(document.createElement('canvas'), { width: GW * 2, height: GH * 2, className: 'fxc' });
     p.cg = p.cv.getContext('2d'); p.img = p.cg.createImageData(GW * 2, GH * 2); p.buf = new Buf();
   }
-  if (p.fx) p.fx.done = true;
+  if (p.fx) { p.fx.done = true; sheetOff(p); }
   const run = fxRun(kind, { pet, ...o }), c = fxCell(), size = cfg.size;
   Object.assign(p.cv.style, { width: GW * c + 'px', height: GH * c + 'px', left: size / 2 - run.ox * c + 'px', top: size - FEET * c + 'px', translate: '' });
   if (kind === 'child') pets.get(o.kidId).veil = run; // the side session's pet shows once it has landed
-  p.fx = run; p.fxSeg = o.seg;
+  p.fx = run; p.fxSeg = o.seg; p.sheet = run.loop ? sheetFor(kind, o, art, color, pet) : null;
   p.el.classList.add('fx'); p.el.classList.toggle('fx-over', kind === 'xp' || kind === 'ctx'); p.el.querySelector('.spr')?.append(p.cv);
   return true;
 }
-function fxStop(p) { p.fx = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
+function fxStop(p) { sheetOff(p); p.fx = p.sheet = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
+// Loops play from a sheet of frames drawn once (fxSheet) as soon as it is ready: a CSS animation, nothing drawn per frame.
+const SHEETS = new Map(); // kind|prop|look -> fxSheet, the 6 latest
+function sheetFor(kind, o, art, color, pet) {
+  const key = [kind, o.seg, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
+  let sh = SHEETS.get(key);
+  if (sh) SHEETS.delete(key); else sh = fxSheet(kind, { pet, ...o });
+  SHEETS.set(key, sh);
+  if (SHEETS.size > 6) { const [k, old] = SHEETS.entries().next().value; SHEETS.delete(k); if (old.ready) URL.revokeObjectURL(old.ready.url); }
+  return sh;
+}
+// The sheet sits in a frame-sized window; each overlay frame shows the frame due by moving the picture (a transform
+// on a layer that is already drawn: no drawing, no upload). A near-square sheet stays one layer.
+function sheetOn(p) {
+  const s = p.sheet.ready, q = fxCell() / 2, run = p.fx, wrap = document.createElement('div'), im = new Image();
+  wrap.className = 'fxs';
+  Object.assign(wrap.style, { left: parseFloat(p.cv.style.left) + s.x * q + 'px', top: parseFloat(p.cv.style.top) + s.y * q + 'px', width: s.fw * q + 'px', height: s.fh * q + 'px' });
+  Object.assign(im.style, { width: s.cols * s.fw * q + 'px', height: Math.ceil(s.n / s.cols) * s.fh * q + 'px' });
+  const at = i => `translate(${(-(i % s.cols) * s.fw + s.shakes[i][0] * 2) * q}px, ${(-Math.floor(i / s.cols) * s.fh + s.shakes[i][1] * 2) * q}px)`;
+  p.sheetEl = wrap; // claimed now; shown once the picture is decoded (the live canvas plays until then)
+  im.src = s.url;
+  im.decode().then(() => {
+    if (p.sheetEl !== wrap || p.fx !== run) return;
+    const t0 = performance.now() - ((run.total - s.lead) * 1000) % s.ms;
+    p.sheetDraw = () => { const i = Math.floor(((performance.now() - t0) % s.ms) / s.ms * s.n); if (i !== p.sheetI) { p.sheetI = i; im.style.transform = at(i); } };
+    p.sheetDraw(); wrap.append(im); p.cv.replaceWith(wrap); p.sheetShown = true;
+  }, () => { if (p.sheetEl === wrap) p.sheetEl = null; });
+}
+function sheetOff(p) { p.sheetDraw = null; p.sheetI = -1; if (p.sheetEl) { if (p.sheetShown) p.sheetEl.replaceWith(p.cv); p.sheetEl = null; p.sheetShown = false; } }
 function fxTick(p, dt) {
   if (p.veil?.done) p.veil = null;
   const hide = p.veil ? 'hidden' : '';
@@ -335,9 +364,12 @@ function fxTick(p, dt) {
       else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1]) fxStart(p, want[0], { seg: want[1], first: true });
     }
   }
-  if (!p.fx) return;
+  if (p.sheetShown && p.sheetDraw) p.sheetDraw();
+  if (!p.fx || p.sheetShown) return;
   p.fx.step(dt);
-  p.fx.draw(p.buf); p.buf.toImage(p.img); p.cg.putImageData(p.img, 0, 0);
+  if (p.sheet && !p.sheetEl) { if (!p.sheet.ready) p.sheet.step(3); else if (p.fx.total >= p.sheet.ready.lead) sheetOn(p); }
+  p.fx.draw(p.buf); const [x, y, w, h] = p.buf.toImage(p.img);
+  if (w) p.cg.putImageData(p.img, 0, 0, x, y, w, h); // only the part that holds something now or did last frame
   const [sx, sy] = p.buf.shake, c = fxCell(), tr = sx || sy ? `${sx * c}px ${sy * c}px` : '';
   if (p.cv.style.translate !== tr) p.cv.style.translate = tr;
 }

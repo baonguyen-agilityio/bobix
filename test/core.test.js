@@ -157,7 +157,14 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
     for (let i = 0; i < 400 && !r.done; i++) { r.step(1 / 60); r.draw(b); b.toImage(img); painted = Math.max(painted, new Uint32Array(img.data.buffer).filter(Boolean).length); }
     return [kind, r.done, painted > 0];
   })`);
-  strict.deepEqual(JSON.parse(JSON.stringify(ctx.out)), [['aura', false, true], ['xp', true, true], ['tool', false, true], ['ctx', true, true], ['child', true, true], ['end', true, true]]);
+  strict.deepEqual(JSON.parse(JSON.stringify(ctx.out)), [['aura', false, true], ['xp', true, true], ['tool', false, true], ['ctx', true, true], ['child', true, true], ['end', true, true]]);  // From its second loop on, a loop repeats exactly every cycle, so the overlay draws one cycle once and replays it.
+  run(`globalThis.rep = [['aura', {}], ...[0, 1, 2, 3].map(seg => ['tool', { seg, first: true }])].map(([kind, o]) => {
+    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, ...o }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
+    const lead = FX[kind].D, n = Math.round(FX[kind].cycle * 30), shots = [];
+    for (let f = 0, sim = 0; f < 2 * n; f++) { for (const until = Math.round((lead + f / 30) / SIM); sim < until; sim++) r.step(SIM); r.draw(b); b.toImage(img); shots.push(img.data.join() + b.shake); }
+    return shots.slice(0, n).every((x, i) => x === shots[i + n]);
+  })`);
+  strict.deepEqual([...ctx.rep], [true, true, true, true, true]);
 });
 
 test('sessions of one project share a shape; colours tell them apart', () => {
