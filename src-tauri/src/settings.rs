@@ -12,7 +12,7 @@ pub fn defaults() -> Value {
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "sleepHide": 30,
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
-        "seenVersion": "", "gitlab": false, "github": false, "workProjects": [], "workKeys": {}, "petImages": {},
+        "seenVersion": "", "gitlab": false, "github": false, "workProjects": [], "workKeys": {}, "petImages": {}, "alwaysAllow": [],
     })
 }
 
@@ -125,6 +125,8 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
                 seen.truncate(500);
                 out.insert(k.into(), json!(seen));
             }
+        } else if k == "alwaysAllow" {
+            if let Some(a) = crate::always::sanitize(v) { out.insert(k.into(), a); }
         } else if k == "display" {
             if v.as_str().is_some_and(|s| s.encode_utf16().count() < 40) { out.insert(k.into(), v.clone()); }
         } else if k == "petImages" {

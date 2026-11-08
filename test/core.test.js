@@ -657,6 +657,36 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   assert.equal(e.bobix_claude_pid, 4242);
   assert.equal(e.bobix_host_session, 'local_test-1');
   assert.deepEqual(JSON.parse(await run({ session_id: 's5', hook_event_name: 'SessionStart', source: 'startup' })), titled, 'a session title reaches Claude Code');
+  // a permission request comes whole (so "Always allow" can match it exactly), unless it is big
+  const edit = { file_path: '/a.js', old_string: 'a', new_string: 'b', replace_all: false };
+  await run({ session_id: 's6', hook_event_name: 'PermissionRequest', tool_name: 'Edit', tool_input: edit });
+  assert.deepEqual([got.at(-1).e.tool_input, got.at(-1).e.bobix_whole_input, got.at(-1).wait], [edit, true, '1']);
+  await run({ session_id: 's6', hook_event_name: 'PermissionRequest', tool_name: 'Write', tool_input: { file_path: '/b', content: 'x'.repeat(9000) } });
+  assert.deepEqual([got.at(-1).e.tool_input, got.at(-1).e.bobix_whole_input], [{ file_path: '/b' }, undefined]);
   srv.close();
   fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('board: each issue in one stage of the day, and the end-of-day report', () => {
+  const B = require('../src/ui/board');
+  const now = new Date(2026, 10, 8, 17, 0).getTime(), yesterday = new Date(2026, 10, 7, 23, 0).toISOString();
+  const mk = (iid, extra = {}) => ({ iid, title: 't' + iid, url: 'u' + iid, sessions: [], labels: [], ...extra });
+  const work = { status: 'ok',
+    local: [{ path: 'g/app', dir: '/src/app', issues: [mk(1, { sessions: ['a', 'gone'] }), mk(2, { review: 'https://h/g/app/-/merge_requests/9', sessions: ['b'] }), mk(3), mk(4, { sessions: ['c'] })] }],
+    away: [{ path: 'g/web', issues: [mk(5)] }],
+    closed: [{ iid: 7, title: 't7', project: 'g/app', closedAt: new Date(now - 3600e3).toISOString() }, { iid: 8, title: 't8', project: 'g/web', closedAt: yesterday },
+      { iid: 7, title: 't7', project: 'g/app', closedAt: new Date(now - 60e3).toISOString() }, { iid: 9, title: 't9', project: 'g/new', closedAt: new Date(now).toISOString() }] };
+  const ss = [{ id: 'a', st: 'working', since: 5 }, { id: 'b', st: 'done', since: 6 }, { id: 'c', st: 'waiting', since: 1 }, { id: 'z', st: 'idle', since: 1 }];
+  const st = B.stages(work, ss, now);
+  const ids = k => st[k].map(([i]) => i.iid);
+  assert.deepEqual([ids('todo'), ids('doing'), ids('verify'), ids('done')], [[3, 5], [4, 1], [2], [7, 9]], 'an open PR/MR wins over a live session; most urgent first; closed today only, once');
+  assert.deepEqual(st.doing[1][2].map(s => s.id), ['a'], 'a session that is gone does not count');
+  assert.equal(st.done[1][1].path, 'g/new', 'a project with no open issue still names its group');
+  assert.deepEqual(B.loose(st, ss).map(s => s.id), ['z']);
+  assert.deepEqual(B.stages({ status: 'off' }, ss), { todo: [], doing: [], verify: [], done: [] });
+  const I18N = require('../src/ui/i18n');
+  const T = (k, v) => I18N.t('vi', k, v);
+  assert.equal(B.report(st, T, now, 'vi-VN'), 'Báo cáo ngày 8/11/2026\n\n[app]\nĐã xong:\n- #7 t7\nChờ kiểm tra:\n- #2 t2\n\n[new]\nĐã xong:\n- #9 t9\n');
+  assert.equal(B.report({ done: [], verify: [] }, T, now, 'vi-VN'), 'Báo cáo ngày 8/11/2026\n\nHôm nay chưa có việc xong hay chờ kiểm tra.\n');
+  assert.equal(B.day(new Date(2026, 0, 2, 0, 5).getTime()), '2026-01-02');
 });

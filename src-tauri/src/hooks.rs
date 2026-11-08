@@ -116,8 +116,8 @@ pub fn strip(settings: &mut Map<String, Value>) {
     if hooks.is_empty() { settings.shift_remove("hooks"); }
 }
 
-// "2026-11-07T10:25:22.918Z" with ":" and "." made "-", as the Electron build names its backups.
-fn iso_stamp(ms: u64) -> String {
+// "2026-11-07T10:25:22.918Z" (UTC), as JavaScript's toISOString.
+pub fn iso(ms: u64) -> String {
     let (secs, ms) = (ms / 1000, ms % 1000);
     let (days, rem) = ((secs / 86400) as i64, secs % 86400);
     // civil_from_days (Howard Hinnant)
@@ -130,8 +130,10 @@ fn iso_stamp(ms: u64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
-    format!("{y:04}-{m:02}-{d:02}T{:02}-{:02}-{:02}-{ms:03}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{ms:03}Z", rem / 3600, rem % 3600 / 60, rem % 60)
 }
+// The same with ":" and "." made "-", as the Electron build names its backups.
+fn iso_stamp(ms: u64) -> String { iso(ms).replace([':', '.'], "-") }
 
 fn backup(file: &Path) -> Option<PathBuf> {
     if !file.exists() { return None; }
