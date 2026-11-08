@@ -86,6 +86,8 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             report["visible"] = json!(w.is_visible().unwrap_or(false));
             report["onTop"] = json!(w.is_always_on_top().unwrap_or(false));
             report["bounds"] = json!({ "x": p.x, "y": p.y, "width": s.width, "height": s.height });
+            let m = overlay::target_monitor(&app, "primary").map(|m| { let (a, f) = (m.work_area(), m.scale_factor()); (a.position.y as f64 / f, (a.position.y as f64 + a.size.height as f64) / f) });
+            report["onScreen"] = json!(m.is_some_and(|(top, bottom)| p.y >= top - 1.0 && p.y + s.height <= bottom + 1.0));
             report["loadedUrl"] = json!(w.url().map(|u| u.path().to_string()).unwrap_or_default());
             // The page counts its pets and sends them back through the bridge (the IPC path the pets use).
             let _ = w.eval("window.__TAURI_INTERNALS__.invoke('smoke_page', { data: { pets: document.querySelectorAll('.pet').length, \
@@ -150,7 +152,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             report["drag"] = drag(&app, &rest);
         }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
-        let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
+        let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object()
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 3 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
             && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
