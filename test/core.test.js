@@ -264,6 +264,9 @@ test('sessions of one project share a shape; colours tell them apart', () => {
   assert.notEqual(fill(K1), fill(K2), 'neighbours differ');
   assert.notEqual(fill(K1), fill(B), 'a side session never looks like another session of the project');
   assert.equal(ctx.petColor(list[2], list), ctx.petColor({ id: 'c', project: '/q' }, [{ id: 'c', project: '/q' }]), 'alone in its project: the project\'s colour');
+  // A side session that arrives later (whatever its id) leaves the others' colours be (a burst of them never recolours).
+  const later = [...list, { id: '0-new', project: '/p', parent: 'a' }];
+  for (const x of list) assert.equal(ctx.petColor(x, later), ctx.petColor(x, list), `${x.id} keeps its colour`);
 });
 
 
