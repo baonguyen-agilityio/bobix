@@ -105,10 +105,72 @@ test('an uploaded picture becomes the big head of the same project\'s creature',
 });
 
 
+test('the pet is the fine 36×36 version of its creature: same shape and colours in every state, a face per state', () => {
+  const ctx = {};
+  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
+  const theme = fs.readFileSync(path.join(__dirname, '../src/ui/theme.css'), 'utf8'), TOKENS = require('vm').runInContext('TOKENS', ctx);
+  for (const [name, [L, C, h]] of Object.entries(TOKENS)) {
+    const m = theme.match(new RegExp(`${name}:oklch\\(([\\d.]+)% ([\\d.]+) ([\\d.]+)\\)`));
+    strict.deepEqual([+m[1] / 100, +m[2], +m[3]], [L, C, h], `${name} as in theme.css`);
+  }
+  const states = ['working', 'waiting', 'done', 'idle'], sp = states.map(st => ctx.fineSprite('/p', st, 1));
+  for (const s of sp) strict.deepEqual([s.w, s.h, s.data.length], [36, 36, 1296]);
+  const silhouette = s => [...s.data].map(c => (c ? 1 : 0)).join('');
+  strict.ok(sp.every(s => silhouette(s) === silhouette(sp[0])), 'the face changes, never the shape');
+  strict.equal(new Set(sp.map(s => [...s.data].join())).size, 4, 'each state has its own face');
+  const d = sp[0].data, at = (x, y) => d[y * 36 + x], line = ctx.oklch(ctx.mixOklch(TOKENS['--mint'], TOKENS['--n-900'], 0.45));
+  strict.ok([...Array(36).keys()].every(y => [...Array(36).keys()].every(x => !at(x, y) || at(x, y) === line || [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b]) => at(x + a, y + b))))
+    , 'a 1-pixel outline closes the body: only outline pixels touch the outside');
+  strict.ok(d.includes(ctx.oklch(TOKENS['--mint'])) && d.includes(0xffffffff), 'its colour, and a white glint in the working eyes');
+  strict.equal(ctx.fineSprite('/p', 'idle', 1), ctx.fineSprite('/p', 'idle', 1), 'built once, then cached');
+  strict.match(ctx.creature('/p', 'done', null, 1), /^<svg viewBox="0 0 36 36" width="80%" height="80%" shape-rendering="crispEdges"[^>]*>(<path fill="#[0-9a-f]{6}" d="[M0-9 hvz-]+"\/>)+<\/svg>$/);
+});
+
+test('pixel effects start on the right changes, and nothing plays while nothing happens', () => {
+  const ctx = {};
+  require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
+  const run = (code) => require('vm').runInContext(code, ctx);
+  ctx.EV = (prev, s, born) => JSON.parse(JSON.stringify(ctx.fxEvents(prev, s, born)));
+  const s = (o) => ({ id: 'a', state: 'working', lv: 1, xp: 0, ctx: 80, parent: null, tool: '', ...o });
+  const kinds = (prev, now, born = false) => ctx.EV(prev, now, born).map(e => e[0]);
+  strict.deepEqual(kinds(s(), s()), [], 'no change, no effect');
+  strict.deepEqual(kinds(s(), s({ state: 'waiting' })), [], 'waiting is a loop, not a one-shot');
+  strict.deepEqual(ctx.EV(s({ xp: 1 }), s({ state: 'done', xp: 2 })), [['xp', { f0: 1 / 3, f1: 2 / 3, lv: 1 }]], 'a finished task: +1 XP');
+  strict.deepEqual(ctx.EV(s({ xp: 2 }), s({ state: 'done', lv: 2, xp: 0 })), [['xp', { f0: 2 / 3, f1: 1, lv: 2 }]], 'the third one: a level');
+  strict.deepEqual(kinds(s({ state: 'done' }), s({ state: 'done', since: 2 })), [], 'still done: no new XP');
+  strict.deepEqual(kinds(s({ ctx: 30 }), s({ ctx: 24 })), ['ctx'], 'context drops under 25%');
+  strict.deepEqual(kinds(s({ ctx: 20 }), s({ ctx: 10 })), [], 'already low: once');
+  strict.deepEqual(kinds(s({ ctx: null }), s({ ctx: null })), [], 'unknown context is not low');
+  strict.deepEqual(kinds(null, s({ ctx: 12 })), ['ctx'], 'a pet that shows up low');
+  strict.deepEqual(kinds(s(), s({ parent: 'p' })), ['child'], 'linked to its parent: the parent plays it');
+  strict.deepEqual(kinds(null, s({ parent: 'p' }), true), ['child'], 'a new side session');
+  strict.deepEqual(kinds(null, s({ parent: 'p' }), false), [], 'already there when the overlay started');
+  const loop = (st, tool) => JSON.parse(JSON.stringify(ctx.fxLoop(s({ tool }), st)));
+  strict.deepEqual(loop('waiting'), ['aura']);
+  strict.deepEqual([loop('working', 'Edit'), loop('working', 'Bash'), loop('working', 'Read'), loop('working', 'Grep')], [['tool', 0], ['tool', 1], ['tool', 2], ['tool', 3]]);
+  strict.equal(loop('working', 'TodoWrite'), null, 'a tool without a prop: nothing');
+  strict.equal(loop('done'), null); strict.equal(loop('idle'), null);
+  // Every effect runs and draws: one-shots end on time, loops keep going; the pet is drawn from its fine pixels.
+  run(`globalThis.out = Object.keys(FX).map(kind => {
+    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, kid: pet, f0: 2 / 3, f1: 1, lv: 7, seg: 2, dir: 1, dist: 20 }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
+    let painted = 0;
+    for (let i = 0; i < 400 && !r.done; i++) { r.step(1 / 60); r.draw(b); b.toImage(img); painted = Math.max(painted, new Uint32Array(img.data.buffer).filter(Boolean).length); }
+    return [kind, r.done, painted > 0];
+  })`);
+  strict.deepEqual(JSON.parse(JSON.stringify(ctx.out)), [['aura', false, true], ['xp', true, true], ['tool', false, true], ['ctx', true, true], ['child', true, true], ['end', true, true]]);  // From its second loop on, a loop repeats exactly every cycle, so the overlay draws one cycle once and replays it.
+  run(`globalThis.rep = [['aura', {}], ...[0, 1, 2, 3].map(seg => ['tool', { seg, first: true }])].map(([kind, o]) => {
+    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, ...o }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
+    const lead = FX[kind].D, n = Math.round(FX[kind].cycle * 30), shots = [];
+    for (let f = 0, sim = 0; f < 2 * n; f++) { for (const until = Math.round((lead + f / 30) / SIM); sim < until; sim++) r.step(SIM); r.draw(b); b.toImage(img); shots.push(img.data.join() + b.shake); }
+    return shots.slice(0, n).every((x, i) => x === shots[i + n]);
+  })`);
+  strict.deepEqual([...ctx.rep], [true, true, true, true, true]);
+});
+
 test('sessions of one project share a shape; colours tell them apart', () => {
   const ctx = {};
   require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
-  const fill = svg => [...new Set((svg.match(/fill="var\(--[a-z]+\)"/g) || []))].join();
+  const fill = svg => [...new Set((svg.match(/fill="#[0-9a-f]{6}"/g) || []))].join();
   const shape = svg => svg.replace(/fill="[^"]*"/g, '');
   const list = [{ id: 'a', project: '/p' }, { id: 'b', project: '/p' }, { id: 'c', project: '/q' },
     ...['k1', 'k2', 'k3'].map(id => ({ id, project: '/p', parent: 'a' }))];

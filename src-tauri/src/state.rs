@@ -13,7 +13,7 @@ pub struct LogLine { pub t: u64, pub kind: String, pub text: String, pub tool: S
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     pub id: String, pub name: String, pub cwd: String, pub title: String, pub transcript: String, pub state: String,
-    pub since: u64, pub updated: u64, pub lv: u64, pub quest: String, pub prompt: String, pub tool: String, pub tool_arg: String,
+    pub since: u64, pub updated: u64, pub lv: u64, pub xp: u64, pub quest: String, pub prompt: String, pub tool: String, pub tool_arg: String,
     pub ask_tool: String, pub ask: String, pub summary: String, pub report: String, pub hits: u64, pub ctx: Option<i64>,
     pub claude_pid: Option<u32>, pub host_session: Option<String>, pub log: Vec<LogLine>,
     pub pet: String, // auto (settings decide) | hidden | shown (stays out even past the sleep timer); back to auto when it needs you
@@ -34,6 +34,9 @@ pub struct Session {
 }
 
 pub type Sessions = indexmap::IndexMap<String, Session>;
+
+// Each finished task (Stop) is 1 XP; this many make a level (the pets overlay draws the XP bar from it: XP_PER_LV in pets.html).
+pub const XP_PER_LV: u64 = 3;
 
 fn new_session(id: &str, now: u64) -> Session {
     Session { id: id.into(), name: "?".into(), state: "idle".into(), since: now, updated: now, lv: 1, pet: "auto".into(), ..Default::default() }
@@ -224,7 +227,9 @@ pub fn apply(sessions: &mut Sessions, e: &Value, now: u64) -> Option<Applied> {
             }
         }
         "Stop" => {
-            s.lv += 1; s.ask.clear(); s.ask_tool.clear();
+            s.xp += 1;
+            if s.xp >= XP_PER_LV { s.lv += 1; s.xp = 0; }
+            s.ask.clear(); s.ask_tool.clear();
             log(s, now, "done", String::new(), String::new());
             set(s, now, "done");
             notice = Some(Notice { kind: "done", id: id.clone() });
@@ -387,7 +392,9 @@ mod tests {
         ap(&mut m, base("PostToolUse", json!({ "tool_name": "Bash" })));
         assert_eq!(m["abc"].state, "working");
         assert_eq!(notice(ap(&mut m, base("Stop", json!({})))), Some("done"));
-        assert_eq!(m["abc"].lv, 2);
+        assert_eq!((m["abc"].lv, m["abc"].xp), (1, 1), "one finished task is 1 XP");
+        for _ in 1..XP_PER_LV { ap(&mut m, base("Stop", json!({}))); }
+        assert_eq!((m["abc"].lv, m["abc"].xp), (2, 0), "XP_PER_LV tasks make a level");
         assert_eq!(notice(ap(&mut m, base("Notification", json!({ "message": "Claude is waiting for your input" })))), None);
         assert_eq!(m["abc"].state, "done");
         assert!(matches!(ap(&mut m, base("SessionEnd", json!({}))), Some(Applied::Removed)));
