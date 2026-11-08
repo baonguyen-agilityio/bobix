@@ -86,6 +86,8 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             report["visible"] = json!(w.is_visible().unwrap_or(false));
             report["onTop"] = json!(w.is_always_on_top().unwrap_or(false));
             report["bounds"] = json!({ "x": p.x, "y": p.y, "width": s.width, "height": s.height });
+            let m = overlay::target_monitor(&app, "primary").map(|m| { let (a, f) = (m.work_area(), m.scale_factor()); (a.position.y as f64 / f, (a.position.y as f64 + a.size.height as f64) / f) });
+            report["onScreen"] = json!(m.is_some_and(|(top, bottom)| p.y >= top - 1.0 && p.y + s.height <= bottom + 1.0));
             report["loadedUrl"] = json!(w.url().map(|u| u.path().to_string()).unwrap_or_default());
             // The page counts its pets and sends them back through the bridge (the IPC path the pets use).
             let _ = w.eval("window.__TAURI_INTERNALS__.invoke('smoke_page', { data: { pets: document.querySelectorAll('.pet').length, \
@@ -142,11 +144,19 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         report["git"] = b.core.lock().unwrap().sessions.get(sid).and_then(|s| s.git.as_ref()).map(|g| json!({ "branch": g["branch"], "worktrees": g["worktrees"] })).unwrap_or(json!("none"));
         report["secondStart"] = json!(crate::server::show_running(b.port, &b.token, &app.package_info().version.to_string()));
         report["work"] = serde_json::from_str::<Value>(&b.snapshot()).map(|v| v["work"]["status"].clone()).unwrap_or_default();
+        // Linux: drag a pet with the real mouse (xdotool) and check it moved: the input shape lets the
+        // mouse in over a pet. Not part of the verdict where xdotool is missing.
+        if cfg!(target_os = "linux") && crate::procs::exec("xdotool", &["version"], 5, &[]).ok {
+            // The pretend session's pet: finished by now, so it rests (a working pet walks away from the cursor).
+            let rest = b.core.lock().unwrap().sessions.keys().find(|k| k.starts_with("bobix-test-")).cloned().unwrap_or_default();
+            report["drag"] = drag(&app, &rest);
+        }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
-        let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
+        let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object()
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 3 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
             && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
+            && (report.get("drag").is_none() || report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0)
             && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
         write(&report);
@@ -154,6 +164,42 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         let _ = fs::write(dir.join("done"), ""); // CI waits for this, then stops the app itself
         app.exit(if pass { 0 } else { 1 });
     });
+}
+
+// The value of a page expression (awaited), through the bridge like the pets' own calls.
+fn ask(app: &AppHandle, label: &str, expr: &str) -> Value {
+    let Some(w) = app.get_webview_window(label) else { return json!("no window") };
+    *PAGE.lock().unwrap() = None;
+    let _ = w.eval(format!("(async () => {{ let v; try {{ v = await ({expr}); }} catch (e) {{ v = {{ error: String(e) }}; }} \
+        window.__TAURI_INTERNALS__.invoke('smoke_page', {{ data: {{ v }} }}); }})()"));
+    let until = Instant::now() + Duration::from_secs(5);
+    while PAGE.lock().unwrap().is_none() && Instant::now() < until { thread::sleep(Duration::from_millis(50)); }
+    PAGE.lock().unwrap().take().map(|v| v["v"].clone()).unwrap_or(json!("no answer"))
+}
+
+// Drags the pet toward the middle of the screen (so the zone never clamps it), as scripts/smoke-drag.mjs did. Screen
+// coordinates come from the window's position (WebKitGTK may not know screenX without a window manager); the page
+// counts the pointer presses it gets, so a failure says whether the mouse reached it.
+fn drag(app: &AppHandle, sid: &str) -> Value {
+    let Some(win) = app.get_webview_window(overlay::LABEL) else { return json!({ "error": "no window" }) };
+    let at = ask(app, overlay::LABEL, &format!("(() => {{ window.__ev = {{}}; for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) addEventListener(t, () => {{ __ev[t] = (__ev[t] || 0) + 1; }}, true); \
+        const p = pets.get({sid:?}); if (!p) return null; const b = p.el.querySelector('.spr').getBoundingClientRect(); \
+        return {{ x: b.left + b.width / 2, y: b.top + b.height / 2, petX: Math.round(p.x), w: innerWidth, screenX, screenY }}; }})()"));
+    let (Some(cx), Some(cy), Some(px), Some(w)) = (at["x"].as_f64(), at["y"].as_f64(), at["petX"].as_f64(), at["w"].as_f64()) else { return json!({ "error": "no pet", "at": at }) };
+    let f = win.scale_factor().unwrap_or(1.0);
+    let pos = win.inner_position().unwrap_or_default();
+    let (x, y) = ((pos.x as f64 / f + cx).round() as i64, (pos.y as f64 / f + cy).round() as i64);
+    let dir = if px > w / 2.0 { -1 } else { 1 };
+    let xdo = |a: &[String]| { let a: Vec<&str> = a.iter().map(String::as_str).collect(); crate::procs::exec("xdotool", &a, 5, &[]); };
+    xdo(&["mousemove".into(), x.to_string(), y.to_string()]);
+    thread::sleep(Duration::from_millis(400));
+    xdo(&["mousedown".into(), "1".into()]);
+    thread::sleep(Duration::from_millis(100));
+    for i in 1..=15 { xdo(&["mousemove".into(), (x + dir * i * 20).to_string(), y.to_string()]); thread::sleep(Duration::from_millis(40)); }
+    xdo(&["mouseup".into(), "1".into()]);
+    thread::sleep(Duration::from_millis(800));
+    let after = ask(app, overlay::LABEL, &format!("({{ x: Math.round(pets.get({sid:?}).x), events: window.__ev }})"));
+    json!({ "at": [x, y], "page": at, "from": px, "to": after["x"], "events": after["events"], "moved": after["x"].as_f64().map(|a| (a - px) * dir as f64) })
 }
 
 // The hook's stdout: what Claude Code would read.

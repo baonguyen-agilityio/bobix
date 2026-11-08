@@ -541,7 +541,8 @@ fn diagnostics(b: &Arc<Bobix>) -> Value {
             "chain": procs::process_names(&chain) })
     }).collect();
     json!({ "app": app.map(|a| a.package_info().version.to_string()), "platform": platform(), "release": os_release(), "arch": arch(),
-        "session": std::env::var("XDG_SESSION_TYPE").ok(), "wayland": wayland(), "ozone": Value::Null,
+        "session": std::env::var("XDG_SESSION_TYPE").ok(), "wayland": wayland(),
+        "ozone": if cfg!(target_os = "linux") { json!(std::env::var("GDK_BACKEND").unwrap_or_else(|_| if wayland() { "wayland".into() } else { "x11".into() })) } else { Value::Null }, // how the overlay draws
         "settings": pick, "hooks": { "mode": h["mode"], "complete": h["complete"], "port": h["port"], "stale": h["stale"], "outdated": h["outdated"], "error": h.get("error").cloned().unwrap_or(Value::Null) },
         "node": node, "displays": displays, "overlay": ov, "sessions": sessions })
 }
@@ -690,6 +691,7 @@ async fn work_start(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
 fn rects(r: Vec<Vec<f64>>, b: B, app: AppHandle) {
     let r: Vec<[f64; 4]> = r.into_iter().filter(|x| x.len() == 4 && x.iter().all(|v| v.is_finite())).map(|x| [x[0], x[1], x[2], x[3]]).collect();
     b.core.lock().unwrap().rects = r;
+    overlay::shape(&app, &b);
     overlay::show_or_hide(&app, &b);
 }
 
@@ -881,6 +883,12 @@ fn fail(msg: String) -> ! {
 }
 
 fn main() {
+    // Linux on Wayland: apps may not keep a window on top or position it, so the pets would sit behind whatever you work
+    // in. Draw through XWayland (X11) when it is there, set before GTK starts; BOBIX_WAYLAND=1 keeps native Wayland.
+    #[cfg(target_os = "linux")]
+    if wayland() && std::env::var_os("DISPLAY").is_some() && std::env::var("BOBIX_WAYLAND").as_deref() != Ok("1") && std::env::var_os("GDK_BACKEND").is_none() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
     let file = paths::settings_file();
     autostart::migrate_from_old_name(&file);
     let mut settings = settings::load(&file);

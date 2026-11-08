@@ -51,8 +51,9 @@ fn show_blocking(n: &Note) -> Option<Reply> {
 fn show_blocking(n: &Note) -> Option<Reply> {
     use tauri_winrt_notification::{Sound, Toast};
     let (tx, rx) = std::sync::mpsc::channel();
-    // ponytail: PowerShell's app id until the installer registers Bobix's own (then the toast says "Bobix").
-    Toast::new(Toast::POWERSHELL_APP_ID).title(&n.title).text1(&n.body).sound(n.sound.then_some(Sound::Default))
+    // The installer's Start menu shortcut carries the app id (the identifier), so the toast says "Bobix"; a dev build
+    // has no shortcut and borrows PowerShell's.
+    Toast::new(if tauri::is_dev() { Toast::POWERSHELL_APP_ID } else { "dev.bobix.app" }).title(&n.title).text1(&n.body).sound(n.sound.then_some(Sound::Default))
         .on_activated(move |_| -> tauri_winrt_notification::Result<()> { let _ = tx.send(()); Ok(()) })
         .show().ok()?;
     // A toast that is never clicked: give up after a day, like a held request.

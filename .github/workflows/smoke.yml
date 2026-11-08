@@ -104,7 +104,7 @@ jobs:
           workspaces: src-tauri
       - name: Linux libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb > /dev/null
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb xdotool > /dev/null
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
@@ -115,6 +115,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+          for i in $(seq 1 50); do DISPLAY=:99 xdotool getdisplaygeometry > /dev/null 2>&1 && break; sleep 0.2; done # ready before the app starts
           echo "DISPLAY=:99" >> "$GITHUB_ENV"
       - name: Smoke
         timeout-minutes: 4
@@ -124,6 +125,8 @@ jobs:
           BOBIX_PORT: '4767'
         run: |
           export BOBIX_DATA_DIR="$RUNNER_TEMP/bobix-data" BOBIX_HOME="$RUNNER_TEMP/bobix-home"
+          # Linux: take the path of an Ubuntu Wayland desktop (XWayland), as the Electron smoke does.
+          if [ "$RUNNER_OS" = Linux ]; then export XDG_SESSION_TYPE=wayland; fi
           ./src-tauri/target/debug/bobix > smoke.log 2>&1 &
           for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done
           if [ "$RUNNER_OS" = Windows ]; then taskkill //F //IM bobix.exe > /dev/null 2>&1 || true; else pkill -9 -f target/debug/bobix || true; fi

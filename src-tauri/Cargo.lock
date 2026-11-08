@@ -365,6 +365,7 @@ dependencies = [
  "fancy-regex",
  "futures-util",
  "getrandom 0.3.4",
+ "gtk",
  "indexmap 2.14.2",
  "libc",
  "mac-notification-sys",
