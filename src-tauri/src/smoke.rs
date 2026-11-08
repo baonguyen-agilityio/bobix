@@ -142,17 +142,19 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         report["git"] = b.core.lock().unwrap().sessions.get(sid).and_then(|s| s.git.as_ref()).map(|g| json!({ "branch": g["branch"], "worktrees": g["worktrees"] })).unwrap_or(json!("none"));
         report["secondStart"] = json!(crate::server::show_running(b.port, &b.token, &app.package_info().version.to_string()));
         report["work"] = serde_json::from_str::<Value>(&b.snapshot()).map(|v| v["work"]["status"].clone()).unwrap_or_default();
-        // Linux: drag the real session's pet with the real mouse (xdotool) and check it moved: the input shape lets the
+        // Linux: drag a pet with the real mouse (xdotool) and check it moved: the input shape lets the
         // mouse in over a pet. Not part of the verdict where xdotool is missing.
         if cfg!(target_os = "linux") && crate::procs::exec("xdotool", &["version"], 5, &[]).ok {
-            report["drag"] = drag(&app, sid);
+            // The pretend session's pet: finished by now, so it rests (a working pet walks away from the cursor).
+            let rest = b.core.lock().unwrap().sessions.keys().find(|k| k.starts_with("bobix-test-")).cloned().unwrap_or_default();
+            report["drag"] = drag(&app, &rest);
         }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object()
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 3 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
             && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
-            && (report.get("drag").is_none() || report["drag"]["moved"].as_f64().unwrap_or(0.0) > 100.0)
+            && (report.get("drag").is_none() || report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0)
             && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
         write(&report);
