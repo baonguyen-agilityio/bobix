@@ -588,7 +588,7 @@ const moreOpen = new Set(); // Quest and log lines opened with "Show more" (the 
 // → done today → the end-of-day report. Drawn whole as HTML, skipped when nothing changed; focus survives a redraw.
 const AQ_MAX = 3, VER_MAX = 4, DONE_MAX = 5, PER_GROUP = 4;
 const narrow = () => matchMedia('(max-width:819px)').matches;
-let tab = null; // a narrow window's section (todo | doing | verify | done); null: in progress while anything runs
+let tab = null; // a narrow window's section (todo | doing | verify | done); null: in progress while a ticket runs or waits
 const opened = new Set(); // lists opened past their cap ('aq', 'verify', 'done', 'g:<path>'), tickets ('t:<key>'), commands ('c:<id>')
 let query = '', proj = 'all', nextFocus = null, st = BOARD.stages(null, []);
 const flip = k => (opened.has(k) ? opened.delete(k) : opened.add(k));
@@ -699,7 +699,7 @@ const sessRow = s => `<li class="st-${look(s)}"><button class="sr-main" type="bu
 function dayHTML() {
   const lz = familyOrder(BOARD.loose(st, list).sort((a, b) => BOARD.PRI[look(a)] - BOARD.PRI[look(b)] || b.updated - a.updated));
   const count = { todo: st.todo.length, doing: st.doing.length, verify: st.verify.length, done: st.done.length };
-  const cur = tab || (count.doing || waitingList().length || lz.length ? 'doing' : 'todo');
+  const cur = tab || (count.doing || waitingList().length ? 'doing' : 'todo');
   const sec = (k, n, body, tools = '') => `<section class="dsec${k === cur || (k === 'loose' && cur === 'doing') ? ' on' : ''}" id="d-${k}" data-area="${k}" aria-labelledby="h-${k}">${head(k, T('day.' + k), n, tools)}${body}</section>`;
   const date = new Date().toLocaleDateString(I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const refresh = bridge && work.status !== 'off' ? `${work.at ? `<span>${esc(ago(work.at))}</span>` : ''}<button class="ib" type="button" data-act="refresh" aria-label="${esc(T('work.refresh'))}" title="${esc(T('work.refresh'))}"${work.status === 'loading' ? ' disabled' : ''}>↻</button>` : '';
