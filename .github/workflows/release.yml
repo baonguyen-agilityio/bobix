@@ -68,13 +68,14 @@ jobs:
       - name: macOS bundle
         if: runner.os == 'macOS' && matrix.smoke
         run: |
-          app=src-tauri/target/${{ matrix.target }}/release/bundle/macos/Bobix.app
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' -c 'Print :LSUIElement' -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = dev.bobix.app
-          test "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$app/Contents/Info.plist")" = true
           hdiutil attach -nobrowse -readonly -mountpoint /tmp/bobix-dmg "out/${{ matrix.out }}"
           cp -R /tmp/bobix-dmg/Bobix.app "$RUNNER_TEMP/Bobix.app"
           hdiutil detach /tmp/bobix-dmg
+          plist="$RUNNER_TEMP/Bobix.app/Contents/Info.plist"
+          for k in CFBundleIdentifier CFBundleShortVersionString LSUIElement; do echo "$k: $(/usr/libexec/PlistBuddy -c "Print :$k" "$plist")"; done
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = dev.bobix.app
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$plist")" = true
+          du -sh "$RUNNER_TEMP/Bobix.app" "out/${{ matrix.out }}"
           echo "APP_BIN=$RUNNER_TEMP/Bobix.app/Contents/MacOS/$(ls "$RUNNER_TEMP/Bobix.app/Contents/MacOS")" >> "$GITHUB_ENV"
 
       # ---------- Windows: install the Electron build, then this one over it ----------
