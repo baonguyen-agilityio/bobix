@@ -89,8 +89,8 @@ The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl`
 
 1. Setup → **Remove hooks**. Only Bobix's hooks are removed.
 2. Settings → turn off **Start when I log in**.
-3. Quit from the tray / menu bar icon and delete the app.
+3. Quit from the tray / menu bar icon and delete the app (macOS: drag it to the Trash; Windows: Settings → Apps → Bobix → Uninstall; Linux: `sudo apt remove bobix`).
 4. Optional cleanup: delete `~/.claude/bobix/`, the backups `~/.claude/settings.json.bak-bobix-*`, and the settings folder:
    - macOS: `~/Library/Application Support/Bobix`
    - Windows: `%APPDATA%\Bobix`
-   - Linux: `~/.config/Bobix`
+   - Linux: `~/.config/bobix`

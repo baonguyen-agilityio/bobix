@@ -1,5 +1,5 @@
-// The tray / menu bar icon and its menu (buildTray in src/main.js): same items, same order. The icon is the app's
-// pixel creature drawn from pixels (src/core/icon.js), 32 px for a 16 pt slot.
+// The tray / menu bar icon and its menu (buildTray in the 0.1 (Electron) app's main.js): same items, same order. The icon is the app's
+// pixel creature drawn from pixels (as in the 0.1 app), 32 px for a 16 pt slot.
 use crate::{i18n::t, panel, settings, Bobix};
 use serde_json::json;
 use std::sync::Arc;

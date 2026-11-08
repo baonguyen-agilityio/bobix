@@ -1,4 +1,4 @@
-// window.bobix for the pages served from 127.0.0.1, as src/preload.js gives it in Electron, backed by Tauri commands.
+// window.bobix for the pages served from 127.0.0.1, backed by the app's commands (main.rs): the pages' only way in.
 // The app sends events to the page with window.__bobixEmit(channel, value).
 (() => {
   if (window.bobix || !window.__TAURI_INTERNALS__) return;
@@ -16,7 +16,7 @@
     document.head.appendChild(s);
   }));
 
-  // Errors the page logs or throws, for diagnostics and the smoke run (Electron reads them from console-message).
+  // Errors the page logs or throws, for diagnostics and the smoke run.
   const report = msg => invoke('page_error', { msg: String(msg).slice(0, 300) }).catch(() => {});
   const logError = console.error.bind(console);
   console.error = (...a) => { report(a.map(String).join(' ')); logError(...a); };

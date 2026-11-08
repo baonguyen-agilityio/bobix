@@ -1083,7 +1083,7 @@ $('#pd-dialog').addEventListener('close', e => { // Esc, Cancel, Save or an erro
   if (!pd.saved) bridge.petImage(pd.id, 'cancel');
 });
 
-// ---------- first-run guide and "What's new" (shown once each; see core/news.js) ----------
+// ---------- first-run guide and "What's new" (shown once each; see news_for in src-tauri/src/settings.rs) ----------
 function guideHTML() {
   const art = st => `<span class="sprite">${creature('bobix', st)}</span>`;
   return `<ul class="guide">${['working', 'waiting', 'done', 'idle'].map(st => `<li class="st-${st}">${art(st)}<span>${esc(T('guide.' + st))}</span></li>`).join('')}</ul>

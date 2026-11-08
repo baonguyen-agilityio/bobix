@@ -1,6 +1,6 @@
 // Feedback (a bug or an idea): a link that opens GitHub's "new issue" form, filled in. The person reads it there and
 // submits it themselves, so Bobix needs no token and no server. Issues are public: only listed, non-identifying facts
-// go in. Port of src/core/feedback.js.
+// go in. Port of the 0.1 (Electron) app's core/feedback.js.
 use crate::{js::{head16, len16}, work::enc};
 use fancy_regex::{Captures, Regex};
 use serde_json::Value;

@@ -23,7 +23,7 @@ pub fn data_dir() -> PathBuf {
 pub fn settings_file() -> PathBuf { data_dir().join("settings.json") }
 
 // Per-user secret the hook sends and the server requires: another local user can't feed or read the app.
-// Same files and modes as ensureToken in src/core/hooks.js.
+// Same files and modes as ensureToken in the 0.1 (Electron) app's core/hooks.js.
 pub fn ensure_token() -> std::io::Result<String> { ensure_token_in(&home()) }
 
 pub fn ensure_token_in(home: &std::path::Path) -> std::io::Result<String> {

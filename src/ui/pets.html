@@ -102,7 +102,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
-const bridge = window.bobix; // present inside the app (preload); absent in a plain browser tab
+const bridge = window.bobix; // present inside the app (src-tauri/bridge.js); absent in a plain browser tab
 
 let cfg = { size: 56, edge: 'bottom', zoneStart: 0, zoneEnd: 100, opacity: 1, fadeNearCursor: true, showIdle: true, sleepHide: 30, onlyAttention: false, label: 'title', clickAction: 'focus', language: 'auto' };
 let lang = navigator.language;

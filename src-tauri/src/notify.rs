@@ -1,5 +1,5 @@
 // Desktop notifications: "<name> needs you" and "<name> finished". A click opens the session; on macOS a held
-// permission request also gets Allow / Deny. Port of notify() in src/main.js (Electron's Notification).
+// permission request also gets Allow / Deny. Port of notify() in the 0.1 (Electron) app's main.js (Electron's Notification).
 // Each OS's own notification API: the notification plugin has no click or buttons on desktop.
 
 pub struct Note {

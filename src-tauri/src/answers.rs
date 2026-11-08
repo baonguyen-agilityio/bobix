@@ -1,5 +1,5 @@
 // Permission requests held in Bobix until someone answers them on a pet, the panel or a notification. Port of
-// waitForAnswer / answer / releaseUnseen in src/main.js.
+// waitForAnswer / answer / releaseUnseen in the 0.1 (Electron) app's main.js.
 use crate::{server::Reply, settings, state::Session, Bobix};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};

@@ -1,4 +1,5 @@
-# Starts the real app on each OS with a pretend session and checks the pets overlay is on screen.
+# Rust and node tests, then the app (debug build) on each OS with a pretend and a real session: pets on screen, the
+# panel and its bridge, hooks, a held permission request answered (see src-tauri/src/smoke.rs).
 name: smoke
 on:
   push:
@@ -6,86 +7,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  smoke:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      # A display that outlives any one process: on Wayland the app restarts itself, and xvfb-run would take
-      # its display down as soon as the first process exits.
-      - name: Start a virtual display (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
-          Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
-      # The app writes smoke-out/done when its checks are over; electron is then stopped here, because on CI
-      # runners the process does not always exit by itself. The verdict comes from smoke-out/report.json.
-      - name: Smoke
-        timeout-minutes: 4
-        shell: bash
-        env:
-          BOBIX_SMOKE: smoke-out
-        run: |
-          # XDG_SESSION_TYPE=wayland: take the same path as an Ubuntu Wayland desktop (switch to XWayland).
-          if [ "$RUNNER_OS" = Linux ]; then XDG_SESSION_TYPE=wayland npx electron . --no-sandbox > smoke.log 2>&1 &
-          else npx electron . > smoke.log 2>&1 & fi
-          for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done
-          if [ "$RUNNER_OS" = Windows ]; then taskkill //F //T //IM electron.exe > /dev/null 2>&1 || true; else pkill -9 -f "electron" || true; fi
-          grep "\[bobix\]" smoke.log || cat smoke.log
-          node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.visible && r.onTop && r.pets >= 2 && !r.pageErrors.length && r.pixel === 'ok' && (r.platform !== 'linux' || r.ozone === 'x11') ? 0 : 1)"
-      # The installed .deb, the way Ubuntu users run it: on Wayland it must restart itself through XWayland.
-      - name: Build the .deb (Linux)
-        if: runner.os == 'Linux'
-        run: npm run icon && npx electron-builder --linux deb --x64 --publish never > /dev/null
-      - name: Smoke installed .deb (Linux)
-        if: runner.os == 'Linux'
-        timeout-minutes: 5
-        shell: bash
-        env:
-          BOBIX_SMOKE: smoke-out/deb
-        run: |
-          sudo apt-get install -y -qq ./dist/bobix-linux-amd64.deb > /dev/null
-          XDG_SESSION_TYPE=wayland bobix --no-sandbox > deb.log 2>&1 &
-          for i in $(seq 1 120); do [ -f smoke-out/deb/done ] && break; sleep 1; done
-          pkill -9 -f /opt/Bobix || true
-          grep "\[bobix\]" deb.log || cut -c1-250 deb.log | tail -40
-          node -e "const r = require('./smoke-out/deb/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.visible && r.onTop && r.pets >= 2 && !r.pageErrors.length && r.pixel === 'ok' && r.ozone === 'x11' ? 0 : 1)"
-      # The Tauri build reads the installed app's settings: which data folder name did it make (Linux is case-sensitive)?
-      - name: Data folder of the installed .deb (Linux)
-        if: runner.os == 'Linux'
-        run: ls -d ~/.config/*obix* || true
-      # Drag a pet with the real mouse in the installed .deb (X11 via the Wayland restart, as on Ubuntu).
-      - name: Drag a pet in the installed .deb (Linux)
-        if: runner.os == 'Linux'
-        timeout-minutes: 3
-        shell: bash
-        run: |
-          sudo apt-get install -y -qq xdotool > /dev/null
-          XDG_SESSION_TYPE=wayland bobix --no-sandbox --remote-debugging-port=9333 > drag.log 2>&1 &
-          sleep 3
-          node scripts/smoke-drag.mjs; code=$?
-          pkill -9 -f /opt/Bobix || true
-          [ $code = 0 ] || cut -c1-250 drag.log | grep -v dbus | tail -20
-          exit $code
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: smoke-${{ matrix.os }}
-          path: smoke-out/
-
-  # The Tauri build (src-tauri/), being ported part by part: Rust tests, then the app with a pretend session and a real
-  # one sent by hook.js, checking the pets overlay is on screen. Runs apart from the Electron app above.
   tauri:
     strategy:
       fail-fast: false
@@ -105,6 +26,8 @@ jobs:
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb xdotool > /dev/null
+      - name: Node tests
+        run: npm test
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
@@ -125,7 +48,7 @@ jobs:
           BOBIX_PORT: '4767'
         run: |
           export BOBIX_DATA_DIR="$RUNNER_TEMP/bobix-data" BOBIX_HOME="$RUNNER_TEMP/bobix-home"
-          # Linux: take the path of an Ubuntu Wayland desktop (XWayland), as the Electron smoke does.
+          # Linux: take the path of an Ubuntu Wayland desktop (XWayland).
           if [ "$RUNNER_OS" = Linux ]; then export XDG_SESSION_TYPE=wayland; fi
           ./src-tauri/target/debug/bobix > smoke.log 2>&1 &
           for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done

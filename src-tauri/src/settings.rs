@@ -1,5 +1,5 @@
 // User settings: defaults, validation and a JSON file in the app's data folder. Same file, keys and rules as
-// src/core/settings.js, so the Electron and Tauri builds read and write the same settings.json.
+// the 0.1 (Electron) app's core/settings.js, so the Electron and Tauri builds read and write the same settings.json.
 use crate::js::{js_number, round};
 use serde_json::{json, Map, Value};
 use std::{fs, path::Path};
@@ -165,7 +165,7 @@ pub fn save(file: &Path, settings: &Value) -> std::io::Result<()> {
     fs::rename(&tmp, file)
 }
 
-// ---------- first-run guide and "What's new" (src/core/news.js) ----------
+// ---------- first-run guide and "What's new" (the 0.1 (Electron) app's core/news.js) ----------
 // 0.1.4-rc.3 → 0.1.4: a test build shows its release's notes
 pub fn base(v: &str) -> &str { v.split('-').next().unwrap_or(v) }
 
@@ -181,7 +181,7 @@ pub fn news_for(settings: &Value, version: &str, notes: &str) -> Option<String> 
     (base(version) == notes && settings["seenVersion"] != notes).then(|| notes.to_string())
 }
 
-// ---------- pet picture options (src/core/pixelate.js normalizeOpts / parseColor) ----------
+// ---------- pet picture options (the 0.1 (Electron) app's core/pixelate.js normalizeOpts / parseColor) ----------
 const SIZES: [f64; 3] = [32.0, 48.0, 64.0];
 
 // Untrusted options (IPC, settings.json) -> options pixelate can use. removeBg defaults to whether the picture has no

@@ -1,5 +1,5 @@
 // Session state machine fed by Claude Code hook events. apply() is pure so it can be unit-tested.
-// Port of src/core/state.js: same fields, same rules, same JSON for the pages.
+// Port of the 0.1 (Electron) app's core/state.js: same fields, same rules, same JSON for the pages.
 use crate::js::{head16, len16, now_ms, round};
 use fancy_regex::{Captures, Regex};
 use serde::Serialize;

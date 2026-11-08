@@ -1,4 +1,4 @@
-// The few JavaScript semantics the ported code depends on, so Rust gives the same results as src/core/*.js.
+// The few JavaScript semantics the ported code depends on, so Rust gives the same results as the 0.1 (Electron) app's core/*.js.
 use serde_json::Value;
 
 // Number(v)

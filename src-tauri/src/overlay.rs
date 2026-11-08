@@ -1,6 +1,6 @@
 // The pets overlay: a transparent, frameless, always-on-top strip along one edge of a screen that shows the pets page.
 // The mouse goes through it everywhere except over a pet. Port of createOverlay / showOverlay / overlayBounds /
-// trackMouse in src/main.js.
+// trackMouse in the 0.1 (Electron) app's main.js.
 use crate::Bobix;
 use std::{sync::Arc, thread, time::Duration};
 use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};

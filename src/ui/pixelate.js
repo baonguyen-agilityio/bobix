@@ -27,7 +27,7 @@ const MAX_FRAMES = 200;            // frames past this are dropped (Source.trunc
 const SOURCE_SIDE = 256;           // a Source's long side; enough for 64 px art, small enough to hold every frame
 const MAX_CANVAS = 4096 * 4096;    // a GIF's logical screen in pixels: a tiny file can claim 65535², which we never allocate
 // Pixels decoded and shrunk over all frames (each frame's patch plus the rectangle that changed): a small file can claim
-// many full-screen frames, which would take longer than main.js waits for the worker (PIXEL_WAIT_MS); frames past it
+// many full-screen frames, which would take longer than pet-import.js waits for the worker (PIXEL_WAIT_MS); frames past it
 // are dropped like those past MAX_FRAMES. A 2 MB GIF of 70 full 480×480 frames uses about 6% of it.
 const MAX_WORK = 512 * 1024 * 1024;
 const BG_THRESHOLD = 40;           // RGB distance from a corner colour that still counts as background (JPG noise, soft edges)

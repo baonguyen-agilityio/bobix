@@ -1,5 +1,5 @@
 // Installs / removes Bobix hooks in ~/.claude/settings.json without touching anyone else's hooks. Port of
-// src/core/hooks.js: the same entries, so either build reads and replaces what the other wrote.
+// the 0.1 (Electron) app's core/hooks.js: the same entries, so either build reads and replaces what the other wrote.
 use serde_json::{json, Map, Value};
 use std::{fs, path::{Path, PathBuf}, sync::LazyLock};
 

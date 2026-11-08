@@ -134,15 +134,17 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 ## Status and limitations
 
-- Version 0.1. Tested on macOS (Apple chip) with the Claude desktop app and the CLI, and on Ubuntu (Wayland) with the CLI. Windows is smoke-tested on CI only, and the Claude desktop app on Linux (beta) isn't tested yet.
+- Version 0.2 (test builds). The app is built with Tauri (Rust and the system web view; about 10 MB instead of 250 MB). Version 0.1 was tested on macOS (Apple chip) with the Claude desktop app and the CLI, and on Ubuntu (Wayland) with the CLI. Windows is smoke-tested on CI only, and the Claude desktop app on Linux (beta) isn't tested yet.
 - On Linux Wayland, Bobix runs through XWayland so pets can stay on top; bringing a terminal forward needs X11 and `xdotool`.
 - Opening a session in the Claude desktop app uses a link that app registers (`claude://code/continue`), not a documented API, so it may change.
 - "Context left" is estimated from token usage.
-- Linux installers are for Ubuntu and Debian; other distributions aren't packaged yet.
+- Linux installers are for Ubuntu 22.04+ and Debian 12+ (they need WebKitGTK 4.1, which `apt` installs with them); other distributions aren't packaged yet.
+- Windows needs the WebView2 runtime: built into Windows 11 and current Windows 10; the installer adds it when it is missing.
+- Installing 0.2 over 0.1 keeps your settings, hooks and pet pictures, removes the old app, and keeps "start when I log in" on if it was.
 
 ## License and credits
 
-MIT, see [LICENSE](LICENSE). Fonts: Baloo 2 and Be Vietnam Pro, SIL Open Font License, bundled via Fontsource (licenses in `src/ui/fonts/`). GIF code: [gifenc](https://github.com/mattdesl/gifenc) by Matt DesLauriers and the LZW decoder and deinterlacer of [gifuct-js](https://github.com/matt-way/gifuct-js) by Matt Way, MIT, copied into `src/core/gif/` with their licenses.
+MIT, see [LICENSE](LICENSE). Fonts: Baloo 2 and Be Vietnam Pro, SIL Open Font License, bundled via Fontsource (licenses in `src/ui/fonts/`). GIF code: [gifenc](https://github.com/mattdesl/gifenc) by Matt DesLauriers and the LZW decoder and deinterlacer of [gifuct-js](https://github.com/matt-way/gifuct-js) by Matt Way, MIT, copied into `src/ui/gif/` with their licenses.
 
 Bobix is an independent project, not affiliated with or endorsed by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.
 

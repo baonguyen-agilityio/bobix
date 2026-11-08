@@ -1,6 +1,6 @@
 // Which session a Claude desktop session was started from ("side session"), read from that app's own session file:
 // <sessions dir>/<org>/<user>/<local_id>.json, field spawnedFrom.sessionId. Only that field is read. Same as
-// src/core/links.js, with the list of Claude desktop sessions the Work tab reads.
+// the 0.1 (Electron) app's core/links.js, with the list of Claude desktop sessions the Work tab reads.
 use std::{fs, path::{Path, PathBuf}};
 
 pub fn is_host_id(id: &str) -> bool {
