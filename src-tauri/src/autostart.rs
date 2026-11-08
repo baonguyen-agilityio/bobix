@@ -1,7 +1,6 @@
 // Start at login, on macOS, Windows and Linux. Port of src/core/autostart.js: the same LaunchAgent label and Linux
 // .desktop file, pointing at this executable.
-// ponytail: macOS uses the LaunchAgent for every build (Electron's packaged app used a login item); a login item
-// needs SMAppService, add it if the LaunchAgent's "background item" notice bothers anyone.
+// macOS uses the LaunchAgent for every build; the login item the Electron app used is moved over once (from_electron).
 use std::{fs, path::PathBuf};
 
 const LABEL: &str = "dev.bobix";
@@ -67,6 +66,58 @@ pub fn migrate_from_old_name(settings_file: &std::path::Path) {
     }
 }
 
+// The Electron build started at login its own way: macOS with a login item (SMAppService, tied to the bundle id this
+// app shares), Windows with a Run value pointing at its exe, gone once that app is uninstalled. Once, at the first
+// start of the installed app: if that entry is on, remove it and turn this app's own start at login on. True if moved.
+pub fn from_electron() -> bool {
+    #[cfg(target_os = "macos")]
+    return mac_login_item::take_over();
+    #[cfg(windows)]
+    {
+        let r = crate::procs::exec("reg", &["query", RUN_KEY], 10, &[]);
+        let mut moved = false;
+        for (name, data) in r.out.lines().filter_map(run_value) {
+            if name == "Bobix" || !data.to_lowercase().contains("bobix") { continue; }
+            let exe = data.trim_start_matches('"').split('"').next().unwrap_or("").to_string();
+            if std::path::Path::new(&exe).exists() { continue; }
+            moved |= crate::procs::exec("reg", &["delete", RUN_KEY, "/v", &name, "/f"], 10, &[]).ok;
+        }
+        return moved && set(true).is_ok();
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
+// "    <name>    REG_SZ    <data>" from `reg query`.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn run_value(line: &str) -> Option<(String, String)> {
+    let (name, rest) = line.trim_start().split_once("    REG_")?;
+    let data = rest.split_once("    ")?.1;
+    Some((name.trim().to_string(), data.trim().to_string()))
+}
+
+#[cfg(target_os = "macos")]
+mod mac_login_item {
+    use objc2::{msg_send, runtime::{AnyClass, AnyObject}};
+    #[link(name = "ServiceManagement", kind = "framework")]
+    extern "C" {}
+
+    // SMAppService.mainAppService: the login item of this bundle id (macOS 13+). 1 = enabled.
+    pub fn take_over() -> bool {
+        let Some(cls) = AnyClass::get(c"SMAppService") else { return false };
+        unsafe {
+            let svc: *mut AnyObject = msg_send![cls, mainAppService];
+            if svc.is_null() { return false; }
+            let status: isize = msg_send![svc, status];
+            if status != 1 { return false; }
+            let mut err: *mut AnyObject = std::ptr::null_mut();
+            let ok: bool = msg_send![svc, unregisterAndReturnError: &mut err];
+            if !ok { eprintln!("[bobix] autostart: the old login item could not be removed"); }
+        }
+        super::set(true).is_ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -74,5 +125,8 @@ mod tests {
         assert_eq!(super::desktop_entry("/opt/My \"Apps\"/bobix"), "[Desktop Entry]\nType=Application\nName=Bobix\nExec=\"/opt/My \\\"Apps\\\"/bobix\"\nX-GNOME-Autostart-enabled=true\n");
         assert!(super::plist("/Applications/A&B.app/Contents/MacOS/bobix").contains("<string>/Applications/A&amp;B.app/Contents/MacOS/bobix</string>"));
         assert!(super::plist("x").contains("<key>Label</key><string>dev.bobix</string>"));
+        assert_eq!(super::run_value("    electron.app.Bobix    REG_SZ    \"C:\\Users\\a\\AppData\\Local\\Programs\\bobix\\Bobix.exe\""),
+            Some(("electron.app.Bobix".into(), "\"C:\\Users\\a\\AppData\\Local\\Programs\\bobix\\Bobix.exe\"".into())));
+        assert_eq!(super::run_value("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"), None);
     }
 }

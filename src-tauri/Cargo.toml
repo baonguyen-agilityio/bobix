@@ -37,6 +37,7 @@ gtk = "0.18" # the same GTK as Tauri: the overlay's input shape
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = "0.6"
+objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSWindow"] }
 
 [profile.release]
