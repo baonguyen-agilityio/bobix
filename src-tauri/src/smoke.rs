@@ -182,7 +182,7 @@ fn ask(app: &AppHandle, label: &str, expr: &str) -> Value {
 // counts the pointer presses it gets, so a failure says whether the mouse reached it.
 fn drag(app: &AppHandle, sid: &str) -> Value {
     let Some(win) = app.get_webview_window(overlay::LABEL) else { return json!({ "error": "no window" }) };
-    let at = ask(app, overlay::LABEL, &format!("(() => {{ window.__ev = {}; for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) addEventListener(t, () => { __ev[t] = (__ev[t] || 0) + 1; }, true); \
+    let at = ask(app, overlay::LABEL, &format!("(() => {{ window.__ev = {{}}; for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) addEventListener(t, () => {{ __ev[t] = (__ev[t] || 0) + 1; }}, true); \
         const p = pets.get({sid:?}); if (!p) return null; const b = p.el.querySelector('.spr').getBoundingClientRect(); \
         return {{ x: b.left + b.width / 2, y: b.top + b.height / 2, petX: Math.round(p.x), w: innerWidth, screenX, screenY }}; }})()"));
     let (Some(cx), Some(cy), Some(px), Some(w)) = (at["x"].as_f64(), at["y"].as_f64(), at["petX"].as_f64(), at["w"].as_f64()) else { return json!({ "error": "no pet", "at": at }) };
