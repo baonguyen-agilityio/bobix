@@ -97,7 +97,7 @@ impl Bobix {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
             let Core { sessions, pending, settings, work, .. } = &mut *c;
-            let gitlab = settings["gitlab"] == true;
+            let gitlab = work::any_on(settings);
             match state::apply(sessions, &e, now) {
                 None => return None,
                 Some(Applied::Removed) => (None, None, 0, None, None, gitlab),
@@ -169,7 +169,7 @@ impl Bobix {
         });
     }
 
-    // The name of a session that starts on an issue's branch ("<iid>-…") of a repository of that GitLab project, when
+    // The name of a session that starts on an issue's branch ("<iid>-…") of a repository of that project, when
     // the issue is one assigned to you: "[KEY-iid] title". Nothing is guessed from timing.
     fn title_for(self: &Arc<Self>, hosts: Vec<String>, dir: &str) -> Option<server::Reply> {
         if hosts.is_empty() || !std::path::Path::new(dir).is_absolute() { return None; }
@@ -181,7 +181,7 @@ impl Bobix {
                 let project = work::Work::path_in(&remotes, &hosts)?;
                 let iid = work::issue_of_branch(g["branch"].as_str()?)?;
                 let c = b.core.lock().unwrap();
-                let title = c.work.find_issue(&project, iid)?["title"].as_str().unwrap_or("").to_string();
+                let title = c.work.find_issue(&c.settings, &project, iid)?["title"].as_str().unwrap_or("").to_string();
                 let name = work::session_title_for(&work::key_of(&c.settings, &project), iid, &title);
                 Some(json!({ "hookSpecificOutput": { "hookEventName": "SessionStart", "sessionTitle": name } }))
             })();
@@ -310,7 +310,7 @@ fn tick(b: &Arc<Bobix>) {
 
 // ---------- work items: git status, GitLab issues ----------
 // Git: per folder, read on a session's events and by the 30 s timer, at most every 30 s (on Stop and SessionStart at
-// once). GitLab: only while its switch is on, from every GitLab the person's own glab is signed in to.
+// once). GitLab / GitHub: each only while its switch is on, from every host the person's own glab / gh is signed in to.
 
 // Is the folder's git status due? Gives the session the cached one meanwhile. Called with the core locked.
 fn git_due(work: &mut work::Work, s: &mut state::Session, force: bool, now: u64) -> Option<String> {
@@ -363,25 +363,35 @@ fn read_claude_list(b: &Bobix) {
     b.core.lock().unwrap().work.claude_list = list;
 }
 
-// GitLab issues, read again (in the background). Does nothing while GitLab is off, or while a read runs.
-fn refresh_issues(b: &Arc<Bobix>) {
+// Issues from every tracker, read again (in the background).
+fn refresh_issues(b: &Arc<Bobix>) { for f in work::FORGES { refresh_forge(b, f); } }
+
+// One tracker's issues, read again. Does nothing while it is off, or while a read of it runs.
+fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
     let b = b.clone();
     thread::spawn(move || {
         {
             let mut c = b.core.lock().unwrap();
-            if c.settings["gitlab"] != true { c.work.issues = json!({ "status": "off" }); drop(c); return b.broadcast(); }
-            if c.work.issues_busy { return; }
-            c.work.issues_busy = true;
-            if c.work.issues["status"] == "off" { c.work.issues = json!({ "status": "loading" }); drop(c); b.broadcast(); }
+            let on = f.on(&c.settings);
+            let feed = c.work.feed(f);
+            if !on {
+                if feed.issues["status"] == "off" { return; }
+                feed.issues = json!({ "status": "off" });
+                drop(c);
+                return b.broadcast();
+            }
+            if feed.busy { return; }
+            feed.busy = true;
+            if feed.issues["status"] == "off" { feed.issues = json!({ "status": "loading" }); drop(c); b.broadcast(); }
         }
-        let glab = { let g = b.core.lock().unwrap().work.glab_path.clone(); g.or_else(|| find_bin("glab")) };
-        let hosts = glab.as_deref().and_then(work::glab_hosts);
+        let bin = { let g = b.core.lock().unwrap().work.feed(f).bin.clone(); g.or_else(|| find_bin(f.bin())) };
+        let hosts = bin.as_deref().and_then(|x| f.hosts(x));
         let at = state::now();
-        let next = match (&glab, hosts) {
-            (_, None) => json!({ "status": "noglab", "at": at }), // look again next time: it may be installed by then
-            (_, Some(h)) if h.is_empty() => json!({ "status": "auth", "hosts": h, "at": at }),
+        let next = match (&bin, hosts) {
+            (_, None) => json!({ "status": f.missing(), "at": at }), // look again next time: it may be installed by then
+            (_, Some(h)) if h.is_empty() => json!({ "status": f.signed_out(), "hosts": h, "at": at }),
             (Some(g), Some(h)) => {
-                let rs: Vec<Value> = h.iter().map(|x| work::fetch_issues(g, x)).collect();
+                let rs: Vec<Value> = h.iter().map(|x| f.fetch(g, x)).collect();
                 let failed: Vec<Value> = rs.iter().zip(&h).filter(|(r, _)| r["ok"] != true)
                     .map(|(r, host)| json!({ "host": host, "detail": r.get("detail").unwrap_or(&r["reason"]) })).collect();
                 if failed.len() == h.len() { json!({ "status": "error", "hosts": h, "at": at, "failed": failed }) } else {
@@ -393,9 +403,11 @@ fn refresh_issues(b: &Arc<Bobix>) {
         };
         {
             let mut c = b.core.lock().unwrap();
-            c.work.glab_path = if next["status"] == "noglab" { None } else { glab };
-            c.work.issues_busy = false;
-            c.work.issues = if c.settings["gitlab"] == true { next } else { json!({ "status": "off" }) }; // switched off meanwhile
+            let on = f.on(&c.settings);
+            let feed = c.work.feed(f);
+            feed.bin = if next["status"] == f.missing() { None } else { bin };
+            feed.busy = false;
+            feed.issues = if on { next } else { json!({ "status": "off" }) }; // switched off meanwhile
         }
         read_claude_list(&b);
         b.broadcast();
@@ -480,7 +492,7 @@ pub fn update_settings(b: &Arc<Bobix>, patch: Value) -> Value {
         if ["petsVisible", "paused", "language", "seenVersion"].iter().any(|k| changed(k)) { tray::build(app, b); }
     }
     answers::release_unseen(b);
-    if changed("gitlab") { refresh_issues(b); }
+    for f in work::FORGES { if changed(f.key()) { refresh_forge(b, f); } }
     if next["checkUpdates"] == true && prev["checkUpdates"] != true { let ub = b.clone(); thread::spawn(move || check_for_update(&ub)); }
     if next["checkUpdates"] != true && b.core.lock().unwrap().update.take().is_some() { if let Some(app) = b.app.get() { tray::build(app, b); } }
     if let Some(app) = b.app.get() { for w in [overlay::LABEL, panel::LABEL] { panel::emit(app, w, "settings", &next); } }
@@ -663,7 +675,7 @@ async fn feedback_send(v: Value, b: B<'_>) -> Result<Value, ()> {
     }).await.map_err(|_| ())
 }
 
-// GitLab issues, read again now (only while GitLab is on).
+// Issues, read again now (only from the trackers that are on).
 #[tauri::command]
 fn work_refresh(b: B) { refresh_issues(&b); }
 
