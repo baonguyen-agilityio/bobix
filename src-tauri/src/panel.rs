@@ -41,6 +41,7 @@ pub fn show(app: &AppHandle, b: &Arc<Bobix>, select: Option<String>, tab: Option
         let dark = app.get_webview_window(crate::overlay::LABEL).and_then(|w| w.theme().ok()) == Some(Theme::Dark);
         let bg = if dark { Color(0x12, 0x15, 0x1f, 255) } else { Color(0xf9, 0xf6, 0xf0, 255) }; // the panel's --bg
         let page = format!("{origin}/?");
+        eprintln!("[bobix] panel: opening");
         let built = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(url))
             .title("Bobix").inner_size(1180.0, 780.0).min_inner_size(420.0, 480.0).background_color(bg)
             .initialization_script(crate::BRIDGE)
@@ -55,6 +56,7 @@ pub fn show(app: &AppHandle, b: &Arc<Bobix>, select: Option<String>, tab: Option
                     w.on_window_event(move |e| if let tauri::WindowEvent::Destroyed = e { let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory); });
                 }
                 let _ = w.set_focus();
+                eprintln!("[bobix] panel: open");
             }
             Err(e) => eprintln!("[bobix] panel: {e}"),
         }

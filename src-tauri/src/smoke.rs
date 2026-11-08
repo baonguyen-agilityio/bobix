@@ -102,7 +102,10 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         // The panel, through the same bridge the person's clicks use. (Copy diagnostics is left out: it would replace
         // the clipboard of the machine running this.)
         panel::show(&app, &b, None, Some("settings".into()), None);
-        thread::sleep(Duration::from_millis(3000));
+        let t0 = Instant::now();
+        while app.get_webview_window(panel::LABEL).is_none() && t0.elapsed() < Duration::from_secs(15) { thread::sleep(Duration::from_millis(100)); }
+        report["panelMs"] = json!(t0.elapsed().as_millis() as u64);
+        thread::sleep(Duration::from_millis(3000)); // the page loads and subscribes
         match app.get_webview_window(panel::LABEL) {
             None => report["panel"] = json!("error: no window"),
             Some(w) => {
