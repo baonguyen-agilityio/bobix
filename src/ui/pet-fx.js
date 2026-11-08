@@ -242,6 +242,20 @@ function aura(b, a, t, pulse, L, midY) {
 function puffs(b, list) { for (const d of list) { const k = d.life / d.max; for (let y = Math.floor(d.y - d.s); y <= d.y + d.s; y++) for (let x = Math.floor(d.x - d.s); x <= d.x + d.s; x++) if ((x + .5 - d.x) ** 2 + (y + .5 - d.y) ** 2 <= d.s * d.s) dot(b, x, y, d.c || DUST, k * .8); } }
 function stepList(list, dt, drag = 0, grav = 0) { for (let i = list.length - 1; i >= 0; i--) { const p = list[i]; if ((p.life -= dt) <= 0) { list.splice(i, 1); continue; } p.vx -= p.vx * drag * dt; p.vy -= p.vy * drag * dt; p.vy += grav * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.grow) p.s += p.grow * dt; } }
 const shake = (b, t, t0, dur, amp = 1) => { if (t >= t0 && t < t0 + dur) { const k = Math.floor(t * 40); b.shake = [(hash(k, 1) < .5 ? -1 : 1) * amp, (hash(k, 2) < .5 ? -1 : 1) * amp]; } };
+// A tool as a small badge (11 x 11 cells): a paper disc with the tool drawn on it; the terminal's cursor blinks.
+const BADGE = ['..ooooooo..', '.o2222222o.', ...Array(7).fill('o222222222o'), '.o2222222o.', '..ooooooo..'];
+const BADGE_ICON = [
+  ['......o', '....o4o', '...o4o.', '..o4o..', '.o4o...', 'o5o....', '7......'],
+  ['0000000', '0100000', '0010000', '0100110', '0000000', '...0...', '..000..'],
+  ['o22o22o', 'o33o33o', 'o22o22o', 'o33o33o', 'o22o22o', 'o33o33o', 'ooooooo'],
+  ['.ooo...', 'o666o..', 'o666o..', 'o666o..', '.ooo5..', '....55.', '.....55'],
+];
+function toolBadge(b, seg, x0, y0, t) {
+  const pal = [SCREEN, GREEN[3], PAPER, LINE, WARM[3], hex('#7a5a3a'), hex('#bfe6ff'), hex('#3a3f6b')];
+  bmp(b, BADGE, x0, y0, pal);
+  const icon = BADGE_ICON[seg].map((r, j) => (seg === 1 && j === 3 && Math.floor(t * 4 + 1e-6) % 2 ? r.slice(0, 4) + '000' : r));
+  bmp(b, icon, x0 + 2, y0 + 2, pal);
+}
 function pencilTip(lt, PX0, PY0) { const u = Math.min(1, lt / 1.1), row = Math.floor(u * 3); return [PX0 + 3 + (u * 3 % 1) * 14, PY0 + 7 + row * 3 + Math.sin(u * 60) * .9]; }
 function pencil(b, x, y) {
   x = Math.round(x); y = Math.round(y);
@@ -333,16 +347,17 @@ const FX = {
   },
   // Working: the pet holds the prop of the tool Claude is running (o.seg, see TOOL_PROP): writes with a pen on paper,
   // types on a small terminal, turns a book's page, sweeps a magnifier. One run is one 1.2 s loop; o.first pops it in.
-// o.above: no room beside the pet (a packed family row): the prop floats over its head instead.
+// o.badge: no room beside the pet (a packed row): a small badge of the tool over its head instead, inside its own slot.
   tool: {
-    D: 1.2, ox: o => (o.above ? CX : CX - 8), loop: true, cycle: 6, // the pet's bob (1/3 s) and the cursor (1/2 s) repeat with the loop every 6 s
+    D: 1.2, ox: o => (o.badge ? CX : CX - 8), loop: true, cycle: 6, // the pet's bob (1/3 s) and the cursor (1/2 s) repeat with the loop every 6 s
     make(o) {
-      const R = new Rng(41), sp = [], seg = o.seg, PCX = o.above ? CX : CX - 8, PX0 = o.above ? CX - 11 : CX + 4, PY0 = o.above ? FEET - 41 : FEET - 20;
+      const R = new Rng(41), sp = [], seg = o.seg, PCX = o.badge ? CX : CX - 8, PX0 = CX + 4, PY0 = FEET - 20;
       return {
-        update(dt, lt) { if (seg === 0 && R.chance(.4)) { const tip = pencilTip(lt, PX0, PY0); sp.push({ x: tip[0], y: tip[1], vx: R.range(-10, 10), vy: -R.range(5, 15), life: .3, max: .3, c: WARM[2] }); } stepList(sp, dt, 2, 20); },
+        update(dt, lt) { if (seg === 0 && !o.badge && R.chance(.4)) { const tip = pencilTip(lt, PX0, PY0); sp.push({ x: tip[0], y: tip[1], vx: R.range(-10, 10), vy: -R.range(5, 15), life: .3, max: .3, c: WARM[2] }); } stepList(sp, dt, 2, 20); },
         draw(b, lt, t) {
           const bob = Math.floor(t * 6 + 1e-6) % 2; // + 1e-6: whole steps land on the same side every cycle
           shadow(b, PCX, FEET); blit(b, o.pet('working'), PCX, FEET - bob);
+          if (o.badge) { toolBadge(b, seg, CX - 5, FEET - 31 - bob, t); return; }
           if (o.first && lt < .1) for (let i = 0; i < 8; i++) { const a = i / 8 * TAU, r = 4 + lt / .1 * 8; dot(b, PX0 + 10 + Math.cos(a) * r, PY0 + 10 + Math.sin(a) * r * .7, WHITE, 1 - lt / .1); }
           if (seg === 0) {
             b.frame(PX0, PY0 + 4, 20, 15, PAPER); for (let r = 0; r < 3; r++) b.rect(PX0 + 3, PY0 + 7 + r * 3, 14, 1, hex('#e3e0d8'));
@@ -458,6 +473,19 @@ const FX = {
     },
   },
 };
+
+// Where a pet's tool prop goes: beside it (it reaches 37 cells out) on the side away from its family (away: -1 left, 1
+// right) when the next pet there stands far enough for the whole prop to stay in this pet's slot (half way to that pet),
+// else on the other side if that one is, else (a packed row) a small badge over its head. cx, others: pets' middles.
+function propSide(cx, others, cell, away) {
+  const blocked = d => others.some(m => d * (m - cx) > -1e-6 && d * (m - cx) < 2 * 37 * cell);
+  const side = !blocked(away) ? away : !blocked(-away) ? -away : 0;
+  return { flipX: side < 0, badge: side === 0 };
+}
+
+// A pet's status balloon ("!" waiting, tick done): only without effects; with them the aura, the XP and the battery tell
+// the state. The "+N" mark keeps its own balloon (a folded side pet shows no effect).
+const statusBalloon = (fxOn, kind) => (fxOn ? '' : kind);
 
 // ---- staying off other things ---------------------------------------------------------------------------------
 // Where the effect canvas sits in its pet's sprite box (size px square, before the box's own scale): the pet's middle on

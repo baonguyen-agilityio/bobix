@@ -214,7 +214,7 @@ function paint(p, now) {
   const mine = familyReports(root, now).find(r => r.s.id === s.id && r.kind);
   // A pet asking for permission shows its request and buttons when hovered, not the card, which would cover them.
   const card = p.hover && st !== 'waiting';
-  const balloon = useBalloons && mine && !p.hover ? mine.kind : '';
+  const balloon = useBalloons && mine && !p.hover ? statusBalloon(FX_ON, mine.kind) : '';
   let say = null; // [kind, text or null, one report or null]
   if (!card && !kid) {
     if (p.hover) { const t = sayText(p, st, now); say = t && [t[0], t[1], null]; }
@@ -318,12 +318,12 @@ function fxStart(p, kind, o = {}) {
   if (p.fx) { p.fx.done = true; sheetOff(p); }
   // On the top edge the effect is mirrored down (the screen's edge is its ground); a tool's prop stays level with the
   // pet and goes to the side where no pet of its family stands.
-  const prop = kind === 'tool' ? propPlace(p) : { flipX: false, above: false };
-  o = { ...o, ...prop, flipY: cfg.edge === 'top' && (kind !== 'tool' || prop.above) };
+  const prop = kind === 'tool' ? propPlace(p) : { flipX: false, badge: false };
+  o = { ...o, ...prop, flipY: cfg.edge === 'top' && (kind !== 'tool' || prop.badge) };
   const run = fxRun(kind, { pet, ...o }), at = fxPlace(cfg.size, run.ox, o.flipX, o.flipY);
   Object.assign(p.cv.style, { width: at.width + 'px', height: at.height + 'px', left: at.left + 'px', top: at.top + 'px', translate: '', clipPath: '' }); p.clip = '';
   if (kind === 'child') pets.get(o.kidId).veil = run; // the side session's pet shows once it has landed
-  p.fx = run; p.fxSeg = o.seg; p.fxProp = kind === 'tool' ? `${prop.flipX}|${prop.above}` : ''; p.sheet = run.loop ? sheetFor(kind, o, art, color, pet) : null;
+  p.fx = run; p.fxSeg = o.seg; p.fxProp = kind === 'tool' ? `${prop.flipX}|${prop.badge}` : ''; p.sheet = run.loop ? sheetFor(kind, o, art, color, pet) : null;
   p.el.classList.add('fx'); p.el.classList.toggle('fx-over', kind === 'xp' || kind === 'ctx'); p.el.querySelector('.spr')?.append(p.cv);
   return true;
 }
@@ -366,20 +366,16 @@ function fxClip(all) {
     if (clip !== (node === p.cv ? p.clip : p.sheetClip)) { node.style.clipPath = clip; if (node === p.cv) p.clip = clip; else p.sheetClip = clip; }
   }
 }
-// Where a pet's tool prop goes: beside it, on the side away from its family when that side is free of other pets, else
-// on the other free side, else (a packed row) over its head. Pets are taken where they stand once settled.
+// Where a pet's tool prop goes (propSide in pet-fx.js), by where pets stand once settled.
 function propPlace(p) {
-  const all = [...pets.values(), ...leaving], size = cfg.size, c = fxCell(), at = q => (attached(q.s) ? sideSpot(q, all) ?? q.x : q.x) + size / 2, cx = at(p);
-  // A side is free when the next pet there is far enough for the prop (37 cells out) to stay in this pet's own slot.
-  const blocked = d => all.some(q => q !== p && !q.veil && d * (at(q) - cx) > -1e-6 && d * (at(q) - cx) < 2 * 37 * c);
-  const away = familyRight(p) ? -1 : 1, side = !blocked(away) ? away : !blocked(-away) ? -away : 0;
-  return { flipX: side < 0, above: side === 0 };
+  const all = [...pets.values(), ...leaving], at = q => (attached(q.s) ? sideSpot(q, all) ?? q.x : q.x) + cfg.size / 2;
+  return propSide(at(p), all.filter(q => q !== p && !q.veil).map(at), fxCell(), familyRight(p) ? -1 : 1);
 }
 function fxStop(p) { if (p.fx) p.fx.done = true; sheetOff(p); p.fx = p.sheet = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
 // Loops play from a sheet of frames drawn once (fxSheet) as soon as it is ready: a CSS animation, nothing drawn per frame.
 const SHEETS = new Map(); // kind|prop|look -> fxSheet, the 6 latest
 function sheetFor(kind, o, art, color, pet) {
-  const key = [kind, o.seg, o.flipX, o.flipY, o.above, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
+  const key = [kind, o.seg, o.flipX, o.flipY, o.badge, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
   let sh = SHEETS.get(key);
   if (sh) SHEETS.delete(key); else sh = fxSheet(kind, { pet, ...o });
   SHEETS.set(key, sh);
@@ -415,7 +411,7 @@ function fxTick(p, dt) {
     else if (!p.leaving) {
       const want = fxLoop(p.s, look(p.s));
       if (!want) { if (p.fx) fxStop(p); }
-      else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1] || (want[0] === 'tool' && p.fxProp !== (({ flipX, above }) => `${flipX}|${above}`)(propPlace(p)))) fxStart(p, want[0], { seg: want[1], first: true });
+      else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1] || (want[0] === 'tool' && p.fxProp !== (({ flipX, badge }) => `${flipX}|${badge}`)(propPlace(p)))) fxStart(p, want[0], { seg: want[1], first: true });
     }
   }
   if (p.sheetShown && p.sheetDraw) p.sheetDraw();

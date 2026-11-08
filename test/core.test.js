@@ -183,38 +183,48 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   strict.deepEqual([...ctx.flip], [true, true, true, true], 'pet upright top-down, text upright top-down, pet upright left-right');
 });
 
-test('no effect pixel lands on another pet, a name tag, a balloon or outside its own slot, in a packed family, on both edges and two sizes', () => {
+test('no effect pixel lands on another pet, a name tag, the "+N" mark or outside its own slot: families, crowds, props everywhere, both edges, all sizes', () => {
   const ctx = {};
   require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
   // The clip as CSS draws it: inside the outer rect and not inside a hole (path(evenodd, "M0 0H..Z" + holes)).
   const holesOf = clip => [...clip.matchAll(/M([\d.-]+) ([\d.-]+)H([\d.-]+)V([\d.-]+)H[\d.-]+Z/g)].slice(1).map(m => m.slice(1).map(Number));
   require('vm').runInContext(`globalThis.overlapCheck = (holesOf) => {
-    const bad = [], W2 = GW * 2, H2 = GH * 2;
-    for (const size of [40, 72]) for (const flipY of [false, true]) {
-      // A parent and three side sessions trailing it on the left (spacing and the side pets' 80% as in pets.html), a
-      // family name tag under them, a waiting balloon over the parent and over the middle side pet.
-      const top = flipY ? 4 : 300 - size, P = 400, xs = [P, ...[0, 1, 2].map(i => P - (size * .9 + 4) - i * (size * .8 + 4))], k = i => (i ? .8 : 1);
-      const body = i => { const s = k(i), cx = xs[i] + size / 2; return [cx - size * s / 2, top + size - size * s, cx + size * s / 2, top + size]; };
-      const tag = [Math.min(...xs) - 8, top + size, P + size + 8, top + size + 18];
-      const balloon = i => { const b = body(i), w = (b[2] - b[0]) / 2, cx = (b[0] + b[2]) / 2; return flipY ? [cx - w / 2, tag[3] + 2, cx + w / 2, tag[3] + 2 + w * 2] : [cx - w / 2, b[1] - w * 2, cx + w / 2, b[1] + size * .08]; };
-      const things = [tag, balloon(0), balloon(2)];
-      for (const i of [0, 2]) for (const [kind, o] of [['aura', {}], ['tool', { seg: 1 }], ['tool', { seg: 0, above: true }], ['xp', { f0: 2 / 3, f1: 1, lv: 9 }], ['ctx', {}], ['child', { dir: -1, dist: (size * .9 + 4) / (size / 18) }], ['end', {}]]) {
-        const flipX = kind === 'tool' && !o.above && i > 0, fy = flipY && (kind !== 'tool' || !!o.above), s = k(i), at = fxPlace(size, fxRun(kind, { ...o, pet: st => ({ ...fineSprite('/p', st, 0), k: 1 }) }).ox, flipX, fy);
-        const L = xs[i] + size / 2 + (at.left - size / 2) * s, T = top + size + (at.top - size) * s, box = [L, T, L + at.width * s, T + at.height * s];
-        const own = body(i), cx = xs[i] + size / 2, others = xs.filter((_, j) => j !== i).map(x => x + size / 2);
-        const lo = Math.max(-1e9, ...others.filter(m => m < cx).map(m => (m + cx) / 2)), hi = Math.min(1e9, ...others.filter(m => m > cx).map(m => (m + cx) / 2));
-        // Other pets, tags, balloons, and everything outside its own slot (halfway to the next pet), as pets.html cuts.
-        const avoid = [...things, ...xs.map((_, j) => j).filter(j => j !== i).map(body), [box[0], box[1], lo, box[3]], [hi, box[1], box[2], box[3]]];
-        const holes = holesOf(fxClipPath(box, fxHoles(box, own, avoid), at.width, at.height));
-        const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, kid: pet, ...o, flipX, flipY: fy }), b = new Buf(), img = { data: new Uint8ClampedArray(W2 * H2 * 4) }, px = new Uint32Array(img.data.buffer);
-        for (let f = 0; f < 140 && !r.done; f++) {
-          r.step(1 / 30); if (f % 3) continue; r.draw(b); b.toImage(img);
-          for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
-            if (!(px[y * W2 + x] >>> 24)) continue;
-            const lx = (x + .5) * at.width / W2, ly = (y + .5) * at.height / H2; // in the element, CSS px
-            if (holes.some(h => lx >= h[0] - .01 && lx <= h[2] + .01 && ly >= h[1] - .01 && ly <= h[3] + .01)) continue; // cut out (an edge two holes share is cut on both sides)
-            const sx = box[0] + lx * s, sy = box[1] + ly * s, e = .01, inside = rr => sx > rr[0] + e && sx < rr[2] - e && sy > rr[1] + e && sy < rr[3] - e; // e: a centre right on an edge
-            if (avoid.some(inside) && !inside(own)) { bad.push([size, flipY, i, kind, f]); x = W2; y = H2; f = 1e9; }
+    const bad = [], W2 = GW * 2, H2 = GH * 2, pet = st => ({ ...fineSprite('/p', st, 0), k: 1 });
+    // Rows of pets as pets.html lays them out: a family (parent, then side sessions trailing at 80%, spacing as in
+    // sideSpot), sessions on their own (freeSpot's spacing), two walking past each other, and a squeezed crowd.
+    const rows = size => {
+      const fam = n => [0, ...Array.from({ length: n }, (_, i) => -(size * .9 + 4) - i * (size * .8 + 4))].map((d, i) => ({ x: 900 + d, s: i ? .8 : 1, fam: true }));
+      return { 'parent+1': fam(1), 'parent+3': fam(3), 'parent+10': fam(10), solo: [0, 1, 2, 3].map(i => ({ x: 300 + i * Math.max(88, size * 1.6), s: 1 })),
+        passing: [{ x: 500, s: 1 }, { x: 500 + size * .3, s: 1 }], squeezed: [0, 1, 2, 3].map(i => ({ x: 300 + i * size * .5, s: 1 })) };
+    };
+    for (const size of [32, 56, 128]) for (const flipY of [false, true]) for (const [name, row] of Object.entries(rows(size))) {
+      const top = flipY ? 4 : 400 - size, cell = size / 18, mid = q => q.x + size / 2;
+      const body = q => { const cx = mid(q), w = size * q.s; return [cx - w / 2 + w * 3 / 36, top + size - size * q.s + size * q.s * 3 / 36, cx + w / 2 - w * 3 / 36, top + size]; };
+      // Name tags under the pets (one for a family), the "+N" mark at the family tag's end with its small balloon.
+      const tags = row[0].fam ? [[Math.min(...row.map(q => q.x)) - 8, top + size, row[0].x + size + 8, top + size + 18]] : row.map(q => [mid(q) - size * .6, top + size, mid(q) + size * .6, top + size + 18]);
+      const things = [...tags]; if (name === 'parent+10') { const l = tags[0][0]; things.push([l, top + size, l + 22, top + size + 18], flipY ? [l + 2, top + size + 20, l + 18, top + size + 52] : [l + 2, top + size - 32, l + 18, top + size]); }
+      const tests = name === 'parent+10' ? [0, 1, 5, 10] : row.map((_, i) => i);
+      for (const i of tests) {
+        const q = row[i], others = row.filter((_, j) => j !== i), cx = mid(q), away = q.fam ? (i ? 1 : -1) : 1;
+        const lo = Math.max(-1e9, ...others.map(mid).filter(m => m < cx).map(m => (m + cx) / 2)), hi = Math.min(1e9, ...others.map(mid).filter(m => m >= cx).map(m => (m + cx) / 2));
+        // Every pet with a prop (each tool in turn, where propSide puts it), and the waiting aura next to them.
+        for (const [kind, o0] of [['tool', { seg: 1 }], ['tool', { seg: 0 }], ['tool', { seg: 2 }], ['tool', { seg: 3 }], ['aura', {}], ['xp', { f0: 2 / 3, f1: 1, lv: 9 }], ['ctx', {}], ['end', {}], ['child', { dir: -1, dist: (size * .9 + 4) / cell }]]) {
+          if (kind === 'child' && i) continue;
+          const o = kind === 'tool' ? { ...o0, ...propSide(cx, others.map(mid), cell, away) } : { ...o0, flipX: false, badge: false };
+          const fy = flipY && (kind !== 'tool' || o.badge), s = q.s, r = fxRun(kind, { pet, kid: pet, ...o, flipY: fy }), at = fxPlace(size, r.ox, o.flipX, fy);
+          const L = cx + (at.left - size / 2) * s, T = top + size + (at.top - size) * s, box = [L, T, L + at.width * s, T + at.height * s];
+          const own = body(q), avoid = [...things, ...others.map(body), [box[0], box[1], lo, box[3]], [hi, box[1], box[2], box[3]]];
+          const holes = holesOf(fxClipPath(box, fxHoles(box, own, avoid), at.width, at.height));
+          const b = new Buf(), img = { data: new Uint8ClampedArray(W2 * H2 * 4) }, px = new Uint32Array(img.data.buffer);
+          for (let f = 0; f < 120 && !r.done; f++) {
+            r.step(1 / 30); if (f % 5) continue; r.draw(b); b.toImage(img);
+            for (let k = 0; k < px.length; k++) {
+              if (!(px[k] >>> 24)) continue;
+              const lx = ((k % W2) + .5) * at.width / W2, ly = (Math.floor(k / W2) + .5) * at.height / H2;
+              if (holes.some(h => lx >= h[0] - .01 && lx <= h[2] + .01 && ly >= h[1] - .01 && ly <= h[3] + .01)) continue; // cut out
+              const sx = box[0] + lx * s, sy = box[1] + ly * s, e = .01, inside = rr => sx > rr[0] + e && sx < rr[2] - e && sy > rr[1] + e && sy < rr[3] - e;
+              if (avoid.some(inside) && !inside(own)) { bad.push([size, flipY, name, i, kind, o0.seg ?? '', f]); f = 1e9; break; }
+            }
           }
         }
       }
@@ -222,6 +232,14 @@ test('no effect pixel lands on another pet, a name tag, a balloon or outside its
     return bad;
   }`, ctx);
   strict.deepEqual(JSON.parse(JSON.stringify(ctx.overlapCheck(holesOf))), []);
+  // With effects on, pets show no status balloon (the effect tells the state); without them, as before.
+  strict.deepEqual(require('vm').runInContext("[statusBalloon(true, 'waiting'), statusBalloon(true, 'done'), statusBalloon(false, 'waiting')]", ctx).join(), ',,waiting');
+  // A prop goes beside a pet only with room for all of it in the pet's own slot, else a badge over its head.
+  const side = (...a) => JSON.parse(JSON.stringify(ctx.propSide(...a)));
+  strict.deepEqual(side(500, [], 3, 1), { flipX: false, badge: false }, 'alone: beside it');
+  strict.deepEqual(side(500, [450], 3, 1), { flipX: false, badge: false }, 'family on the left: on the right');
+  strict.deepEqual(side(500, [600], 3, 1), { flipX: true, badge: false }, 'too close on the right: on the left');
+  strict.deepEqual(side(500, [450, 560], 3, 1), { flipX: false, badge: true }, 'packed: a badge');
   // The rect maths the clip is made of.
   strict.deepEqual(JSON.parse(JSON.stringify(ctx.rectMinus([0, 0, 10, 10], [3, 3, 6, 6]))), [[0, 0, 10, 3], [0, 6, 10, 10], [0, 3, 3, 6], [6, 3, 10, 6]]);
   const hs = JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [[30, 50, 70, 70], [50, 60, 90, 80], [200, 0, 300, 10]])));
