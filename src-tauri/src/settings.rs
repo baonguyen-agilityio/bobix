@@ -12,7 +12,7 @@ pub fn defaults() -> Value {
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "sleepHide": 30,
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
-        "seenVersion": "", "gitlab": false, "workProjects": [], "workKeys": {}, "petImages": {},
+        "seenVersion": "", "gitlab": false, "github": false, "workProjects": [], "workKeys": {}, "petImages": {},
     })
 }
 
@@ -351,6 +351,7 @@ mod tests {
     #[test]
     fn work_settings() {
         assert_eq!(defaults()["gitlab"], false);
+        assert_eq!(defaults()["github"], false);
         assert!(s(json!({ "gitlabUrl": "https://x" })).get("gitlabUrl").is_none());
         assert_eq!(s(json!({ "workProjects": ["Team/Shop-App", "team/shop-app", "g/sub/p", "nopath", "../x", 3, "a/b c"] }))["workProjects"], json!(["team/shop-app", "g/sub/p"]));
         assert_eq!(s(json!({ "workProjects": "team/x" }))["workProjects"], json!([]));

@@ -636,7 +636,7 @@ $('#pane').addEventListener('click', async e => {
   if (act === 'issue') bridge.openIssue(e.target.closest('[data-url]').dataset.url);
 });
 
-// ---------- work: GitLab issues assigned to you ----------
+// ---------- work: GitLab / GitHub issues assigned to you ----------
 let work = { status: 'off' }, lastProjects = '', waiting = [], pickOpen = false, todoN = 0; // waiting: New pressed, no new session there yet
 // Projects the person chose in the To do column's picker (Settings → workProjects); none chosen = all.
 const picked = () => state?.settings?.workProjects || [];
@@ -686,14 +686,13 @@ function renderWork() {
     box.innerHTML = `<div class="card"><h3>${T('work.off.title')}</h3><p class="note">${esc(T('work.off.body'))}</p>${bridge ? `<div class="acts"><button class="btn sm" type="button" data-tab-go="settings">${T('work.toSettings')}</button></div>` : ''}</div>`;
     return;
   }
-  const login = `<div class="cmd"><code>glab auth login</code><button class="btn sm" type="button" data-copy="glab auth login">${T('work.copy')}</button></div>`;
+  const login = c => `<div class="cmd"><code>${c}</code><button class="btn sm" type="button" data-copy="${c}">${T('work.copy')}</button></div>`;
   const n = groups.filter(shown).reduce((a, g) => a + g.issues.length, 0);
   const top = `<p class="note" role="status">${w.status === 'loading' ? esc(T('work.loading'))
       : w.status === 'ok' ? esc(T('work.updated', { n, host: hosts, ago: ago(w.at) })) : ''}</p>
     ${bridge ? `<div class="work-top">${groups.length ? pickerHTML(groups) : ''}<button class="btn sm" type="button" data-act="refresh"${w.status === 'loading' ? ' disabled' : ''}>${T('work.refresh')}</button></div>` : ''}`;
-  const problem = w.status === 'noglab' ? `<div class="card"><p class="note err">${esc(T('work.noglab'))}</p>${login}</div>`
-    : w.status === 'auth' ? `<div class="card"><p class="note err">${esc(T('work.auth'))}</p>${login}</div>`
-    : (w.failed || []).map(f => `<div class="card"><p class="note err">${esc(T('work.error', { host: f.host, x: f.detail }))}</p></div>`).join('');
+  const problem = (w.problems || []).map(p => `<div class="card"><p class="note err">${esc(T('work.' + p))}</p>${login(p === 'noglab' || p === 'auth' ? 'glab auth login' : 'gh auth login')}</div>`).join('')
+    + (w.failed || []).map(f => `<div class="card"><p class="note err">${esc(T('work.error', { host: f.host, x: f.detail }))}</p></div>`).join('');
   box.innerHTML = top + problem
     + (w.status === 'ok' && !n ? `<p class="none">${esc(T(groups.length ? 'work.none.picked' : 'work.none', { host: hosts }))}</p>` : '')
     + (todo.length ? `<ol class="rows">${todo.map(([i, g]) => issueHTML(i, g)).join('')}</ol>` : n ? `<p class="none">${esc(T('col.none'))}</p>` : '');
@@ -771,6 +770,7 @@ const SECTIONS = [
   ]],
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
+    { k: 'github', type: 'switch' },
     { k: 'workKeys', type: 'keys', wide: true },
   ]],
   ['set.section.app', [

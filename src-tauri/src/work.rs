@@ -1,5 +1,5 @@
-// Work items: a session's local git status (no network), and the GitLab issues assigned to you, read through your own
-// `glab` (Bobix keeps no token, writes nothing to GitLab). Commands get argument lists, never a shell.
+// Work items: a session's local git status (no network), and the GitLab / GitHub issues assigned to you, read through
+// your own `glab` / `gh` (Bobix keeps no token, writes nothing to either). Commands get argument lists, never a shell.
 // Port of the 0.1 (Electron) app's core/work.js, plus the Work tab's state from src/main.js (workView, takeIssue, startIssue...).
 use crate::{js::{head16, len16}, links::ClaudeSession, procs, state::Sessions};
 use fancy_regex::Regex;
@@ -70,6 +70,60 @@ pub fn glab_hosts(glab: &str) -> Option<Vec<String>> {
     if r.missing { return None; }
     Some(logged_in_hosts(&format!("{}\n{}", r.out, r.err)))
 }
+
+// The GitHub hosts gh reads with, from `gh auth status`: each host whose active account is signed in ("Logged in to
+// <host> account <name>", then "- Active account: true"; gh api uses that account). Several accounts on one host list
+// one block each. "Failed to log in" is a bad sign-in; "Timeout trying to log in" counts as signed in, so the read
+// itself says what is wrong with the network. gh before 2.40 has one account per host: "Logged in to <host> as <name>".
+// gh masks the token there; only these lines are read.
+pub fn gh_logged_in_hosts(text: &str) -> Vec<String> {
+    static ACCOUNT: LazyLock<Regex> = LazyLock::new(|| re(r"(?:Logged|log) in to (\S+) (account|as) "));
+    let (mut out, mut last): (Vec<String>, Option<String>) = (vec![], None);
+    let mut add = |h: String| if !out.contains(&h) { out.push(h) };
+    for l in text.lines() {
+        if let Ok(Some(m)) = ACCOUNT.captures(l) {
+            let h = m[1].to_lowercase();
+            last = (!l.contains("Failed to log in")).then(|| h.clone());
+            if &m[2] == "as" && l.contains("Logged in to") { add(h); }
+        } else if l.trim_start().starts_with("- Active account: true") {
+            if let Some(h) = last.take() { add(h); }
+        }
+    }
+    out
+}
+
+// Where an issue tracker's issues come from: GitLab through glab, GitHub through gh, each behind its own Settings switch.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Forge { GitLab, GitHub }
+pub const FORGES: [Forge; 2] = [Forge::GitLab, Forge::GitHub];
+
+impl Forge {
+    pub fn key(self) -> &'static str { match self { Forge::GitLab => "gitlab", Forge::GitHub => "github" } } // its Settings switch
+    pub fn bin(self) -> &'static str { match self { Forge::GitLab => "glab", Forge::GitHub => "gh" } }
+    // Its statuses for "the CLI is missing" and "the CLI is signed in nowhere"; the panel says which command to run.
+    pub fn missing(self) -> &'static str { match self { Forge::GitLab => "noglab", Forge::GitHub => "nogh" } }
+    pub fn signed_out(self) -> &'static str { match self { Forge::GitLab => "auth", Forge::GitHub => "ghauth" } }
+    pub fn on(self, settings: &Value) -> bool { settings[self.key()] == true }
+    // None when the CLI is missing, else the hosts it is signed in to (none when nowhere). Both exit non-zero when any
+    // host fails, and older gh writes this to stderr.
+    pub fn hosts(self, bin: &str) -> Option<Vec<String>> {
+        if self == Forge::GitLab { return glab_hosts(bin); }
+        let r = procs::exec(bin, &["auth", "status"], 30, GH_ENV);
+        if r.missing { return None; }
+        Some(gh_logged_in_hosts(&format!("{}\n{}", r.out, r.err)))
+    }
+    pub fn fetch(self, bin: &str, host: &str) -> Value {
+        match self {
+            Forge::GitLab => fetch_issues(bin, host),
+            Forge::GitHub => read_issues(self, bin, &["api", "--hostname", host, "issues?filter=assigned&state=open&per_page=100"], GH_ENV, slim_gh_issue, "GitHub"),
+        }
+    }
+}
+
+// gh never asks anything (no terminal) and does not look for a new version of itself.
+const GH_ENV: &[(&str, &str)] = &[("GH_PROMPT_DISABLED", "1"), ("GH_NO_UPDATE_NOTIFIER", "1"), ("NO_COLOR", "1")];
+
+pub fn any_on(settings: &Value) -> bool { FORGES.iter().any(|f| f.on(settings)) }
 
 // A git remote URL → GitLab project path ("group/sub/project", lower case) when it points at `host`, else None.
 // Forms: git@host:g/p.git, ssh://git@host[:port]/g/p.git, https://[user@]host[:port]/g/p(.git).
@@ -150,6 +204,16 @@ pub fn slim_issue(i: &Value) -> Value {
         "project": REF.replace(i["references"]["full"].as_str().unwrap_or(""), "").to_lowercase(), "labels": labels, "due": due })
 }
 
+// The same fields of one issue from GitHub's API (GET /issues); None for a pull request, which that list also holds.
+// The project is "owner/repo" from repository_url (…/repos/<owner>/<repo>), lower case like a remote's path.
+pub fn slim_gh_issue(i: &Value) -> Option<Value> {
+    if i.get("pull_request").is_some() { return None; }
+    let project = i["repository_url"].as_str()?.split_once("/repos/")?.1.trim_matches('/').to_lowercase();
+    let labels: Vec<Value> = i["labels"].as_array().map(|a| a.iter().take(10).filter_map(|l| l["name"].as_str().or(l.as_str()).map(|n| json!(n))).collect()).unwrap_or_default();
+    Some(json!({ "iid": i["number"], "title": head16(i["title"].as_str().unwrap_or(""), 300), "url": i["html_url"],
+        "project": project, "labels": labels, "due": Value::Null }))
+}
+
 // One session as the Work tab sees it: { id, path (GitLab project), dir, iid }.
 pub struct Live { pub id: String, pub path: Option<String>, pub dir: String, pub iid: Option<i64> }
 
@@ -182,33 +246,41 @@ pub fn group_issues(issues: &[Value], live: &[Live]) -> (Vec<Value>, Vec<Value>)
 }
 
 // Open issues assigned to you on `host`, through `glab api` (GET). { ok, issues } or { ok: false, reason, detail }.
-// ponytail: first 100 only (one page), add paging when someone has more open issues than that.
+// ponytail: first 100 only (one page), add paging when someone has more open issues than that. Same for GitHub.
 pub fn fetch_issues(glab: &str, host: &str) -> Value {
-    static AUTH: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\b401\b|unauthori[sz]ed|not logged|no token|authenticat"));
-    static WS: LazyLock<Regex> = LazyLock::new(|| re(r"\s+"));
-    let r = procs::exec(glab, &["api", "--hostname", host, "issues?scope=assigned_to_me&state=opened&per_page=100"], 30, &[]);
-    if r.missing { return json!({ "ok": false, "reason": "noglab" }); }
-    if !r.ok {
-        let text = format!("{} {}", r.err, r.out);
-        if AUTH.is_match(&text).unwrap_or(false) { return json!({ "ok": false, "reason": "auth" }); }
-        return json!({ "ok": false, "reason": "error", "detail": head16(WS.replace_all(&text, " ").trim(), 200) });
-    }
+    read_issues(Forge::GitLab, glab, &["api", "--hostname", host, "issues?scope=assigned_to_me&state=opened&per_page=100"], &[], |i| Some(slim_issue(i)), "GitLab")
+}
+
+fn read_issues(f: Forge, bin: &str, args: &[&str], env: &[(&str, &str)], slim: fn(&Value) -> Option<Value>, name: &str) -> Value {
+    let r = procs::exec(bin, args, 30, env);
+    if r.missing { return json!({ "ok": false, "reason": f.missing() }); }
+    if !r.ok { return failed(&format!("{} {}", r.err, r.out)); }
     match serde_json::from_str::<Value>(&r.out) {
-        Ok(Value::Array(a)) => json!({ "ok": true, "issues": a.iter().map(slim_issue).collect::<Vec<_>>() }),
-        _ => json!({ "ok": false, "reason": "error", "detail": "unexpected answer from GitLab" }),
+        Ok(Value::Array(a)) => json!({ "ok": true, "issues": a.iter().filter_map(slim).collect::<Vec<_>>() }),
+        _ => json!({ "ok": false, "reason": "error", "detail": format!("unexpected answer from {name}") }),
     }
+}
+
+// A failed read: signed out (401, bad or missing token), else the CLI's own words, on one line.
+fn failed(text: &str) -> Value {
+    static AUTH: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\b401\b|unauthori[sz]ed|not logged|no token|authenticat|bad credentials"));
+    static WS: LazyLock<Regex> = LazyLock::new(|| re(r"\s+"));
+    if AUTH.is_match(text).unwrap_or(false) { return json!({ "ok": false, "reason": "auth" }); }
+    json!({ "ok": false, "reason": "error", "detail": head16(WS.replace_all(text, " ").trim(), 200) })
 }
 
 // ---------- the Work tab's state (the 0.1 Electron app's main.js) ----------
 #[derive(Default)]
 pub struct GitCache { pub at: u64, pub busy: bool, pub git: Option<Value> }
 
+// One tracker's last read. issues: { status: off | loading | <missing> | <signed_out> | error | ok, hosts, at, failed, list }.
+pub struct Feed { pub bin: Option<String>, pub issues: Value, pub busy: bool }
+impl Default for Feed { fn default() -> Self { Feed { bin: None, issues: json!({ "status": "off" }), busy: false } } }
+
 pub struct Work {
     pub git_cache: HashMap<String, GitCache>, // folder -> its last status
     pub remotes_of: HashMap<String, Vec<String>>, // repository top folder -> remote URLs (never sent to the pages)
-    pub glab_path: Option<String>,
-    pub issues: Value, // { status: off | loading | noglab | auth | error | ok, hosts, at, failed, list }
-    pub issues_busy: bool,
+    pub feeds: [Feed; 2], // by Forge, in FORGES order
     pub claude_list: Vec<ClaudeSession>, // Claude desktop's own sessions, to find an issue's session by its name
     // New on an issue opens a new session in the project's folder and waits here: the first session created in exactly
     // that folder afterwards takes the issue and its name (see take_issue).
@@ -217,7 +289,7 @@ pub struct Work {
 
 impl Default for Work {
     fn default() -> Self {
-        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), glab_path: None, issues: json!({ "status": "off" }), issues_busy: false, claude_list: vec![], new_for: Default::default() }
+        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default() }
     }
 }
 
@@ -227,31 +299,50 @@ pub fn key_of(settings: &Value, p: &str) -> String {
 }
 
 impl Work {
-    pub fn hosts(&self, settings: &Value) -> Vec<String> {
-        if settings["gitlab"] != true { return vec![]; }
-        self.issues["hosts"].as_array().map(|a| a.iter().filter_map(|h| h.as_str().map(String::from)).collect()).unwrap_or_default()
+    pub fn feed(&mut self, f: Forge) -> &mut Feed { &mut self.feeds[f as usize] }
+    fn on(&self, settings: &Value) -> Vec<&Feed> {
+        FORGES.iter().filter(|f| f.on(settings)).map(|f| &self.feeds[*f as usize]).collect()
     }
 
-    // A repository's GitLab project path: the first signed-in host one of its remotes points at.
-    // ponytail: the same path on two GitLabs counts as one project; key by host too if anyone works like that.
+    // The hosts of every tracker that is on: GitLab's first, then GitHub's.
+    pub fn hosts(&self, settings: &Value) -> Vec<String> {
+        self.on(settings).into_iter().flat_map(|f| f.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str().map(String::from))).collect()
+    }
+
+    // A repository's project path ("group/project" on GitLab, "owner/repo" on GitHub): the first signed-in host one of
+    // its remotes points at.
+    // ponytail: the same path on two hosts (two GitLabs, or GitLab and GitHub) counts as one project; key by host too
+    // if anyone works like that.
     pub fn path_in(remotes: &[String], hosts: &[String]) -> Option<String> {
         hosts.iter().find_map(|h| remotes.iter().find_map(|u| project_path(u, h)))
     }
 
-    fn list(&self) -> &[Value] { self.issues["list"].as_array().map(Vec::as_slice).unwrap_or(&[]) }
-
-    pub fn find_issue(&self, path: &str, iid: i64) -> Option<&Value> {
-        self.list().iter().find(|i| i["project"] == path && i["iid"].as_i64() == Some(iid))
+    fn list(&self, settings: &Value) -> Vec<&Value> {
+        self.on(settings).into_iter().flat_map(|f| f.issues["list"].as_array().into_iter().flatten()).collect()
     }
 
-    pub fn open_issue_ok(&self, settings: &Value, url: &str) -> bool {
-        settings["gitlab"] == true && self.list().iter().any(|i| i["url"] == url)
+    pub fn find_issue(&self, settings: &Value, path: &str, iid: i64) -> Option<&Value> {
+        self.list(settings).into_iter().find(|i| i["project"] == path && i["iid"].as_i64() == Some(iid))
+    }
+
+    pub fn open_issue_ok(&self, settings: &Value, url: &str) -> bool { self.list(settings).iter().any(|i| i["url"] == url) }
+
+    // The trackers that are on, as one: ok when one read, loading while one reads for the first time, else error.
+    // problems: the missing / signed-out statuses, one per tracker; failed: the hosts whose read failed.
+    fn status(&self, settings: &Value) -> Value {
+        let on = self.on(settings);
+        let has = |s: &str| on.iter().any(|f| f.issues["status"] == s);
+        let status = if has("ok") { "ok" } else if has("loading") || has("off") { "loading" } else { "error" };
+        let problems: Vec<&Value> = on.iter().map(|f| &f.issues["status"]).filter(|s| FORGES.iter().any(|x| *s == x.missing() || *s == x.signed_out())).collect();
+        let failed: Vec<&Value> = on.iter().flat_map(|f| f.issues["failed"].as_array().into_iter().flatten()).collect();
+        let at = on.iter().filter_map(|f| f.issues["at"].as_u64()).max();
+        json!({ "status": status, "at": at, "problems": problems, "failed": failed })
     }
 
     // What the pages see: issues grouped by project, and for each session the issue it works on.
     pub fn view(&self, settings: &Value, sessions: &Sessions) -> (Value, HashMap<String, Value>) {
         let mut issue_of = HashMap::new();
-        if settings["gitlab"] != true { return (json!({ "status": "off" }), issue_of); }
+        if !any_on(settings) { return (json!({ "status": "off" }), issue_of); }
         let hosts = self.hosts(settings);
         let path_of = |top: &Value| Self::path_in(self.remotes_of.get(top.as_str().unwrap_or("")).map(Vec::as_slice).unwrap_or(&[]), &hosts);
         let branches = |s: &crate::state::Session| -> Vec<String> {
@@ -269,11 +360,12 @@ impl Work {
         }).collect();
         for s in &live {
             if let (Some(iid), Some(p)) = (s.iid, s.path.as_deref()) {
-                let i = self.find_issue(p, iid);
+                let i = self.find_issue(settings, p, iid);
                 issue_of.insert(s.id.clone(), json!({ "iid": iid, "title": i.map_or(json!(""), |i| i["title"].clone()), "url": i.map_or(json!(""), |i| i["url"].clone()) }));
             }
         }
-        let (mut local, mut away) = group_issues(self.list(), &live);
+        let all: Vec<Value> = self.list(settings).into_iter().cloned().collect();
+        let (mut local, mut away) = group_issues(&all, &live);
         for g in &mut local {
             let (path, dir) = (g["path"].as_str().unwrap_or("").to_string(), g["dir"].as_str().unwrap_or("").to_string());
             let key = key_of(settings, &path);
@@ -289,8 +381,10 @@ impl Work {
             g["key"] = json!(key_of(settings, &p));
             g["autoKey"] = json!(key_for(&p));
         }
-        let view = json!({ "status": self.issues["status"], "hosts": hosts, "at": self.issues.get("at").cloned().unwrap_or(Value::Null),
-            "failed": self.issues.get("failed").cloned().unwrap_or(json!([])), "local": local, "away": away });
+        let mut view = self.status(settings);
+        view["hosts"] = json!(hosts);
+        view["local"] = json!(local);
+        view["away"] = json!(away);
         (view, issue_of)
     }
 }
@@ -317,6 +411,65 @@ mod tests {
             Gitlab.Example.org\n  ✓ Logged in to Gitlab.Example.org as other (config.yml)\n";
         assert_eq!(logged_in_hosts(status), ["git.example.com:8443", "gitlab.example.org"]);
         assert!(logged_in_hosts("X could not authenticate").is_empty());
+    }
+
+    #[test]
+    fn gh_status_gives_hosts_whose_active_account_is_signed_in() {
+        let two = "github.com\n  ✓ Logged in to github.com account first (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n\n\
+            \x20 ✓ Logged in to github.com account second (keyring)\n  - Active account: false\n  - Token: gho_****\n\n\
+            GHE.Example.com\n  X Failed to log in to ghe.example.com account worker (default)\n  - Active account: true\n  - The token in default is invalid.\n\
+            \x20 ✓ Logged in to ghe.example.com account other (keyring)\n  - Active account: false\n\
+            ghe.two.org\n  X Timeout trying to log in to ghe.two.org account me (keyring)\n  - Active account: true\n";
+        assert_eq!(gh_logged_in_hosts(two), ["github.com", "ghe.two.org"], "the active account counts; a failed one is signed out; a timeout is left to the read");
+        let second_active = "github.com\n  ✓ Logged in to github.com account a (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account b (keyring)\n  - Active account: true\n";
+        assert_eq!(gh_logged_in_hosts(second_active), ["github.com"]);
+        assert_eq!(gh_logged_in_hosts("github.com\n  ✓ Logged in to github.com as old (oauth_token)\n  ✓ Token: *******\n"), ["github.com"], "gh before 2.40");
+        assert!(gh_logged_in_hosts("You are not logged into any GitHub hosts. To log in, run: gh auth login\n").is_empty());
+        assert_eq!(project_path("git@github.com:Baonguyen-Agilityio/Bobix.git", "github.com").as_deref(), Some("baonguyen-agilityio/bobix"));
+        assert_eq!(project_path("https://ghe.example.com/team/app.git", "ghe.example.com").as_deref(), Some("team/app"));
+    }
+
+    #[test]
+    fn gh_issues_leave_pull_requests_out() {
+        let page: Value = serde_json::from_str(r#"[
+            { "number": 53, "title": "feat: GitHub issues", "html_url": "https://github.com/Acme/Shop-App/issues/53",
+              "repository_url": "https://api.github.com/repos/Acme/Shop-App", "labels": [{ "name": "enhancement", "color": "a2eeef" }],
+              "milestone": { "due_on": "2026-12-01T08:00:00Z" }, "user": { "login": "x" } },
+            { "number": 54, "title": "a PR", "html_url": "https://github.com/acme/shop-app/pull/54",
+              "repository_url": "https://api.github.com/repos/acme/shop-app", "labels": [], "pull_request": { "url": "u" } },
+            { "number": 7, "title": "on GHE", "html_url": "https://ghe.example.com/t/a/issues/7",
+              "repository_url": "https://ghe.example.com/api/v3/repos/t/a", "labels": [] }
+        ]"#).unwrap();
+        let got: Vec<Value> = page.as_array().unwrap().iter().filter_map(slim_gh_issue).collect();
+        assert_eq!(got, [
+            json!({ "iid": 53, "title": "feat: GitHub issues", "url": "https://github.com/Acme/Shop-App/issues/53", "project": "acme/shop-app", "labels": ["enhancement"], "due": null }),
+            json!({ "iid": 7, "title": "on GHE", "url": "https://ghe.example.com/t/a/issues/7", "project": "t/a", "labels": [], "due": null }),
+        ]);
+        assert_eq!(failed("gh: Bad credentials (HTTP 401)")["reason"], "auth");
+        assert_eq!(failed("error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com"),
+            json!({ "ok": false, "reason": "error", "detail": "error connecting to api.github.com check your internet connection or https://githubstatus.com" }));
+    }
+
+    #[test]
+    fn view_joins_gitlab_and_github() {
+        let mut w = Work::default();
+        w.feeds[Forge::GitLab as usize].issues = json!({ "status": "noglab", "at": 5 });
+        w.feeds[Forge::GitHub as usize].issues = json!({ "status": "ok", "hosts": ["github.com"], "at": 9, "failed": [{ "host": "ghe.example.com", "detail": "x" }],
+            "list": [{ "iid": 53, "project": "acme/shop-app", "title": "t", "labels": [], "due": null, "url": "https://github.com/acme/shop-app/issues/53" }] });
+        let sessions = Sessions::default();
+        let both = json!({ "gitlab": true, "github": true });
+        let (v, _) = w.view(&both, &sessions);
+        assert_eq!((&v["status"], &v["problems"], &v["hosts"], &v["at"]), (&json!("ok"), &json!(["noglab"]), &json!(["github.com"]), &json!(9)));
+        assert_eq!(v["failed"][0]["host"], "ghe.example.com");
+        assert_eq!((&v["away"][0]["path"], &v["away"][0]["key"]), (&json!("acme/shop-app"), &json!("SHA")));
+        assert!(w.open_issue_ok(&both, "https://github.com/acme/shop-app/issues/53"));
+        let gh_only = json!({ "gitlab": false, "github": true });
+        assert_eq!(w.view(&gh_only, &sessions).0["problems"], json!([]));
+        let gl_only = json!({ "gitlab": true, "github": false });
+        let (v, _) = w.view(&gl_only, &sessions);
+        assert_eq!((&v["status"], &v["away"]), (&json!("error"), &json!([])));
+        assert!(!w.open_issue_ok(&gl_only, "https://github.com/acme/shop-app/issues/53"), "GitHub off: its links do not open");
+        assert_eq!(w.view(&json!({}), &sessions).0, json!({ "status": "off" }));
     }
 
     #[test]
@@ -398,6 +551,21 @@ mod tests {
             let r = fetch_issues(&glab, h);
             println!("host {}: ok {} reason {} issues {}", hosts.iter().position(|x| x == h).unwrap(), r["ok"], r["reason"], r["issues"].as_array().map_or(0, |a| a.len()));
             for i in r["issues"].as_array().into_iter().flatten() { assert!(i["iid"].is_i64() && i["url"].is_string() && i["project"].as_str().is_some_and(|p| p.contains('/'))); }
+        }
+    }
+
+    // Against the GitHub(s) the person's own gh is signed in to (read-only GET); prints counts only.
+    // cargo test live_gh -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_gh() {
+        let gh = crate::find_bin("gh").expect("gh on PATH");
+        let hosts = Forge::GitHub.hosts(&gh).expect("gh runs");
+        println!("hosts: {}", hosts.len());
+        for (n, h) in hosts.iter().enumerate() {
+            let r = Forge::GitHub.fetch(&gh, h);
+            println!("host {n}: ok {} reason {} issues {}", r["ok"], r["reason"], r["issues"].as_array().map_or(0, |a| a.len()));
+            for i in r["issues"].as_array().into_iter().flatten() { assert!(i["iid"].is_i64() && i["url"].as_str().is_some_and(|u| u.contains("/issues/")) && i["project"].as_str().is_some_and(|p| p.contains('/'))); }
         }
     }
 }
