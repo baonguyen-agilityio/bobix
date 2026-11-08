@@ -81,13 +81,16 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .card .hide{flex:none;font:600 var(--t-xs) var(--f-body);color:var(--ink-2);background:var(--n-100);border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2);cursor:pointer}
 .card .hide:hover{background:var(--n-200);color:var(--ink)}
 .zz{position:absolute;left:70%;top:-6px;font:700 var(--t-sm) var(--f-display);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
-.eye{transform-box:fill-box;transform-origin:center}
-.st-working .eye{animation:blink 4.2s infinite}
+/* While an effect plays (pet-fx.js) its canvas draws the pet, so the pet's own art steps aside; an effect that draws
+   over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and a pet saying goodbye keeps
+   nothing but itself. */
+.pet.fx .spr>svg,.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden}
+.pet.leaving>:not(.spr){opacity:0;transition:opacity 600ms var(--ease)}
+.fxc{position:absolute;pointer-events:none;image-rendering:pixelated}
 .spr svg.faced{position:absolute;left:-5%;bottom:0;width:110%;height:110%}
 .edge-top .spr svg.faced{bottom:auto;top:0}
 .walking .spr svg{animation:step 320ms steps(2) infinite}
 .st-waiting .spr svg{animation:hop 900ms var(--ease) infinite}
-@keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.15)}}
 @keyframes step{to{transform:translateY(-3px)}}
 @keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
 @keyframes pop{from{opacity:0;translate:0 4px}}
@@ -98,6 +101,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 <body>
 <script src="/ui/i18n.js"></script>
 <script src="/ui/creature.js"></script>
+<script src="/ui/pet-fx.js"></script>
 <script>
 const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -201,7 +205,8 @@ function kidsText(s) {
   return [w > 0, w ? T('pet.kidsWaiting', { n: k.length, w }) : T('pet.kids', { n: k.length })];
 }
 function paint(p, now) {
-  const s = p.s, st = look(s), kid = attached(s), root = rootOf(s), useBalloons = balloonsFor(root, now);
+  const s = p.s, st = look(s), kid = attached(s), root = rootOf(s), useBalloons = balloonsFor(root, now), color = petColor(s, lastList || []);
+  p.art = [(s.parent && byId(s.parent)) || s, color]; // what the pet looks like, for its effects
   const reports = !kid ? familyReports(s, now) : [], fam = !kid && kidsOf(s).some(k => visible(k));
   const mine = familyReports(root, now).find(r => r.s.id === s.id && r.kind);
   // A pet asking for permission shows its request and buttons when hovered, not the card, which would cover them.
@@ -220,11 +225,11 @@ function paint(p, now) {
   if (p.groupOpen && !(reports.length > 1 || extra > 0)) p.groupOpen = false; // nothing left to list: closed, not reopened later
   const groupOpen = !!p.groupOpen;
   const famKey = JSON.stringify(familyReports(root, now).map(r => [r.s.id, r.kind, r.text, left(r.s, now) > 0, petColor(r.s, lastList || [])]));
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, petColor(s, lastList || []), s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
-  p.el.className = `pet st-${st}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${groupOpen ? ' open' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''} ${p.edge}`;
+  p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${groupOpen ? ' open' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''} ${p.edge}`;
   const kids = kidsText(s), parent = s.parent && byId(s.parent);
   p.el.innerHTML = `
     ${card ? `<div class="card">
@@ -244,14 +249,17 @@ function paint(p, now) {
     ${groupOpen ? `<div class="card group">${[s, ...kidsOf(s).filter(k => visible(k)).sort(byUrgency)].map(m => { const ms = look(m);
       return `<div class="gr ${ms}"><span class="mini">${petArt(m.parent ? s : m, ms, petColor(m, lastList || []))}</span><span class="nm">${esc(shortName(m))}</span><span class="stx">${esc(statusText(m, ms))}</span>${ms === 'waiting' ? answerButtons(m, now, false) : ''}<button class="open" type="button" data-open="${esc(m.id)}">${T('fam.open')}</button></div>`; }).join('')}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
-    <div class="spr">${petArt(parent || s, st, petColor(s, lastList || []))}</div>
+    <div class="spr">${petArt(parent || s, st, color)}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}${extra ? `<span class="more${extraHot ? ' hot' : ''}" data-group title="${esc(T('fam.more', { n: extra }))}">+${extra}${extraHot && !p.hover ? `<span class="bb ${extraHot}">${balloonSVG(extraHot)}</span>` : ''}</span>` : ''}</div>`}`;
+  if (p.fx) p.el.querySelector('.spr').append(p.cv);
 }
 
 function sync(list) {
-  const seen = new Set(), shownParents = new Set(list.filter(s => visible(s)).map(s => s.id)), keep = new Set();
+  const seen = new Set(), shownParents = new Set(list.filter(s => visible(s)).map(s => s.id)), keep = new Set(), born = [];
   for (const id of shownParents) list.filter(k => k.parent === id && visible(k)).sort(byUrgency).slice(0, KID_MAX).forEach(k => keep.add(k.id));
   for (const s of list) {
+    const isNew = booted && !known.has(s.id);
+    known.add(s.id);
     if (!visible(s)) continue;
     if (s.parent && shownParents.has(s.parent) && !keep.has(s.id)) continue; // counted in its parent's +N
     seen.add(s.id);
@@ -266,9 +274,72 @@ function sync(list) {
       pets.set(s.id, p);
     }
     if (p.s && s.tool !== p.s.tool && s.hits !== p.s.hits) p.actAt = Date.now();
+    if (FX_ON) for (const [kind, o] of fxEvents(p.s || null, s, isNew)) kind === 'child' ? born.push(s) : (p.queue ||= []).push([kind, o]);
     p.s = s;
   }
-  for (const [id, p] of pets) if (!seen.has(id)) { p.el.remove(); pets.delete(id); }
+  for (const k of born) { const par = pets.get(k.parent); if (par) (par.queue ||= []).push(['child', { kidId: k.id }]); }
+  const ended = new Set(pets.keys());
+  for (const s of list) ended.delete(s.id);
+  for (const [id, p] of pets) if (!seen.has(id)) {
+    pets.delete(id);
+    // A session that ended (gone from the list, not just off screen) waves goodbye before its pet goes.
+    if (FX_ON && ended.has(id) && fxStart(p, 'end')) { p.leaving = true; p.queue = []; p.el.style.pointerEvents = 'none'; p.el.classList.add('leaving'); leaving.add(p); }
+    else p.el.remove();
+  }
+  booted = true;
+}
+
+// ---------- pixel effects (pet-fx.js) ----------
+// One-shots (a finished task's XP, low context, a new side session, the end) queue on the pet and play one after the
+// other; between them the state's loop plays (the aura while waiting, the tool's prop while working). Nothing runs or
+// draws while no effect plays.
+const FX_ON = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+const known = new Set(), leaving = new Set(); // every session id seen; pets of ended sessions playing their goodbye
+let booted = false;
+const fxCell = () => cfg.size / 18; // CSS px per effect cell: half a pixel of the 9×9 creature (its box is the pet's)
+function fxStart(p, kind, o = {}) {
+  const [art, color] = p.art || [p.s, undefined], pet = st => fxSprite(art, st, color, wake);
+  if (!pet('done')) return false; // its picture is still loading
+  if (kind === 'child') {
+    const kp = pets.get(o.kidId);
+    if (!kp) return true; // gone already: nothing to play
+    const kid = st => fxSprite(art, st, petColor(kp.s, lastList || []), wake);
+    if (!kid('done')) return false;
+    const spot = sideSpot(kp, [...pets.values()]) ?? kp.x;
+    o = { ...o, kid, dir: spot >= p.x ? 1 : -1, dist: Math.abs(spot - p.x) / fxCell() };
+  }
+  if (!p.cv) {
+    p.cv = Object.assign(document.createElement('canvas'), { width: GW * 2, height: GH * 2, className: 'fxc' });
+    p.cg = p.cv.getContext('2d'); p.img = p.cg.createImageData(GW * 2, GH * 2); p.buf = new Buf();
+  }
+  if (p.fx) p.fx.done = true;
+  const run = fxRun(kind, { pet, ...o }), c = fxCell(), size = cfg.size;
+  Object.assign(p.cv.style, { width: GW * c + 'px', height: GH * c + 'px', left: size / 2 - run.ox * c + 'px', top: size - FEET * c + 'px', translate: '' });
+  if (kind === 'child') pets.get(o.kidId).veil = run; // the side session's pet shows once it has landed
+  p.fx = run; p.fxSeg = o.seg;
+  p.el.classList.add('fx'); p.el.classList.toggle('fx-over', kind === 'xp' || kind === 'ctx'); p.el.querySelector('.spr')?.append(p.cv);
+  return true;
+}
+function fxStop(p) { p.fx = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
+function fxTick(p, dt) {
+  if (p.veil?.done) p.veil = null;
+  const hide = p.veil ? 'hidden' : '';
+  if (p.el.style.visibility !== hide) p.el.style.visibility = hide;
+  if (p.fx?.done) fxStop(p);
+  if (!p.fx || p.fx.loop) { // one-shots first; a loop gives way to them
+    const next = p.queue?.[0];
+    if (next && fxStart(p, ...next)) p.queue.shift();
+    else if (!p.leaving) {
+      const want = fxLoop(p.s, look(p.s));
+      if (!want) { if (p.fx) fxStop(p); }
+      else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1]) fxStart(p, want[0], { seg: want[1], first: true });
+    }
+  }
+  if (!p.fx) return;
+  p.fx.step(dt);
+  p.fx.draw(p.buf); p.buf.toImage(p.img); p.cg.putImageData(p.img, 0, 0);
+  const [sx, sy] = p.buf.shake, c = fxCell(), tr = sx || sy ? `${sx * c}px ${sy * c}px` : '';
+  if (p.cv.style.translate !== tr) p.cv.style.translate = tr;
 }
 
 // Press and slide sideways to move a pet along the edge; a press that barely moves is a click.
@@ -447,7 +518,9 @@ function frame(t) {
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2, near = Math.hypot(mouse.x - cx, mouse.y - cy) < cfg.size * 2.2;
     p.el.style.opacity = cfg.fadeNearCursor && near && !p.hover ? cfg.opacity * 0.25 : cfg.opacity;
     paint(p, now);
+    if (FX_ON) fxTick(p, dt);
   }
+  for (const p of leaving) { fxTick(p, dt); if (!p.fx) { p.el.remove(); leaving.delete(p); } }
   stackBubbles(all);
   for (const el of document.querySelectorAll('.answer .left[data-sid]')) { // seconds left, without redrawing the card
     const t = byId(el.dataset.sid), txt = T('ask.left', { n: t ? left(t, now) : 0 });
@@ -460,7 +533,7 @@ function frame(t) {
     // While dragging, the whole window takes the mouse, or the drag would end as soon as the cursor leaves the pet.
     if (drag?.moved) rects.push([0, 0, innerWidth, innerHeight]);
     // Every card, bubble and balloon a pet shows (its family card, the "+N" balloon), not just the first of each.
-    else for (const { el } of pets.values()) for (const n of [el, el.querySelector('.tag'), ...el.querySelectorAll('.card,.say,.bb')]) {
+    else for (const { el } of [...pets.values(), ...leaving]) for (const n of [el, el.querySelector('.tag'), ...el.querySelectorAll('.card,.say,.bb')]) {
       if (!n) continue;
       const b = n.getBoundingClientRect();
       rects.push([b.left, b.top, b.width, b.height].map(Math.round));
@@ -468,7 +541,7 @@ function frame(t) {
     const j = JSON.stringify(rects);
     if (j !== lastRects) { lastRects = j; bridge.setRects(rects); }
   }
-  const busy = mouseMoved || !!drag || all.some(p => p.stepping || p.goal != null || p.hover);
+  const busy = mouseMoved || !!drag || leaving.size > 0 || all.some(p => p.stepping || p.goal != null || p.hover || p.fx);
   mouseMoved = false;
   if (busy && !document.hidden) raf = requestAnimationFrame(frame);
   else timer = setTimeout(() => frame(performance.now()), all.length ? 400 : 1000);
