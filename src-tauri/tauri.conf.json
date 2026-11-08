@@ -3,17 +3,55 @@
   "productName": "Bobix",
   "version": "../package.json",
   "identifier": "dev.bobix.app",
-  "build": { "frontendDist": "../src/ui" },
+  "build": {
+    "frontendDist": "../src/ui"
+  },
   "app": {
     "macOSPrivateApi": true,
     "withGlobalTauri": false,
     "windows": [],
-    "security": { "csp": null, "capabilities": [] }
+    "security": {
+      "csp": null,
+      "capabilities": []
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "nsis", "deb"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "macOS": { "minimumSystemVersion": "11.0" }
+    "targets": [
+      "app",
+      "dmg",
+      "nsis",
+      "deb"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    },
+    "publisher": "Bobix contributors",
+    "category": "DeveloperTool",
+    "shortDescription": "Your Claude Code sessions as pixel pets on your desktop.",
+    "longDescription": "Your Claude Code sessions as pixel pets on your desktop, with a control panel and notifications.",
+    "homepage": "https://github.com/baonguyen-agilityio/bobix",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "windows/nsis-hooks.nsh"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libayatana-appindicator3-1"
+        ],
+        "section": "devel"
+      }
+    }
   }
 }

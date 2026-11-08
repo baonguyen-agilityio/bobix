@@ -894,6 +894,12 @@ fn main() {
     let mut settings = settings::load(&file);
     // Start at login: point at this copy, not one from an old path. Run from a clone (a dev build), a missing login entry
     // of its own doesn't mean "off": the installed app shares this settings file and owns the setting, so leave it as stored.
+    // The installed app takes over the Electron build's start at login at its first start (the user does nothing).
+    let mark = paths::data_dir().join("tauri-started");
+    if !tauri::is_dev() && !mark.exists() {
+        if autostart::from_electron() { eprintln!("[bobix] autostart: moved over from the Electron build"); }
+        let _ = std::fs::create_dir_all(paths::data_dir()).and_then(|_| std::fs::write(&mark, ""));
+    }
     let on = autostart::get();
     if !tauri::is_dev() || on { settings["autostart"] = json!(on); }
     if on { if let Err(e) = autostart::set(true) { eprintln!("[bobix] autostart: {e}"); } }
