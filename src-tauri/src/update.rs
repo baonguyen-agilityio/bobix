@@ -1,6 +1,6 @@
 // "A new version is available": reads the latest release from GitHub's public API (no account, nothing sent but the
 // request itself) and compares its version with the running one. Pre-releases are never offered. Port of
-// src/core/update.js.
+// the 0.1 (Electron) app's core/update.js.
 use fancy_regex::Regex;
 use serde_json::Value;
 use std::sync::LazyLock;

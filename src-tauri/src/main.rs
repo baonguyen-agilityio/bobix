@@ -1,5 +1,5 @@
 // Bobix on Tauri: the Rust core (hook events, session state, settings, local server), the pets overlay, the panel and
-// the tray. Port of src/main.js.
+// the tray. Port of the 0.1 (Electron) app's main.js.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod answers;
@@ -58,7 +58,7 @@ pub struct Bobix {
 }
 
 impl Bobix {
-    // What the pages get on /events: the same JSON as snapshot() in src/main.js.
+    // What the pages get on /events: the same JSON as snapshot() in the 0.1 (Electron) app's main.js.
     pub fn snapshot(&self) -> String {
         let c = self.core.lock().unwrap();
         let (view, issue_of) = c.work.view(&c.settings, &c.sessions);
@@ -236,7 +236,7 @@ impl Bobix {
         };
         send("SessionStart", json!({ "source": "test" }));
         send("UserPromptSubmit", json!({ "prompt": title }));
-        // 1.5 s, 6 s and 60 s after the start, as in src/main.js
+        // 1.5 s, 6 s and 60 s after the start, as in the 0.1 (Electron) app's main.js
         thread::spawn(move || {
             for (wait, name, extra) in [(1500, "PreToolUse", json!({ "tool_name": "Read", "tool_input": { "file_path": "README.md" } })),
                 (4500, "Stop", json!({})), (54000, "SessionEnd", json!({}))] {
@@ -835,7 +835,7 @@ fn install_at(b: &Bobix, port: u16) -> Value {
     }
 }
 
-// Linux on Wayland (the session type, as src/main.js reads it).
+// Linux on Wayland (the session type, as the 0.1 Electron app read it).
 pub fn wayland() -> bool {
     cfg!(target_os = "linux") && (std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland") || std::env::var_os("WAYLAND_DISPLAY").is_some())
 }

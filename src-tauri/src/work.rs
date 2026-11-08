@@ -1,6 +1,6 @@
 // Work items: a session's local git status (no network), and the GitLab issues assigned to you, read through your own
 // `glab` (Bobix keeps no token, writes nothing to GitLab). Commands get argument lists, never a shell.
-// Port of src/core/work.js, plus the Work tab's state from src/main.js (workView, takeIssue, startIssue...).
+// Port of the 0.1 (Electron) app's core/work.js, plus the Work tab's state from src/main.js (workView, takeIssue, startIssue...).
 use crate::{js::{head16, len16}, links::ClaudeSession, procs, state::Sessions};
 use fancy_regex::Regex;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
@@ -199,7 +199,7 @@ pub fn fetch_issues(glab: &str, host: &str) -> Value {
     }
 }
 
-// ---------- the Work tab's state (src/main.js) ----------
+// ---------- the Work tab's state (the 0.1 Electron app's main.js) ----------
 #[derive(Default)]
 pub struct GitCache { pub at: u64, pub busy: bool, pub git: Option<Value> }
 

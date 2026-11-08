@@ -1,7 +1,13 @@
-# Push a tag like v0.1.0 → builds installers on macOS, Windows and Linux and attaches them to a GitHub Release.
+# The installers: Bobix-mac-arm64.dmg, Bobix-mac-x64.dmg, Bobix-windows-x64.exe, bobix-linux-amd64.deb,
+# bobix-linux-arm64.deb. Built on every pull request and on develop as this run's artifacts (to try a build); a tag
+# like v0.2.0 also attaches them to a GitHub Release (a tag with "-" makes a pre-release). Each installed (or opened)
+# app runs the smoke check; Windows and Linux install the last Electron-based release first, so upgrading from it is
+# checked too.
 name: release
 on:
+  pull_request:
   push:
+    branches: [develop]
     tags: ['v*']
   workflow_dispatch:
 
@@ -13,27 +19,117 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, bundles: dmg, out: Bobix-mac-arm64.dmg, smoke: true }
+          - { os: macos-latest, target: x86_64-apple-darwin, bundles: dmg, out: Bobix-mac-x64.dmg }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis, out: Bobix-windows-x64.exe, smoke: true }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: deb, out: bobix-linux-amd64.deb, smoke: true }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, bundles: deb, out: bobix-linux-arm64.deb }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      ELECTRON_TAG: v0.1.4-rc.4 # the last Electron-based build: upgrading from it is checked
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb xdotool > /dev/null
       - run: npm ci
-      - run: npm test
-      - run: npm run dist
+      - name: Build the installer
+        shell: bash
+        run: npm run tauri -- build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Name it
+        shell: bash
+        run: |
+          ext="${OUT##*.}"
+          mkdir -p out
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundles }}/*.$ext "out/$OUT"
+          ls -l out
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false # unsigned builds; add signing secrets here when you have certificates
+          OUT: ${{ matrix.out }}
       - uses: actions/upload-artifact@v4
         with:
-          name: bobix-${{ matrix.os }}
-          path: |
-            dist/*.dmg
-            dist/*.exe
-            dist/*.deb
+          name: ${{ matrix.out }}
+          path: out/${{ matrix.out }}
           if-no-files-found: error
+
+      # ---------- macOS: the bundle, then the app itself ----------
+      - name: macOS bundle
+        if: runner.os == 'macOS' && matrix.smoke
+        run: |
+          app=src-tauri/target/${{ matrix.target }}/release/bundle/macos/Bobix.app
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' -c 'Print :LSUIElement' -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = dev.bobix.app
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$app/Contents/Info.plist")" = true
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/bobix-dmg "out/${{ matrix.out }}"
+          cp -R /tmp/bobix-dmg/Bobix.app "$RUNNER_TEMP/Bobix.app"
+          hdiutil detach /tmp/bobix-dmg
+          echo "APP_BIN=$RUNNER_TEMP/Bobix.app/Contents/MacOS/$(ls "$RUNNER_TEMP/Bobix.app/Contents/MacOS")" >> "$GITHUB_ENV"
+
+      # ---------- Windows: install the Electron build, then this one over it ----------
+      - name: Windows upgrade from the Electron build
+        if: runner.os == 'Windows' && matrix.smoke
+        shell: bash
+        run: |
+          gh release download "$ELECTRON_TAG" -R "$GITHUB_REPOSITORY" -p Bobix-windows-x64.exe -D old
+          keys() { reg query 'HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall' //s //f Bobix //d 2>/dev/null | grep -i -E 'DisplayName|^HKEY' || true; }
+          ./old/Bobix-windows-x64.exe //S; sleep 20; taskkill //F //IM Bobix.exe > /dev/null 2>&1 || true
+          echo "--- after the Electron build"; keys; ls "$LOCALAPPDATA/Programs" || true
+          ./out/${{ matrix.out }} //S; sleep 20
+          echo "--- after this build"; keys; ls "$LOCALAPPDATA/Programs" "$LOCALAPPDATA/Bobix" || true
+          taskkill //F //IM bobix.exe > /dev/null 2>&1 || true
+          if [ -d "$LOCALAPPDATA/Programs/bobix" ] || [ -d "$LOCALAPPDATA/Programs/Bobix" ]; then echo "the Electron build is still installed"; exit 1; fi
+          test "$(keys | grep -c DisplayName)" = 1
+          exe=$(ls "$LOCALAPPDATA"/Bobix/*.exe | grep -iv uninstall | head -1)
+          echo "APP_BIN=$exe" >> "$GITHUB_ENV"
+
+      # ---------- Linux: install the Electron .deb, then this one over it ----------
+      - name: Linux upgrade from the Electron build
+        if: runner.os == 'Linux' && matrix.smoke
+        run: |
+          gh release download "$ELECTRON_TAG" -R "$GITHUB_REPOSITORY" -p bobix-linux-amd64.deb -D old
+          sudo apt-get install -y -qq ./old/bobix-linux-amd64.deb > /dev/null
+          test -d /opt/Bobix
+          sudo dpkg -i out/${{ matrix.out }} || sudo apt-get install -y -f -qq
+          dpkg -s bobix | grep -E '^(Package|Version|Depends)'
+          if [ -d /opt/Bobix ]; then echo "/opt/Bobix (the Electron build) is still there"; exit 1; fi
+          echo "APP_BIN=$(command -v bobix)" >> "$GITHUB_ENV"
+          Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+          for i in $(seq 1 50); do DISPLAY=:99 xdotool getdisplaygeometry > /dev/null 2>&1 && break; sleep 0.2; done # ready before the app starts
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
+      - name: Smoke the installed app
+        if: matrix.smoke
+        timeout-minutes: 4
+        shell: bash
+        env:
+          BOBIX_SMOKE: smoke-out
+          BOBIX_PORT: '4767'
+        run: |
+          export BOBIX_DATA_DIR="$RUNNER_TEMP/bobix-data" BOBIX_HOME="$RUNNER_TEMP/bobix-home"
+          if [ "$RUNNER_OS" = Linux ]; then export XDG_SESSION_TYPE=wayland; fi
+          echo "running $APP_BIN"
+          "$APP_BIN" > smoke.log 2>&1 &
+          for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done
+          if [ "$RUNNER_OS" = Windows ]; then taskkill //F //IM bobix.exe > /dev/null 2>&1 || true; else pkill -9 -f "$APP_BIN" || true; fi
+          grep "\[bobix\]" smoke.log || tail -40 smoke.log
+          node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.pass ? 0 : 1)"
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.smoke
+        with:
+          name: smoke-${{ matrix.out }}
+          path: smoke-out/
 
   release:
     needs: build
@@ -43,8 +139,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: out
+          pattern: '[Bb]obix-*' # the installers, not the smoke reports
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
           files: out/*
-          prerelease: ${{ contains(github.ref_name, '-') }} # v0.1.1-rc.1 → test build, not "latest"
+          prerelease: ${{ contains(github.ref_name, '-') }} # v0.2.0-rc.1 → test build, not "latest"

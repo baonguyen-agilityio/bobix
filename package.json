@@ -1,85 +1,15 @@
 {
   "name": "bobix",
-  "version": "0.1.4-rc.4",
+  "version": "0.2.0-rc.1",
   "description": "Your Claude Code sessions as pixel pets on your desktop, with a control panel and notifications.",
-  "main": "src/main.js",
-  "desktopName": "bobix.desktop",
   "license": "MIT",
   "private": true,
   "scripts": {
-    "start": "electron .",
     "test": "node --test test/core.test.js",
-    "icon": "node scripts/make-icon.js",
-    "dist": "npm run icon && electron-builder --publish never",
-    "dist:mac": "npm run icon && electron-builder --mac --publish never",
-    "dist:win": "npm run icon && electron-builder --win --publish never",
-    "dist:linux": "npm run icon && electron-builder --linux --publish never"
+    "tauri": "tauri"
   },
   "devDependencies": {
-    "electron": "45.2.1",
-    "electron-builder": "26.18.0"
-  },
-  "build": {
-    "appId": "dev.bobix.app",
-    "productName": "Bobix",
-    "files": [
-      "src/**/*",
-      "package.json"
-    ],
-    "directories": {
-      "buildResources": "build",
-      "output": "dist"
-    },
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
-      ],
-      "category": "public.app-category.developer-tools",
-      "extendInfo": {
-        "LSUIElement": true
-      },
-      "identity": "-",
-      "hardenedRuntime": false,
-      "artifactName": "${productName}-mac-${arch}.${ext}"
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "artifactName": "${productName}-windows-${arch}.${ext}"
-    },
-    "linux": {
-      "target": [
-        {
-          "target": "deb",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "category": "Development",
-      "maintainer": "Bobix contributors",
-      "syncDesktopName": true
-    },
-    "deb": {
-      "artifactName": "${name}-linux-${arch}.${ext}"
-    }
+    "@tauri-apps/cli": "2.12.4"
   },
   "homepage": "https://github.com/baonguyen-agilityio/bobix"
 }

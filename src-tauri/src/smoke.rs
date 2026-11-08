@@ -2,7 +2,7 @@
 // and a real one delivered by the installed hook.js, answer a permission request it holds, check the pets overlay is
 // on screen, open the panel and use its bridge (state, a settings change that is saved, feedback), check the tray, the
 // session's git status and a second start, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke()
-// in src/main.js. The panel also imports a picture it draws (decode, pixel art in the worker, save, served, reset).
+// in the 0.1 (Electron) app's main.js. The panel also imports a picture it draws (decode, pixel art in the worker, save, served, reset).
 use crate::{answers, hooks, overlay, panel, paths, Bobix};
 use serde_json::{json, Value};
 use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};

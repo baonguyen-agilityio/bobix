@@ -1,4 +1,4 @@
-// Start at login, on macOS, Windows and Linux. Port of src/core/autostart.js: the same LaunchAgent label and Linux
+// Start at login, on macOS, Windows and Linux. Port of the 0.1 (Electron) app's core/autostart.js: the same LaunchAgent label and Linux
 // .desktop file, pointing at this executable.
 // macOS uses the LaunchAgent for every build; the login item the Electron app used is moved over once (from_electron).
 use std::{fs, path::PathBuf};

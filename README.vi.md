@@ -134,15 +134,17 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 ## Tình trạng và giới hạn
 
-- Phiên bản 0.1. Đã thử trên macOS (chip Apple) với app Claude desktop và CLI, và trên Ubuntu (Wayland) với CLI. Windows mới chạy smoke test trên CI; app Claude desktop cho Linux (bản beta) chưa được thử.
+- Phiên bản 0.2 (bản thử). App được làm bằng Tauri (Rust và trình duyệt có sẵn của hệ điều hành; khoảng 10 MB thay vì 250 MB). Bản 0.1 đã thử trên macOS (chip Apple) với app Claude desktop và CLI, và trên Ubuntu (Wayland) với CLI. Windows mới chạy smoke test trên CI; app Claude desktop cho Linux (bản beta) chưa được thử.
 - Trên Linux Wayland, Bobix chạy qua XWayland để chú thú luôn nằm trên cùng; đưa terminal lên trước cần X11 và `xdotool`.
 - Mở session trong app Claude desktop dùng một đường link do app đó đăng ký (`claude://code/continue`), không phải API có tài liệu, nên có thể thay đổi.
 - "Ngữ cảnh còn lại" là ước tính từ lượng token đã dùng.
-- File cài cho Linux dành cho Ubuntu và Debian; các bản Linux khác chưa có gói cài.
+- File cài cho Linux dành cho Ubuntu 22.04+ và Debian 12+ (cần WebKitGTK 4.1, `apt` tự cài kèm); các bản Linux khác chưa có gói cài.
+- Windows cần WebView2: có sẵn trên Windows 11 và Windows 10 bản mới; trình cài tự thêm nếu thiếu.
+- Cài 0.2 đè lên 0.1 vẫn giữ cài đặt, hook và ảnh thú cưng, gỡ app cũ, và giữ "mở khi đăng nhập" nếu đang bật.
 
 ## Giấy phép và ghi công
 
-MIT, xem [LICENSE](LICENSE). Font: Baloo 2 và Be Vietnam Pro, giấy phép SIL Open Font License, đóng gói qua Fontsource (giấy phép nằm trong `src/ui/fonts/`). Mã GIF: [gifenc](https://github.com/mattdesl/gifenc) của Matt DesLauriers, bộ giải mã LZW và bộ khử interlace của [gifuct-js](https://github.com/matt-way/gifuct-js) của Matt Way, giấy phép MIT, chép vào `src/core/gif/` kèm giấy phép.
+MIT, xem [LICENSE](LICENSE). Font: Baloo 2 và Be Vietnam Pro, giấy phép SIL Open Font License, đóng gói qua Fontsource (giấy phép nằm trong `src/ui/fonts/`). Mã GIF: [gifenc](https://github.com/mattdesl/gifenc) của Matt DesLauriers, bộ giải mã LZW và bộ khử interlace của [gifuct-js](https://github.com/matt-way/gifuct-js) của Matt Way, giấy phép MIT, chép vào `src/ui/gif/` kèm giấy phép.
 
 Bobix là dự án độc lập, không liên kết với Anthropic và không được Anthropic bảo trợ. "Claude" và "Claude Code" là nhãn hiệu của Anthropic.
 

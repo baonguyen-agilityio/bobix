@@ -1,5 +1,5 @@
 // Processes behind a session: is a pid still running, what is it called, and bringing its window forward. Same
-// commands and timeouts as src/core/focus.js and the isAlive check in src/main.js.
+// commands and timeouts as the 0.1 (Electron) app's core/focus.js and the isAlive check in the 0.1 (Electron) app's main.js.
 use std::{process::{Command, Stdio}, thread, time::{Duration, Instant}};
 
 // Is the process there? Signal 0 checks without touching it; EPERM means it runs under another user.

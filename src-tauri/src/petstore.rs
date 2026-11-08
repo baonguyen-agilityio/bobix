@@ -1,5 +1,5 @@
 // Files behind a project's pet picture: the original the person chose (kept so it can be adjusted later) and the
-// pixel-art result made from it. Port of src/core/petstore.js; same folder, names and settings entries.
+// pixel-art result made from it. Port of the 0.1 (Electron) app's core/petstore.js; same folder, names and settings entries.
 // <dir>/<file>            results, served to our pages by /pet-image/
 // <dir>/originals/<src>   originals, in a sub folder the route cannot reach
 use serde_json::{json, Value};

@@ -1,6 +1,6 @@
 // Which project a session works in: the git repository its folder belongs to, so that every session of a project
 // (and every git worktree of it, which Claude desktop makes per session) gets the same pet. Same rule as
-// src/core/project.js.
+// the 0.1 (Electron) app's core/project.js.
 use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::Mutex};
 
 static CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);

@@ -1,4 +1,4 @@
-// The control panel window (showPanel in src/main.js): one window, opened on a session, a tab or an "open failed"
+// The control panel window (showPanel in the 0.1 (Electron) app's main.js): one window, opened on a session, a tab or an "open failed"
 // notice; when it is already open the page gets select / show-tab / open-fail instead. On macOS the Dock icon shows
 // while it is open.
 use crate::{work::enc, Bobix};

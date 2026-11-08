@@ -1,5 +1,5 @@
 // Local HTTP server: receives hook events, streams session state (SSE) and serves the UI pages. Port of
-// src/core/server.js. Bound to 127.0.0.1. Host is checked (DNS rebinding). Events and the state stream need the
+// the 0.1 (Electron) app's core/server.js. Bound to 127.0.0.1. Host is checked (DNS rebinding). Events and the state stream need the
 // per-user token (x-bobix header / ?t=): other local users can't feed or read it, and a web page can't send the header
 // cross-origin without a CORS preflight we never answer.
 use axum::{
