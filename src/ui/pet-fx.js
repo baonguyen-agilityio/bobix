@@ -286,7 +286,7 @@ const FX = {
     make(o) {
       const R = new Rng(31), orbs = [], sp = [], pops = [], up = o.f1 >= 1, step = (o.f1 - o.f0) / 3;
       let fill = o.f0, shown = o.f0, full = -1, lvl = -1, burst = false;
-      const BX = CX - 13, BY = TOP - 10, BW = 26;
+      const LIFT = o.flipY ? 9 : 0, BX = CX - 13, BY = TOP - 10 - LIFT, BW = 26; // LIFT: mirrored, clear of the name tag under the pet
       for (let i = 0; i < 3; i++) orbs.push({ t0: .35 + i * .2, x: CX, y: MID, done: false, tr: [] });
       return {
         D: up ? 3.8 : 2.1,
@@ -326,7 +326,7 @@ const FX = {
           for (const ob of orbs) { if (t < ob.t0 || ob.done) continue; ob.tr.forEach(([x, y], i) => i > 0 && b.line(ob.tr[i - 1][0], ob.tr[i - 1][1], x, y, i < 3 ? WARM[2] : WARM[4])); star(b, ob.x, ob.y, 1, WARM[2], .6); }
           for (const pp of pops) { const k = (t - pp.t) / .7; if (k < 1) text(b, '+1', pp.x, Math.round(pp.y - 6 * outCubic(k)), WARM[3], 1, 1 - smooth(.6, 1, k)); }
           for (const s of sp) { const k = s.life / s.max; star(b, s.x, s.y, Math.round(s.s * Math.min(1, k * 3)), s.c); }
-          if (T >= .1) { const k = outBack(clamp((T - .1) / .25), 2.5), a = 1 - smooth(2.2, 2.9, T); text(b, `LV ${o.lv}`, CX, Math.round(TOP - 18 + (1 - k) * 6), WARM[3], k > .6 ? 2 : 1, a); }
+          if (T >= .1) { const k = outBack(clamp((T - .1) / .25), 2.5), a = 1 - smooth(2.2, 2.9, T); text(b, `LV ${o.lv}`, CX, Math.round(TOP - 18 - LIFT + (1 - k) * 6), WARM[3], k > .6 ? 2 : 1, a); }
         },
       };
     },
@@ -395,7 +395,7 @@ const FX = {
         },
         draw(b, t) {
           const jit = Math.floor(t * 18) % 2 ? 1 : 0; shadow(b, CX, FEET); blit(b, o.pet('working'), CX + jit, FEET, 1.04, .94);
-          const X0 = CX - 8, Y0 = TOP - 13; b.frame(X0, Y0, 15, 9, hex('#2a2f3e')); b.rect(X0 + 15, Y0 + 3, 2, 3, INK);
+          const X0 = CX - 8, Y0 = TOP - 13 - (o.flipY ? 9 : 0); b.frame(X0, Y0, 15, 9, hex('#2a2f3e')); b.rect(X0 + 15, Y0 + 3, 2, 3, INK);
           const on = (t % .5) < .28; b.rect(X0 + 2, Y0 + 2, 3, 5, on ? RED[3] : RED[5]); if (on) { b.rect(X0 + 2, Y0 + 2, 3, 1, RED[2]); b.glow(X0 + 3, Y0 + 4, 9, RED[3], .6); }
           text(b, '!', X0 + 21, Y0 + 2, RED[3], 1, on ? 1 : .4);
           for (const d of drops) if (t >= d.t0 && !d.done) bmp(b, ['..o..', '.o2o.', 'o122o', 'o1W3o', 'o233o', '.ooo.'], Math.round(d.x) - 2, Math.round(d.y) - 3, COOL);
