@@ -242,7 +242,7 @@ function aura(b, a, t, pulse, L, midY) {
 function puffs(b, list) { for (const d of list) { const k = d.life / d.max; for (let y = Math.floor(d.y - d.s); y <= d.y + d.s; y++) for (let x = Math.floor(d.x - d.s); x <= d.x + d.s; x++) if ((x + .5 - d.x) ** 2 + (y + .5 - d.y) ** 2 <= d.s * d.s) dot(b, x, y, d.c || DUST, k * .8); } }
 function stepList(list, dt, drag = 0, grav = 0) { for (let i = list.length - 1; i >= 0; i--) { const p = list[i]; if ((p.life -= dt) <= 0) { list.splice(i, 1); continue; } p.vx -= p.vx * drag * dt; p.vy -= p.vy * drag * dt; p.vy += grav * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.grow) p.s += p.grow * dt; } }
 const shake = (b, t, t0, dur, amp = 1) => { if (t >= t0 && t < t0 + dur) { const k = Math.floor(t * 40); b.shake = [(hash(k, 1) < .5 ? -1 : 1) * amp, (hash(k, 2) < .5 ? -1 : 1) * amp]; } };
-function pencilTip(lt) { const u = Math.min(1, lt / 1.1), row = Math.floor(u * 3); return [CX + 7 + (u * 3 % 1) * 14, FEET - 13 + row * 3 + Math.sin(u * 60) * .9]; }
+function pencilTip(lt, PX0, PY0) { const u = Math.min(1, lt / 1.1), row = Math.floor(u * 3); return [PX0 + 3 + (u * 3 % 1) * 14, PY0 + 7 + row * 3 + Math.sin(u * 60) * .9]; }
 function pencil(b, x, y) {
   x = Math.round(x); y = Math.round(y);
   for (let i = 0; i < 11; i++) { const px = x + 1 + i, py = y - 1 - i, c = i < 2 ? hex('#e8c9a0') : i < 8 ? WARM[3] : i < 9 ? hex('#c0c4cc') : hex('#ff8fa3'); b.set(px - 1, py, INK); b.set(px + 2, py, INK); b.set(px, py, c); b.set(px + 1, py, i < 2 ? hex('#d1ae80') : i < 8 ? WARM[4] : i < 9 ? hex('#9aa0aa') : hex('#e06c84')); }
@@ -333,21 +333,21 @@ const FX = {
   },
   // Working: the pet holds the prop of the tool Claude is running (o.seg, see TOOL_PROP): writes with a pen on paper,
   // types on a small terminal, turns a book's page, sweeps a magnifier. One run is one 1.2 s loop; o.first pops it in.
+// o.above: no room beside the pet (a packed family row): the prop floats over its head instead.
   tool: {
-    D: 1.2, ox: CX - 8, loop: true, cycle: 6, // the pet's bob (1/3 s) and the cursor (1/2 s) repeat with the loop every 6 s
+    D: 1.2, ox: o => (o.above ? CX : CX - 8), loop: true, cycle: 6, // the pet's bob (1/3 s) and the cursor (1/2 s) repeat with the loop every 6 s
     make(o) {
-      const R = new Rng(41), sp = [], seg = o.seg;
+      const R = new Rng(41), sp = [], seg = o.seg, PCX = o.above ? CX : CX - 8, PX0 = o.above ? CX - 11 : CX + 4, PY0 = o.above ? FEET - 41 : FEET - 20;
       return {
-        update(dt, lt) { if (seg === 0 && R.chance(.4)) { const tip = pencilTip(lt); sp.push({ x: tip[0], y: tip[1], vx: R.range(-10, 10), vy: -R.range(5, 15), life: .3, max: .3, c: WARM[2] }); } stepList(sp, dt, 2, 20); },
+        update(dt, lt) { if (seg === 0 && R.chance(.4)) { const tip = pencilTip(lt, PX0, PY0); sp.push({ x: tip[0], y: tip[1], vx: R.range(-10, 10), vy: -R.range(5, 15), life: .3, max: .3, c: WARM[2] }); } stepList(sp, dt, 2, 20); },
         draw(b, lt, t) {
           const bob = Math.floor(t * 6 + 1e-6) % 2; // + 1e-6: whole steps land on the same side every cycle
-          shadow(b, CX - 8, FEET); blit(b, o.pet('working'), CX - 8, FEET - bob);
-          const PX0 = CX + 4, PY0 = FEET - 20;
+          shadow(b, PCX, FEET); blit(b, o.pet('working'), PCX, FEET - bob);
           if (o.first && lt < .1) for (let i = 0; i < 8; i++) { const a = i / 8 * TAU, r = 4 + lt / .1 * 8; dot(b, PX0 + 10 + Math.cos(a) * r, PY0 + 10 + Math.sin(a) * r * .7, WHITE, 1 - lt / .1); }
           if (seg === 0) {
             b.frame(PX0, PY0 + 4, 20, 15, PAPER); for (let r = 0; r < 3; r++) b.rect(PX0 + 3, PY0 + 7 + r * 3, 14, 1, hex('#e3e0d8'));
             for (let s = 0; s < 1; s += .01) { const u = s * Math.min(1, lt / 1.1), row = Math.floor(u * 3); b.set(PX0 + 3 + (u * 3 % 1) * 14, PY0 + 7 + row * 3 + Math.sin(u * 60) * .9, hex('#3a3f6b')); }
-            const tip = pencilTip(lt); pencil(b, tip[0], tip[1]); for (const s of sp) star(b, s.x, s.y, 0, s.c, .4);
+            const tip = pencilTip(lt, PX0, PY0); pencil(b, tip[0], tip[1]); for (const s of sp) star(b, s.x, s.y, 0, s.c, .4);
           }
           if (seg === 1) {
             b.frame(PX0 - 1, PY0 + 1, 24, 18, SCREEN); b.rect(PX0 + 7, PY0 + 19, 8, 2, INK); b.rect(PX0 + 4, PY0 + 21, 14, 1, INK);
@@ -462,7 +462,7 @@ const FX = {
 // ---- staying off other things ---------------------------------------------------------------------------------
 // Where the effect canvas sits in its pet's sprite box (size px square, before the box's own scale): the pet's middle on
 // column ox, its feet on the box's bottom (mirrored left-right / top-down as the effect is).
-function fxPlace(size, ox, flipX, flipY) {
+function fxPlace(size, ox, flipX, flipY) { // ox: the run's (fxRun(...).ox)
   const c = size / 18;
   return { left: size / 2 - (flipX ? GW - ox : ox) * c, top: flipY ? -(GH - FEET) * c : size - FEET * c, width: GW * c, height: GH * c };
 }
@@ -477,12 +477,14 @@ function rectMinus(a, b) {
   return out;
 }
 // The parts of an effect's box (on screen) it must leave empty: everything in avoid (other pets, name tags, balloons,
-// bubbles, cards), except where its own pet is, which it always draws. Disjoint, clipped to the box.
-function fxHoles(box, own, avoid) {
+// bubbles, cards), except where its own pet is, which it always draws; front: pets standing in front of its own pet,
+// left empty even over it. Disjoint, clipped to the box.
+function fxHoles(box, own, avoid, front = []) {
   const out = [];
-  for (const a of avoid) {
+  for (const a of [...front, ...avoid]) {
     if (!(a[2] > box[0] && a[0] < box[2] && a[3] > box[1] && a[1] < box[3])) continue;
-    let pieces = rectMinus([Math.max(a[0], box[0]), Math.max(a[1], box[1]), Math.min(a[2], box[2]), Math.min(a[3], box[3])], own);
+    const cut = [Math.max(a[0], box[0]), Math.max(a[1], box[1]), Math.min(a[2], box[2]), Math.min(a[3], box[3])];
+    let pieces = front.includes(a) ? [cut] : rectMinus(cut, own);
     for (const o of out) pieces = pieces.flatMap(p => rectMinus(p, o));
     out.push(...pieces.filter(p => p[2] - p[0] > .01 && p[3] - p[1] > .01));
   }
@@ -504,7 +506,7 @@ function fxRun(kind, o) {
   let fx = def.make(o), k = 0, steps = 0, acc = 0; // steps of this loop and in all, counted whole so loops repeat exactly
   const N = () => Math.round((fx.D ?? def.D) / SIM);
   return {
-    kind, ox: def.ox, loop: !!def.loop, done: false, get total() { return steps * SIM; },
+    kind, ox: typeof def.ox === 'function' ? def.ox(o) : def.ox, loop: !!def.loop, done: false, get total() { return steps * SIM; },
     step(dt) {
       acc += Math.min(.1, dt);
       while (acc >= SIM && !this.done) {

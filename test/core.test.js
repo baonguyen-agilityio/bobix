@@ -183,7 +183,7 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   strict.deepEqual([...ctx.flip], [true, true, true, true], 'pet upright top-down, text upright top-down, pet upright left-right');
 });
 
-test('no effect pixel lands on another pet, a name tag or a balloon, in a packed family, on both edges and two sizes', () => {
+test('no effect pixel lands on another pet, a name tag, a balloon or outside its own slot, in a packed family, on both edges and two sizes', () => {
   const ctx = {};
   require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
   // The clip as CSS draws it: inside the outer rect and not inside a hole (path(evenodd, "M0 0H..Z" + holes)).
@@ -198,10 +198,13 @@ test('no effect pixel lands on another pet, a name tag or a balloon, in a packed
       const tag = [Math.min(...xs) - 8, top + size, P + size + 8, top + size + 18];
       const balloon = i => { const b = body(i), w = (b[2] - b[0]) / 2, cx = (b[0] + b[2]) / 2; return flipY ? [cx - w / 2, tag[3] + 2, cx + w / 2, tag[3] + 2 + w * 2] : [cx - w / 2, b[1] - w * 2, cx + w / 2, b[1] + size * .08]; };
       const things = [tag, balloon(0), balloon(2)];
-      for (const i of [0, 2]) for (const [kind, o] of [['aura', {}], ['tool', { seg: 1 }], ['xp', { f0: 2 / 3, f1: 1, lv: 9 }], ['ctx', {}], ['child', { dir: -1, dist: (size * .9 + 4) / (size / 18) }], ['end', {}]]) {
-        const flipX = kind === 'tool' && i > 0, fy = flipY && kind !== 'tool', s = k(i), at = fxPlace(size, FX[kind].ox, flipX, fy);
+      for (const i of [0, 2]) for (const [kind, o] of [['aura', {}], ['tool', { seg: 1 }], ['tool', { seg: 0, above: true }], ['xp', { f0: 2 / 3, f1: 1, lv: 9 }], ['ctx', {}], ['child', { dir: -1, dist: (size * .9 + 4) / (size / 18) }], ['end', {}]]) {
+        const flipX = kind === 'tool' && !o.above && i > 0, fy = flipY && (kind !== 'tool' || !!o.above), s = k(i), at = fxPlace(size, fxRun(kind, { ...o, pet: st => ({ ...fineSprite('/p', st, 0), k: 1 }) }).ox, flipX, fy);
         const L = xs[i] + size / 2 + (at.left - size / 2) * s, T = top + size + (at.top - size) * s, box = [L, T, L + at.width * s, T + at.height * s];
-        const own = body(i), avoid = [...things, ...xs.map((_, j) => j).filter(j => j !== i).map(body)];
+        const own = body(i), cx = xs[i] + size / 2, others = xs.filter((_, j) => j !== i).map(x => x + size / 2);
+        const lo = Math.max(-1e9, ...others.filter(m => m < cx).map(m => (m + cx) / 2)), hi = Math.min(1e9, ...others.filter(m => m > cx).map(m => (m + cx) / 2));
+        // Other pets, tags, balloons, and everything outside its own slot (halfway to the next pet), as pets.html cuts.
+        const avoid = [...things, ...xs.map((_, j) => j).filter(j => j !== i).map(body), [box[0], box[1], lo, box[3]], [hi, box[1], box[2], box[3]]];
         const holes = holesOf(fxClipPath(box, fxHoles(box, own, avoid), at.width, at.height));
         const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, kid: pet, ...o, flipX, flipY: fy }), b = new Buf(), img = { data: new Uint8ClampedArray(W2 * H2 * 4) }, px = new Uint32Array(img.data.buffer);
         for (let f = 0; f < 140 && !r.done; f++) {
@@ -209,7 +212,7 @@ test('no effect pixel lands on another pet, a name tag or a balloon, in a packed
           for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
             if (!(px[y * W2 + x] >>> 24)) continue;
             const lx = (x + .5) * at.width / W2, ly = (y + .5) * at.height / H2; // in the element, CSS px
-            if (holes.some(h => lx > h[0] && lx < h[2] && ly > h[1] && ly < h[3])) continue; // cut out
+            if (holes.some(h => lx >= h[0] - .01 && lx <= h[2] + .01 && ly >= h[1] - .01 && ly <= h[3] + .01)) continue; // cut out (an edge two holes share is cut on both sides)
             const sx = box[0] + lx * s, sy = box[1] + ly * s, e = .01, inside = rr => sx > rr[0] + e && sx < rr[2] - e && sy > rr[1] + e && sy < rr[3] - e; // e: a centre right on an edge
             if (avoid.some(inside) && !inside(own)) { bad.push([size, flipY, i, kind, f]); x = W2; y = H2; f = 1e9; }
           }
@@ -224,6 +227,7 @@ test('no effect pixel lands on another pet, a name tag or a balloon, in a packed
   const hs = JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [[30, 50, 70, 70], [50, 60, 90, 80], [200, 0, 300, 10]])));
   const area = rs => rs.reduce((a, r) => a + (r[2] - r[0]) * (r[3] - r[1]), 0);
   strict.equal(area(hs), 20 * 10 + 10 * 20 + 30 * 20 - 10 * 10, 'the union of both minus the own pet, nothing counted twice, nothing outside the box');
+  strict.equal(area(JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [], [[30, 50, 70, 70]])))), 40 * 20, 'a pet in front is cut out over its own pet too');
 });
 
 test('sessions of one project share a shape; colours tell them apart', () => {
