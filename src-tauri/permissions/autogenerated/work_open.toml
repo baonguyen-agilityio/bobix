@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-work-open"
+description = "Enables the work_open command without any pre-configured scope."
+commands.allow = ["work_open"]
+
+[[permission]]
+identifier = "deny-work-open"
+description = "Denies the work_open command without any pre-configured scope."
+commands.deny = ["work_open"]

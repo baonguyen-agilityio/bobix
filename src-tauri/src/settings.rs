@@ -157,6 +157,30 @@ pub fn load(file: &Path) -> Value {
         .map(|v| sanitize(&v, &d)).unwrap_or(d)
 }
 
+// Written whole to a temporary file, then renamed over the old one: a crash never leaves half a file.
+pub fn save(file: &Path, settings: &Value) -> std::io::Result<()> {
+    if let Some(d) = file.parent() { fs::create_dir_all(d)?; }
+    let tmp = file.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_string_pretty(settings).unwrap_or_default())?;
+    fs::rename(&tmp, file)
+}
+
+// ---------- first-run guide and "What's new" (src/core/news.js) ----------
+// 0.1.4-rc.3 → 0.1.4: a test build shows its release's notes
+pub fn base(v: &str) -> &str { v.split('-').next().unwrap_or(v) }
+
+// Once, the first time this version starts with these settings. `existing`: hooks were already installed, so this
+// person used an older Bobix: skip the guide, keep the notes. A new install sees the guide, not the notes.
+pub fn first_start(settings: &Value, version: &str, existing: bool) -> Option<Value> {
+    if settings["seenVersion"].as_str().is_some_and(|v| !v.is_empty()) { return None; }
+    Some(if existing { json!({ "guideSeen": true }) } else { json!({ "seenVersion": base(version) }) })
+}
+
+// The version whose notes the panel shows, or None.
+pub fn news_for(settings: &Value, version: &str, notes: &str) -> Option<String> {
+    (base(version) == notes && settings["seenVersion"] != notes).then(|| notes.to_string())
+}
+
 // ---------- pet picture options (src/core/pixelate.js normalizeOpts / parseColor) ----------
 const SIZES: [f64; 3] = [32.0, 48.0, 64.0];
 
@@ -386,5 +410,22 @@ mod tests {
         let off = normalize_opts(Some(&json!({ "outline": false, "outlineColor": "rgb(255 0 128)" })), false);
         assert_eq!(off["outlineColor"], "#ff0080");
         assert_eq!(normalize_opts(Some(&off), false), off);
+    }
+
+    #[test]
+    fn whats_new_and_the_guide() {
+        let s = |v: &str| serde_json::json!({ "seenVersion": v });
+        assert_eq!(super::first_start(&s(""), "0.1.4-rc.3", false), Some(serde_json::json!({ "seenVersion": "0.1.4" })));
+        assert_eq!(super::first_start(&s(""), "0.1.4", true), Some(serde_json::json!({ "guideSeen": true })));
+        assert_eq!(super::first_start(&s("0.1.3"), "0.1.4", true), None);
+        assert_eq!(super::news_for(&s("0.1.3"), "0.1.4-rc.1", "0.1.4").as_deref(), Some("0.1.4"));
+        assert_eq!(super::news_for(&s("0.1.4"), "0.1.4", "0.1.4"), None);
+        assert_eq!(super::news_for(&s("0.1.3"), "0.1.5", "0.1.4"), None);
+        let f = std::env::temp_dir().join(format!("bobix-settings-{}/settings.json", std::process::id()));
+        let d = super::defaults();
+        super::save(&f, &d).unwrap();
+        assert_eq!(super::load(&f), d);
+        assert!(std::fs::read_to_string(&f).unwrap().starts_with("{\n  \"language\": \"auto\","), "JSON.stringify(settings, null, 2)");
+        let _ = std::fs::remove_dir_all(f.parent().unwrap());
     }
 }

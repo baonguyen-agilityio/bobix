@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-feedback-info"
+description = "Enables the feedback_info command without any pre-configured scope."
+commands.allow = ["feedback_info"]
+
+[[permission]]
+identifier = "deny-feedback-info"
+description = "Denies the feedback_info command without any pre-configured scope."
+commands.deny = ["feedback_info"]
