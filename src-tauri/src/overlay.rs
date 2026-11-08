@@ -7,6 +7,43 @@ use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, Webview
 
 pub const LABEL: &str = "pets";
 
+// Linux on X11 (XWayland included, see main): the window's input shape lets the mouse through everywhere but over the
+// pets. XWayland only knows where the cursor is while it is over an X11 window, so polling the cursor would never see
+// it reach a pet that sits over a Wayland app: there the page's own mouse events are used instead.
+pub fn shaped() -> bool { cfg!(target_os = "linux") && std::env::var("GDK_BACKEND").map_or(!crate::wayland(), |b| b == "x11") }
+pub fn xwayland() -> bool { cfg!(target_os = "linux") && crate::wayland() && std::env::var("GDK_BACKEND").is_ok_and(|b| b == "x11") }
+
+// The input shape: the pets' rects (CSS px of the window), padded; none at all lets every click through.
+#[cfg(target_os = "linux")]
+fn set_shape(win: &WebviewWindow, rects: &[[f64; 4]]) {
+    use gtk::{cairo::{RectangleInt, Region}, prelude::WidgetExt};
+    const PAD: f64 = 16.0; // around each rect: rects arrive ~10 times a second while pets walk
+    let f = win.scale_factor().unwrap_or(1.0);
+    let Ok(size) = win.inner_size() else { return };
+    let (ww, wh) = (size.width as f64 / f, size.height as f64 / f);
+    let rs: Vec<RectangleInt> = rects.iter().filter_map(|&[x, y, w, h]| {
+        let (l, t) = ((x - PAD).floor().max(0.0), (y - PAD).floor().max(0.0));
+        let (r, b) = ((x + w + PAD).ceil().min(ww), (y + h + PAD).ceil().min(wh));
+        (r > l && b > t).then(|| RectangleInt::new(l as i32, t as i32, (r - l) as i32, (b - t) as i32))
+    }).collect();
+    let w = win.clone();
+    let _ = win.run_on_main_thread(move || {
+        let Ok(g) = w.gtk_window() else { return };
+        let region = if rs.is_empty() { Region::create() } else { Region::create_rectangles(&rs) };
+        g.input_shape_combine_region(Some(&region));
+    });
+}
+#[cfg(not(target_os = "linux"))]
+fn set_shape(_: &WebviewWindow, _: &[[f64; 4]]) {}
+
+// The pets moved (rects from the page): Linux X11 reshapes the window; elsewhere the cursor poll follows them.
+pub fn shape(app: &AppHandle, b: &Bobix) {
+    if !shaped() { return; }
+    let Some(win) = app.get_webview_window(LABEL) else { return };
+    let rects = b.core.lock().unwrap().rects.clone();
+    set_shape(&win, &rects);
+}
+
 // The screen chosen in Settings (by name), else the primary one.
 pub fn target_monitor(app: &AppHandle, display: &str) -> Option<Monitor> {
     if display != "primary" {
@@ -65,15 +102,17 @@ fn on_full_screen_spaces(win: &WebviewWindow) {
 pub fn place(app: &AppHandle, b: &Bobix) {
     let Some(win) = app.get_webview_window(LABEL) else { return };
     if let Some((pos, size)) = bounds(app, b) { let _ = win.set_size(size); let _ = win.set_position(pos); }
+    shape(app, b);
 }
 
-// Shown click-through: the cursor poll lets the mouse in over a pet. Linux drops "always on top" when a window is
-// hidden and shown again: set it every time.
+// Shown click-through: the cursor poll (or, on Linux X11, the input shape) lets the mouse in over a pet. Linux drops
+// "always on top" and "all workspaces" when a window is hidden and shown again: set them every time.
 fn show(win: &WebviewWindow, b: &Bobix) {
     let _ = win.show();
-    b.core.lock().unwrap().interactive = false;
-    let _ = win.set_ignore_cursor_events(true);
+    let rects = { let mut c = b.core.lock().unwrap(); c.interactive = false; c.rects.clone() };
+    if shaped() { set_shape(win, &rects); } else { let _ = win.set_ignore_cursor_events(true); }
     let _ = win.set_always_on_top(true);
+    let _ = win.set_visible_on_all_workspaces(true);
 }
 
 // A full-screen transparent window costs the compositor even when empty: keep it hidden while no pet is out.
@@ -83,11 +122,10 @@ pub fn show_or_hide(app: &AppHandle, b: &Bobix) {
     let visible = win.is_visible().unwrap_or(false);
     if want && !visible {
         show(&win, b);
-        let _ = win.set_visible_on_all_workspaces(true);
     } else if !want && visible {
         let _ = win.hide();
         b.core.lock().unwrap().interactive = false;
-        let _ = win.set_ignore_cursor_events(true);
+        if !shaped() { let _ = win.set_ignore_cursor_events(true); }
     }
 }
 
@@ -104,7 +142,10 @@ pub fn wake(app: &AppHandle, b: &Arc<Bobix>) {
 
 // The overlay ignores the mouse except over a pet: poll the cursor every 33 ms, compare with the pets' rects from the
 // page (CSS px relative to the window), and feed the cursor to the page, which gets no mouse events while ignored.
+// Linux X11: the input shape lets the mouse in, the poll only feeds the cursor; XWayland: no poll (see shaped).
 pub fn track_mouse(app: AppHandle, b: Arc<Bobix>) {
+    if xwayland() { return; }
+    let shaped = shaped();
     thread::spawn(move || {
         let mut last = (f64::NAN, f64::NAN);
         loop {
@@ -120,7 +161,7 @@ pub fn track_mouse(app: AppHandle, b: Arc<Bobix>) {
                 c.interactive = over;
                 flip.then_some(over)
             };
-            if let Some(over) = flip { let _ = win.set_ignore_cursor_events(!over); }
+            if let Some(over) = flip.filter(|_| !shaped) { let _ = win.set_ignore_cursor_events(!over); }
             if (x, y) != last {
                 last = (x, y);
                 let _ = win.eval(format!("window.__bobixEmit && __bobixEmit('mouse', {{ x: {x}, y: {y} }})"));
