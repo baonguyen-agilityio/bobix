@@ -268,7 +268,12 @@ fn sys_locale() -> Option<String> {
 }
 
 // Side session of another Claude desktop session? See state::find_parent for when it looks.
-fn find_parent(s: &mut state::Session, now: u64) -> bool { state::find_parent(s, now, |h| links::parent_of(h, &links::sessions_dir())) }
+fn find_parent(s: &mut state::Session, now: u64) -> bool {
+    let found = state::find_parent(s, now, |h| links::parent_of(h, &links::sessions_dir()));
+    // The real gap between a side session's first event and its parent link (no ids: the timing is what matters).
+    if found { eprintln!("[bobix] side session linked {} ms after its first event ({} tries)", now.saturating_sub(s.seen_at), s.link_tries); }
+    found
+}
 
 // Every 400 ms while a new Claude desktop session is held back (state::linking): look for its parent, and broadcast as
 // soon as it is found or the hold ends, so its pet shows once, in the right place.
