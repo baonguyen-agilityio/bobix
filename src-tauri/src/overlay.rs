@@ -70,7 +70,10 @@ pub fn create(app: &AppHandle, b: &Arc<Bobix>) -> tauri::Result<WebviewWindow> {
     let url = format!("http://127.0.0.1:{}/pets?t={}", b.port, b.token);
     let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url.parse().expect("page url")))
         .title("Bobix pets")
-        .transparent(true).decorations(false).shadow(false).resizable(false).maximizable(false).minimizable(false)
+        .transparent(true).decorations(false).shadow(false).maximizable(false)
+        // Linux (GTK): a window that can't be resized keeps its first size (800×600) as its minimum, so the strip could
+        // not shrink to its height and the pets walked below the screen. Frameless, it can't be resized by hand anyway.
+        .resizable(cfg!(target_os = "linux")).minimizable(false)
         .always_on_top(true).skip_taskbar(true).visible_on_all_workspaces(true)
         .focused(false).focusable(false).accept_first_mouse(true) // macOS: never key, so the first click must reach the page
         .initialization_script(crate::BRIDGE)
