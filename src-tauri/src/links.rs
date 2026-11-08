@@ -1,6 +1,6 @@
 // Which session a Claude desktop session was started from ("side session"), read from that app's own session file:
 // <sessions dir>/<org>/<user>/<local_id>.json, field spawnedFrom.sessionId. Only that field is read. Same as
-// src/core/links.js; the issue/session list for the Work tab comes with it later.
+// src/core/links.js, with the list of Claude desktop sessions the Work tab reads.
 use std::{fs, path::{Path, PathBuf}};
 
 pub fn is_host_id(id: &str) -> bool {
@@ -34,6 +34,48 @@ pub fn parent_of(id: &str, root: &Path) -> Option<String> {
     None
 }
 
+// A Claude desktop session that is not archived (at: last activity, ms). Only these fields are kept.
+#[derive(Clone, Debug)]
+pub struct ClaudeSession { pub id: String, pub cwd: String, pub title: String, pub at: f64 }
+
+// Claude desktop's sessions. A file is parsed again only when it changed (cache: file -> (modified, record)).
+pub fn claude_sessions(root: &Path) -> Vec<ClaudeSession> {
+    use std::{collections::HashMap, sync::Mutex, time::SystemTime};
+    static SEEN: Mutex<Option<HashMap<PathBuf, (SystemTime, Option<ClaudeSession>)>>> = Mutex::new(None);
+    let mut guard = SEEN.lock().unwrap();
+    let seen = guard.get_or_insert_with(HashMap::new);
+    let (mut out, mut files) = (vec![], std::collections::HashSet::new());
+    for org in dirs(root) {
+        for user in dirs(&org) {
+            let Ok(rd) = fs::read_dir(&user) else { continue };
+            for e in rd.flatten() {
+                let n = e.file_name().to_string_lossy().into_owned();
+                let Some(id) = n.strip_suffix(".json").filter(|id| is_host_id(id)) else { continue };
+                let file = e.path();
+                let Ok(m) = fs::metadata(&file).and_then(|m| m.modified()) else { continue };
+                files.insert(file.clone());
+                if seen.get(&file).is_none_or(|c| c.0 != m) {
+                    let o: Option<serde_json::Value> = fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok());
+                    let ms = m.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.0);
+                    let rec = o.filter(|o| o["isArchived"] != true).and_then(|o| Some(ClaudeSession {
+                        id: id.into(), cwd: o["cwd"].as_str()?.into(), title: o["title"].as_str()?.into(),
+                        at: Some(crate::js::js_number(&o["lastActivityAt"])).filter(|n| *n != 0.0 && n.is_finite()).unwrap_or(ms),
+                    }));
+                    seen.insert(file.clone(), (m, rec));
+                }
+                if let Some(r) = &seen[&file].1 { out.push(r.clone()); }
+            }
+        }
+    }
+    seen.retain(|f, _| files.contains(f));
+    out
+}
+
+// The newest of those sessions in folder `dir` whose name `named` accepts (an issue's, see work::names_issue).
+pub fn issue_session(list: &[ClaudeSession], dir: &str, named: impl Fn(&str) -> bool) -> Option<String> {
+    list.iter().filter(|s| s.cwd == dir && named(&s.title)).max_by(|a, b| a.at.total_cmp(&b.at)).map(|s| s.id.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,6 +94,32 @@ mod tests {
         assert_eq!(parent_of("local_missing", &root), None);
         assert_eq!(parent_of("../org-1/user-1/local_child-1", &root), None);
         assert_eq!(parent_of("local_child-1", &root.join("nope")), None);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_issues_claude_session_is_found_by_its_name() {
+        let root = std::env::temp_dir().join(format!("bobix-cs-{}", std::process::id()));
+        let u = root.join("org/user");
+        fs::create_dir_all(&u).unwrap();
+        let put = |id: &str, o: serde_json::Value| fs::write(u.join(format!("local_{id}.json")), o.to_string()).unwrap();
+        put("a", serde_json::json!({ "cwd": "/src/shop", "title": "shop #23 Item list...", "lastActivityAt": 100 }));
+        put("b", serde_json::json!({ "cwd": "/src/shop", "title": "[SHO-23] Item list...", "lastActivityAt": 300 }));
+        put("c", serde_json::json!({ "cwd": "/src/shop", "title": "shop #23 newer but archived", "lastActivityAt": 900, "isArchived": true }));
+        put("d", serde_json::json!({ "cwd": "/src/shop", "title": "shop #231 other issue", "lastActivityAt": 950 }));
+        put("e", serde_json::json!({ "cwd": "/src/other", "title": "shop #23 other folder", "lastActivityAt": 990 }));
+        put("f", serde_json::json!({ "cwd": "/src/shop", "title": "shop #24", "lastActivityAt": 10 }));
+        fs::write(u.join("notes.json"), "{}").unwrap();
+        let named = |iid| move |t: &str| crate::work::names_issue(t, "SHO", "g/shop", iid);
+        let list = claude_sessions(&root);
+        assert_eq!(list.len(), 5);
+        assert_eq!(issue_session(&list, "/src/shop", named(23)).as_deref(), Some("local_b"));
+        assert_eq!(issue_session(&list, "/src/shop", named(24)).as_deref(), Some("local_f"));
+        assert_eq!(issue_session(&list, "/src/shop", named(25)), None);
+        put("b", serde_json::json!({ "cwd": "/src/shop", "title": "renamed by hand", "lastActivityAt": 400 }));
+        let f = fs::File::options().write(true).open(u.join("local_b.json")).unwrap();
+        f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(issue_session(&claude_sessions(&root), "/src/shop", named(23)).as_deref(), Some("local_a"), "a changed file is read again");
         let _ = fs::remove_dir_all(&root);
     }
 }

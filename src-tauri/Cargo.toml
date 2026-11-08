@@ -8,7 +8,7 @@ publish = false
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.12", features = ["macos-private-api"] }
+tauri = { version = "2.12", features = ["macos-private-api", "tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
@@ -18,6 +18,8 @@ fancy-regex = "0.14"
 indexmap = "2"
 getrandom = "0.3"
 tauri-plugin-opener = "2"
+percent-encoding = "2"
+arboard = { version = "3", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

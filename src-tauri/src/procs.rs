@@ -21,27 +21,39 @@ pub fn is_alive(pid: u32) -> bool {
     }
 }
 
-// Runs a command and returns its trimmed output, or None when it fails or takes too long (PowerShell can take several
-// seconds to start on a cold Windows machine).
-fn run(cmd: &str, args: &[&str]) -> Option<String> {
+// What a command printed. `ok`: it ran and exited 0; `missing`: there is no such program.
+pub struct Ran { pub ok: bool, pub missing: bool, pub out: String, pub err: String }
+
+// Runs a command (argument list, never a shell) for at most `secs` seconds; stdout and stderr are read while it runs, so
+// a long output can't fill the pipe and stall it.
+pub fn exec(cmd: &str, args: &[&str], secs: u64, env: &[(&str, &str)]) -> Ran {
     let mut c = Command::new(cmd);
-    c.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    c.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).envs(env.iter().copied());
     #[cfg(windows)]
     { use std::os::windows::process::CommandExt; c.creation_flags(0x0800_0000); } // CREATE_NO_WINDOW
-    let mut child = c.spawn().ok()?;
-    // Read while it runs: a long output would otherwise fill the pipe and stall the child.
-    let reader = child.stdout.take().map(|mut so| thread::spawn(move || { let mut o = String::new(); let _ = std::io::Read::read_to_string(&mut so, &mut o); o }));
-    let limit = Instant::now() + Duration::from_secs(if cmd == "powershell" { 15 } else { 4 });
-    loop {
+    let mut child = match c.spawn() {
+        Ok(ch) => ch,
+        Err(e) => return Ran { ok: false, missing: e.kind() == std::io::ErrorKind::NotFound, out: String::new(), err: e.to_string() },
+    };
+    let read = |p: Option<Box<dyn std::io::Read + Send>>| p.map(|mut p| thread::spawn(move || { let mut v = Vec::new(); let _ = p.read_to_end(&mut v); String::from_utf8_lossy(&v).into_owned() }));
+    let (so, se) = (read(child.stdout.take().map(|x| Box::new(x) as _)), read(child.stderr.take().map(|x| Box::new(x) as _)));
+    let limit = Instant::now() + Duration::from_secs(secs);
+    let ok = loop {
         match child.try_wait() {
-            Ok(Some(st)) => {
-                let out = reader.and_then(|r| r.join().ok()).unwrap_or_default();
-                return st.success().then(|| out.trim().to_string());
-            }
+            Ok(Some(st)) => break st.success(),
             Ok(None) if Instant::now() < limit => thread::sleep(Duration::from_millis(20)),
-            _ => { let _ = child.kill(); let _ = child.wait(); return None; }
+            _ => { let _ = child.kill(); let _ = child.wait(); break false; }
         }
-    }
+    };
+    let get = |h: Option<thread::JoinHandle<String>>| h.and_then(|h| h.join().ok()).unwrap_or_default();
+    Ran { ok, missing: false, out: get(so), err: get(se) }
+}
+
+// Its trimmed output, or None when it fails or takes too long (PowerShell can take several seconds to start on a cold
+// Windows machine).
+fn run(cmd: &str, args: &[&str]) -> Option<String> {
+    let r = exec(cmd, args, if cmd == "powershell" { 15 } else { 4 }, &[]);
+    r.ok.then(|| r.out.trim().to_string())
 }
 fn out(cmd: &str, args: &[&str]) -> String { run(cmd, args).unwrap_or_default() }
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-work-refresh"
+description = "Enables the work_refresh command without any pre-configured scope."
+commands.allow = ["work_refresh"]
+
+[[permission]]
+identifier = "deny-work-refresh"
+description = "Denies the work_refresh command without any pre-configured scope."
+commands.deny = ["work_refresh"]

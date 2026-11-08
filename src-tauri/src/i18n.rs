@@ -15,6 +15,12 @@ fn block(lang: &str) -> HashMap<&'static str, String> {
     }).collect()
 }
 
+// The release whose notes news.items describes (NEWS in i18n.js).
+pub static NEWS: LazyLock<String> = LazyLock::new(|| {
+    let at = SOURCE.find("const NEWS = '").map(|i| i + 14).unwrap_or(0);
+    SOURCE[at..].split('\'').next().unwrap_or("").to_string()
+});
+
 static EN: LazyLock<HashMap<&'static str, String>> = LazyLock::new(|| block("en"));
 static VI: LazyLock<HashMap<&'static str, String>> = LazyLock::new(|| block("vi"));
 
@@ -36,5 +42,20 @@ mod tests {
         assert_eq!(t("en", "ask.deny", &[]), "Deny");
         assert_eq!(t("en", "test.title", &[]), "Test session");
         assert_eq!(t("en", "no.such.key", &[]), "no.such.key");
+    }
+
+    // The strings parsed here are exactly the pages' own (node reads i18n.js as the pages do).
+    #[test]
+    fn same_strings_as_the_pages() {
+        let js = "const I = require(process.argv[1]); console.log(JSON.stringify({ en: I.STR.en, vi: I.STR.vi, news: I.NEWS }))";
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/ui/i18n.js");
+        let out = std::process::Command::new("node").args(["-e", js, file]).output().expect("node runs the parity check");
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("node printed the strings");
+        for (lang, map) in [("en", &*super::EN), ("vi", &*super::VI)] {
+            let o = v[lang].as_object().unwrap();
+            assert_eq!(o.len(), map.len(), "{lang}: same number of strings");
+            for (k, s) in o { assert_eq!(map.get(k.as_str()).map(String::as_str), s.as_str(), "{lang} {k}"); }
+        }
+        assert_eq!(v["news"], *super::NEWS);
     }
 }

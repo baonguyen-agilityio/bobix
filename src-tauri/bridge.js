@@ -1,5 +1,5 @@
 // window.bobix for the pages served from 127.0.0.1, as src/preload.js gives it in Electron, backed by Tauri commands.
-// The app sends events to the page with window.__bobixEmit(channel, value). Calls not ported yet answer null.
+// The app sends events to the page with window.__bobixEmit(channel, value). Pet pictures are not ported yet: null.
 (() => {
   if (window.bobix || !window.__TAURI_INTERNALS__) return;
   const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
@@ -17,14 +17,22 @@
 
   window.bobix = {
     getState: () => invoke('state'),
-    setSettings: later, resetSettings: later, revealSettings: later, copyDiagnostics: later, feedbackInfo: later, sendFeedback: later,
+    setSettings: patch => invoke('settings_set', { patch }),
+    resetSettings: () => invoke('settings_reset'),
+    revealSettings: () => invoke('reveal_settings'),
+    copyDiagnostics: () => invoke('diagnostics_copy'),
+    feedbackInfo: () => invoke('feedback_info'),
+    sendFeedback: v => invoke('feedback_send', { v: v || {} }), // opens GitHub's form; the person submits it there
     installHooks: () => invoke('install_hooks'), uninstallHooks: () => invoke('uninstall_hooks'),
     testEvent: () => invoke('test_event'),
     openSession: id => invoke('open_session', { id }),
-    answer: (id, choice) => invoke('answer', { id, choice }),
+    answer: (id, choice) => invoke('answer', { id, choice }), // a waiting permission request: allow | always | deny
     petImage: later,
-    setPet: (id, mode) => invoke('pet_set', { id, mode }),
-    refreshWork: later, openIssue: later, cancelNew: later, startIssue: later,
+    setPet: (id, mode) => invoke('pet_set', { id, mode }), // mode: auto | hidden | shown; id '*' = every pet
+    refreshWork: () => invoke('work_refresh'), // GitLab issues, read again now (only while GitLab is on)
+    openIssue: url => invoke('work_open', { url }), // in the browser; only links to the configured GitLab
+    cancelNew: dir => invoke('work_cancel', { dir }), // stop waiting for a new session in that folder
+    startIssue: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_start', { path, iid }) : later()),
     onSettings: on('settings'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),
     // overlay only
     petClick: id => invoke('pet_click', { id }),

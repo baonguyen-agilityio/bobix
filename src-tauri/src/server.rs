@@ -32,6 +32,7 @@ pub struct Ctx {
     pub snapshot: Box<dyn Fn() -> String + Send + Sync>,
     pub asset: Box<dyn Fn(&str) -> Option<Vec<u8>> + Send + Sync>,
     pub tx: broadcast::Sender<String>,
+    pub on_show: Box<dyn Fn(String) + Send + Sync>, // another copy of Bobix was opened: its version
 }
 
 const MAX_BODY: usize = 8_000_000;
@@ -105,6 +106,14 @@ async fn handle(State(ctx): State<Arc<Ctx>>, req: Request) -> Response {
             _ => status(StatusCode::NO_CONTENT),
         };
     }
+    // One Bobix at a time: a copy that finds the port taken knocks here (show_running) and quits.
+    if req.method() == Method::POST && path == "/show" {
+        if !ok_token(&ctx.token, req.headers().get("x-bobix").and_then(|v| v.to_str().ok())) { return status(StatusCode::FORBIDDEN); }
+        let Ok(body) = to_bytes(req.into_body(), 4096).await else { return status(StatusCode::PAYLOAD_TOO_LARGE) };
+        let v = serde_json::from_slice::<Value>(&body).ok().and_then(|v| v["version"].as_str().map(|s| s.chars().take(40).collect())).unwrap_or_default();
+        (ctx.on_show)(v);
+        return status(StatusCode::NO_CONTENT);
+    }
     if req.method() != Method::GET { return status(StatusCode::METHOD_NOT_ALLOWED); }
     if path == "/events" {
         if !ok_token(&ctx.token, query_t(query.as_deref()).as_deref()) { return status(StatusCode::FORBIDDEN); }
@@ -143,6 +152,17 @@ async fn handle(State(ctx): State<Arc<Ctx>>, req: Request) -> Response {
     (h, bytes).into_response()
 }
 
+// Tells the Bobix that holds `port` to show its panel; true when it answered (then this copy quits).
+pub fn show_running(port: u16, token: &str, version: &str) -> bool {
+    use std::io::{Read, Write};
+    let Ok(mut c) = std::net::TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_secs(2)) else { return false };
+    let _ = c.set_read_timeout(Some(Duration::from_secs(3)));
+    let body = serde_json::json!({ "version": version }).to_string();
+    let req = format!("POST /show HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nx-bobix: {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+    let mut out = String::new();
+    c.write_all(req.as_bytes()).is_ok() && c.read_to_string(&mut out).is_ok() && out.starts_with("HTTP/1.1 204")
+}
+
 // Binds now (so a busy port is known before any window opens) and serves on the async runtime.
 pub fn start(port: u16, ctx: Arc<Ctx>) -> std::io::Result<u16> {
     let l = std::net::TcpListener::bind(("127.0.0.1", port))?;
@@ -176,6 +196,8 @@ mod tests {
         let token = "a".repeat(48);
         let got = Arc::new(Mutex::new(0));
         let g = got.clone();
+        let shown = Arc::new(Mutex::new(String::new()));
+        let s = shown.clone();
         let (tx, _) = broadcast::channel(4);
         let ctx = Arc::new(Ctx {
             token: token.clone(),
@@ -183,6 +205,7 @@ mod tests {
             snapshot: Box::new(|| r#"{"sessions":[]}"#.into()),
             asset: Box::new(|f| (f == "pets.html").then(|| b"<p>".to_vec())),
             tx,
+            on_show: Box::new(move |v| *s.lock().unwrap() = v),
         });
         let port = start(0, ctx).unwrap();
         std::thread::sleep(Duration::from_millis(100));
@@ -201,6 +224,9 @@ mod tests {
         assert_eq!(post(&format!("x-bobix: {token}\r\n"), &local), 204);
         assert_eq!(http(port, &format!("PUT / HTTP/1.1\r\nHost: {local}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")), 405);
         assert_eq!(*got.lock().unwrap(), 1);
+        assert!(!show_running(port, "wrong", "9.9.9"), "a copy without the token can't reach the panel");
+        assert!(show_running(port, &token, "9.9.9"));
+        assert_eq!(*shown.lock().unwrap(), "9.9.9", "the running copy learns the other's version");
     }
 
     // The real hook.js (node) against this server: a held permission request prints the answer for Claude Code,
@@ -237,6 +263,7 @@ mod tests {
             snapshot: Box::new(|| "{}".into()),
             asset: Box::new(|_| None),
             tx,
+            on_show: Box::new(|_| {}),
         });
         let port = start(0, ctx).unwrap();
         let hook = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/hook/hook.js");

@@ -1,8 +1,9 @@
 // BOBIX_SMOKE=<dir>: start, install the hooks (run it with BOBIX_HOME set to a scratch folder), show a pretend session
 // and a real one delivered by the installed hook.js, answer a permission request it holds, check the pets overlay is
-// on screen, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke() in src/main.js; the pet
-// picture worker and the screenshots come with those parts of the port.
-use crate::{answers, hooks, overlay, paths, Bobix};
+// on screen, open the panel and use its bridge (state, a settings change that is saved, feedback), check the tray, the
+// session's git status and a second start, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke()
+// in src/main.js; the pet picture worker and the screenshots come with those parts of the port.
+use crate::{answers, hooks, overlay, panel, paths, Bobix};
 use serde_json::{json, Value};
 use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
 use tauri::{AppHandle, Manager};
@@ -97,9 +98,44 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             Some(Value::Object(m)) => for (k, v) in m { report[k] = v; },
             _ => report["pets"] = json!("error: no answer from the page"),
         }
-        report["pageErrors"] = json!(b.core.lock().unwrap().page_errors);
+
+        // The panel, through the same bridge the person's clicks use. (Copy diagnostics is left out: it would replace
+        // the clipboard of the machine running this.)
+        panel::show(&app, &b, None, Some("settings".into()), None);
+        let t0 = Instant::now();
+        while app.get_webview_window(panel::LABEL).is_none() && t0.elapsed() < Duration::from_secs(15) { thread::sleep(Duration::from_millis(100)); }
+        report["panelMs"] = json!(t0.elapsed().as_millis() as u64);
+        thread::sleep(Duration::from_millis(3000)); // the page loads and subscribes
+        match app.get_webview_window(panel::LABEL) {
+            None => report["panel"] = json!("error: no window"),
+            Some(w) => {
+                let _ = w.eval("(async () => { const r = {}; try { \
+                    const st = await bobix.getState(); r.displays = (st.displays || []).length; r.screen = !!(st.screen && st.screen.width); \
+                    r.size = (await bobix.setSettings({ size: 64 })).size; r.feedbackLines = ((await bobix.feedbackInfo()).lines || []).length; \
+                    r.tabs = document.querySelectorAll('.tab[data-tab]').length; r.selected = document.querySelector('.tab[aria-selected=true]')?.dataset.tab || null; \
+                    } catch (e) { r.error = String(e); } window.__TAURI_INTERNALS__.invoke('smoke_page', { data: { panel: r } }); })()");
+                let until = Instant::now() + Duration::from_secs(10);
+                while PAGE.lock().unwrap().is_none() && Instant::now() < until { thread::sleep(Duration::from_millis(100)); }
+                report["panel"] = PAGE.lock().unwrap().take().map(|v| v["panel"].clone()).unwrap_or(json!("error: no answer from the panel"));
+            }
+        }
+        thread::sleep(Duration::from_millis(500)); // the 300 ms save
+        report["settingsSaved"] = json!(crate::settings::load(&paths::settings_file())["size"] == 64);
+        report["tray"] = json!(app.tray_by_id("main").is_some());
+        // Start at login, on and off again (macOS / Linux: files under BOBIX_HOME; Windows: the runner's own registry).
+        if std::env::var_os("BOBIX_HOME").is_some() {
+            let on = crate::update_settings(&b, json!({ "autostart": true }))["autostart"] == true && crate::autostart::get();
+            let off = crate::update_settings(&b, json!({ "autostart": false }))["autostart"] == false && !crate::autostart::get();
+            report["autostart"] = json!(on && off);
+        }
+        report["git"] = b.core.lock().unwrap().sessions.get(sid).and_then(|s| s.git.as_ref()).map(|g| json!({ "branch": g["branch"], "worktrees": g["worktrees"] })).unwrap_or(json!("none"));
+        report["secondStart"] = json!(crate::server::show_running(b.port, &b.token, &app.package_info().version.to_string()));
+        report["work"] = serde_json::from_str::<Value>(&b.snapshot()).map(|v| v["work"]["status"].clone()).unwrap_or_default();
+        report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
-            && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object();
+            && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object()
+            && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 3 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
+            && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
         write(&report);
         log(&format!("done {report}"));

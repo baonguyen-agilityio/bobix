@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-work-start"
+description = "Enables the work_start command without any pre-configured scope."
+commands.allow = ["work_start"]
+
+[[permission]]
+identifier = "deny-work-start"
+description = "Denies the work_start command without any pre-configured scope."
+commands.deny = ["work_start"]
