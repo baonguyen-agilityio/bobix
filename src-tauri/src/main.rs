@@ -1,5 +1,5 @@
 // Bobix on Tauri: the Rust core (hook events, session state, settings, local server), the pets overlay, the panel and
-// the tray. Port of src/main.js, part by part; what is not ported yet (pet pictures) still runs only in the Electron build.
+// the tray. Port of src/main.js.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod answers;
@@ -13,6 +13,7 @@ mod notify;
 mod overlay;
 mod panel;
 mod paths;
+mod petstore;
 mod procs;
 mod project;
 mod server;
@@ -57,7 +58,7 @@ pub struct Bobix {
 }
 
 impl Bobix {
-    // What the pages get on /events: the same JSON as snapshot() in src/main.js. Pet pictures come later.
+    // What the pages get on /events: the same JSON as snapshot() in src/main.js.
     pub fn snapshot(&self) -> String {
         let c = self.core.lock().unwrap();
         let (view, issue_of) = c.work.view(&c.settings, &c.sessions);
@@ -70,7 +71,7 @@ impl Bobix {
             let pic = &pics[&project];
             v["parent"] = s.parent_host.as_deref().and_then(|p| by_host.get(p)).map(|id| json!(id)).unwrap_or(Value::Null);
             v["project"] = json!(project);
-            v["image"] = Value::Null;
+            v["image"] = json!(petstore::served(pic));
             v["pixel"] = json!(pic.is_object());
             v["whole"] = json!(pic["opts"]["whole"] == true);
             v["issue"] = issue_of.get(&s.id).cloned().unwrap_or(Value::Null);
@@ -736,8 +737,91 @@ fn page_error(msg: String, b: B) {
 #[tauri::command]
 fn smoke_page(data: Value) { smoke::page_result(data); }
 
+// ---------- a project's own pet picture ----------
+// Chosen in the panel from a file dialog run here (pages never get file access). The pixel art runs in the panel's own
+// worker (src/ui/pet-import.js, pixelate.js) with options the person adjusts in a preview; only Save writes anything.
+// The original is kept next to the result, so the picture can be adjusted again later (petstore).
+fn project_of(b: &Bobix, id: &str) -> Option<String> {
+    b.core.lock().unwrap().sessions.get(id).and_then(|s| s.project.clone()).filter(|p| !p.is_empty())
+}
+
+#[tauri::command]
+async fn pet_choose(id: String, b: B<'_>, app: AppHandle) -> Result<Value, ()> {
+    use base64::Engine;
+    use tauri_plugin_dialog::DialogExt;
+    let Some(project) = project_of(&b, &id) else { return Ok(json!({ "ok": false })) };
+    let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "pane.petPick", &[]);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut d = app.dialog().file().set_title(title).add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]);
+        if let Some(w) = app.get_webview_window(panel::LABEL) { d = d.set_parent(&w); }
+        let Some(path) = d.blocking_pick_file().and_then(|f| f.into_path().ok()) else { return json!({ "ok": false }) };
+        let bytes = match std::fs::metadata(&path) {
+            Ok(m) if m.len() as usize > petstore::MAX_PICTURE => return json!({ "ok": false, "reason": "big" }),
+            Ok(_) => std::fs::read(&path).ok(),
+            Err(_) => None, // gone or unreadable since the dialog closed
+        };
+        match bytes.as_deref().and_then(|x| petstore::kind_of(x).map(|k| (x, k))) {
+            Some((x, kind)) => json!({ "ok": true, "project": project, "kind": kind, "data": base64::engine::general_purpose::STANDARD.encode(x) }),
+            None => json!({ "ok": false, "reason": "bad" }),
+        }
+    }).await.map_err(|_| ())
+}
+
+// The stored original of a project's picture, to adjust it again.
+#[tauri::command]
+fn pet_original(id: String, b: B) -> Value {
+    use base64::Engine;
+    let Some(project) = project_of(&b, &id) else { return json!({ "ok": false, "reason": "gone" }) };
+    let entry = b.core.lock().unwrap().settings["petImages"][&project].clone();
+    match petstore::read_original(&petstore::dir(), &entry) {
+        Some((x, opts)) => json!({ "ok": true, "project": project, "kind": petstore::kind_of(&x), "data": base64::engine::general_purpose::STANDARD.encode(&x), "opts": opts }),
+        None => json!({ "ok": false, "reason": "gone" }),
+    }
+}
+
+// Save: the result the panel made, checked (a PNG / GIF of pixel-art size) before anything is written. Settings are
+// saved before the old files go: settings on disk still naming them would show a lost picture after a crash.
+#[tauri::command]
+async fn pet_save(id: String, project: String, original: String, result: String, ext: String, opts: Value, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine;
+        if project_of(&b, &id).as_deref() != Some(project.as_str()) { return json!({ "ok": false, "reason": "gone" }); }
+        let dec = |s: &str| base64::engine::general_purpose::STANDARD.decode(s).ok();
+        let (Some(original), Some(result)) = (dec(&original), dec(&result)) else { return json!({ "ok": false, "reason": "save" }) };
+        let kind = petstore::kind_of(&original);
+        if original.len() > petstore::MAX_PICTURE || kind.is_none() || !petstore::result_ok(&result, &ext) { return json!({ "ok": false, "reason": "save" }); }
+        let (images, old) = { let c = b.core.lock().unwrap(); (c.settings["petImages"].clone(), c.settings["petImages"][&project].clone()) };
+        let images = match petstore::save_import(&petstore::dir(), &images, &project, &original, kind.unwrap(), &result, &ext, &opts) {
+            Ok(i) => i,
+            Err(e) => { b.log_err(format!("pet picture: {e}")); return json!({ "ok": false, "reason": "save" }); }
+        };
+        let saved = update_settings(&b, json!({ "petImages": images }));
+        if !saved["petImages"][&project].is_object() { return json!({ "ok": false, "reason": "save" }); }
+        save_now(&b);
+        petstore::release(&petstore::dir(), &saved["petImages"], &old);
+        b.broadcast();
+        json!({ "ok": true })
+    }).await.map_err(|_| ())
+}
+
+// Default pet: the project's picture entry goes, and its files unless another project uses them.
+#[tauri::command]
+fn pet_reset(id: String, b: B) -> Value {
+    let Some(project) = project_of(&b, &id) else { return json!({ "ok": false }) };
+    let (mut rest, old) = { let c = b.core.lock().unwrap(); (c.settings["petImages"].clone(), c.settings["petImages"][&project].clone()) };
+    if old.is_null() { return json!({ "ok": false }); }
+    rest.as_object_mut().map(|o| o.shift_remove(&project));
+    let saved = update_settings(&b, json!({ "petImages": rest }));
+    save_now(&b);
+    petstore::release(&petstore::dir(), &saved["petImages"], &old);
+    b.broadcast();
+    json!({ "ok": true })
+}
+
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
-    "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start"];
+    "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
+    "pet_choose", "pet_original", "pet_save", "pet_reset"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -820,7 +904,8 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start])
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start,
+            pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement
@@ -846,6 +931,7 @@ fn main() {
                 asset: Box::new(move |f| assets.asset_resolver().get(f.to_string()).map(|a| a.bytes)),
                 tx: b.tx.clone(),
                 on_show: Box::new(move |v| on_second_start(&ob, v)),
+                pet_dir: Some(petstore::dir()),
             });
             if let Err(e) = server::start(port, ctx) {
                 // One Bobix at a time: the running one shows its panel (and hears this copy's version).
@@ -882,6 +968,7 @@ fn main() {
             if !has_hooks() { panel::show(&handle, &b, None, Some("setup".into()), None); } // first run: help connect Claude Code
             Ok(())
         })
+        .plugin(tauri_plugin_dialog::init())
         .build(tauri::generate_context!())
         .expect("error while starting Bobix")
         .run(move |app, e| match e {

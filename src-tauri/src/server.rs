@@ -33,10 +33,12 @@ pub struct Ctx {
     pub asset: Box<dyn Fn(&str) -> Option<Vec<u8>> + Send + Sync>,
     pub tx: broadcast::Sender<String>,
     pub on_show: Box<dyn Fn(String) + Send + Sync>, // another copy of Bobix was opened: its version
+    pub pet_dir: Option<std::path::PathBuf>, // project pet pictures (petstore)
 }
 
 const MAX_BODY: usize = 8_000_000;
-const ASSETS: [&str; 5] = ["theme.css", "creature.js", "i18n.js", "markdown.js", "log.js"];
+const ASSETS: [&str; 11] = ["theme.css", "creature.js", "i18n.js", "markdown.js", "log.js", "pet-import.js", "pixelate.js", "pixelate-worker.js",
+    "gif/lzw.js", "gif/deinterlace.js", "gif/gifenc.js"];
 
 fn ok_host(h: Option<&HeaderValue>) -> bool {
     let Some(h) = h.and_then(|h| h.to_str().ok()) else { return false };
@@ -132,6 +134,16 @@ async fn handle(State(ctx): State<Arc<Ctx>>, req: Request) -> Response {
         // Keep-alive comment so proxies / sleeping laptops don't silently drop the stream.
         return Sse::new(all).keep_alive(KeepAlive::new().interval(Duration::from_secs(25)).text("ping")).into_response();
     }
+    // Pictures chosen for a project's pet: token required (they are the person's own files); the originals folder is
+    // out of reach (a name is 24 hex characters and an extension, nothing else).
+    if let Some(name) = path.strip_prefix("/pet-image/") {
+        let ok_name = name.split_once('.').is_some_and(|(h, e)| h.len() == 24 && h.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) && (e == "png" || e == "gif"));
+        if !ok_name { return status(StatusCode::NOT_FOUND); }
+        let (Some(dir), true) = (ctx.pet_dir.as_ref(), ok_token(&ctx.token, query_t(query.as_deref()).as_deref())) else { return status(StatusCode::FORBIDDEN) };
+        let Ok(bytes) = tokio::fs::read(dir.join(name)).await else { return status(StatusCode::NOT_FOUND) };
+        let ty = if name.ends_with(".png") { "image/png" } else { "image/gif" };
+        return ([(header::CONTENT_TYPE, ty), (header::CACHE_CONTROL, "private, max-age=31536000, immutable")], bytes).into_response();
+    }
     let rel = path.strip_prefix("/ui/").unwrap_or("");
     let file = match path.as_str() {
         "/" => "panel.html",
@@ -197,6 +209,8 @@ mod tests {
         let got = Arc::new(Mutex::new(0));
         let g = got.clone();
         let shown = Arc::new(Mutex::new(String::new()));
+        let pets = std::env::temp_dir().join(format!("bobix-pets-route-{}", std::process::id()));
+        let e = crate::petstore::save_import(&pets, &serde_json::json!({}), "/p", b"\x89PNG\r\n\x1a\n original", "png", b"\x89PNG\r\n\x1a\n result", "png", &serde_json::json!({})).unwrap()["/p"].clone();
         let s = shown.clone();
         let (tx, _) = broadcast::channel(4);
         let ctx = Arc::new(Ctx {
@@ -206,6 +220,7 @@ mod tests {
             asset: Box::new(|f| (f == "pets.html").then(|| b"<p>".to_vec())),
             tx,
             on_show: Box::new(move |v| *s.lock().unwrap() = v),
+            pet_dir: Some(pets.clone()),
         });
         let port = start(0, ctx).unwrap();
         std::thread::sleep(Duration::from_millis(100));
@@ -227,6 +242,13 @@ mod tests {
         assert!(!show_running(port, "wrong", "9.9.9"), "a copy without the token can't reach the panel");
         assert!(show_running(port, &token, "9.9.9"));
         assert_eq!(*shown.lock().unwrap(), "9.9.9", "the running copy learns the other's version");
+        let (file, src) = (e["file"].as_str().unwrap(), e["src"].as_str().unwrap());
+        assert_eq!(get(&format!("/pet-image/{file}?t={token}")), 200);
+        assert_eq!(get(&format!("/pet-image/{file}")), 403, "token required");
+        assert_eq!(get(&format!("/pet-image/{src}?t={token}")), 404, "the original is not served by its name");
+        assert_eq!(get(&format!("/pet-image/originals/{src}?t={token}")), 404);
+        assert_eq!(get(&format!("/pet-image/originals%2F{src}?t={token}")), 404);
+        let _ = std::fs::remove_dir_all(&pets);
     }
 
     // The real hook.js (node) against this server: a held permission request prints the answer for Claude Code,
@@ -264,6 +286,7 @@ mod tests {
             asset: Box::new(|_| None),
             tx,
             on_show: Box::new(|_| {}),
+            pet_dir: None,
         });
         let port = start(0, ctx).unwrap();
         let hook = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/hook/hook.js");

@@ -1,10 +1,21 @@
 // A pet picture (GIF, PNG, JPG or WebP) turned once, at import, into small pixel art that looks like the code-drawn
-// creatures (ui/creature.js): flat colours, a 1 px dark outline, hard edges. Pure Node, so it runs in a worker thread
-// and in the tests; the main process decodes PNG/JPG/WebP and hands their pixels to fromRGBA.
-const zlib = require('zlib');
-const { lzw } = require('./gif/lzw');
-const { deinterlace } = require('./gif/deinterlace');
-const { GIFEncoder } = require('./gif/gifenc');
+// creatures (ui/creature.js): flat colours, a 1 px dark outline, hard edges. Plain JavaScript with no Node or browser
+// API, so it runs in the panel's Web Worker (pixelate-worker.js) and in the node tests; PNG/JPG/WebP are decoded by the
+// page and handed over as pixels (fromRGBA). The GIF helpers in gif/ are CommonJS: the worker loads them into `exports`.
+(function (root) {
+'use strict';
+const { lzw } = typeof require === 'function' ? require('./gif/lzw') : root.exports;
+const { deinterlace } = typeof require === 'function' ? require('./gif/deinterlace') : root.exports;
+const { GIFEncoder } = typeof require === 'function' ? require('./gif/gifenc') : root.exports;
+
+// Byte helpers (no Node Buffer here).
+const latin1 = (b, from, to) => String.fromCharCode(...b.subarray(from, to));
+function concat(parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
 
 // whole: the pet is the picture itself, not a face in its project's creature. How the pet wears it; the pixel art ignores it.
 const DEFAULTS = { size: 48, colors: 16, accents: 3, clean: true, outline: true, removeBg: false, whole: false };
@@ -127,7 +138,7 @@ const isOpaque = rgba => { for (let i = 3; i < rgba.length; i += 4) if (rgba[i] 
 // and the NETSCAPE2.0 loop count. A file cut short keeps the images that are whole; none at all throws.
 function parseGif(b) {
   const u16 = p => b[p] | b[p + 1] << 8;
-  if (b.length < 13 || b.toString('latin1', 0, 3) !== 'GIF') throw new Error('not a GIF');
+  if (b.length < 13 || latin1(b, 0, 3) !== 'GIF') throw new Error('not a GIF');
   const table = (p, flags) => (flags & 0x80 ? b.subarray(p, p + 3 * (2 << (flags & 7))) : null);
   // A GIF without a loop block plays once in a browser; a pet keeps moving, so it loops forever (0) here too.
   const gif = { width: u16(6), height: u16(8), gct: table(13, b[10]), loop: 0, images: [] };
@@ -139,7 +150,7 @@ function parseGif(b) {
       const label = b[p + 1], end = skip(p + 2);
       if (end < 0) break;
       if (label === 0xf9 && b[p + 2] >= 4) gce = { disposal: b[p + 3] >> 2 & 7, delay: u16(p + 4), transparent: b[p + 3] & 1 ? b[p + 6] : -1 };
-      const netscape = label === 0xff && b[p + 2] === 11 && /^(NETSCAPE2\.0|ANIMEXTS1\.0)$/.test(b.toString('latin1', p + 3, p + 14));
+      const netscape = label === 0xff && b[p + 2] === 11 && /^(NETSCAPE2\.0|ANIMEXTS1\.0)$/.test(latin1(b, p + 3, p + 14));
       if (netscape && b[p + 14] >= 3 && b[p + 15] === 1) gif.loop = u16(p + 16); // sub-block [1, lo, hi]
       p = end;
     } else if (b[p] === 0x2c) { // image
@@ -158,7 +169,7 @@ function parseGif(b) {
 function imagePixels(b, img) {
   const parts = [];
   for (let q = img.data; b[q]; q += b[q] + 1) parts.push(b.subarray(q + 1, q + 1 + b[q]));
-  const px = lzw(img.minCode, Buffer.concat(parts), img.width * img.height);
+  const px = lzw(img.minCode, concat(parts), img.width * img.height);
   return img.interlaced ? deinterlace(px, img.width) : px;
 }
 
@@ -395,12 +406,30 @@ function pixelate(source, input) {
 }
 
 // ---------- encoders ----------
-const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-function chunk(type, data) {
-  const head = Buffer.alloc(8), body = Buffer.concat([Buffer.from(type, 'latin1'), data]), crc = Buffer.alloc(4);
-  head.writeUInt32BE(data.length); crc.writeUInt32BE(zlib.crc32(body));
-  return Buffer.concat([head.subarray(0, 4), body, crc]);
+const CRC = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+function crc32(b) { let c = 0xffffffff; for (const x of b) c = CRC[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+const u32 = n => new Uint8Array([n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255]);
+
+// zlib data in stored (uncompressed) blocks: no compressor needed, and 64 px art stays a few KB.
+function zlibStored(raw) {
+  const parts = [new Uint8Array([0x78, 0x01])];
+  for (let i = 0; i < raw.length || i === 0; i += 65535) {
+    const block = raw.subarray(i, i + 65535), n = block.length, last = i + 65535 >= raw.length;
+    parts.push(new Uint8Array([last ? 1 : 0, n & 255, n >>> 8, ~n & 255, ~n >>> 8 & 255]), block);
+  }
+  let a = 1, b = 0;
+  for (const x of raw) { a = (a + x) % 65521; b = (b + a) % 65521; }
+  parts.push(u32((b << 16 | a) >>> 0));
+  return concat(parts);
 }
+
+const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+function chunk(type, data) {
+  const body = concat([Uint8Array.from(type, c => c.charCodeAt(0)), data]);
+  return concat([u32(data.length), body, u32(crc32(body))]);
+}
+// A Node Buffer in the tests (they read it with Buffer methods), plain bytes in the browser.
+const bytes = u8 => (typeof Buffer === 'function' ? Buffer.from(u8.buffer, u8.byteOffset, u8.length) : u8);
 
 // One frame: an indexed PNG (palette + one fully transparent entry). Several: a GIF with one global palette.
 function encode(art) {
@@ -411,16 +440,17 @@ function encode(art) {
     art.frames.forEach((f, i) => gif.writeFrame(f.index, art.width, art.height,
       { palette: i ? undefined : pal, transparent: true, transparentIndex: tp, delay: f.delay, repeat: art.loop, dispose: 2 }));
     gif.finish();
-    return { data: Buffer.from(gif.bytes()), ext: 'gif' };
+    return { data: bytes(gif.bytes()), ext: 'gif' };
   }
-  const { width: w, height: h } = art, idx = art.frames[0].index, raw = Buffer.alloc((w + 1) * h);
+  const { width: w, height: h } = art, idx = art.frames[0].index, raw = new Uint8Array((w + 1) * h);
   for (let y = 0; y < h; y++) raw.set(idx.subarray(y * w, (y + 1) * w), y * (w + 1) + 1); // filter byte 0 per row
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr.set([8, 3, 0, 0, 0], 8); // 8-bit indexed, no interlace
-  const trns = Buffer.alloc(pal.length, 255); trns[tp] = 0;
-  const data = Buffer.concat([PNG_SIGNATURE, chunk('IHDR', ihdr), chunk('PLTE', Buffer.from(pal.flat())),
-    chunk('tRNS', trns), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
-  return { data, ext: 'png' };
+  const ihdr = concat([u32(w), u32(h), new Uint8Array([8, 3, 0, 0, 0])]); // 8-bit indexed, no interlace
+  const trns = new Uint8Array(pal.length).fill(255); trns[tp] = 0;
+  const data = concat([PNG_SIGNATURE, chunk('IHDR', ihdr), chunk('PLTE', new Uint8Array(pal.flat())),
+    chunk('tRNS', trns), chunk('IDAT', zlibStored(raw)), chunk('IEND', new Uint8Array(0))]);
+  return { data: bytes(data), ext: 'png' };
 }
 
-module.exports = { DEFAULTS, MAX_FRAMES, BG_THRESHOLD, normalizeOpts, parseGif, decodeGif, fromRGBA, pixelate, encode };
+const api = { DEFAULTS, MAX_FRAMES, BG_THRESHOLD, normalizeOpts, parseGif, decodeGif, fromRGBA, pixelate, encode };
+if (typeof module === 'object' && module.exports) module.exports = api; else root.Pixelate = api;
+})(typeof self !== 'undefined' ? self : this);

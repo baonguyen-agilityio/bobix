@@ -1,7 +1,7 @@
 // User settings: defaults, validation and a JSON file in the app's data folder.
 const fs = require('fs');
 const path = require('path');
-const { normalizeOpts } = require('./pixelate');
+const { normalizeOpts } = require('../ui/pixelate');
 
 const DEFAULTS = {
   language: 'auto',        // auto | en | vi

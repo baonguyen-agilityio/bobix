@@ -234,7 +234,7 @@ function openIssue(url) {
 
 // ---------- a project's own pet picture ----------
 // Chosen in the panel from a file dialog run here (pages never get file access). The picture is turned into pixel art
-// (core/pixelate.js, in a worker thread) with options the person adjusts in a preview; only Save writes anything.
+// (ui/pixelate.js, in a worker thread) with options the person adjusts in a preview; only Save writes anything.
 // The original is kept next to the result, so the picture can be adjusted again later (core/petstore.js).
 const petDir = () => path.join(app.getPath('userData'), 'pets');
 const MAX_PICTURE = 2 * 1024 * 1024, DECODE_SIDE = 1024; // bytes of the file; long side before the pixel art shrinks it
