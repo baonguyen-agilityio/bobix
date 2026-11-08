@@ -2,8 +2,12 @@
 // Port of src/main.js, part by part; what is not ported yet still runs only in the Electron build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod answers;
+mod hooks;
+mod i18n;
 mod js;
 mod links;
+mod notify;
 mod overlay;
 mod paths;
 mod procs;
@@ -29,6 +33,8 @@ pub struct Core {
     pub interactive: bool,
     pub last_event_at: Option<u64>,
     pub page_errors: Vec<String>,
+    pub pending: std::collections::HashMap<String, answers::Pending>, // held permission requests by answer id
+    pub node_path: Option<String>,
 }
 
 pub struct Bobix {
@@ -66,44 +72,101 @@ impl Bobix {
         if let Some(app) = self.app.get() { overlay::wake(app, self); }
     }
 
-    // A hook event. Returns what the hook waits for, if anything (answers and session titles come later).
-    pub fn on_event(self: &Arc<Self>, e: Value, _wait: bool) -> Option<server::Reply> {
+    // A hook event. Returns what the hook waits for: a held permission request's answer (session titles come with
+    // the Work tab).
+    pub fn on_event(self: &Arc<Self>, e: Value, wait: bool) -> Option<server::Reply> {
         let now = state::now();
         let ev = e.get("hook_event_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let (id, notice, since) = {
+        let (id, notice, since, reply) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            match state::apply(&mut c.sessions, &e, now) {
+            let Core { sessions, pending, settings, .. } = &mut *c;
+            match state::apply(sessions, &e, now) {
                 None => return None,
-                Some(Applied::Removed) => (None, None, 0),
+                Some(Applied::Removed) => (None, None, 0, None),
                 Some(Applied::Updated { id, notice }) => {
-                    let s = c.sessions.get_mut(&id).unwrap();
+                    let s = sessions.get_mut(&id).unwrap();
                     state::pin_project(s);
                     find_parent(s, now);
-                    let since = s.since;
-                    (Some(id), notice, since)
+                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e) } else { None };
+                    (Some(id), notice, s.since, reply)
                 }
             }
         };
         let is_stop = ev == "Stop";
         let b = self.clone();
         let finish = move || {
-            {
+            let stale = {
                 let mut c = b.core.lock().unwrap();
-                if let Some(s) = id.as_ref().and_then(|id| c.sessions.get_mut(id)) {
-                    // A new prompt may land inside the Stop delay: then this Stop is stale (no old answer, no "finished" ping).
-                    let stale = is_stop && (s.state != "done" || s.since != since);
-                    if !stale { state::refresh(s, is_stop, state::now()); }
+                match id.as_ref().and_then(|id| c.sessions.get_mut(id)) {
+                    Some(s) => {
+                        // A new prompt may land inside the Stop delay: then this Stop is stale (no old answer, no "finished" ping).
+                        let stale = is_stop && (s.state != "done" || s.since != since);
+                        if !stale { state::refresh(s, is_stop, state::now()); }
+                        stale
+                    }
+                    None => is_stop,
                 }
-            }
+            };
             b.broadcast();
-            if let Some(n) = notice { println!("[bobix] notice {} {}", n.kind, n.id); } // notifications come with the hooks work
+            if let Some(n) = notice.filter(|_| !stale) { b.notify(n.kind, &n.id); }
         };
         if is_stop {
             // let Claude flush the final answer to the transcript first
             tauri::async_runtime::spawn(async move { tokio::time::sleep(Duration::from_millis(300)).await; finish(); });
         } else { finish(); }
-        None
+        reply
+    }
+
+    // "<name> needs you" / "<name> finished", as the settings allow. A click opens the session; on macOS a held
+    // request can be answered from the notification.
+    fn notify(self: &Arc<Self>, kind: &str, id: &str) {
+        let (note, aid) = {
+            let c = self.core.lock().unwrap();
+            let Some(s) = c.sessions.get(id) else { return };
+            let st = &c.settings;
+            if st["paused"] == true || (kind == "waiting" && st["notifyWaiting"] != true) || (kind == "done" && st["notifyDone"] != true) { return; }
+            let l = lang(st);
+            let name = if s.title.is_empty() { &s.name } else { &s.title };
+            let aid = if kind == "waiting" && cfg!(target_os = "macos") { s.answer.as_ref().and_then(|a| a["id"].as_str()).map(String::from) } else { None };
+            let body = if kind == "waiting" { s.ask.clone() } else if s.summary.is_empty() { s.quest.clone() } else { s.summary.clone() };
+            (notify::Note { title: i18n::t(&l, &format!("notify.{kind}"), &[("name", name)]), body, sound: st["sound"] == true,
+                buttons: aid.as_ref().map(|_| (i18n::t(&l, "ask.allow", &[]), i18n::t(&l, "ask.deny", &[]))) }, aid)
+        };
+        let (b, id) = (self.clone(), id.to_string());
+        notify::show(note, move |r| match (r, aid) {
+            (notify::Reply::Allow, Some(a)) => { answers::answer(&b, &a, "allow"); }
+            (notify::Reply::Deny, Some(a)) => { answers::answer(&b, &a, "deny"); }
+            _ => { b.open_session(&id, true); }
+        });
+    }
+
+    // Open the session itself: in Claude desktop jump straight to it, else bring its terminal / IDE forward.
+    // { ok } or { ok: false, reason: nopid | wayland | xdotool | notfound, app, folder } so the panel can say why.
+    // ponytail: the panel fallback (open it on the session with the reason) comes with the panel.
+    pub fn open_session(self: &Arc<Self>, id: &str, prefer_focus: bool) -> Value {
+        let (host, pid, cwd) = {
+            let c = self.core.lock().unwrap();
+            let Some(s) = c.sessions.get(id) else { return json!({ "ok": false, "reason": "notfound" }) };
+            (s.host_session.clone(), s.claude_pid, s.cwd.clone())
+        };
+        let (mut reason, mut app) = ("notfound", String::new());
+        if prefer_focus {
+            if let Some(h) = host {
+                let url = format!("claude://code/continue?session={}", h); // the id is [A-Za-z0-9_-] only (links::is_host_id)
+                if tauri_plugin_opener::open_url(url, None::<&str>).is_ok() { return json!({ "ok": true }); }
+            } else if let Some(pid) = pid {
+                let chain = procs::ancestors(pid);
+                if procs::focus_pids(&chain) { return json!({ "ok": true }); }
+                app = procs::host_app(&procs::process_names(&chain)).unwrap_or_default();
+                // A CLI in the Claude app's own terminal: the app's link brings its window forward, also on Wayland.
+                if app == "Claude" && tauri_plugin_opener::open_url("claude://", None::<&str>).is_ok() { return json!({ "ok": true }); }
+                if cfg!(target_os = "linux") { reason = if wayland() { "wayland" } else if procs::has_xdotool() { "notfound" } else { "xdotool" }; }
+            } else {
+                reason = "nopid"; // hooks run without Node.js (curl / PowerShell): no process to start from
+            }
+        }
+        json!({ "ok": false, "reason": reason, "app": app, "folder": cwd })
     }
 
     // A pretend session walks through start → work → done so you can see pets without Claude.
@@ -198,7 +261,8 @@ type B<'a> = tauri::State<'a, Arc<Bobix>>;
 #[tauri::command]
 fn state(b: B, app: AppHandle) -> Value {
     let c = b.core.lock().unwrap();
-    json!({ "settings": c.settings, "version": app.package_info().version.to_string(), "platform": platform(), "lastEventAt": c.last_event_at })
+    json!({ "settings": c.settings, "version": app.package_info().version.to_string(), "platform": platform(), "lastEventAt": c.last_event_at,
+        "nodePath": c.node_path, "hooks": hooks::status(&paths::home()) })
 }
 
 #[tauri::command]
@@ -208,21 +272,35 @@ fn rects(r: Vec<Vec<f64>>, b: B, app: AppHandle) {
     overlay::show_or_hide(&app, &b);
 }
 
+// A click on a pet: bring its session forward (Settings → click action "focus"). The panel comes with the panel work.
 #[tauri::command]
-fn pet_click(id: String) {
-    println!("[bobix] pet click {id}"); // focus / panel come with those parts of the port
+fn pet_click(id: String, b: B) {
+    let focus = b.core.lock().unwrap().settings["clickAction"] == "focus";
+    let b = b.inner().clone();
+    thread::spawn(move || { let r = b.open_session(&id, focus); if r["ok"] != true { println!("[bobix] open session: {}", r["reason"]); } });
+}
+
+#[tauri::command]
+async fn open_session(id: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || b.open_session(&id, true)).await.map_err(|_| ())
 }
 
 #[tauri::command]
 fn pet_set(id: String, mode: String, b: B) {
     let changed = state::set_pet(&mut b.core.lock().unwrap().sessions, &id, &mode);
-    if changed { b.broadcast(); }
+    if changed { answers::release_unseen(&b); b.broadcast(); }
 }
 
 #[tauri::command]
-fn answer(id: String, choice: String) -> bool {
-    let _ = (id, choice); // permission answers come with the hooks work
-    false
+fn answer(id: String, choice: String, b: B) -> bool { answers::answer(&b, &id, &choice) }
+
+#[tauri::command]
+fn install_hooks(b: B) -> Value { install(&b) }
+
+#[tauri::command]
+fn uninstall_hooks() -> Value {
+    match hooks::uninstall(&paths::home()) { Ok(bak) => json!({ "file": hooks::settings_path(&paths::home()), "backup": bak }), Err(e) => json!({ "error": e }) }
 }
 
 #[tauri::command]
@@ -238,7 +316,52 @@ fn page_error(msg: String, b: B) {
 #[tauri::command]
 fn smoke_page(data: Value) { smoke::page_result(data); }
 
-pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page"];
+pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks", "open_session"];
+
+pub fn install(b: &Bobix) -> Value {
+    let node = b.core.lock().unwrap().node_path.clone();
+    match hooks::install(b.port, node.as_deref(), &paths::home()) {
+        Ok(r) => json!({ "file": r.file, "backup": r.backup, "mode": r.mode }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
+// Linux on Wayland (the session type, as src/main.js reads it).
+pub fn wayland() -> bool {
+    cfg!(target_os = "linux") && (std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland") || std::env::var_os("WAYLAND_DISPLAY").is_some())
+}
+
+// Where `name` is, as the person's shell finds it: `where` on Windows, a login shell (then an interactive one, where
+// nvm and the like set PATH) elsewhere. The Dock and the Start menu start apps without the shell's PATH.
+pub fn find_bin(name: &str) -> Option<String> {
+    let ok = |l: &str| { let low = l.to_lowercase(); (low.ends_with(name) || low.ends_with(&format!("{name}.exe"))) && std::path::Path::new(l).exists() };
+    let try_cmd = |cmd: &str, args: &[&str], first: bool| -> Option<String> {
+        let out = std::process::Command::new(cmd).args(args).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        let mut lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        if !first { lines.reverse(); } // an interactive shell may print noise before the answer: last wins
+        lines.into_iter().find(|l| ok(l)).map(String::from)
+    };
+    if cfg!(windows) { return try_cmd("where", &[name], true); }
+    let sh = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
+    let q = format!("command -v {name}");
+    try_cmd(&sh, &["-lc", &q], false).or_else(|| try_cmd(&sh, &["-lic", &q], false))
+}
+
+// At start: hooks from an older build, or with a node that is gone (nvm / Homebrew), are installed again; else the
+// copy of hook.js is refreshed, so app updates reach it.
+fn refresh_hooks(b: &Bobix) {
+    let home = paths::home();
+    let st = hooks::status(&home);
+    let node_mode = st["mode"] == "node";
+    let has_node = b.core.lock().unwrap().node_path.is_some();
+    if st["outdated"] == true || (node_mode && st["stale"] == true && has_node) {
+        let r = install(b);
+        if let Some(e) = r.get("error") { eprintln!("[bobix] hook refresh: {e}"); }
+    } else if node_mode && hooks::hook_target(&home).exists() {
+        if let Err(e) = std::fs::write(hooks::hook_target(&home), hooks::HOOK_JS) { eprintln!("[bobix] hook refresh: {e}"); }
+    }
+}
 
 pub fn platform() -> &'static str {
     if cfg!(target_os = "macos") { "darwin" } else if cfg!(windows) { "win32" } else { "linux" }
@@ -258,13 +381,13 @@ fn main() {
     let token = paths::ensure_token().unwrap_or_else(|e| fail(format!("token: {e}")));
     let (tx, _) = broadcast::channel(64);
     let b = Arc::new(Bobix {
-        core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![] }),
+        core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None }),
         tx, token: token.clone(), port, app: Default::default(),
     });
 
     tauri::Builder::default()
         .manage(b.clone())
-        .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page])
+        .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement
@@ -288,6 +411,8 @@ fn main() {
                 fail(format!("Port {port} is busy ({e}). Is Bobix already running?\nChange \"port\" in {}", paths::settings_file().display()));
             }
 
+            let hb = b.clone();
+            thread::spawn(move || { let node = find_bin("node"); hb.core.lock().unwrap().node_path = node; refresh_hooks(&hb); });
             overlay::create(&handle, &b)?;
             overlay::track_mouse(handle.clone(), b.clone());
             let tb = b.clone();

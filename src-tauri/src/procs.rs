@@ -1,6 +1,6 @@
-// Processes behind a session: is a pid still running, and what is it called. Same commands as src/core/focus.js
-// (processNames) and the isAlive check in src/main.js.
-use std::process::Command;
+// Processes behind a session: is a pid still running, what is it called, and bringing its window forward. Same
+// commands and timeouts as src/core/focus.js and the isAlive check in src/main.js.
+use std::{process::{Command, Stdio}, thread, time::{Duration, Instant}};
 
 // Is the process there? Signal 0 checks without touching it; EPERM means it runs under another user.
 #[cfg(unix)]
@@ -21,13 +21,29 @@ pub fn is_alive(pid: u32) -> bool {
     }
 }
 
-fn out(cmd: &str, args: &[&str]) -> String {
+// Runs a command and returns its trimmed output, or None when it fails or takes too long (PowerShell can take several
+// seconds to start on a cold Windows machine).
+fn run(cmd: &str, args: &[&str]) -> Option<String> {
     let mut c = Command::new(cmd);
-    c.args(args);
+    c.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     #[cfg(windows)]
     { use std::os::windows::process::CommandExt; c.creation_flags(0x0800_0000); } // CREATE_NO_WINDOW
-    c.output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
+    let mut child = c.spawn().ok()?;
+    // Read while it runs: a long output would otherwise fill the pipe and stall the child.
+    let reader = child.stdout.take().map(|mut so| thread::spawn(move || { let mut o = String::new(); let _ = std::io::Read::read_to_string(&mut so, &mut o); o }));
+    let limit = Instant::now() + Duration::from_secs(if cmd == "powershell" { 15 } else { 4 });
+    loop {
+        match child.try_wait() {
+            Ok(Some(st)) => {
+                let out = reader.and_then(|r| r.join().ok()).unwrap_or_default();
+                return st.success().then(|| out.trim().to_string());
+            }
+            Ok(None) if Instant::now() < limit => thread::sleep(Duration::from_millis(20)),
+            _ => { let _ = child.kill(); let _ = child.wait(); return None; }
+        }
+    }
 }
+fn out(cmd: &str, args: &[&str]) -> String { run(cmd, args).unwrap_or_default() }
 
 // Names of processes ("claude", "node", "zsh"…), "?" when unknown.
 pub fn process_names(pids: &[u32]) -> Vec<String> {
@@ -52,8 +68,93 @@ pub fn process_names(pids: &[u32]) -> Vec<String> {
     }).collect()
 }
 
+// claude → shell → … → terminal / IDE / app. Walked when a pet is clicked (the hook only sends the claude pid).
+pub fn ancestors(pid: u32) -> Vec<u32> {
+    let mut chain = vec![];
+    if pid <= 1 { return chain; }
+    if cfg!(windows) {
+        let txt = out("powershell", &["-NoProfile", "-Command", "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }"]);
+        let parent: std::collections::HashMap<u32, u32> = txt.lines().filter_map(|l| {
+            let mut f = l.split_whitespace().map(|x| x.parse::<u32>());
+            match (f.next(), f.next(), f.next()) { (Some(Ok(a)), Some(Ok(b)), None) => Some((a, b)), _ => None }
+        }).collect();
+        let mut p = Some(pid);
+        while let Some(x) = p.filter(|x| *x != 0 && chain.len() < 16 && !chain.contains(x)) { chain.push(x); p = parent.get(&x).copied(); }
+        return chain;
+    }
+    let mut p = pid;
+    while p > 1 && chain.len() < 16 && !chain.contains(&p) {
+        chain.push(p);
+        p = out("ps", &["-o", "ppid=", "-p", &p.to_string()]).parse().unwrap_or(0);
+    }
+    chain
+}
+
+// macOS: the outermost app bundle in the chain is the one with the window (Terminal, iTerm, VS Code, Claude…). Helpers
+// live inside it ("…/Code.app/Contents/Frameworks/Code Helper.app/…"), so take the first ".app" of each path.
+pub fn outer_bundle(exec_paths: &[String]) -> Option<String> {
+    exec_paths.iter().filter_map(|p| {
+        if !p.starts_with('/') { return None; }
+        let end = p.match_indices(".app").map(|(i, _)| i + 4).find(|e| *e == p.len() || p[*e..].starts_with('/'))?;
+        Some(p[..end].to_string())
+    }).last()
+}
+
+// Brings the first window found for these processes to the front.
+pub fn focus_pids(pids: &[u32]) -> bool {
+    let list: Vec<u32> = pids.iter().copied().filter(|p| *p > 1).collect();
+    if list.is_empty() { return false; }
+    if cfg!(target_os = "macos") {
+        // `open -a` activates the running app: no Automation permission needed (System Events would ask for one).
+        let paths: Vec<String> = list.iter().map(|p| out("ps", &["-o", "comm=", "-p", &p.to_string()])).collect();
+        return outer_bundle(&paths).is_some_and(|app| run("open", &["-a", &app]).is_some());
+    }
+    if cfg!(windows) {
+        let ids = list.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+        return run("powershell", &["-NoProfile", "-Command",
+            &format!("$w = New-Object -ComObject WScript.Shell; foreach ($p in @({ids})) {{ if ($w.AppActivate([int]$p)) {{ exit 0 }} }}; exit 1")]).is_some();
+    }
+    // Linux (X11): needs xdotool
+    list.iter().any(|p| run("xdotool", &["search", "--onlyvisible", "--pid", &p.to_string(), "windowactivate"]).is_some())
+}
+
+pub fn has_xdotool() -> bool { run("xdotool", &["version"]).is_some() }
+
+// The app that holds the session's window, named the way people know it: the first process up the chain that is not
+// claude itself, a runtime or a shell ("gnome-terminal-server" → "Terminal").
+pub fn host_app(names: &[String]) -> Option<String> {
+    const SKIP: [&str; 19] = ["claude", "node", "bun", "npx", "npm", "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "sudo", "su", "login", "env", "script", "systemd", "init"];
+    const KNOWN: [(&str, &str); 16] = [("gnome-terminal-server", "Terminal"), ("ptyxis-agent", "Ptyxis"), ("ptyxis", "Ptyxis"), ("kgx", "Console"),
+        ("konsole", "Konsole"), ("xfce4-terminal", "Xfce Terminal"), ("tilix", "Tilix"), ("terminator", "Terminator"), ("alacritty", "Alacritty"),
+        ("kitty", "kitty"), ("wezterm-gui", "WezTerm"), ("ghostty", "Ghostty"), ("code", "VS Code"), ("cursor", "Cursor"), ("tmux", "tmux"),
+        ("claude-desktop", "Claude")];
+    let n = names.iter().skip(1).find(|x| !x.is_empty() && *x != "?" && !SKIP.iter().any(|s| s.eq_ignore_ascii_case(x)))?;
+    let low = n.to_lowercase();
+    let known = |k: &str| KNOWN.iter().find(|(a, _)| *a == k).map(|(_, b)| b.to_string());
+    Some(known(&low).or_else(|| known(low.split(':').next().unwrap_or(""))).unwrap_or_else(|| n.clone()))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn macos_focus_picks_the_outermost_app() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(super::outer_bundle(&s(&["/Users/x/Library/Application Support/Claude/claude-code/2.1/claude.app/Contents/MacOS/claude",
+            "/Applications/Claude.app/Contents/Helpers/disclaimer", "/Applications/Claude.app/Contents/MacOS/Claude"])).as_deref(), Some("/Applications/Claude.app"));
+        assert_eq!(super::outer_bundle(&s(&["/usr/local/bin/claude", "/bin/zsh", "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper",
+            "/Applications/Visual Studio Code.app/Contents/MacOS/Electron"])).as_deref(), Some("/Applications/Visual Studio Code.app"));
+        assert_eq!(super::outer_bundle(&s(&["/usr/local/bin/claude", "/bin/zsh", "/opt/homebrew/bin/tmux"])), None);
+    }
+
+    #[test]
+    fn host_app_is_named_the_way_people_know_it() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(super::host_app(&s(&["claude", "bash", "gnome-terminal-server"])).as_deref(), Some("Terminal"));
+        assert_eq!(super::host_app(&s(&["claude", "zsh", "claude-desktop"])).as_deref(), Some("Claude"));
+        assert_eq!(super::host_app(&s(&["claude", "zsh", "iTerm2"])).as_deref(), Some("iTerm2"));
+        assert_eq!(super::host_app(&s(&["claude", "node", "?"])), None);
+    }
+
     #[test]
     fn this_process_is_alive_and_named() {
         assert!(super::is_alive(std::process::id()));

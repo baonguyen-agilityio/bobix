@@ -22,12 +22,12 @@ pub fn data_dir() -> PathBuf {
 
 pub fn settings_file() -> PathBuf { data_dir().join("settings.json") }
 
-pub fn app_dir() -> PathBuf { home().join(".claude").join("bobix") }
-
 // Per-user secret the hook sends and the server requires: another local user can't feed or read the app.
 // Same files and modes as ensureToken in src/core/hooks.js.
-pub fn ensure_token() -> std::io::Result<String> {
-    let dir = app_dir();
+pub fn ensure_token() -> std::io::Result<String> { ensure_token_in(&home()) }
+
+pub fn ensure_token_in(home: &std::path::Path) -> std::io::Result<String> {
+    let dir = home.join(".claude").join("bobix");
     fs::create_dir_all(&dir)?;
     #[cfg(unix)]
     { use std::os::unix::fs::PermissionsExt; let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)); }

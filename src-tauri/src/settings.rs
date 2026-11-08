@@ -144,7 +144,7 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
 // How long a permission request of a session waits for an answer in Bobix: seconds, infinity (until answered) or 0
 // (don't hold it, Claude asks as usual). Never holds what the person may not see: pets hidden, notifications paused,
 // or this pet hidden by hand.
-#[allow(dead_code)] // the permission answers use it (hooks part of the port)
+
 pub fn hold_secs(settings: &Value, pet: &str) -> f64 {
     let w = settings["approveWait"].as_f64().unwrap_or(0.0);
     if w == 0.0 || settings["paused"] == true || settings["petsVisible"] != true || pet == "hidden" { return 0.0; }
