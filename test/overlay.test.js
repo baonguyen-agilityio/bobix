@@ -118,6 +118,8 @@ async function run(b, url, settings, script, label) {
   const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   await ev(`__apply(${JSON.stringify(settings)})`);
   const now = () => ev('__now()'), bad = []; let seen = 0;
+  // Effects are off with reduced motion (pets.html, FX_ON): say so instead of "no effect was shown".
+  if (!await ev('FX_ON')) return [`effects are off in the page (prefers-reduced-motion: reduce: ${await ev("matchMedia('(prefers-reduced-motion: reduce)').matches")})`];
   let t = 0;
   const push = async list => { const n = await now(); await ev(`__push(${JSON.stringify(list.map(s => ({ ...s, since: n, updated: n })))})`); };
   const steps = async (sec, sample) => {
@@ -181,6 +183,20 @@ const separate = async ({ push, steps, ses }) => {
   await steps(5, 4);
 };
 
+// With reduced motion: no effect at all, and each pet that needs you holds its own balloon instead.
+async function reducedMotion(b, url) {
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  try {
+    await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+    const ev = async x => (await b.send('Runtime.evaluate', { expression: x, returnByValue: true })).result.value;
+    await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, zoneStart: 20, zoneEnd: 60, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })})`);
+    const n = await ev('__now()');
+    await ev(`__push(${JSON.stringify([ses('w', { state: 'waiting', since: n }), ses('d', { cwd: '/tmp/d', state: 'done', since: n }), ses('t', { cwd: '/tmp/t', state: 'working', tool: 'Bash', since: n })])})`);
+    for (let i = 0; i < 60; i++) await ev('__step(33.4)');
+    return await ev(`({ fxOn: FX_ON, effects: document.querySelectorAll('.fxc,.fxs').length, balloons: [...document.querySelectorAll('.pet:not(.line-off) .bb')].map(e => e.className).sort() })`);
+  } finally { await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] }); }
+}
+
 const exe = chrome();
 test('no effect pixel lands on another pet, a tag, a balloon or another effect, and no pets overlap (real overlay, both edges, both ways, 32/56/128 px)', { skip: !exe && 'no Chrome', timeout: 600e3 }, async () => {
   const srv = await server(), b = await browser(exe), bad = [];
@@ -190,6 +206,14 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     await b.send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
     await b.send('Page.addScriptToEvaluateOnNewDocument', { source: PRELUDE });
     const url = `http://127.0.0.1:${srv.address().port}/pets`;
+    // What this machine asks for: CI runners (macOS, Windows) report reduced motion, which turns effects off.
+    await b.send('Page.navigate', { url: 'about:blank' }); await b.once('Page.loadEventFired');
+    const rm = (await b.send('Runtime.evaluate', { expression: "matchMedia('(prefers-reduced-motion: reduce)').matches", returnByValue: true })).result.value;
+    console.log(`# this machine reports prefers-reduced-motion: ${rm ? 'reduce' : 'no-preference'}; effects are checked with it set to no-preference, and the reduced-motion look on its own`);
+    const r = await reducedMotion(b, url);
+    console.log(`# with reduced motion: ${JSON.stringify(r)}`);
+    if (r.fxOn || r.effects || r.balloons.join() !== 'bb done,bb waiting') bad.push(`reduced motion: want no effect and a balloon on the waiting and the done pet, got ${JSON.stringify(r)}`);
+    await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
     const cases = [];
     for (const edge of ['bottom', 'top']) for (const size of [32, 56, 128]) {
       cases.push([`${edge} ${size} family of 3, narrow zone`, { edge, size, zoneStart: 20, zoneEnd: 32 }, fam(3)]);
