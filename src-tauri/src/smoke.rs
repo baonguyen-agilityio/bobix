@@ -156,7 +156,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object()
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 3 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
             && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
-            && (report.get("drag").is_none() || report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0)
+            && (report.get("drag").is_none() || (report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0 && report["drag"]["held"] == false))
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
@@ -178,12 +178,15 @@ fn ask(app: &AppHandle, label: &str, expr: &str) -> Value {
     PAGE.lock().unwrap().take().map(|v| v["v"].clone()).unwrap_or(json!("no answer"))
 }
 
-// Drags the pet toward the middle of the screen (so the zone never clamps it); let go, it stays in the line there. Screen
-// coordinates come from the window's position (WebKitGTK may not know screenX without a window manager); the page
-// counts the pointer presses it gets, so a failure says whether the mouse reached it.
+// Drags the pet 300 px toward the middle of the screen (so the zone never clamps it) and lets go. What the drag did is
+// where the pet is when the button comes up (read before the pet's own handler, which puts it back into the line, which
+// then spreads out evenly again and slides it on): it must have followed the mouse over 200 px, and be back in the line
+// (no longer held) after. Screen coordinates come from the window's position (WebKitGTK may not know screenX without a
+// window manager); the page counts the pointer presses it gets, so a failure says whether the mouse reached it.
 fn drag(app: &AppHandle, sid: &str) -> Value {
     let Some(win) = app.get_webview_window(overlay::LABEL) else { return json!({ "error": "no window" }) };
     let at = ask(app, overlay::LABEL, &format!("(() => {{ window.__ev = {{}}; for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) addEventListener(t, () => {{ __ev[t] = (__ev[t] || 0) + 1; }}, true); \
+        addEventListener('pointerup', () => {{ __ev.dropX = pets.get({sid:?})?.x; }}, true); \
         const p = pets.get({sid:?}); if (!p) return null; const b = p.el.querySelector('.spr').getBoundingClientRect(); \
         return {{ x: b.left + b.width / 2, y: b.top + b.height / 2, petX: Math.round(p.x), w: innerWidth, screenX, screenY }}; }})()"));
     let (Some(cx), Some(cy), Some(px), Some(w)) = (at["x"].as_f64(), at["y"].as_f64(), at["petX"].as_f64(), at["w"].as_f64()) else { return json!({ "error": "no pet", "at": at }) };
@@ -199,8 +202,10 @@ fn drag(app: &AppHandle, sid: &str) -> Value {
     for i in 1..=15 { xdo(&["mousemove".into(), (x + dir * i * 20).to_string(), y.to_string()]); thread::sleep(Duration::from_millis(40)); }
     xdo(&["mouseup".into(), "1".into()]);
     thread::sleep(Duration::from_millis(800));
-    let after = ask(app, overlay::LABEL, &format!("({{ x: Math.round(pets.get({sid:?}).x), events: window.__ev }})"));
-    json!({ "at": [x, y], "page": at, "from": px, "to": after["x"], "events": after["events"], "moved": after["x"].as_f64().map(|a| (a - px) * dir as f64) })
+    let after = ask(app, overlay::LABEL, &format!("({{ x: Math.round(pets.get({sid:?}).x), held: !!LINEUP.held, events: window.__ev }})"));
+    let dropped = after["events"]["dropX"].as_f64();
+    json!({ "at": [x, y], "page": at, "from": px, "dropped": dropped.map(f64::round), "to": after["x"], "held": after["held"], "events": after["events"],
+        "moved": dropped.map(|a| ((a - px) * dir as f64).round()) })
 }
 
 // Moves the mouse onto a pet in full sight. Screen coordinates come from the window's position (WebKitGTK may not know
