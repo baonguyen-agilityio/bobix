@@ -48,6 +48,10 @@
     habitsClear: () => invoke('habits_clear'), // "Xoá hết"
     habitsNote: what => invoke('habits_note', { what }), // standup | report opened
     showBoard: () => invoke('show_board'),
+    mySkills: () => invoke('skills_mine'), // your own skills, for Settings → My skills
+    processStatus: () => invoke('process_status'), // per project: the repository's .bobix/skills.json and the imported process
+    // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one
+    importProcess: (project, v) => (typeof project === 'string' ? invoke('process_import', { project, text: v?.text ?? null, url: v?.url ?? null, remove: v?.remove ?? null }) : Promise.resolve(null)),
     issueBrief: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_brief', { path, iid }) : Promise.resolve(null)), // title, description (read now), link
     onSettings: on('settings'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),
     // overlay only

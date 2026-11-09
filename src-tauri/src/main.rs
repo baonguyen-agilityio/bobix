@@ -1,7 +1,7 @@
 // Bobix on Tauri: the Rust core (hook events, session state, settings, local server), the pets overlay, the panel and
 // the tray. Port of the 0.1 (Electron) app's main.js.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![recursion_limit = "256"] // settings::defaults() is one json! with every setting
+#![recursion_limit = "256"] // serde_json's json! for the settings defaults (settings.rs) has grown past the default 128
 
 mod answers;
 mod autostart;
@@ -18,9 +18,11 @@ mod panel;
 mod paths;
 mod petstore;
 mod procs;
+mod process;
 mod project;
 mod server;
 mod settings;
+mod skills;
 mod smoke;
 mod state;
 mod tray;
@@ -51,6 +53,7 @@ pub struct Core {
     pub main_errors: Vec<String>,          // last errors of the app itself, for feedback
     pub save_gen: u64,                     // settings saves are debounced: only the newest one writes
     pub habits: habits::Mem,               // the permission requests waiting, for the habit log (memory only)
+    pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
 }
 
 pub struct Bobix {
@@ -84,7 +87,7 @@ fn snapshot_of(c: &Core) -> Value {
         v
     }).collect();
     let waiting: Vec<Value> = c.work.new_for.iter().map(|(dir, n)| json!({ "dir": dir, "path": n["path"], "iid": n["iid"] })).collect();
-    json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json() })
+    json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json(), "waits": c.waits })
 }
 
 impl Bobix {
@@ -106,19 +109,21 @@ impl Bobix {
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, settings, work, habits: mem, .. } = &mut *c;
+            let Core { sessions, pending, settings, work, waits, habits: mem, .. } = &mut *c;
             let gitlab = work::any_on(settings);
             let remember = habits::on(settings);
             let before = if remember { habits::before(sessions, &e) } else { None };
             match state::apply(sessions, &e, now) {
                 None => return None,
-                Some(Applied::Removed) => {
+                Some(Applied::Removed(mut s)) => {
+                    state::keep_waits(waits, &mut s, now);
                     if remember { habit_lines = habits::events(mem, before.as_ref(), &e, None, now); }
                     (None, None, 0, None, None, gitlab)
                 }
                 Some(Applied::Updated { id, notice }) => {
                     let s = sessions.get_mut(&id).unwrap();
                     state::pin_project(s);
+                    state::keep_waits(waits, s, now);
                     if remember {
                         if !mem.projects.contains_key(&id) { // its tracker project, once its git remote is known
                             let hosts = work.hosts(settings);
@@ -149,11 +154,12 @@ impl Bobix {
         let finish = move || {
             let stale = {
                 let mut c = b.core.lock().unwrap();
-                match id.as_ref().and_then(|id| c.sessions.get_mut(id)) {
+                let Core { sessions, waits, .. } = &mut *c;
+                match id.as_ref().and_then(|id| sessions.get_mut(id)) {
                     Some(s) => {
                         // A new prompt may land inside the Stop delay: then this Stop is stale (no old answer, no "finished" ping).
                         let stale = is_stop && (s.state != "done" || s.since != since);
-                        if !stale { state::refresh(s, is_stop, state::now()); }
+                        if !stale { let now = state::now(); state::refresh(s, is_stop, now); state::keep_waits(waits, s, now); }
                         stale
                     }
                     None => is_stop,
@@ -335,18 +341,19 @@ fn tick(b: &Arc<Bobix>) {
     let mut lines = vec![];
     {
         let mut c = b.core.lock().unwrap();
-        let Core { sessions, settings, habits: mem, .. } = &mut *c;
+        let Core { sessions, settings, waits, habits: mem, .. } = &mut *c;
         let remember = habits::on(settings);
         let gone = state::gone(sessions, procs::is_alive);
         sessions.retain(|id, s| {
             let keep = !gone.contains(id) && now.saturating_sub(s.updated) <= STALE_MS;
-            if !keep { changed = true; if remember { lines.extend(habits::ended(mem, s, now)); } }
+            if !keep { state::leave_wait(s, now); state::keep_waits(waits, s, now); changed = true; if remember { lines.extend(habits::ended(mem, s, now)); } }
             keep
         });
         for s in sessions.values_mut() {
             if let Some(pid) = s.claude_pid { if s.pid_checked != Some(pid) { s.pid_checked = Some(pid); to_check.push((s.id.clone(), pid)); } }
             let (was, since) = (s.state.clone(), s.since);
             if (s.state == "working" || s.state == "waiting") && state::refresh(s, false, now) {
+                state::keep_waits(waits, s, now);
                 changed = true;
                 if remember && was == "waiting" { lines.extend(habits::interrupted(mem, s, since, now)); }
             }
@@ -811,18 +818,84 @@ async fn work_start(path: String, iid: i64, prompt: Option<String>, dir: Option<
     tauri::async_runtime::spawn_blocking(move || start_issue(&b, &path, iid, prompt.as_deref().unwrap_or(""), dir.as_deref())).await.map_err(|_| ())
 }
 
-// For the Start box: an issue Bobix listed, with its description read now (one GET through glab / gh, not kept).
-// { ok, title, url, body } or { ok: false, title, url, reason } (the box still opens, without the description).
+// Settings → My skills: your own skills (names and descriptions, read-only), to pin the ones to offer.
+#[tauri::command]
+async fn skills_mine() -> Result<Value, ()> {
+    tauri::async_runtime::spawn_blocking(|| json!(skills::mine(&paths::home()))).await.map_err(|_| ())
+}
+
+// Settings → Skill process: each project with a folder here, and the process Bobix uses for it: the repository's
+// .bobix/skills.json (or why it is not valid), and the one imported by hand.
+#[tauri::command]
+async fn process_status(b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (view, imported) = {
+            let c = b.core.lock().unwrap();
+            (c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work)), c.settings["skillProcess"].clone())
+        };
+        let list: Vec<Value> = view["local"].as_array().into_iter().flatten().map(|g| {
+            let (path, dir) = (g["path"].as_str().unwrap_or(""), g["dir"].as_str().unwrap_or(""));
+            let (repo, error) = match process::from_repo(std::path::Path::new(dir)) { Some(Ok(p)) => (p, Value::Null), Some(Err(e)) => (Value::Null, json!(e)), None => (Value::Null, Value::Null) };
+            json!({ "path": path, "repo": repo, "repoError": error, "imported": imported.get(path).cloned().unwrap_or(Value::Null) })
+        }).collect();
+        json!(list)
+    }).await.map_err(|_| ())
+}
+
+// Imports a process for a project, from the text of a file you chose or from an https URL; checked strictly and kept
+// in Bobix's settings only. { ok } or { ok: false, error }. remove: forgets the imported one.
+#[tauri::command]
+async fn process_import(project: String, text: Option<String>, url: Option<String>, remove: Option<bool>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut all = b.core.lock().unwrap().settings["skillProcess"].as_object().cloned().unwrap_or_default();
+        if remove == Some(true) { all.remove(&project); }
+        else {
+            let raw = match (text, url) { (Some(t), _) => Ok(t), (None, Some(u)) => process::fetch(&u), _ => Err("nothing to import".into()) };
+            match raw.and_then(|r| process::parse(&r)) {
+                Ok(p) => { all.insert(project.clone(), p); }
+                Err(e) => return json!({ "ok": false, "error": e }),
+            }
+        }
+        let next = update_settings(&b, json!({ "skillProcess": all }));
+        let kept = next["skillProcess"].get(project.as_str()).is_some() != (remove == Some(true));
+        if kept { json!({ "ok": true }) } else { json!({ "ok": false, "error": "not a project of yours" }) }
+    }).await.map_err(|_| ())
+}
+
+// For the Start box: an issue Bobix listed, with its description read now (one GET through glab / gh, not kept), its
+// labels, and the skills Claude Code has for the project's folder (names and descriptions, read-only, see skills.rs).
+// { ok, title, url, body, labels, skills } or { ok: false, title, url, labels, skills, reason } (the box still opens,
+// without the description).
 #[tauri::command]
 async fn work_brief(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let src = { let c = b.core.lock().unwrap(); c.work.source_of(&c.settings, &path, iid) };
+        let (src, dir) = {
+            let c = b.core.lock().unwrap();
+            let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
+            let dir = view["local"].as_array().and_then(|l| l.iter().find(|g| g["path"] == path.as_str())).and_then(|g| g["dir"].as_str().map(String::from));
+            (c.work.source_of(&c.settings, &path, iid), dir)
+        };
         let Some((f, bin, host, i)) = src else { return json!({ "ok": false, "reason": "gone" }) };
-        match work::fetch_body(f, &bin, &host, &path, iid) {
-            Ok(body) => json!({ "ok": true, "title": i["title"], "url": i["url"], "body": body }),
-            Err(e) => json!({ "ok": false, "title": i["title"], "url": i["url"], "reason": e["reason"] }),
-        }
+        let skills = dir.as_deref().map(|d| skills::list(&paths::home(), std::path::Path::new(d))).unwrap_or_default();
+        // The team's process: the repository's .bobix/skills.json, else one imported in Settings for this project.
+        let repo = dir.as_deref().and_then(|d| process::from_repo(std::path::Path::new(d)));
+        let imported = b.core.lock().unwrap().settings["skillProcess"].get(path.as_str()).cloned();
+        let (proc_, proc_err) = match (repo, imported) {
+            (Some(Ok(p)), _) => (json!({ "source": "repo", "process": p }), Value::Null),
+            (Some(Err(e)), Some(p)) => (json!({ "source": "imported", "process": p }), json!(e)),
+            (Some(Err(e)), None) => (Value::Null, json!(e)),
+            (None, Some(p)) => (json!({ "source": "imported", "process": p }), Value::Null),
+            (None, None) => (Value::Null, Value::Null),
+        };
+        let mut r = match work::fetch_body(f, &bin, &host, &path, iid) {
+            Ok(body) => json!({ "ok": true, "body": body }),
+            Err(e) => json!({ "ok": false, "reason": e["reason"] }),
+        };
+        for (k, v) in [("title", i["title"].clone()), ("url", i["url"].clone()), ("labels", i["labels"].clone()), ("skills", json!(skills)), ("process", proc_), ("processError", proc_err)] { r[k] = v; }
+        r
     }).await.map_err(|_| ())
 }
 
@@ -962,7 +1035,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_new_review", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board"];
+    "work_brief", "work_new_review", "skills_mine", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1049,7 +1122,7 @@ fn main() {
     let (tx, _) = broadcast::channel(64);
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
-            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, habits: Default::default() }),
+            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default() }),
         tx, token: token.clone(), port, app: Default::default(),
     });
 
@@ -1057,7 +1130,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, habits_read, habits_clear, habits_note, show_board,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, process_status, process_import, habits_read, habits_clear, habits_note, show_board,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -1185,7 +1258,7 @@ mod snapshot_tests {
         ];
         work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, habits: Default::default() }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default() }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");

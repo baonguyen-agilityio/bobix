@@ -91,8 +91,23 @@
     return out;
   }
 
-  // Plain text to paste for the team: per project, what was done today and what waits for review.
-  function report(st, T, now = Date.now(), locale) {
+  // A session's project as the wait log names it: its folder's name (src-tauri/src/state.rs, keep_waits).
+  const folder = s => String(s.project || s.cwd || s.name || '').split(/[\\/]/).filter(Boolean).pop() || '';
+
+  // Minutes Claude waited for your answer today (since local midnight), per project, most first: the waits that
+  // ended (the app's log) and the ones going on now (sessions waiting since). [{ project, mins }]
+  function waited(waits, sessions, now = Date.now()) {
+    const d = new Date(now), midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), by = new Map();
+    const add = (p, from, to) => { const ms = Math.min(to, now) - Math.max(from, midnight); if (ms > 0) by.set(p, (by.get(p) || 0) + ms); };
+    for (const w of waits || []) add(w.project, w.from, w.to);
+    for (const s of sessions) if (s.state === 'waiting') add(folder(s), s.since, now);
+    return [...by].map(([project, ms]) => ({ project, mins: Math.round(ms / 60e3) })).filter(x => x.mins > 0)
+      .sort((a, b) => b.mins - a.mins || (a.project < b.project ? -1 : 1));
+  }
+
+  // Plain text to paste for the team: per project, what was done today and what waits for review; then how long
+  // Claude waited for you today (waits: from waited(); left out when not given).
+  function report(st, T, now = Date.now(), locale, waits) {
     const by = new Map();
     const add = (k, [i, g]) => { const p = g.path; if (!by.has(p)) by.set(p, { done: [], verify: [] }); by.get(p)[k].push(i); };
     st.done.forEach(x => add('done', x));
@@ -100,7 +115,9 @@
     const list = (title, items) => items.length ? `${title}:\n` + items.map(i => `- #${i.iid} ${i.title}`).join('\n') : '';
     const parts = [...by].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([p, x]) => `[${short(p)}]\n` + [list(T('report.done'), x.done), list(T('report.verify'), x.verify)].filter(Boolean).join('\n'));
-    return `${T('report.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${parts.join('\n\n') || T('report.none')}\n`;
+    const total = (waits || []).reduce((a, w) => a + w.mins, 0);
+    const wait = !waits ? '' : total ? `\n${T('wait.total', { n: total })}\n${waits.map(w => `- ${w.project}: ${T('wait.mins', { n: w.mins })}`).join('\n')}\n` : `\n${T('wait.none')}\n`;
+    return `${T('report.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${parts.join('\n\n') || T('report.none')}\n${wait}`;
   }
 
   // The issue to start next: one in To do that nobody started (no session, none named after it, no new session
@@ -114,6 +131,67 @@
 
   // What Claude gets in the new session: the issue's title, its description and its link.
   const brief = (i, body) => [`#${i.iid} ${i.title}`, String(body || '').trim(), i.url ? String(i.url) : ''].filter(Boolean).join('\n\n');
+
+  // The skill to suggest for an issue, from its labels and your role (Settings: ba, qa, dev): words in a skill's name
+  // (its last part, after a plugin's "name:") score, a label's over the role's; the repo's own skills win a tie.
+  // A suggestion only: the person sees every skill and picks. { name, label, role } (what it was suggested for:
+  // the matching label and / or the role) or null.
+  const BY_LABEL = [[/bug|defect|fix|regression|error|crash/i, ['fix', 'bug', 'debug']], [/enhancement|feature|story|epic|request/i, ['feature', 'plan', 'cook', 'implement', 'story', 'stories']],
+    [/doc/i, ['doc', 'release-note']], [/test|qa/i, ['test', 'verify', 'qa']], [/question|support/i, ['question', 'answer']], [/refactor|chore|debt/i, ['refactor', 'simplif', 'clean']]];
+  const BY_ROLE = { ba: ['stor', 'question', 'gap', 'requirement', 'spec', 'brainstorm', 'plan'], qa: ['test', 'verify', 'qa', 'bug', 'review', 'check'], dev: ['fix', 'cook', 'implement', 'feature', 'debug', 'ticket', 'code'] };
+  function skillFor(skills, labels = [], role = '') {
+    const words = labels.flatMap(l => (BY_LABEL.find(([re]) => re.test(l)) || [, []])[1].map(w => [w, l]));
+    let best = null;
+    for (const s of skills) {
+      const short = s.name.split(':').pop().toLowerCase();
+      const byLabel = words.find(([w]) => short.includes(w)), byRole = (BY_ROLE[role] || []).find(w => short.includes(w));
+      const score = (byLabel ? 4 : 0) + (byRole ? 2 : 0) + (byLabel || byRole ? (s.source === 'project' ? 1 : 0) : 0);
+      if (score && (!best || score > best.score)) best = { score, name: s.name, label: byLabel?.[1], role: byRole ? role : undefined };
+    }
+    return best && { name: best.name, label: best.label, role: best.role };
+  }
+
+  // Where a skill comes from, as the Start box groups them: the project's process (the repository's skills, the team's
+  // plugins, your organization's) first, then yours (only the ones you pinned in Settings).
+  const TEAM = ['project', 'team', 'managed'];
+
+  // What to tell Claude to get a skill a process names but Claude doesn't have: the process's own hint, else
+  // "/plugin install <plugin>" for a plugin's skill ("plugin:skill"), else '' (the panel asks in words).
+  const installHint = (name, process) => ((process && process.install) || {})[name] || (name.includes(':') ? `/plugin install ${name.split(':')[0]}` : '');
+
+  // The skill to suggest, never chosen for you. With a process (the repository's .bobix/skills.json or one you
+  // imported), its first rule that fits the issue and names an installed skill; it replaces the label / role rules.
+  // Without one, the team's skills by label and role, then your pins (one pinned for your role first).
+  // o: { labels, role, stage ('todo' when starting), process, pins: { name: [roles] } }.
+  // { pick: { name, from: 'process' | 'match' | 'pin', label, role, stage } | null, missing: [{ name, hint }] }:
+  // missing are the skills the fitting rules name that Claude doesn't have.
+  function suggest(skills, o = {}) {
+    const has = new Set(skills.map(s => s.name)), labels = (o.labels || []).map(l => String(l).toLowerCase());
+    const missing = [];
+    let pick = null;
+    if (o.process) {
+      for (const r of o.process.rules || []) {
+        const w = r.when || {}, label = w.label ? labels.find(l => w.label.includes(l)) : undefined;
+        if ((w.label && !label) || (w.role && w.role !== o.role) || (w.stage && w.stage !== (o.stage || 'todo'))) continue;
+        if (!has.has(r.skill)) { if (!missing.some(m => m.name === r.skill)) missing.push({ name: r.skill, hint: installHint(r.skill, o.process) }); continue; }
+        if (!pick) pick = { name: r.skill, from: 'process', label, role: w.role, stage: w.stage };
+      }
+      return { pick, missing };
+    }
+    const team = skillFor(skills.filter(s => TEAM.includes(s.source)), o.labels, o.role);
+    if (team) return { pick: { ...team, from: 'match' }, missing };
+    const pins = o.pins || {}, pinned = skills.filter(s => pins[s.name] && !TEAM.includes(s.source));
+    const mine = o.role && pinned.find(s => pins[s.name].includes(o.role));
+    if (mine) return { pick: { name: mine.name, from: 'pin', role: o.role }, missing };
+    const m = skillFor(pinned, o.labels, o.role);
+    return { pick: m && { ...m, from: 'match' }, missing };
+  }
+
+  // The prompt with a skill: "/<skill> <link>" on its first line (replacing one there), or without it ('').
+  function withSkill(text, skill, url) {
+    const rest = String(text || '').replace(/^\/\S+[^\n]*\n*/, '');
+    return skill ? `/${skill} ${url || ''}`.trimEnd() + '\n\n' + rest : rest;
+  }
 
   // The five steps a ticket goes through; the model gives the first four, a close today the last.
   const STEPS = ['todo', 'doing', 'ask', 'verify', 'done'];
@@ -168,6 +246,6 @@
     return `${T('su.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${[sec('su.yesterday', done), sec('su.today', today), sec('su.stuck', stuck.map(x => `- ${x.text}: ${x.why}`))].join('\n\n')}\n`;
   }
 
-  const api = { PRI, STEPS, day, stages, loose, short, stuck, report, stepOf, why, dups, lastWorkday, standup, next, brief };
+  const api = { PRI, STEPS, day, stages, loose, short, folder, waited, stuck, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill, suggest, installHint, TEAM };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);
