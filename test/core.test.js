@@ -712,6 +712,51 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('board: stuck work, one item each, past the limits in Settings', () => {
+  const B = require('../src/ui/board');
+  const now = Date.UTC(2026, 10, 9, 10), H = 3600e3, iso = t => new Date(t).toISOString();
+  const git = (branch, own, ago) => ({ branch, own, last: { t: now - ago * H, subject: 'x' } });
+  const sessions = [
+    { id: 's1', state: 'done', since: now - 3 * H, updated: now - 3 * H, git: git('1-cart', 2, 5) }, // finished 3 h ago, no PR
+    { id: 's2', state: 'done', since: now - 1 * H, updated: now - 1 * H }, // finished 1 h ago: not yet
+    { id: 's3', state: 'idle', since: now - 5 * H, updated: now - 5 * H, git: git('3-login', 0, 9) }, // resting 5 h
+    { id: 's4', state: 'working', since: now - 9 * H, updated: now }, // works: never stuck
+    { id: 's5', state: 'done', since: now - 9 * H, updated: now - 9 * H }, // its issue has a PR
+    { id: 's6', state: 'done', since: now - 7 * H, updated: now - 7 * H, git: git('feat/cache', 4, 6) }, // no issue, 4 commits, 6 h
+    { id: 's7', state: 'idle', since: 0, updated: 0, git: git('main', 0, 50) },
+    { id: 's8', state: 'waiting', since: now, updated: now, git: git('feat/busy', 3, 9) },
+    { id: 's9', state: 'idle', since: 0, updated: 0, git: git('feat/new', 3, 1) },
+  ];
+  const on = (...ids) => ids.map(id => ({ id, why: 'branch' }));
+  const model = {
+    issues: [
+      { project: 'g/app', iid: 1, title: 'Cart', sessions: on('s1'), reviews: [] }, { project: 'g/app', iid: 2, title: 'Two', sessions: on('s2'), reviews: [] },
+      { project: 'g/app', iid: 3, title: 'Login', sessions: on('s3'), reviews: [] }, { project: 'g/app', iid: 4, title: 'Four', sessions: on('s4', 's3'), reviews: [] },
+      { project: 'g/app', iid: 5, title: 'Five', sessions: on('s5'), reviews: [{ url: 'https://h/g/app/pull/9', why: 'closes' }] },
+      { project: 'g/app', iid: 6, title: 'Six', sessions: [], reviews: [] },
+    ],
+    reviews: [
+      { kind: 'pr', url: 'https://h/g/app/pull/9', project: 'g/app', branch: 'r-branch', created: iso(now - 26 * H), reviewed: false, issues: [{ project: 'g/app', iid: 5, why: 'closes' }] },
+      { kind: 'mr', url: 'https://h/g/web/-/merge_requests/3', project: 'g/web', branch: 'x', created: iso(now - 30 * H), reviewed: true, issues: [] },
+      { kind: 'pr', url: 'https://h/g/app/pull/10', project: 'g/app', branch: 'y', created: iso(now - 1 * H), reviewed: false, issues: [] },
+      { kind: 'pr', url: 'https://h/g/app/pull/11', project: 'g/app', branch: 'z', created: null, reviewed: false, issues: [] },
+    ],
+    branches: [['1-cart', 's1'], ['3-login', 's3'], ['feat/cache', 's6'], ['main', 's7'], ['feat/busy', 's8'], ['feat/new', 's9'], ['r-branch', 's5']]
+      .map(([name, s]) => ({ project: 'g/app', name, issue: null, sessions: [s], reviews: [] })),
+  };
+  model.branches.find(b => b.name === 'r-branch').sessions = ['s5'];
+  sessions.find(s => s.id === 's5').git = git('r-branch', 2, 40);
+  const got = B.stuck(model, sessions, undefined, now);
+  assert.deepEqual(got.map(x => [x.kind, x.iid ?? x.title]), [['nopr', 1], ['noreview', 5], ['branch', 'feat/cache'], ['idle', 3]],
+    'finished with no PR, PR not reviewed, branch with commits and no PR, resting; nothing that works, waits, is too new, has a PR or no commits of its own');
+  assert.deepEqual([got[0].branch, got[0].session, got[0].limit, got[0].ms], ['1-cart', 's1', 2, 3 * H]);
+  assert.deepEqual([got[1].url, got[1].review, got[2].commits, got[3].session], ['https://h/g/app/pull/9', 'pr', 4, 's3']);
+  assert.deepEqual(B.stuck(model, sessions, { stuckOn: false }, now), []);
+  assert.deepEqual(B.stuck(model, sessions, { stuckNoPr: 4, stuckNoReview: 48, stuckBranch: 5, stuckIdle: 6 }, now).map(x => [x.kind, x.title]), [['branch', 'feat/cache'], ['branch', '1-cart']],
+    'longer limits: a finished session not yet listed leaves its branch to the branch rule; the oldest first');
+  assert.deepEqual(B.stuck(null, sessions, undefined, now), []);
+});
+
 test('board: each issue in one stage of the day, and the end-of-day report', () => {
   const B = require('../src/ui/board');
   const now = new Date(2026, 10, 8, 17, 0).getTime(), yesterday = new Date(2026, 10, 7, 23, 0).toISOString();

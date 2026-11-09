@@ -40,6 +40,7 @@
     refreshWork: () => invoke('work_refresh'), // GitLab issues, read again now (only while GitLab is on)
     openIssue: url => invoke('work_open', { url }), // in the browser; only links to the configured GitLab
     cancelNew: dir => invoke('work_cancel', { dir }), // stop waiting for a new session in that folder
+    newReview: (project, branch) => invoke('work_new_review', { project, branch }), // the forge's new PR / MR page for that branch
     startIssue: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_start', { path, iid }) : Promise.resolve(null)),
     onSettings: on('settings'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),
     // overlay only

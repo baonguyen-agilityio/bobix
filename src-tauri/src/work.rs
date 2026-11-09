@@ -42,6 +42,7 @@ pub fn git_status(dir: &str) -> Option<(Value, Vec<String>)> {
     let log = git(dir, &["log", "-1", "--format=%ct%x00%s"]);
     let unpushed = git(dir, &["rev-list", "--count", "HEAD", "--not", "--remotes"]); // commits on no remote at all, upstream or not
     let wt = git(dir, &["worktree", "list", "--porcelain"]);
+    let own = git(dir, &["rev-list", "--count", "HEAD", "--not", "refs/remotes/origin/HEAD"]); // commits not on the remote's default branch
     let remotes = git(dir, &["remote", "-v"]);
     let mut out = parse_status(&st.out);
     let log_out = log.out.trim();
@@ -51,6 +52,7 @@ pub fn git_status(dir: &str) -> Option<(Value, Vec<String>)> {
     out["unpushed"] = json!(if unpushed.ok { unpushed.out.trim().parse::<u64>().unwrap_or(0) } else { 0 });
     out["last"] = match t.parse::<u64>() { Ok(t) => json!({ "t": t * 1000, "subject": head16(subject, 200) }), _ => Value::Null };
     out["worktrees"] = json!(wt.out.lines().filter(|l| l.starts_with("worktree ")).count());
+    out["own"] = if own.ok { json!(own.out.trim().parse::<u64>().unwrap_or(0)) } else { Value::Null }; // none: no origin/HEAD here
     let mut urls: Vec<String> = Vec::new();
     for u in remotes.out.lines().filter_map(|l| l.split_whitespace().nth(1)) { if !urls.iter().any(|x| x == u) { urls.push(u.into()); } }
     Some((out, urls))
@@ -147,11 +149,20 @@ impl Forge {
     }
 }
 
-// Your open pull requests on a GitHub host, with the issues GitHub links to each (closing references) and its review decision.
-const GH_PRS: &str = "query{viewer{pullRequests(states:OPEN,first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number url headRefName body reviewDecision repository{nameWithOwner} closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}}";
+// Your open pull requests on a GitHub host, with the issues GitHub links to each (closing references), when each was opened and its reviews.
+const GH_PRS: &str = "query{viewer{pullRequests(states:OPEN,first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number url headRefName body createdAt reviewDecision reviews{totalCount} repository{nameWithOwner} closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}}";
 
 // gh never asks anything (no terminal) and does not look for a new version of itself.
 const GH_ENV: &[(&str, &str)] = &[("GH_PROMPT_DISABLED", "1"), ("GH_NO_UPDATE_NOTIFIER", "1"), ("NO_COLOR", "1")];
+
+// The forge's page for a new pull request (GitHub) / merge request (GitLab) from `branch`, for a project and a branch
+// the work model knows; the person fills it in and opens it there. Bobix writes nothing.
+pub fn new_review_url(m: &Model, project: &str, branch: &str) -> Option<String> {
+    let r = m.repos.iter().find(|r| r.path == project && !r.host.is_empty())?;
+    if !m.branches.iter().any(|b| b.project == project && b.name == branch) { return None; }
+    Some(if r.forge == Forge::GitHub.key() { format!("https://{}/{}/compare/{}?expand=1", r.host, r.path, enc(branch).replace("%2F", "/")) }
+        else { format!("https://{}/{}/-/merge_requests/new?merge_request%5Bsource_branch%5D={}", r.host, r.path, enc(branch)) })
+}
 
 pub fn any_on(settings: &Value) -> bool { FORGES.iter().any(|f| f.on(settings)) }
 
