@@ -118,6 +118,12 @@ pub fn gl_mr(mr: &Value) -> Option<Review> {
     review("mr", project, &mr["web_url"], vec![], mr["description"].as_str().unwrap_or(""), mr["source_branch"].as_str().unwrap_or(""), None)
 }
 
+// The stage of an open issue: verify (an open pull / merge request closes it), ask (a live session on it waits for
+// your approval), doing (a live session works on it), else todo. Done (closed today) is the panel's: it has the clock.
+pub fn stage_of(review: bool, sessions: &[&str]) -> &'static str {
+    if review { "verify" } else if sessions.contains(&"waiting") { "ask" } else if !sessions.is_empty() { "doing" } else { "todo" }
+}
+
 // ---------- the model ----------
 
 #[derive(Serialize, Clone, PartialEq, Debug)]
@@ -137,8 +143,7 @@ pub struct Url { pub url: String }
 #[serde(rename_all = "camelCase")]
 pub struct Repo { pub path: String, pub key: String, pub auto_key: String, pub forge: &'static str, pub host: String, pub dirs: Vec<Via<Path>> }
 
-// An open issue assigned to you. stage: verify (an open pull / merge request closes it), doing (a live session works
-// on it), else todo. resume: a Claude desktop session named after it, in its repository's folder.
+// An open issue assigned to you. stage: see stage_of. resume: a Claude desktop session named after it, in its repository's folder.
 #[derive(Serialize, Clone, PartialEq, Debug)]
 pub struct Issue { pub project: String, pub iid: i64, pub title: Value, pub url: Value, pub stage: &'static str,
     pub sessions: Vec<Via<Id>>, pub reviews: Vec<Via<Url>>, pub resume: Option<Via<Id>> }
@@ -221,7 +226,8 @@ impl Model {
                 add_repo(&p, *f, host_of(&i["url"]), None);
                 let reviews: Vec<Via<Url>> = m.reviews.iter().filter_map(|r| r.issues.iter().find(|l| l.project == p && l.iid == iid).map(|l| Via { to: Url { url: r.url.clone() }, why: l.why })).collect();
                 let sessions = live(&p, iid);
-                let stage = if !reviews.is_empty() { "verify" } else if !sessions.is_empty() { "doing" } else { "todo" };
+                let statuses: Vec<&str> = sessions.iter().filter_map(|v| m.sessions.iter().find(|s| s.id == v.to.id)).map(|s| s.status.as_str()).collect();
+                let stage = stage_of(!reviews.is_empty(), &statuses);
                 m.issues.push(Issue { project: p, iid, title: i["title"].clone(), url: i["url"].clone(), stage, sessions, reviews, resume: None });
             }
         }
@@ -300,6 +306,14 @@ mod tests {
         assert_eq!(s(&["29-x"], None, None), None, "no project: no issue");
         assert_eq!(issue_of_session(Some("g/a"), Some(&json!({ "path": "g/a", "iid": 7 })), &b(&["29-x"]), None), Some((7, Why::Started)), "started from an issue");
         assert_eq!(issue_of_session(Some("g/a"), Some(&json!({ "path": "g/b", "iid": 7 })), &b(&["29-x"]), None), Some((29, Why::Branch)), "started in another project");
+    }
+
+    #[test]
+    fn stages_from_reviews_and_sessions() {
+        assert_eq!(stage_of(true, &["waiting"]), "verify");
+        assert_eq!(stage_of(false, &["working", "waiting"]), "ask");
+        assert_eq!(stage_of(false, &["working", "idle"]), "doing");
+        assert_eq!(stage_of(false, &[]), "todo");
     }
 
     #[test]

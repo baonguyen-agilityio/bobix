@@ -156,6 +156,15 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .dl .ok{flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--line);color:var(--ink-2);font-size:12px;font-weight:700}
 .dl .id{flex:none;margin:0}
 .dl .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl .at{flex:none;font-size:var(--t-xs);color:var(--ink-3)}
+.d-acts{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.dup{font-size:var(--t-xs);font-weight:700;color:var(--ink-2);white-space:nowrap}
+.why{margin:0;font-size:var(--t-xs);color:var(--ink-3)}
+.stg{display:flex;flex-direction:column;gap:4px}
+.stp{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px}
+.stp li{font-size:var(--t-xs);padding:2px 8px;border-radius:var(--pill);background:var(--line);color:var(--ink-3)}
+.stp li.past{color:var(--ink-2)}
+.stp li.cur{background:var(--ink);color:var(--n-50);font-weight:600}
 .dl .ib{width:24px;height:24px;margin:-4px -6px -4px 0;font-size:13px;opacity:0}
 .dl li:hover .ib,.dl .ib:focus-visible{opacity:1}
 /* to do: one line per issue, search and project filter once the list is long */
@@ -463,6 +472,12 @@ input[type=number]{width:104px}
 </header>
 <dialog id="fb-dialog" class="fb" aria-labelledby="fb-heading"></dialog>
 <dialog id="pd-dialog" class="fb pd" aria-labelledby="pd-heading"></dialog>
+<dialog id="su-dialog" class="fb rp" aria-labelledby="su-heading"><form method="dialog">
+  <h2 id="su-heading" data-t="su.title"></h2>
+  <p class="note" data-t="su.body"></p>
+  <textarea id="su-text" spellcheck="false"></textarea>
+  <div class="acts"><button class="btn" value="close" data-t="pane.close"></button><button class="btn pri" type="button" id="su-copy" data-t="report.copy"></button></div>
+</form></dialog>
 <dialog id="rp-dialog" class="fb rp" aria-labelledby="rp-heading"><form method="dialog">
   <h2 id="rp-heading" data-t="report.title"></h2>
   <p class="note" data-t="report.body"></p>
@@ -636,23 +651,32 @@ function ticketState(ss) {
     : s0 === 'working' ? statusText(lead, 'working') : s0 === 'done' ? T('day.turnDone') : T('status.idle');
   return t + (ss.length > 1 ? ' · ' + T('day.nSessions', { n: ss.length }) : '');
 }
-const sessLine = s => `<button class="ts st-${look(s)}" type="button" data-sel="${esc(s.id)}" aria-pressed="${s.id === selected}">${pet(s)}<span class="sr-tx"><span class="ac">${esc((s.title && !(s.issue?.title && s.title.includes(s.issue.title)) ? s.title + ' · ' : '') + statusText(s, look(s)))}</span><span class="lp">${esc(line2(s, look(s)))}</span></span><span class="meta">${lowCtx(s.ctx)}<span>${ago(s.since)}</span></span></button>`;
+// Work that may be done twice (BOARD.dups), worked out on each draw; a warning in bold grey, not coral: it is a heads-up.
+let dup = { issues: new Map(), sessions: new Map() };
+const dupIssue = (p, iid) => { const n = dup.issues.get(p + '#' + iid); return n ? `<span class="dup" title="${esc(T('dup.issueTip', { n }))}">⚠ ${esc(T('dup.issue', { n }))}</span>` : ''; };
+const dupBranch = s => { const d = dup.sessions.get(s.id), o = d && list.find(x => x.id === d.with); return d ? `<span class="dup" title="${esc(T('dup.branchTip', { b: d.branch, x: o ? o.title || o.name : '' }))}">⚠ ${esc(T('dup.branch'))}</span>` : ''; };
+// The five steps of a ticket, the current one in bold, and why it is there.
+const stepper = (i, ss) => { const cur = BOARD.stepOf(i), at = BOARD.STEPS.indexOf(cur);
+  return `<div class="stg"><ol class="stp" aria-label="${esc(T('stage.label'))}">${BOARD.STEPS.map((k, n) => `<li class="${n === at ? 'cur' : n < at ? 'past' : ''}"${n === at ? ' aria-current="step"' : ''}>${esc(T('stage.' + k))}</li>`).join('')}</ol>
+    <p class="why">${esc(T('why.label'))} ${esc(BOARD.why(i, ss, T, LOCALE()))}</p></div>`; };
+const LOCALE = () => (I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB');
+const sessLine = s => `<button class="ts st-${look(s)}" type="button" data-sel="${esc(s.id)}" aria-pressed="${s.id === selected}">${pet(s)}<span class="sr-tx"><span class="ac">${esc((s.title && !(s.issue?.title && s.title.includes(s.issue.title)) ? s.title + ' · ' : '') + statusText(s, look(s)))}</span><span class="lp">${esc(line2(s, look(s)))}</span></span><span class="meta">${dupBranch(s)}${lowCtx(s.ctx)}<span>${ago(s.since)}</span></span></button>`;
 function doingRow([i, g, ss]) {
   const key = 't:' + g.path + '#' + i.iid, open = opened.has(key), nW = ss.filter(s => look(s) === 'waiting').length;
   const ctxs = ss.map(s => s.ctx).filter(c => c != null), last = Math.max(0, ...ss.map(s => s.since));
   return `<li class="tr st-${leadSt(ss)}"><button class="tr-main" type="button" aria-expanded="${open}" data-flag="${esc(key)}" data-f="${esc(key)}" title="#${i.iid} ${esc(i.title)}">${stack(ss)}
       <span class="tr-tx"><span class="tt1"><span class="id">#${i.iid}</span>${esc(i.title)}</span><span class="ac">${esc(ticketState(ss))}</span></span>
-      <span class="meta">${lowCtx(ctxs.length ? Math.min(...ctxs) : null)}<span>${ago(last)}</span></span><span class="chev" aria-hidden="true">▾</span></button>
-    ${open ? `<div class="tr-x"><ul class="tk-ss">${ss.map(s => `<li>${sessLine(s)}</li>`).join('')}</ul>
+      <span class="meta">${dupIssue(g.path, i.iid) || ss.map(dupBranch).find(Boolean) || ''}${lowCtx(ctxs.length ? Math.min(...ctxs) : null)}<span>${ago(last)}</span></span><span class="chev" aria-hidden="true">▾</span></button>
+    ${open ? `<div class="tr-x">${stepper(i, ss)}<ul class="tk-ss">${ss.map(s => `<li>${sessLine(s)}</li>`).join('')}</ul>
       ${nW ? `<p class="hint">${esc(T('day.jump', { n: nW }))} <button class="lnk" type="button" data-jump="d-aq">${esc(T('day.aq'))} ↑</button></p>` : ''}
       ${bridge ? `<div class="tk-f">${g.dir ? `<button class="btn sm" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${T('day.openSession')}</button>` : ''}${webBtn(i)}</div>` : ''}</div>` : ''}</li>`;
 }
 function verifyRow([i, g, ss]) {
   const say = [...ss].sort((a, b) => b.since - a.since).find(s => s.summary), mr = /\/merge_requests\//.test(i.review);
-  return `<li class="vr"><div class="tr-tx"><span class="tt1" title="#${i.iid} ${esc(i.title)}"><span class="id">#${i.iid}</span>${esc(i.title)}</span>${say ? `<p class="sum" title="${esc(say.summary)}">${esc(T('day.claude') + say.summary)}</p>` : ''}</div>
+  return `<li class="vr"><div class="tr-tx"><span class="tt1" title="#${i.iid} ${esc(i.title)}"><span class="id">#${i.iid}</span>${esc(i.title)}</span><p class="why">${esc(T('why.label'))} ${esc(BOARD.why(i, ss, T, LOCALE()))}</p>${say ? `<p class="sum" title="${esc(say.summary)}">${esc(T('day.claude') + say.summary)}</p>` : ''}</div>
     ${bridge ? `<div class="acts"><button class="btn sm" type="button" data-url="${esc(i.review)}">${T(mr ? 'day.openMR' : 'day.openPR')}</button>${ss.length && g.dir ? `<button class="btn sm" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${T('day.openSession')}</button>` : ''}${webBtn(i)}</div>` : ''}</li>`;
 }
-const doneRow = ([i]) => `<li><span class="ok" aria-hidden="true">✓</span><span class="id">#${i.iid}</span><span class="tt" title="${esc(i.title)}">${esc(i.title)}</span>${webBtn(i)}</li>`;
+const doneRow = ([i]) => `<li><span class="ok" aria-hidden="true">✓</span><span class="id">#${i.iid}</span><span class="tt" title="${esc(i.title)}">${esc(i.title)}</span><span class="at" title="${esc(BOARD.why(i, [], T, LOCALE()))}">${esc(new Date(i.closedAt).toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }))}</span>${webBtn(i)}</li>`;
 // One issue to do: a click starts it (here), resumes its old session, or opens it on the web (not on this machine).
 function issueRow([i, g]) {
   const here = !!g.dir && !!bridge, wait = waiting.find(x => x.dir === g.dir && x.iid === i.iid);
@@ -689,7 +713,7 @@ function todoHTML() {
 }
 const sessRow = s => `<li class="st-${look(s)}"><button class="sr-main" type="button" data-sel="${esc(s.id)}" aria-pressed="${s.id === selected}" title="${esc(line2(s, look(s)))}">${pet(s)}
   <span class="sr-tx"><span class="nm">${esc(s.title || s.name)}${s.issue ? ` <span class="note">#${s.issue.iid}</span>` : ''}</span><span class="ac">${esc(statusText(s, look(s)))}</span></span>
-  <span class="meta">${lowCtx(s.ctx)}<span>${ago(s.since)}</span></span></button></li>`;
+  <span class="meta">${dupBranch(s)}${lowCtx(s.ctx)}<span>${ago(s.since)}</span></span></button></li>`;
 
 function dayHTML() {
   const lz = familyOrder(BOARD.loose(st, list).sort((a, b) => BOARD.PRI[look(a)] - BOARD.PRI[look(b)] || b.updated - a.updated));
@@ -699,7 +723,7 @@ function dayHTML() {
   const date = new Date().toLocaleDateString(I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const refresh = bridge && work.status !== 'off' ? `${work.at ? `<span>${esc(ago(work.at))}</span>` : ''}<button class="ib" type="button" data-act="refresh" aria-label="${esc(T('work.refresh'))}" title="${esc(T('work.refresh'))}"${work.status === 'loading' ? ' disabled' : ''}>↻</button>` : '';
   const idle = lz.length && lz.every(s => look(s) === 'idle');
-  return `<div class="d-top"><div class="d-hi"><h2>${esc(date)}</h2><p>${esc(T('day.sub'))}</p></div><button class="btn pri" type="button" data-report data-f="report">${T('day.report')}</button></div>
+  return `<div class="d-top"><div class="d-hi"><h2>${esc(date)}</h2><p>${esc(T('day.sub'))}</p></div><div class="d-acts"><button class="btn" type="button" data-standup data-f="standup">${T('su.title')}</button><button class="btn pri" type="button" data-report data-f="report">${T('day.report')}</button></div></div>
     ${queueHTML()}
     <ol class="flow" aria-label="${esc(T('day.flow'))}">${['todo', 'doing', 'verify', 'done'].map(k => `<li><button class="step" type="button" data-step="${k}" data-f="step:${k}" aria-pressed="${k === cur}" aria-controls="d-${k}"><b>${count[k]}</b><span>${esc(T('day.' + k))}</span></button></li>`).join('')}</ol>
     <div class="dg">
@@ -713,6 +737,7 @@ function dayHTML() {
 
 function render() {
   st = BOARD.stages(work, list.map(s => Object.assign(s, { st: look(s) })));
+  dup = BOARD.dups(model, list);
   const box = $('#day'), html = dayHTML();
   if (box.dataset.html !== html) {
     // a redraw keeps the focused control (and the text being typed in the search box)
@@ -816,7 +841,7 @@ $('#pane').addEventListener('click', async e => {
 });
 
 // ---------- work: GitLab / GitHub issues assigned to you ----------
-let work = { status: 'off' }, lastProjects = '', waiting = []; // waiting: New pressed, no new session there yet
+let work = { status: 'off' }, model = {}, lastProjects = '', waiting = []; // waiting: New pressed, no new session there yet
 const today = () => BOARD.day(Date.now());
 // An egg in the pets' pixel style, for a project.
 function eggSVG(seed) {
@@ -839,6 +864,23 @@ async function startIssue(b) {
   if (r?.mode === 'new' && r.ok) toast(T('work.new.done'));
   else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
 }
+// Stuck for the stand-up: requests waiting for you, and your PRs / MRs whose review asked for changes.
+function stuckLines() {
+  const title = (p, iid) => (model.issues || []).find(x => x.project === p && x.iid === iid)?.title || '';
+  return [...waitingList().map(s => { const t = ticketOf(s); return { text: t ? `[${BOARD.short(t[1].path)}] #${t[0].iid} ${t[0].title}` : s.title || s.name, why: T('su.waiting', { x: ago(s.since) }) }; }),
+    ...(model.reviews || []).filter(r => r.review === 'changes_requested').map(r => { const l = r.issues[0]; return { text: l ? `[${BOARD.short(l.project)}] #${l.iid} ${title(l.project, l.iid)}`.trim() : r.url, why: T('su.changes') }; })];
+}
+function openStandup() {
+  $('#su-text').value = BOARD.standup(st, work.closed || [], stuckLines(), T, Date.now(), LOCALE());
+  $('#su-dialog').showModal();
+  $('#su-text').focus();
+  $('#su-text').setSelectionRange(0, 0); $('#su-text').scrollTop = 0; // starts at its head
+}
+$('#su-copy').addEventListener('click', async () => {
+  const t = $('#su-text');
+  try { await navigator.clipboard.writeText(t.value); } catch { t.select(); document.execCommand('copy'); }
+  toast(T('su.copied'));
+});
 function openReport() {
   $('#rp-text').value = BOARD.report(st, T, Date.now(), I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB');
   $('#rp-dialog').showModal();
@@ -871,6 +913,7 @@ $('#day').addEventListener('click', async e => {
   }
   if (d.jump) { $('#' + d.jump)?.scrollIntoView({ block: 'start' }); return $('#' + d.jump)?.querySelector('[data-choice]')?.focus({ preventScroll: true }); }
   if (d.report !== undefined) return openReport();
+  if (d.standup !== undefined) return openStandup();
   if (d.tabGo) return showTab(d.tabGo);
   if (!bridge) return;
   if (d.url) return bridge.openIssue(d.url);
@@ -1343,6 +1386,7 @@ es.onmessage = m => {
   const firstIds = list.slice(0, 4).map(x => x.id).join();
   list = (d.sessions || []).filter(s => !s.linking); // a new side session waits for its parent link (state.rs), as on the pets
   work = d.work || { status: 'off' };
+  model = d.model || {};
   waiting = d.waiting || [];
   const projects = [...(work.local || []), ...(work.away || [])].map(g => g.path + ':' + g.autoKey).join();
   if (projects !== lastProjects) { lastProjects = projects; if (!$('#tab-settings').hidden && !document.activeElement?.dataset?.keyOf) renderSettings(); } // the codes list
