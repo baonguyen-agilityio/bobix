@@ -755,6 +755,29 @@ test('board: stuck work, one item each, past the limits in Settings', () => {
   assert.deepEqual(B.stuck(model, sessions, { stuckNoPr: 4, stuckNoReview: 48, stuckBranch: 5, stuckIdle: 6 }, now).map(x => [x.kind, x.title]), [['branch', 'feat/cache'], ['branch', '1-cart']],
     'longer limits: a finished session not yet listed leaves its branch to the branch rule; the oldest first');
   assert.deepEqual(B.stuck(null, sessions, undefined, now), []);
+  assert.ok(got.every(x => !x.old) && got[0].at === now - 3 * H, 'all of these moved within 14 days');
+});
+
+test('board: stuck work quiet for weeks is old, and a skip lasts until the item moves again', () => {
+  const B = require('../src/ui/board');
+  const now = Date.UTC(2026, 10, 9, 10), H = 3600e3, D = 24 * H, iso = t => new Date(t).toISOString();
+  const sessions = [{ id: 's1', state: 'done', since: now - 3 * H, updated: now - 3 * H }, { id: 'o1', state: 'idle', since: now - 30 * D, updated: now - 30 * D, git: { branch: 'feat/old', own: 2, last: { t: now - 31 * D } } }];
+  const model = {
+    issues: [{ project: 'g/a', iid: 1, title: 'New', sessions: [{ id: 's1' }], reviews: [] }],
+    reviews: [{ kind: 'pr', url: 'u/pull/1', project: 'g/a', branch: 'x', created: iso(now - 532 * D), updated: iso(now - 470 * D), reviewed: false, issues: [] },
+      { kind: 'pr', url: 'u/pull/2', project: 'g/a', branch: 'y', created: iso(now - 40 * D), updated: iso(now - 2 * D), reviewed: false, issues: [] }],
+    branches: [{ project: 'g/a', name: 'feat/old', issue: null, sessions: ['o1'], reviews: [] }],
+  };
+  const pick = xs => xs.map(x => [x.id, x.old]);
+  assert.deepEqual(pick(B.stuck(model, sessions, undefined, now)), [['nopr:g/a#1', false], ['noreview:u/pull/1', true], ['noreview:u/pull/2', false], ['branch:g/a:feat/old', true]],
+    'quiet for over 14 days (by its last change, not its age): old');
+  assert.deepEqual(pick(B.stuck(model, sessions, { stuckMaxAge: 60 }, now)).filter(x => x[1]).map(x => x[0]), ['noreview:u/pull/1'], 'the limit is a setting (days)');
+  const all = B.stuck(model, sessions, undefined, now), at = id => all.find(x => x.id === id).at;
+  const skipped = { 'nopr:g/a#1': at('nopr:g/a#1'), 'noreview:u/pull/2': at('noreview:u/pull/2') - 1 };
+  assert.deepEqual(B.stuck(model, sessions, { stuckSkipped: skipped }, now).map(x => x.id), ['noreview:u/pull/1', 'noreview:u/pull/2', 'branch:g/a:feat/old'],
+    'skipped: gone while nothing moved; one that changed since it was skipped comes back');
+  sessions[0].updated = now; // the session moved again
+  assert.ok(B.stuck(model, sessions, { stuckSkipped: skipped, stuckNoPr: 0 }, now).some(x => x.id === 'nopr:g/a#1'));
 });
 
 test('board: each issue in one stage of the day, and the end-of-day report', () => {

@@ -149,8 +149,8 @@ impl Forge {
     }
 }
 
-// Your open pull requests on a GitHub host, with the issues GitHub links to each (closing references), when each was opened and its reviews.
-const GH_PRS: &str = "query{viewer{pullRequests(states:OPEN,first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number url headRefName body createdAt reviewDecision reviews{totalCount} repository{nameWithOwner} closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}}";
+// Your open pull requests on a GitHub host, with the issues GitHub links to each (closing references), when each was opened and last changed, and its reviews.
+const GH_PRS: &str = "query{viewer{pullRequests(states:OPEN,first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number url headRefName body createdAt updatedAt reviewDecision reviews{totalCount} repository{nameWithOwner} closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}}";
 
 // gh never asks anything (no terminal) and does not look for a new version of itself.
 const GH_ENV: &[(&str, &str)] = &[("GH_PROMPT_DISABLED", "1"), ("GH_NO_UPDATE_NOTIFIER", "1"), ("NO_COLOR", "1")];

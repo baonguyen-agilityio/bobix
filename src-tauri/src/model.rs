@@ -90,16 +90,16 @@ pub fn issue_of_session(path: Option<&str>, started: Option<&Value>, branches: &
 pub struct Link { pub project: String, pub iid: i64, pub why: Why }
 
 // One of your open pull / merge requests and the issues it closes. Only open ones are read today (state "open");
-// review: GitHub's review decision (approved, changes_requested, review_required), none on GitLab yet. created: when it
-// was opened (ISO time); reviewed: someone reviewed it (GitHub: a review; GitLab: a comment on it).
+// review: GitHub's review decision (approved, changes_requested, review_required), none on GitLab yet. created / updated:
+// when it was opened and last changed (ISO time); reviewed: someone reviewed it (GitHub: a review; GitLab: a comment on it).
 #[derive(Serialize, Clone, PartialEq, Debug)]
 pub struct Review { pub kind: &'static str, pub url: String, pub project: String, pub branch: String, pub state: &'static str, pub review: Option<String>,
-    pub created: Option<String>, pub reviewed: bool, pub issues: Vec<Link> }
+    pub created: Option<String>, pub updated: Option<String>, pub reviewed: bool, pub issues: Vec<Link> }
 
 // The issues it closes: the links the forge gives, "Closes #n" in its text, and a branch named after the issue, in
 // the same project. Each issue once, for its first reason.
 #[allow(clippy::too_many_arguments)]
-fn review(kind: &'static str, project: String, url: &Value, linked: Vec<(String, i64)>, text: &str, branch: &str, review: Option<String>, created: &Value, reviewed: bool) -> Option<Review> {
+fn review(kind: &'static str, project: String, url: &Value, linked: Vec<(String, i64)>, text: &str, branch: &str, review: Option<String>, (created, updated): (&Value, &Value), reviewed: bool) -> Option<Review> {
     let url = url.as_str()?.to_string();
     let mut issues: Vec<Link> = vec![];
     let all = linked.into_iter().map(|(p, n)| (p, n, Why::ForgeLink))
@@ -108,20 +108,20 @@ fn review(kind: &'static str, project: String, url: &Value, linked: Vec<(String,
     for (p, n, why) in all {
         if !p.is_empty() && !issues.iter().any(|l| l.project == p && l.iid == n) { issues.push(Link { project: p, iid: n, why }); }
     }
-    Some(Review { kind, url, project, branch: branch.into(), state: "open", review, created: created.as_str().map(String::from), reviewed, issues })
+    Some(Review { kind, url, project, branch: branch.into(), state: "open", review, created: created.as_str().map(String::from), updated: updated.as_str().map(String::from), reviewed, issues })
 }
 pub fn gh_pr(pr: &Value) -> Option<Review> {
     let repo = |v: &Value| v["repository"]["nameWithOwner"].as_str().unwrap_or("").to_lowercase();
     let linked = pr["closingIssuesReferences"]["nodes"].as_array().into_iter().flatten().filter_map(|n| Some((repo(n), n["number"].as_i64()?))).collect();
     let decision = pr["reviewDecision"].as_str().map(str::to_lowercase);
     let reviewed = pr["reviews"]["totalCount"].as_u64().is_some_and(|n| n > 0) || matches!(decision.as_deref(), Some("approved" | "changes_requested"));
-    review("pr", repo(pr), &pr["url"], linked, pr["body"].as_str().unwrap_or(""), pr["headRefName"].as_str().unwrap_or(""), decision, &pr["createdAt"], reviewed)
+    review("pr", repo(pr), &pr["url"], linked, pr["body"].as_str().unwrap_or(""), pr["headRefName"].as_str().unwrap_or(""), decision, (&pr["createdAt"], &pr["updatedAt"]), reviewed)
 }
 pub fn gl_mr(mr: &Value) -> Option<Review> {
     static REF: LazyLock<Regex> = LazyLock::new(|| re(r"!\d+$"));
     let project = REF.replace(mr["references"]["full"].as_str().unwrap_or(""), "").to_lowercase();
     let reviewed = mr["user_notes_count"].as_u64().is_some_and(|n| n > 0);
-    review("mr", project, &mr["web_url"], vec![], mr["description"].as_str().unwrap_or(""), mr["source_branch"].as_str().unwrap_or(""), None, &mr["created_at"], reviewed)
+    review("mr", project, &mr["web_url"], vec![], mr["description"].as_str().unwrap_or(""), mr["source_branch"].as_str().unwrap_or(""), None, (&mr["created_at"], &mr["updated_at"]), reviewed)
 }
 
 // The stage of an open issue: ask (a live session on it waits for your approval), doing (one works on it), both even
@@ -346,8 +346,8 @@ mod tests {
         assert_eq!(got, [("acme/shop", 61, Why::ForgeLink), ("acme/other", 3, Why::ForgeLink), ("acme/shop", 60, Why::Closes), ("acme/shop", 52, Why::Closes)], "#52 once, for its first reason");
         assert_eq!((r.kind, r.state, r.review.as_deref(), r.branch.as_str()), ("pr", "open", Some("changes_requested"), "feat/52-board-day"));
         assert!(r.reviewed && r.created.is_none(), "changes requested: someone reviewed it");
-        let fresh = gh_pr(&json!({ "url": "u", "createdAt": "2026-11-08T01:00:00Z", "reviews": { "totalCount": 0 }, "reviewDecision": "REVIEW_REQUIRED" })).unwrap();
-        assert_eq!((fresh.created.as_deref(), fresh.reviewed), (Some("2026-11-08T01:00:00Z"), false));
+        let fresh = gh_pr(&json!({ "url": "u", "createdAt": "2026-11-08T01:00:00Z", "updatedAt": "2026-11-09T01:00:00Z", "reviews": { "totalCount": 0 }, "reviewDecision": "REVIEW_REQUIRED" })).unwrap();
+        assert_eq!((fresh.created.as_deref(), fresh.updated.as_deref(), fresh.reviewed), (Some("2026-11-08T01:00:00Z"), Some("2026-11-09T01:00:00Z"), false));
         assert!(gh_pr(&json!({ "url": "u", "reviews": { "totalCount": 2 } })).unwrap().reviewed);
         let mr = json!({ "iid": 12, "web_url": "https://gl.example.com/g/sub/app/-/merge_requests/12", "references": { "full": "G/Sub/App!12" },
             "source_branch": "29-login-error", "description": null });
@@ -355,8 +355,8 @@ mod tests {
         assert_eq!(r.issues, [Link { project: "g/sub/app".into(), iid: 29, why: Why::Branch }]);
         assert_eq!((r.kind, r.review.as_ref()), ("mr", None));
         assert!(!r.reviewed);
-        let noted = gl_mr(&json!({ "web_url": "u", "created_at": "2026-11-08T01:00:00Z", "user_notes_count": 3 })).unwrap();
-        assert_eq!((noted.created.as_deref(), noted.reviewed), (Some("2026-11-08T01:00:00Z"), true), "a comment on a merge request counts as a review");
+        let noted = gl_mr(&json!({ "web_url": "u", "created_at": "2026-11-08T01:00:00Z", "updated_at": "2026-11-08T02:00:00Z", "user_notes_count": 3 })).unwrap();
+        assert_eq!((noted.created.as_deref(), noted.updated.as_deref(), noted.reviewed), (Some("2026-11-08T01:00:00Z"), Some("2026-11-08T02:00:00Z"), true), "a comment on a merge request counts as a review");
         assert!(gl_mr(&json!({ "web_url": "u", "references": {}, "source_branch": "main" })).unwrap().issues.is_empty());
         assert!(gh_pr(&json!({})).is_none(), "no link to open: nothing to show");
     }

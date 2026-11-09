@@ -28,7 +28,7 @@ flowchart LR
 | Project / Repo | A tracker project ("group/sub/project" on GitLab, "owner/repo" on GitHub, lower case), its code for session names (`key`, Settings → codes, else made from the name), its forge and host, and the folders here that hold a clone. The same path on two hosts counts as one project. | Your assigned issues, and the git remotes of the sessions' folders |
 | Issue | An open issue assigned to you, with its `stage` and the sessions and reviews linked to it. | `glab` / `gh`, read-only |
 | Branch | A branch Bobix saw in a project: one a session is on now or was on earlier (its transcript), or a PR / MR's source branch. | Git status, transcripts, the PR / MR list |
-| PR / MR (`reviews`) | One of your open pull requests (GitHub) or merge requests (GitLab): url, source branch, state (`open`; only open ones are read), review (GitHub's decision: `approved`, `changes_requested`, `review_required`; none on GitLab yet), when it was opened (`created`), whether anyone reviewed it (`reviewed`: a review on GitHub, a comment on GitLab) and the issues it closes. | `gh api graphql` / `glab api`, read-only |
+| PR / MR (`reviews`) | One of your open pull requests (GitHub) or merge requests (GitLab): url, source branch, state (`open`; only open ones are read), review (GitHub's decision: `approved`, `changes_requested`, `review_required`; none on GitLab yet), when it was opened and last changed (`created`, `updated`), whether anyone reviewed it (`reviewed`: a review on GitHub, a comment on GitLab) and the issues it closes. | `gh api graphql` / `glab api`, read-only |
 | Session | A Claude Code session: status (`working`, `waiting`, `done`, `idle`), since when, last activity, the permission requests it waits on (since when; `held` when Bobix can answer it) and its pet (`auto`, `hidden`, `shown`). | Hook events |
 
 ## Links and why each is there
@@ -59,7 +59,7 @@ The snapshot on `/events` carries, as before, `work` (issues grouped by project,
 ```text
 { "repos": [{ "path", "key", "autoKey", "forge", "host", "dirs": [{ "path", "why" }] }],
   "issues": [{ "project", "iid", "title", "url", "stage", "sessions": [{ "id", "why" }], "reviews": [{ "url", "why" }], "resume": { "id", "why" } }],
-  "reviews": [{ "kind", "url", "project", "branch", "state", "review", "created", "reviewed", "issues": [{ "project", "iid", "why" }] }],
+  "reviews": [{ "kind", "url", "project", "branch", "state", "review", "created", "updated", "reviewed", "issues": [{ "project", "iid", "why" }] }],
   "branches": [{ "project", "name", "issue": { "project", "iid", "why" }, "sessions", "reviews" }],
   "sessions": [{ "id", "status", "since", "lastActivity", "approvals": [{ "tool", "ask", "since", "held" }], "pet", "dir", "repo", "issue", "parent" }] }
 ```
@@ -79,4 +79,6 @@ The board's "Stuck work" (`stuck` in `src/ui/board.js`) reads the model and the 
 | `branch` | A session's branch with commits of its own (`git.own`: not on the remote's default branch, `origin/HEAD`), no open PR / MR from it and no session working on it, last commit older than "Branch with commits and no PR / MR after" (4 h) | The forge's new PR / MR page |
 | `idle` | An issue whose sessions all rest without having finished a turn, no activity for "An issue's sessions resting for" (4 h) | The session |
 
-"Skip" hides an item until Bobix restarts.
+Each item has a last activity (the session's last event, the PR / MR's last change, the branch's last commit or session event). One quiet for longer than "Leave out stuck work quiet for over" (14 days) is old: it folds into one quiet line at the end of the section instead of a line of its own, and stays out of the stand-up.
+
+"Skip" stores the item's id and its last activity in Bobix's own settings (`stuckSkipped`, the newest 300); the item stays hidden until it moves again. Nothing is written to Claude's files.
