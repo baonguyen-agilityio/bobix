@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-process-import"
+description = "Enables the process_import command without any pre-configured scope."
+commands.allow = ["process_import"]
+
+[[permission]]
+identifier = "deny-process-import"
+description = "Denies the process_import command without any pre-configured scope."
+commands.deny = ["process_import"]
