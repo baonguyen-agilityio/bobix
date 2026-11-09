@@ -21,9 +21,7 @@ process.stdin.on('end', () => {
   try { e = JSON.parse(raw); } catch { return; }
   // Big payloads (file contents, tool output) are never needed: send only what the app reads.
   delete e.tool_response;
-  // A permission request keeps its whole input when it is small, so "Always allow" can remember that exact call.
-  if (e.hook_event_name === 'PermissionRequest' && e.tool_input && typeof e.tool_input === 'object' && JSON.stringify(e.tool_input).length <= 8000) e.bobix_whole_input = true;
-  else if (e.tool_input && typeof e.tool_input === 'object') {
+  if (e.tool_input && typeof e.tool_input === 'object') {
     const t = {};
     for (const k of KEEP_INPUT) if (typeof e.tool_input[k] === 'string') t[k] = e.tool_input[k].slice(0, 300);
     e.tool_input = t;

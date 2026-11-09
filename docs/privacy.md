@@ -11,7 +11,7 @@ Bobix runs entirely on your computer. It has no account and no analytics. Its on
 | The session's git repository, with `git` (local only, no fetch) | branch, upstream and ahead / behind, the number of changed files, commits on no remote, the last commit's subject and time, the number of worktrees, the remote URLs | the Git part of a session's details, and (GitLab on) which GitLab project and issue it works on. Remote URLs stay in the app's main process and are never shown or sent: they can hold credentials. |
 | The session transcript (`~/.claude/projects/…jsonl`) | the last ~512 KB (and the first 256 KB, for the title): the final answer, token usage, the session title | the "report" line, the context meter, the pet's name |
 
-The hook script drops file contents and tool output before sending anything. A permission request is the one exception: its tool input is sent whole when it is under 8,000 characters (a command, or an edit's file and its old and new text), so "Always allow" can remember exactly that call; a bigger one is cut like the others and cannot be remembered. All of this is kept **in memory only** and forgotten when a session ends or the app quits.
+The hook script drops file contents and tool output before sending anything. All of this is kept **in memory only** and forgotten when a session ends or the app quits.
 
 ## What it writes
 
@@ -20,7 +20,7 @@ The hook script drops file contents and tool output before sending anything. A p
 | `~/.claude/settings.json` | Bobix's hook entries (only when you click Install hooks; removed by Remove hooks) |
 | `~/.claude/settings.json.bak-bobix-*` | a copy of that file before each change, same permissions, newest 3 kept. It contains whatever your settings file contains. |
 | `~/.claude/bobix/hook.js`, `token`, `header` | the forwarder and a random per-user token (mode 0600) |
-| The app's settings folder → `settings.json` | your Bobix preferences, including the short code you set for a project, the calls you chose to "Always allow" (each one: the project's folder, the tool and its exact input; removed from Settings → Always allowed), which picture each project uses and the pixel-art settings you chose for it |
+| The app's settings folder → `settings.json` | your Bobix preferences, including the short code you set for a project, which picture each project uses and the pixel-art settings you chose for it |
 | The app's settings folder → `pets/` | the pixel-art version of each project's picture (the face the pets wear), and in `pets/originals/` the original picture as you chose it, kept so Edit picture can start from it and never shown or served by Bobix; both removed when no project uses them |
 | Start at login (only if you turn it on) | a login item (macOS / Windows), a LaunchAgent (macOS, from source) or `~/.config/autostart/bobix.desktop` (Linux) |
 

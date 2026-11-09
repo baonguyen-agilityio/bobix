@@ -430,11 +430,6 @@ input[type=number]{width:104px}
 
 .cmd{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin-top:var(--s2)}
 .cmd code{font-size:var(--t-xs)}
-.rules{list-style:none;margin:0;padding:0;display:grid;gap:var(--s2);width:100%}
-.rules li{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);padding:var(--s2) var(--s3);border:1px solid var(--line);border-radius:var(--r-md)}
-.rules li>div{min-width:0;display:flex;flex-direction:column;gap:2px}
-.rules code{align-self:flex-start;max-width:100%;font-size:var(--t-xs);white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
-.rules .note{font-size:var(--t-xs);color:var(--ink-3)}
 .keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;text-transform:uppercase}
 .gitkv{grid-template-columns:max-content minmax(0,1fr)}
 .gitkv dd{overflow-wrap:anywhere;display:block}
@@ -611,7 +606,7 @@ function apRow(s) {
     <div class="ap-tx"><button class="ap-who" type="button" data-sel="${esc(s.id)}">${who}<span class="pj">${esc(where)}</span></button>
       <div class="ap-what"><span class="vb">${esc(s.askTool ? I18N.toolLabel(lang, s.askTool) : T('status.waiting'))}</span><code class="${opened.has('c:' + s.id) ? 'full' : ''}">${esc(text)}</code></div>
       ${note ? `<div class="ap-note">${note}</div>` : ''}</div>
-    ${held ? `<div class="acts"><button class="btn sm pri" type="button" data-choice="allow" data-s="${esc(s.id)}" data-f="allow:${esc(s.id)}">${T('ask.allow')}</button>${a.always ? `<button class="btn sm" type="button" data-choice="always" data-s="${esc(s.id)}">${T('ask.always')}</button>` : ''}<button class="btn sm" type="button" data-choice="deny" data-s="${esc(s.id)}">${T('ask.deny')}</button></div>`
+    ${held ? `<div class="acts"><button class="btn sm pri" type="button" data-choice="allow" data-s="${esc(s.id)}" data-f="allow:${esc(s.id)}">${T('ask.allow')}</button><button class="btn sm" type="button" data-choice="deny" data-s="${esc(s.id)}">${T('ask.deny')}</button></div>`
       : `<p class="note">${esc(T(approveWhere(s)))}</p>`}</li>`;
 }
 const waitingList = () => list.filter(s => look(s) === 'waiting').sort((a, b) => a.since - b.since);
@@ -769,8 +764,7 @@ function renderPane() {
     ${s.parent && titleOf(s.parent) ? `<h3>${T('pane.from')}</h3><p><button class="btn" type="button" data-act="goto" data-id="${esc(s.parent)}">${esc(titleOf(s.parent))}</button></p>` : ''}
     ${kids.length ? `<h3>${T('pane.sides')}</h3><ol class="log sides">${kids.map(k => `<li><button class="sidecard" type="button" data-act="goto" data-id="${esc(k.id)}" title="${esc(k.title || k.name)}"><span class="t">${esc(k.title || k.name)}</span><span class="st">${esc(statusText(k, look(k)))}</span></button></li>`).join('')}</ol>` : ''}
     ${st === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${secsLeft(s) && bridge ? `${secsLeft(s) === Infinity ? T('pane.askUntil') : T('pane.askWithin', { n: secsLeft(s) })}
-      <div class="acts">${s.answer.always ? `<button class="btn" type="button" data-act="answer" data-choice="always">${T('ask.always')}</button>` : ''}
-        <button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
+      <div class="acts"><button class="btn pri" type="button" data-act="answer" data-choice="allow">${T('ask.allow')}</button>
         <button class="btn danger" type="button" data-act="answer" data-choice="deny">${T('ask.deny')}</button></div>` : T(approveWhere(s))}</div>` : ''}
     <h3>${T('pane.quest')}</h3>${moreHTML(`q:${s.id}`, markdown(s.prompt || s.quest || T('line.noQuest')), 'prompt md')}
     ${s.summary ? `<details class="fold"${reportOpen ? ' open' : ''}><summary><h3>${T('pane.report')}</h3></summary>
@@ -864,8 +858,7 @@ $('#day').addEventListener('click', async e => {
     if (!s?.answer || !bridge) return;
     const next = waitingList().find(x => x.id !== s.id);
     nextFocus = next ? 'allow:' + next.id : 'step:doing';
-    const ok = await bridge.answer(s.answer.id, d.choice);
-    if (ok && d.choice === 'always') toast(T('day.remembered'));
+    await bridge.answer(s.answer.id, d.choice);
     return;
   }
   if (d.sel) return select(d.sel === selected ? null : d.sel);
@@ -929,7 +922,6 @@ const SECTIONS = [
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
     { k: 'checkUpdates', type: 'switch' },
   ]],
-  ['set.section.always', [{ k: 'alwaysAllow', type: 'always', wide: true }]],
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
     { k: 'github', type: 'switch' },
@@ -964,13 +956,6 @@ function control(r, s) {
     const gs = [...(work.local || []), ...(work.away || [])];
     if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
     return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
-  }
-  if (r.type === 'always') { // remembered calls, newest first; each can be removed
-    const rules = [...(s.alwaysAllow || [])].reverse();
-    if (!rules.length) return `<p class="note">${esc(T('set.alwaysAllow.none'))}</p>`;
-    const what = r => { try { const i = JSON.parse(r.input); return i.command || i.file_path || i.url || i.pattern || i.query || r.input; } catch { return r.input; } };
-    return `<ul class="rules">${rules.map(r => `<li><div><code>${esc(what(r))}</code><span class="note">${esc(I18N.toolLabel(lang, r.tool))} · ${esc(BOARD.short(r.project))}</span></div>
-      <button class="btn sm" type="button" data-unrule="${esc(JSON.stringify([r.project, r.tool, r.input]))}">${T('set.alwaysAllow.remove')}</button></li>`).join('')}</ul>`;
   }
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
@@ -1054,10 +1039,6 @@ $('#settings').addEventListener('change', e => {
 $('#settings').addEventListener('click', async e => {
   const t = e.target.closest('button');
   if (!t) return;
-  if (t.dataset.unrule) {
-    const [p, tool, input] = JSON.parse(t.dataset.unrule);
-    return save({ alwaysAllow: state.settings.alwaysAllow.filter(r => !(r.project === p && r.tool === tool && r.input === input)) });
-  }
   if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
   if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
   if (t.dataset.act === 'port') {

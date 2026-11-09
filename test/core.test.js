@@ -657,12 +657,6 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   assert.equal(e.bobix_claude_pid, 4242);
   assert.equal(e.bobix_host_session, 'local_test-1');
   assert.deepEqual(JSON.parse(await run({ session_id: 's5', hook_event_name: 'SessionStart', source: 'startup' })), titled, 'a session title reaches Claude Code');
-  // a permission request comes whole (so "Always allow" can match it exactly), unless it is big
-  const edit = { file_path: '/a.js', old_string: 'a', new_string: 'b', replace_all: false };
-  await run({ session_id: 's6', hook_event_name: 'PermissionRequest', tool_name: 'Edit', tool_input: edit });
-  assert.deepEqual([got.at(-1).e.tool_input, got.at(-1).e.bobix_whole_input, got.at(-1).wait], [edit, true, '1']);
-  await run({ session_id: 's6', hook_event_name: 'PermissionRequest', tool_name: 'Write', tool_input: { file_path: '/b', content: 'x'.repeat(9000) } });
-  assert.deepEqual([got.at(-1).e.tool_input, got.at(-1).e.bobix_whole_input], [{ file_path: '/b' }, undefined]);
   srv.close();
   fs.rmSync(home, { recursive: true, force: true });
 });

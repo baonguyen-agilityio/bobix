@@ -2,7 +2,6 @@
 // the tray. Port of the 0.1 (Electron) app's main.js.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod always;
 mod answers;
 mod autostart;
 mod feedback;
@@ -99,12 +98,6 @@ impl Bobix {
             c.last_event_at = Some(now);
             let Core { sessions, pending, settings, work, .. } = &mut *c;
             let gitlab = work::any_on(settings);
-            // A call the person chose to always allow in this project: allowed at once, the session keeps working.
-            if wait && ev == "PermissionRequest" && e["cwd"].as_str().is_some_and(|d| !d.is_empty() && always::allowed(settings, &project::project_of(d), &e)) {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                let _ = tx.send(Some(answers::output(json!({ "behavior": "allow" }))));
-                return Some(server::Reply::Output(rx));
-            }
             match state::apply(sessions, &e, now) {
                 None => return None,
                 Some(Applied::Removed) => (None, None, 0, None, None, gitlab),
@@ -466,25 +459,7 @@ fn port_free(port: u16) -> bool { std::net::TcpListener::bind(("127.0.0.1", port
 
 // A change from the panel or the tray: checked (settings::sanitize), applied, saved 300 ms later (sliders send a stream
 // of changes). A new port is used only once it is free and the hooks point at it; then Bobix starts again on it.
-pub fn update_settings(b: &Arc<Bobix>, mut patch: Value) -> Value {
-    // The pages may only remove "Always allow" rules; a rule is added by answering a request with it (remember).
-    if let Some(a) = patch.get_mut("alwaysAllow").and_then(|a| a.as_array_mut()) {
-        let prev = b.core.lock().unwrap().settings["alwaysAllow"].clone();
-        a.retain(|r| prev.as_array().is_some_and(|p| p.iter().any(|x| always::same(x, r))));
-    }
-    apply_settings(b, patch)
-}
-
-// Adds an "Always allow" rule to Bobix's settings (newest last).
-pub fn remember(b: &Arc<Bobix>, mut rule: Value) {
-    rule["at"] = json!(state::now());
-    let mut list = b.core.lock().unwrap().settings["alwaysAllow"].as_array().cloned().unwrap_or_default();
-    list.retain(|x| !always::same(x, &rule));
-    list.push(rule);
-    apply_settings(b, json!({ "alwaysAllow": list }));
-}
-
-fn apply_settings(b: &Arc<Bobix>, patch: Value) -> Value {
+pub fn update_settings(b: &Arc<Bobix>, patch: Value) -> Value {
     let (prev, next) = {
         let c = b.core.lock().unwrap();
         let mut merged = c.settings.clone();
