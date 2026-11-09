@@ -16,6 +16,7 @@
     { key: 'next', tab: 'sessions', section: 'todo', at: ['.nx', '#d-todo'] },
     { key: 'skill', tab: 'sessions', section: 'todo', at: ['#st-skills'], open: 'start', alt: { tab: 'settings', at: ['[data-row="role"]'] } },
     { key: 'standup', tab: 'sessions', at: ['[data-standup]'] },
+    { key: 'wait', tab: 'sessions', at: ['#d-aq .ap-who'], alt: { tab: 'settings', at: ['[data-row="longWait"]'] } },
     { key: 'allow', tab: 'sessions', at: ['#d-aq', '.flow'] },
   ];
 
