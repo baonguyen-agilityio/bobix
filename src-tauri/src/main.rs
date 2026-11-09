@@ -556,7 +556,7 @@ fn diagnostics(b: &Arc<Bobix>) -> Value {
             .map(|s| (s.state.clone(), s.since, s.log.len(), !s.title.is_empty(), s.claude_pid, s.host_session.is_some(), s.diag.clone())).collect();
         (c.settings.clone(), c.rects.len(), c.page_errors.clone(), s, c.node_path.is_some())
     };
-    let pick: serde_json::Map<String, Value> = ["language", "edge", "size", "opacity", "showIdle", "sleepHide", "onlyAttention", "petsVisible", "zoneStart", "zoneEnd", "display", "clickAction"]
+    let pick: serde_json::Map<String, Value> = ["language", "edge", "walkDir", "size", "opacity", "showIdle", "sleepHide", "onlyAttention", "petsVisible", "zoneStart", "zoneEnd", "display", "clickAction"]
         .iter().map(|k| (k.to_string(), st[*k].clone())).collect();
     let h = hooks::status(&paths::home());
     let rect = |p: tauri::PhysicalPosition<i32>, z: tauri::PhysicalSize<u32>, f: f64| json!({ "x": (p.x as f64 / f).round(), "y": (p.y as f64 / f).round(), "width": (z.width as f64 / f).round(), "height": (z.height as f64 / f).round() });

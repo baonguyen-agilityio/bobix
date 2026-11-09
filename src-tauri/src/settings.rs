@@ -8,7 +8,7 @@ pub const UNTIL_ANSWER: f64 = -1.0; // approveWait: no countdown, the request wa
 
 pub fn defaults() -> Value {
     json!({
-        "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "zoneStart": 0, "zoneEnd": 100,
+        "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "walkDir": "ltr", "zoneStart": 0, "zoneEnd": 100,
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "sleepHide": 30,
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
@@ -20,6 +20,7 @@ fn enum_of(k: &str) -> Option<&'static [&'static str]> {
     Some(match k {
         "language" => &["auto", "en", "vi"],
         "edge" => &["bottom", "top"],
+        "walkDir" => &["ltr", "rtl"], // the way the pets walk along the edge: left to right, or right to left
         "label" => &["title", "folder", "both"],
         "clickAction" => &["focus", "panel"],
         _ => return None,
@@ -308,6 +309,8 @@ mod tests {
         let o = s(json!({ "size": 9999, "edge": "left", "opacity": 0, "zoneStart": 90, "zoneEnd": 91, "evil": 1, "sound": "yes" }));
         assert_eq!(o["size"], 128);
         assert_eq!(o["edge"], "bottom");
+        assert_eq!(s(json!({ "walkDir": "up" }))["walkDir"], "ltr");
+        assert_eq!(s(json!({ "walkDir": "rtl" }))["walkDir"], "rtl");
         assert_eq!(o["opacity"], json!(0.2));
         assert_eq!(o["zoneEnd"], 95);
         assert!(o.get("evil").is_none());

@@ -144,12 +144,12 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         report["git"] = b.core.lock().unwrap().sessions.get(sid).and_then(|s| s.git.as_ref()).map(|g| json!({ "branch": g["branch"], "worktrees": g["worktrees"] })).unwrap_or(json!("none"));
         report["secondStart"] = json!(crate::server::show_running(b.port, &b.token, &app.package_info().version.to_string()));
         report["work"] = serde_json::from_str::<Value>(&b.snapshot()).map(|v| v["work"]["status"].clone()).unwrap_or_default();
-        // Linux: drag a pet with the real mouse (xdotool) and check it moved: the input shape lets the
-        // mouse in over a pet. Not part of the verdict where xdotool is missing.
+        // Linux: drag a pet with the real mouse (xdotool) and check it moved, then point at a pet and check the line of
+        // pets stops: the input shape lets the mouse in over a pet. Not part of the verdict where xdotool is missing.
         if cfg!(target_os = "linux") && crate::procs::exec("xdotool", &["version"], 5, &[]).ok {
-            // The pretend session's pet: finished by now, so it rests (a working pet walks away from the cursor).
             let rest = b.core.lock().unwrap().sessions.keys().find(|k| k.starts_with("bobix-test-")).cloned().unwrap_or_default();
             report["drag"] = drag(&app, &rest);
+            report["hover"] = hover(&app);
         }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
@@ -157,6 +157,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 3 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
             && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
             && (report.get("drag").is_none() || report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0)
+            && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
         write(&report);
@@ -177,7 +178,7 @@ fn ask(app: &AppHandle, label: &str, expr: &str) -> Value {
     PAGE.lock().unwrap().take().map(|v| v["v"].clone()).unwrap_or(json!("no answer"))
 }
 
-// Drags the pet toward the middle of the screen (so the zone never clamps it), as scripts/smoke-drag.mjs did. Screen
+// Drags the pet toward the middle of the screen (so the zone never clamps it); let go, it stays in the line there. Screen
 // coordinates come from the window's position (WebKitGTK may not know screenX without a window manager); the page
 // counts the pointer presses it gets, so a failure says whether the mouse reached it.
 fn drag(app: &AppHandle, sid: &str) -> Value {
@@ -200,6 +201,28 @@ fn drag(app: &AppHandle, sid: &str) -> Value {
     thread::sleep(Duration::from_millis(800));
     let after = ask(app, overlay::LABEL, &format!("({{ x: Math.round(pets.get({sid:?}).x), events: window.__ev }})"));
     json!({ "at": [x, y], "page": at, "from": px, "to": after["x"], "events": after["events"], "moved": after["x"].as_f64().map(|a| (a - px) * dir as f64) })
+}
+
+// Moves the mouse onto a pet in full sight. Screen coordinates come from the window's position (WebKitGTK may not know
+// screenX without a window manager); the page counts the pointer events it gets, so a failure says whether the mouse
+// reached it.
+fn hover(app: &AppHandle) -> Value {
+    let Some(win) = app.get_webview_window(overlay::LABEL) else { return json!({ "error": "no window" }) };
+    let at = ask(app, overlay::LABEL, "(() => { window.__ev = {}; for (const t of ['pointerover', 'pointermove']) addEventListener(t, () => { __ev[t] = (__ev[t] || 0) + 1; }, true); \
+        const p = [...pets.values()].find(q => !q.el.classList.contains('line-off') && (q.edgeFade ?? 1) > .9); if (!p) return null; \
+        const b = p.el.querySelector('.spr').getBoundingClientRect(); return { id: p.s.id, x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()");
+    let (Some(cx), Some(cy), Some(id)) = (at["x"].as_f64(), at["y"].as_f64(), at["id"].as_str()) else { return json!({ "error": "no pet in sight", "at": at }) };
+    let f = win.scale_factor().unwrap_or(1.0);
+    let pos = win.inner_position().unwrap_or_default();
+    let (x, y) = ((pos.x as f64 / f + cx).round() as i64, (pos.y as f64 / f + cy).round() as i64);
+    crate::procs::exec("xdotool", &["mousemove", &x.to_string(), &y.to_string()], 5, &[]);
+    thread::sleep(Duration::from_millis(600));
+    let a = ask(app, overlay::LABEL, &format!("({{ hover: !!pets.get({id:?})?.hover, x: pets.get({id:?})?.x, events: window.__ev }})"));
+    thread::sleep(Duration::from_millis(500));
+    let b = ask(app, overlay::LABEL, &format!("pets.get({id:?})?.x"));
+    let stopped = a["x"].as_f64().zip(b.as_f64()).is_some_and(|(p, q)| (p - q).abs() < 0.5);
+    crate::procs::exec("xdotool", &["mousemove", "0", "0"], 5, &[]);
+    json!({ "at": [x, y], "hover": a["hover"], "stopped": stopped, "events": a["events"] })
 }
 
 // The hook's stdout: what Claude Code would read.
