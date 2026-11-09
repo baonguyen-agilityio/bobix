@@ -753,6 +753,20 @@ test('board: each issue in one stage of the day, and the end-of-day report', () 
   assert.equal(B.day(new Date(2026, 0, 2, 0, 5).getTime()), '2026-01-02');
 });
 
+test('board: the issue to start next, and what Claude gets', () => {
+  const B = require('../src/ui/board');
+  const mk = (iid, extra = {}) => [{ iid, title: 't' + iid, url: 'u' + iid, ...extra }, { path: extra.p || 'g/app', dir: extra.away ? undefined : '/src/' + (extra.p || 'g/app') }];
+  const todo = [mk(9), mk(4), mk(2, { resume: 'old' }), mk(3, { away: true }), mk(5, { due: '2026-12-01' }), mk(6, { p: 'g/web' })];
+  const st = { todo };
+  assert.equal(B.next(st)[0].iid, 5, 'one with a due date first');
+  assert.equal(B.next({ todo: todo.filter(x => x[0].iid !== 5) })[0].iid, 4, 'then the oldest; one named after an old session and one not on this machine are left out');
+  assert.equal(B.next(st, [{ dir: '/src/g/app', iid: 5 }])[0].iid, 4, 'not one a new session is already starting');
+  assert.equal(B.next(st, [], 'g/web')[0].iid, 6, 'in the project picked');
+  assert.equal(B.next({ todo: [] }), null);
+  assert.equal(B.brief({ iid: 54, title: 'Pick next', url: 'https://h/i/54' }, '  Steps\n- a  '), '#54 Pick next\n\nSteps\n- a\n\nhttps://h/i/54');
+  assert.equal(B.brief({ iid: 1, title: 'T', url: 'u' }, null), '#1 T\n\nu', 'no description');
+});
+
 test("every script and stylesheet the pages load is one the app's server serves", () => {
   const ui = path.join(__dirname, '../src/ui');
   const listed = JSON.parse(fs.readFileSync(path.join(__dirname, '../src-tauri/src/server.rs'), 'utf8').match(/const ASSETS: \[&str; \d+\] = (\[[^\]]*\])/)[1]);

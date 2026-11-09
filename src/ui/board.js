@@ -74,6 +74,18 @@
     return `${T('report.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${parts.join('\n\n') || T('report.none')}\n${wait}`;
   }
 
+  // The issue to start next: one in To do that nobody started (no session, none named after it, no new session
+  // waiting for it) in a project with a folder on this machine. Overdue or due soonest first, then the oldest.
+  // proj: the project picked in To do ('all' for any); waiting: [{ dir, iid }].
+  function next(st, waiting = [], proj = 'all') {
+    const free = st.todo.filter(([i, g]) => g.dir && !i.resume && (proj === 'all' || g.path === proj) && !waiting.some(w => w.dir === g.dir && w.iid === i.iid));
+    const due = ([i]) => i.due || '9999';
+    return free.sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : 0) || a[0].iid - b[0].iid)[0] || null;
+  }
+
+  // What Claude gets in the new session: the issue's title, its description and its link.
+  const brief = (i, body) => [`#${i.iid} ${i.title}`, String(body || '').trim(), i.url ? String(i.url) : ''].filter(Boolean).join('\n\n');
+
   // The five steps a ticket goes through; the model gives the first four, a close today the last.
   const STEPS = ['todo', 'doing', 'ask', 'verify', 'done'];
   const stepOf = i => (i.closedAt ? 'done' : STEPS.includes(i.stage) ? i.stage : 'todo');
@@ -127,6 +139,6 @@
     return `${T('su.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${[sec('su.yesterday', done), sec('su.today', today), sec('su.stuck', stuck.map(x => `- ${x.text}: ${x.why}`))].join('\n\n')}\n`;
   }
 
-  const api = { PRI, STEPS, day, stages, loose, short, folder, waited, report, stepOf, why, dups, lastWorkday, standup };
+  const api = { PRI, STEPS, day, stages, loose, short, folder, waited, report, stepOf, why, dups, lastWorkday, standup, next, brief };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);
