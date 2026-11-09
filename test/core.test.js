@@ -878,6 +878,8 @@ test('habits: days of activity, the first-days state, and each suggestion rule',
   const one = [ev(at(6, 14), 'start', { s: 'a', i: 128, b: '128-cart' }), ev(at(6, 14, 5), 'skill', { s: 'a', v: 'fix' }), ev(at(6, 15), 'ask', { s: 'a', ms: 120e3, ok: true, r: 'Bash(npm test:*)' }),
     ev(at(6, 17, 35), 'end', { s: 'a', i: 128 })];
   assert.deepEqual(Hb.days(one).map(x => [x.day, x.items.map(y => [y.iid, y.asks, y.waitMs, y.skills, y.ended, y.to - y.from])]), [['2026-11-06', [[128, 1, 120e3, ['fix'], true, (3 * 60 + 35) * 60e3]]]]);
+  assert.deepEqual(Hb.days([...one, ev(at(6, 16), 'skill', { s: 'a', v: 'clear' })])[0].items[0].skills, ['fix'], 'a Claude Code command (/clear) is not a skill');
+  assert.equal(Hb.days(one)[0].items[0].project, 'team/shop');
   // not ready while fewer than 5 days were logged
   assert.deepEqual(Hb.suggest(one, {}, {}, now), { ready: false, logged: 1, need: 5, cards: [] });
   const filler = [2, 3, 4, 5].map(d => ev(at(d, 10), 'st', { v: 'working', d: '/src/other' })); // other days, another folder

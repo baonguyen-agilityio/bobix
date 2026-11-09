@@ -6,7 +6,7 @@
   const MIN_DAYS = 5; // days with activity before the first suggestion
   const MAX_CARDS = 3;
   const KINDS = ['morning', 'allow', 'recurring', 'skill'];
-  // Claude Code's own commands are not skills.
+  // Claude Code's own commands are not skills (the app does not log them as skills: BUILTIN in src-tauri/src/habits.rs).
   const BUILTIN = new Set(['clear', 'compact', 'help', 'model', 'config', 'rename', 'resume', 'exit', 'login', 'logout', 'status', 'cost', 'memory', 'init', 'doctor', 'permissions', 'hooks', 'mcp', 'agents', 'context', 'add-dir', 'bug', 'vim', 'theme', 'terminal-setup', 'upgrade', 'export', 'release-notes', 'usage']);
 
   const pad = n => String(n).padStart(2, '0');
@@ -25,12 +25,13 @@
       const d = dayOf(e.t), key = d + '\n' + e.s;
       if (!by.has(d)) by.set(d, new Map());
       const day = by.get(d);
-      const x = day.get(key) || { sid: e.s, from: e.t, to: e.t, dir: e.d, branch: e.b || null, iid: e.i ?? null, asks: 0, waitMs: 0, skills: [], ended: false };
+      const x = day.get(key) || { sid: e.s, from: e.t, to: e.t, dir: e.d, project: e.p || null, branch: e.b || null, iid: e.i ?? null, asks: 0, waitMs: 0, skills: [], ended: false };
+      if (e.p) x.project = e.p;
       x.from = Math.min(x.from, e.t); x.to = Math.max(x.to, e.t);
       if (e.b) x.branch = e.b;
       if (e.i != null) x.iid = e.i;
       if (e.k === 'ask') { x.asks++; x.waitMs += e.ms || 0; }
-      if (e.k === 'skill' && !x.skills.includes(e.v)) x.skills.push(e.v);
+      if (e.k === 'skill' && !BUILTIN.has(e.v) && !x.skills.includes(e.v)) x.skills.push(e.v);
       if (e.k === 'end') x.ended = true;
       day.set(key, x);
     }

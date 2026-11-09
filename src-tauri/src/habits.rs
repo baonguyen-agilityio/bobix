@@ -53,14 +53,19 @@ pub fn rule_of(tool: &str, input: &Value) -> Option<String> {
     Some(match sub { Some(w) => format!("Bash({first} {w}:*)"), None => format!("Bash({first}:*)") })
 }
 
-// The skill a prompt starts with ("/fix …"), or the one the Skill tool runs. Only its name.
+// Claude Code's own commands: a prompt starting with one of them used no skill.
+const BUILTIN: &[&str] = &["add-dir", "agents", "bug", "clear", "compact", "config", "context", "cost", "doctor", "exit", "export", "help", "hooks", "init",
+    "login", "logout", "mcp", "memory", "model", "permissions", "release-notes", "rename", "resume", "status", "terminal-setup", "theme", "upgrade", "usage", "vim"];
+
+// The skill a prompt starts with ("/fix …"), or the one the Skill tool runs. Only its name; never one of Claude Code's
+// own commands (/clear, /compact, /model…).
 pub fn skill_of(e: &Value) -> Option<String> {
     let name = match e["hook_event_name"].as_str()? {
         "UserPromptSubmit" => e["prompt"].as_str()?.trim_start().strip_prefix('/')?.split_whitespace().next()?.to_string(),
         "PreToolUse" if e["tool_name"] == "Skill" => e["tool_input"]["skill"].as_str().or(e["tool_input"]["command"].as_str())?.trim_start_matches('/').to_string(),
         _ => return None,
     };
-    (!name.is_empty() && name.len() <= 60 && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_:.".contains(c))).then_some(name)
+    (!name.is_empty() && name.len() <= 60 && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_:.".contains(c)) && !BUILTIN.contains(&name.as_str())).then_some(name)
 }
 
 fn line(k: &str, sid: &str, now: u64, dir: &str, branch: &Option<String>, issue: Option<i64>, more: Value) -> Value {
@@ -196,6 +201,9 @@ mod tests {
         assert_eq!(rule_of("mcp__x; rm", &json!({})), None);
         assert_eq!(skill_of(&json!({ "hook_event_name": "UserPromptSubmit", "prompt": "/fix the login bug please" })).as_deref(), Some("fix"));
         assert_eq!(skill_of(&json!({ "hook_event_name": "UserPromptSubmit", "prompt": "fix it /now" })), None);
+        for c in ["/clear", "/compact", "/help", "/model sonnet", "/resume", "/config"] {
+            assert_eq!(skill_of(&json!({ "hook_event_name": "UserPromptSubmit", "prompt": c })), None, "{c}: Claude Code's own command, not a skill");
+        }
         assert_eq!(skill_of(&json!({ "hook_event_name": "PreToolUse", "tool_name": "Skill", "tool_input": { "skill": "ak:cook" } })).as_deref(), Some("ak:cook"));
     }
 

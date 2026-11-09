@@ -1306,7 +1306,9 @@ function habitsSettingsHTML(s) {
   const on = !!s.habitsOn, d = habitData, li = k => `<li>${esc(T(k))}</li>`;
   const ev = d?.events || [], days = HABITS.days(ev), shown = days.slice(0, 7), more = days.length - shown.length;
   const issueName = x => { const i = x.iid != null && (model.issues || []).find(y => y.iid === x.iid && (model.repos || []).some(r => r.path === y.project && r.dirs.some(z => z.path === x.dir))); return x.iid != null ? `#${x.iid}${i ? ' ' + i.title : ''}` : x.branch || HABITS.base(x.dir); };
-  const detail = x => [HABITS.base(x.dir), x.asks ? T('hab.set.asks', { n: x.asks, m: Math.round(x.waitMs / 60e3) }) : '', x.skills.map(k => '/' + k).join(', '), x.ended ? T('hab.set.ended') : ''].filter(Boolean).join(' · ');
+  // "phiên đã kết thúc": the session ended; "issue đã đóng" only for an issue the tracker says is closed (closed lately)
+  const closed = x => x.iid != null && (work.closed || []).some(c => c.iid === x.iid && c.project === (x.project || HABITS.projectOf(model, x.dir)));
+  const detail = x => [HABITS.base(x.dir), x.asks ? T('hab.set.asks', { n: x.asks, m: Math.round(x.waitMs / 60e3) }) : '', x.skills.map(k => '/' + k).join(', '), x.ended ? T('hab.set.ended') : '', closed(x) ? T('hab.set.closed') : ''].filter(Boolean).join(' · ');
   const span = x => `${timeOf(x.from)}–${x.ended ? timeOf(x.to) : ''}`;
   const stored = !d ? '' : `<div class="opt wide"><div style="width:100%">
       <div class="lbl">${esc(T('hab.set.stored'))} <span class="note">${esc(T('hab.set.size', { s: Math.max(0, Math.round(d.bytes / 1024)), n: d.days }))}</span></div>
