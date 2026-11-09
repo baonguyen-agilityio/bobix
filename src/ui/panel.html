@@ -196,6 +196,33 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .stbox .sk .tag{font-size:11px;font-weight:700;padding:0 7px;border-radius:var(--pill);background:var(--ink);color:var(--n-50)}
 .stbox .sk .src{font-size:11px;color:var(--ink-3)}
 .stbox .more{margin-top:6px}
+.stbox .sg{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;margin:10px 0 4px;font-size:var(--t-xs);font-weight:700;color:var(--ink-2)}
+.stbox .sg:first-child{margin-top:0}
+.stbox .sg .src{font-weight:500}
+.stbox .sk label.miss{cursor:default;border-style:dashed;opacity:.85}
+.stbox .sk .miss-tag{font-size:11px;font-weight:700;padding:0 7px;border-radius:var(--pill);border:1px solid var(--line-strong);color:var(--ink-2)}
+.stbox .sk .copy{grid-column:2;justify-self:start;margin-top:2px}
+.stbox .note.sm{margin:2px 0 0;font-size:var(--t-xs)}
+.stbox input[type=search]{margin:8px 0 6px}
+.mine,.proc-list{display:grid;gap:var(--s2);width:100%}
+.mine ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:min(420px,60dvh);overflow:auto}
+.mine li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px var(--s2);align-items:center;padding:6px 10px;border:1px solid var(--line);border-radius:12px}
+.mine li.on{border-color:var(--ink)}
+.mine .pin{display:flex;gap:8px;align-items:baseline;margin:0;font-weight:400;min-width:0;cursor:pointer}
+.mine .pin input{width:auto;min-height:0;padding:0;margin:0;accent-color:var(--ink)}
+.mine code{font:600 var(--t-sm) var(--f-mono);overflow-wrap:anywhere}
+.mine .d{grid-column:1/-1;font-size:var(--t-xs);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mine .roles{display:flex;gap:4px}.mine .roles .chip{min-height:26px;padding:1px 10px;font-size:var(--t-xs)}
+.proc{padding:var(--s3);border:1px solid var(--line);border-radius:14px;display:grid;gap:6px}
+.proc .ph{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.proc .ph b{font-size:var(--t-sm)}
+.proc ul{list-style:none;margin:0;padding:0;font-size:var(--t-xs);color:var(--ink-2)}
+.proc .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.proc .row input[type=url]{flex:1 1 14em;min-width:0}
+.proc .file{position:relative;overflow:hidden}.proc .file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.mine input[type=search],.proc input[type=url],.stbox input[type=search]{min-height:36px;padding:6px 12px;border:1px solid var(--line-strong);border-radius:var(--pill);background:var(--surface);color:var(--ink);font:inherit;font-size:var(--t-sm);box-sizing:border-box}
+.mine input[type=search],.stbox input[type=search]{width:100%}
+.mine .src,.proc .src{font-size:var(--t-xs);color:var(--ink-3)}
 .ir{display:flex;align-items:center;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;transition:border-color 120ms var(--ease),box-shadow 120ms var(--ease)}
 .ir:hover{border-color:var(--line-strong);box-shadow:var(--lift)}
 .ir-main{flex:1;min-width:0;display:flex;align-items:center;gap:var(--s2);min-height:40px;border:0;background:none;padding:6px 6px 6px 12px;border-radius:inherit;text-align:left;cursor:pointer;font-size:var(--t-sm)}
@@ -507,7 +534,7 @@ input[type=number]{width:104px}
   <p class="note" data-t="start.body"></p>
   <dl><dt data-t="start.repo"></dt><dd><code id="st-dir"></code></dd></dl>
   <p class="note err" id="st-err" hidden data-t="start.nobody"></p>
-  <div><span class="fl" id="st-skl" data-t="start.skill"></span><div role="radiogroup" aria-labelledby="st-skl" id="st-skills"></div></div>
+  <div><span class="fl" id="st-skl" data-t="start.skill"></span><p class="note err sm" id="st-perr" hidden></p><div role="radiogroup" aria-labelledby="st-skl" id="st-skills"></div></div>
   <label for="st-text" data-t="start.brief"></label>
   <textarea id="st-text" spellcheck="false"></textarea>
   <div class="acts"><button class="btn" value="close" data-t="pd.cancel"></button><button class="btn pri" type="button" id="st-go" data-t="start.go"></button></div>
@@ -595,6 +622,7 @@ function showTab(name) {
   for (const n of ['sessions', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
   if (name === 'sessions') render();
   if (name === 'setup') renderSetup();
+  if (name === 'settings') loadSkillLists();
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
@@ -930,8 +958,11 @@ async function openStart(b, [i, g]) {
   $('#st-dir').title = g.dir;
   $('#st-err').hidden = !!r?.ok;
   // The skills Claude has for that folder; one suggested from the issue's labels and your role (Settings).
-  const skills = r?.skills || [], pick = BOARD.skillFor(skills, r?.labels || i.labels || [], state?.settings?.role || '');
-  Object.assign(starting, { url: i.url, skills, pick, cur: pick?.name || '', all: false });
+  const skills = r?.skills || [], proc = r?.process || null;
+  const { pick, missing } = BOARD.suggest(skills, { labels: r?.labels || i.labels || [], role: state?.settings?.role || '', stage: 'todo', process: proc?.process, pins: state?.settings?.skillPins || {} });
+  Object.assign(starting, { url: i.url, skills, pick, missing, proc, cur: pick?.name || '', all: false, q: '' });
+  $('#st-perr').hidden = !r?.processError;
+  $('#st-perr').textContent = r?.processError ? T('start.perr', { e: r.processError }) : '';
   $('#st-text').value = BOARD.withSkill(BOARD.brief(i, r?.ok ? r.body : ''), starting.cur, i.url);
   renderSkills();
   $('#st-dialog').showModal();
@@ -939,32 +970,65 @@ async function openStart(b, [i, g]) {
   $('#st-go').focus({ preventScroll: true });
   $('#st-dialog').scrollTop = 0;
 }
-// The skills as a choice: the suggested one first ("Gợi ý", and what for), then the repo's, yours, plugins'...; three
-// until "See all N", and always "No skill". Nothing is hidden for not matching; the person picks.
-const SRC_ORDER = ['project', 'personal', 'plugin', 'managed', 'synced'];
+// The skills as a choice, in two groups: the project's process (the repository's skills, the team's plugins, your
+// organization's, and the skills its process file names: "not installed" with a line to copy when Claude lacks one),
+// then yours (only the ones you pinned in Settings). The suggested one is first and marked; "No skill" is always there;
+// "See all N" opens every skill with a search. Nothing is hidden for not matching, and the person picks.
+const SRC_ORDER = ['project', 'team', 'managed', 'personal', 'plugin', 'synced'];
+const ROLE_NAME = { ba: 'BA', qa: 'QA', dev: 'Dev' };
+function whyText(p) {
+  if (!p) return '';
+  const parts = [p.label && T('start.why.label', { l: p.label }), p.role && T('start.why.role', { r: ROLE_NAME[p.role] }), p.stage && T('start.why.stage', { s: T('stage.' + p.stage) })].filter(Boolean).join(' + ');
+  return p.from === 'process' ? T('start.why.process', { x: parts }) : p.from === 'pin' ? T('start.why.pin', { r: ROLE_NAME[p.role] }) : T('start.why', { x: parts });
+}
+function skillItem(k) {
+  const s = starting, p = s.pick, mark = k.name === p?.name ? `<span class="tag">${esc(T('start.suggested'))}</span><span class="src">${esc(whyText(p))}</span>` : `<span class="src">${esc(T('skill.src.' + k.source))}</span>`;
+  return `<li><label><input type="radio" name="st-skill" value="${esc(k.name)}"${s.cur === k.name ? ' checked' : ''}><span class="nm"><code>/${esc(k.name)}</code>${mark}</span>${k.description ? `<span class="d" title="${esc(k.description)}">${esc(k.description)}</span>` : ''}</label></li>`;
+}
 function renderSkills() {
-  const s = starting, p = s.pick, ROLE = { ba: 'BA', qa: 'QA', dev: 'Dev' };
-  const order = [...s.skills.filter(x => x.name === p?.name), ...SRC_ORDER.flatMap(src => s.skills.filter(x => x.source === src && x.name !== p?.name))];
-  const shown = s.all ? order : order.slice(0, 3);
-  if (s.cur && !shown.some(x => x.name === s.cur)) shown.push(order.find(x => x.name === s.cur));
-  const why = p && [p.label && T('start.why.label', { l: p.label }), p.role && T('start.why.role', { r: ROLE[p.role] })].filter(Boolean).join(' + ');
-  const item = (v, name, extra, d) => `<li><label><input type="radio" name="st-skill" value="${esc(v)}"${s.cur === v ? ' checked' : ''}><span class="nm">${name}${extra}</span>${d ? `<span class="d" title="${esc(d)}">${esc(d)}</span>` : ''}</label></li>`;
-  $('#st-skills').innerHTML = `<ul class="sk${s.all ? ' all' : ''}">${shown.map(k => item(k.name, `<code>/${esc(k.name)}</code>`,
-      k.name === p?.name ? `<span class="tag">${esc(T('start.suggested'))}</span><span class="src">${esc(T('start.why', { x: why }))}</span>` : `<span class="src">${esc(T('skill.src.' + k.source))}</span>`, k.description)).join('')}
-    ${item('', esc(T('start.noskill')), '', T(s.skills.length ? 'start.noskill.desc' : 'start.noskills'))}</ul>
-    ${!s.all && order.length > 3 ? `<button class="lnk more" type="button" id="st-all">${esc(T('start.all', { n: order.length }))}</button>` : ''}`;
+  const s = starting, p = s.pick, pins = state?.settings?.skillPins || {}, role = state?.settings?.role || '';
+  const first = xs => [...xs.filter(x => x.name === p?.name), ...xs.filter(x => x.name !== p?.name)];
+  const named = new Set((s.proc?.process?.rules || []).map(r => r.skill));
+  const team = first(s.skills.filter(x => BOARD.TEAM.includes(x.source) || named.has(x.name)));
+  const mine = first(s.skills.filter(x => !team.includes(x) && pins[x.name]).sort((a, b) => (pins[b.name].includes(role) ? 1 : 0) - (pins[a.name].includes(role) ? 1 : 0)));
+  const teamShown = team.slice(0, 5), shown = new Set([...teamShown, ...mine].map(x => x.name));
+  const procNote = s.proc ? T(s.proc.source === 'repo' ? 'start.proc.repo' : 'start.proc.imported') + (s.proc.process.name ? ` · ${s.proc.process.name}` : '') : '';
+  const miss = s.missing.map(m => `<li><label class="miss"><input type="radio" name="st-skill" value="" disabled><span class="nm"><code>/${esc(m.name)}</code><span class="miss-tag">${esc(T('start.missing'))}</span></span>
+    <button class="btn sm copy" type="button" data-hint="${esc(m.hint || T('skill.installAsk', { n: m.name }))}">${esc(T('start.missing.copy'))}</button></label></li>`).join('');
+  const extra = s.cur && !shown.has(s.cur) ? s.skills.filter(x => x.name === s.cur) : []; // picked from the full list
+  $('#st-skills').innerHTML = (team.length || miss ? `<p class="sg">${esc(T('start.group.team'))}${procNote ? `<span class="src">${esc(procNote)}</span>` : ''}</p><ul class="sk">${teamShown.map(skillItem).join('')}${miss}</ul>` : '')
+    + `<p class="sg">${esc(T('start.group.mine'))}</p><ul class="sk">${mine.map(skillItem).join('') || `<li><p class="note sm">${esc(T('start.mine.none'))}</p></li>`}${extra.map(skillItem).join('')}`
+    + `<li><label><input type="radio" name="st-skill" value=""${s.cur === '' ? ' checked' : ''}><span class="nm">${esc(T('start.noskill'))}</span><span class="d">${esc(T(s.skills.length ? 'start.noskill.desc' : 'start.noskills'))}</span></label></li></ul>`
+    + (s.skills.length ? (s.all ? `<input type="search" id="st-q" placeholder="${esc(T('start.search', { n: s.skills.length }))}" aria-label="${esc(T('start.search', { n: s.skills.length }))}" value="${esc(s.q)}" spellcheck="false"><ul class="sk all" id="st-found"></ul>`
+      : `<button class="lnk more" type="button" id="st-all">${esc(T('start.all', { n: s.skills.length }))}</button>`) : '');
+  if (s.all) renderFound();
+}
+// The full list under the search: every skill (names and descriptions), matching the words typed.
+function renderFound() {
+  const s = starting, q = s.q.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
+  const all = SRC_ORDER.flatMap(src => s.skills.filter(x => x.source === src)).filter(x => words.every(w => `${x.name} ${x.description}`.toLowerCase().includes(w)));
+  const max = 60;
+  $('#st-found').innerHTML = all.slice(0, max).map(skillItem).join('').replaceAll('name="st-skill"', 'name="st-skill-all"')
+    + (all.length > max ? `<li><p class="note sm">${esc(T('start.found.more', { n: all.length - max }))}</p></li>` : all.length ? '' : `<li><p class="note sm">${esc(T('start.found.none'))}</p></li>`);
+  $('#st-found').querySelectorAll('input').forEach(x => { x.checked = x.value === s.cur; });
 }
 $('#st-skills').addEventListener('change', e => {
-  if (e.target.name !== 'st-skill' || !starting) return;
+  if (!['st-skill', 'st-skill-all'].includes(e.target.name) || !starting) return;
   starting.cur = e.target.value;
   const t = $('#st-text');
   t.value = BOARD.withSkill(t.value, starting.cur, starting.url);
+  $('#st-skills').querySelectorAll('input[type=radio]').forEach(x => { x.checked = !x.disabled && x.value === starting.cur; }); // one choice across both lists
 });
-$('#st-skills').addEventListener('click', e => {
-  if (e.target.id !== 'st-all' || !starting) return;
-  starting.all = true;
-  renderSkills();
-  $(`#st-skills input[value="${CSS.escape(starting.cur)}"]`)?.focus();
+$('#st-skills').addEventListener('input', e => {
+  if (e.target.id !== 'st-q' || !starting) return;
+  starting.q = e.target.value;
+  renderFound();
+});
+$('#st-skills').addEventListener('click', async e => {
+  if (!starting) return;
+  if (e.target.id === 'st-all') { starting.all = true; renderSkills(); $('#st-q')?.focus(); return; }
+  const c = e.target.closest('[data-hint]');
+  if (c) { e.preventDefault(); try { await navigator.clipboard.writeText(c.dataset.hint); toast(T('start.missing.copied')); } catch { toast(c.dataset.hint); } }
 });
 // Copies the prompt (the sure way), then opens the new session with it in its prompt box.
 $('#st-go').addEventListener('click', async () => {
@@ -1088,6 +1152,8 @@ const SECTIONS = [
     { k: 'gitlab', type: 'switch' },
     { k: 'github', type: 'switch' },
     { k: 'role', type: 'seg', opts: () => [['', T('set.role.none')], ['ba', 'BA'], ['qa', 'QA'], ['dev', 'Dev']] },
+    { k: 'skillPins', type: 'mine', wide: true },
+    { k: 'skillProcess', type: 'process', wide: true },
     { k: 'workKeys', type: 'keys', wide: true },
   ]],
   ['set.section.app', [
@@ -1120,6 +1186,8 @@ function control(r, s) {
     if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
     return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
   }
+  if (r.type === 'mine') return `<div class="mine" id="mine-box"></div>`; // filled by paintMine (your skills are read in the background)
+  if (r.type === 'process') return `<div class="proc-list" id="proc-box"></div>`;
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
 }
@@ -1141,7 +1209,93 @@ function renderSettings() {
         <div class="ctl">${control(r, s)}</div>
       </div>`).join('')}</section>`).join('')}</div>`;
   renderPreview();
+  paintMine();
+  paintProcess();
 }
+
+// ---------- Settings → My skills, Skill process ----------
+let mySkills = null, mineQ = '', procs = null; // read when Settings opens
+async function loadSkillLists() {
+  if (!bridge) return;
+  [mySkills, procs] = await Promise.all([bridge.mySkills().catch(() => []), bridge.processStatus().catch(() => [])]);
+  paintMine(); paintProcess();
+}
+function paintMine() {
+  const box = $('#mine-box');
+  if (!box) return;
+  if (!mySkills) { box.innerHTML = `<p class="note">${esc(T('work.loading'))}</p>`; return; }
+  if (!mySkills.length) { box.innerHTML = `<p class="note">${esc(T('set.skillPins.none'))}</p>`; return; }
+  if (!box.querySelector('#mine-q')) box.innerHTML = `<input type="search" id="mine-q" placeholder="${esc(T('set.skillPins.search', { n: mySkills.length }))}" aria-label="${esc(T('set.skillPins.search', { n: mySkills.length }))}" spellcheck="false" value="${esc(mineQ)}"><ul id="mine-list"></ul>`;
+  const pins = state.settings.skillPins || {}, words = mineQ.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const fit = x => words.every(w => `${x.name} ${x.description}`.toLowerCase().includes(w));
+  const pinned = mySkills.filter(x => pins[x.name] && fit(x)), rest = mySkills.filter(x => !pins[x.name] && fit(x)), max = 12;
+  const row = x => { const on = !!pins[x.name], roles = pins[x.name] || [];
+    return `<li class="${on ? 'on' : ''}"><label class="pin"><input type="checkbox" data-pin="${esc(x.name)}"${on ? ' checked' : ''} aria-label="${esc(T('set.skillPins.pin'))} /${esc(x.name)}"><code>/${esc(x.name)}</code><span class="src">${esc(T('skill.src.' + x.source))}</span></label>
+      ${on ? `<span class="roles" role="group" aria-label="${esc(T('set.role'))}">${['ba', 'qa', 'dev'].map(r => `<button type="button" class="chip" data-pin-role="${r}" data-of="${esc(x.name)}" aria-pressed="${roles.includes(r)}">${ROLE_NAME[r]}</button>`).join('')}</span>` : '<span></span>'}
+      ${x.description ? `<span class="d" title="${esc(x.description)}">${esc(x.description)}</span>` : ''}</li>`; };
+  $('#mine-list').innerHTML = pinned.map(row).join('') + rest.slice(0, max).map(row).join('')
+    + (rest.length > max ? `<li><span class="note">${esc(T('set.skillPins.more', { n: rest.length - max }))}</span></li>` : '');
+}
+const ruleText = r => `${[r.when.label && T('start.why.label', { l: r.when.label.join(' / ') }), r.when.role && T('start.why.role', { r: ROLE_NAME[r.when.role] }), r.when.stage && T('start.why.stage', { s: T('stage.' + r.when.stage) })].filter(Boolean).join(' + ')} → /${r.skill}`;
+function paintProcess() {
+  const box = $('#proc-box');
+  if (!box) return;
+  if (!procs) { box.innerHTML = `<p class="note">${esc(T('work.loading'))}</p>`; return; }
+  if (!procs.length) { box.innerHTML = `<p class="note">${esc(T('set.skillProcess.noProjects'))}</p>`; return; }
+  box.innerHTML = procs.map(p => {
+    const used = p.repo || p.imported, n = x => x.rules.length;
+    const status = p.repo ? T('set.skillProcess.repo', { n: n(p.repo) }) : p.imported ? T('set.skillProcess.imported', { n: n(p.imported) }) : T('set.skillProcess.none');
+    return `<div class="proc"><div class="ph"><b title="${esc(p.path)}">${esc(BOARD.short(p.path))}</b><span class="src">${esc(status)}${used?.name ? ` · ${esc(used.name)}` : ''}</span></div>
+      ${p.repoError ? `<p class="note err">${esc(T('set.skillProcess.repoBad', { e: p.repoError }))}</p>` : ''}
+      ${p.repo && p.imported ? `<p class="note">${esc(T('set.skillProcess.importedUnused', { n: n(p.imported) }))}</p>` : ''}
+      ${used ? `<ul>${used.rules.slice(0, 8).map(r => `<li>${esc(ruleText(r))}</li>`).join('')}${used.rules.length > 8 ? `<li>…</li>` : ''}</ul>` : ''}
+      <div class="row"><span class="btn sm file">${esc(T('set.skillProcess.file'))}<input type="file" accept=".json,application/json" data-proc-file="${esc(p.path)}" aria-label="${esc(T('set.skillProcess.file'))} ${esc(p.path)}"></span>
+        <input type="url" placeholder="${esc(T('set.skillProcess.url'))}" aria-label="${esc(T('set.skillProcess.url'))}" data-proc-url="${esc(p.path)}" spellcheck="false">
+        <button class="btn sm" type="button" data-proc-go="${esc(p.path)}">${esc(T('set.skillProcess.go'))}</button>
+        ${p.imported ? `<button class="btn sm" type="button" data-proc-rm="${esc(p.path)}">${esc(T('set.skillProcess.remove'))}</button>` : ''}</div></div>`;
+  }).join('');
+}
+async function importProcess(project, v) {
+  const r = await bridge.importProcess(project, v);
+  if (!r?.ok) return toast(T('set.skillProcess.bad', { e: r?.error || '?' }));
+  state.settings = await bridge.getState().then(x => x.settings).catch(() => state.settings);
+  procs = await bridge.processStatus().catch(() => procs);
+  paintProcess();
+  toast(T(v.remove ? 'set.skillProcess.removed' : 'set.skillProcess.done'));
+}
+$('#settings').addEventListener('input', e => {
+  if (e.target.id !== 'mine-q') return;
+  mineQ = e.target.value;
+  paintMine();
+});
+$('#settings').addEventListener('change', async e => {
+  const t = e.target;
+  if (t.dataset.pin !== undefined) {
+    const pins = { ...(state.settings.skillPins || {}) };
+    if (t.checked) pins[t.dataset.pin] = []; else delete pins[t.dataset.pin];
+    if (await save({ skillPins: pins }, { rerender: false })) paintMine();
+  }
+  if (t.dataset.procFile !== undefined && t.files?.[0]) {
+    const f = t.files[0];
+    if (f.size > 64 * 1024) { t.value = ''; return toast(T('set.skillProcess.bad', { e: '> 64 KB' })); }
+    importProcess(t.dataset.procFile, { text: await f.text() });
+    t.value = '';
+  }
+});
+$('#settings').addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.pinRole) {
+    const pins = { ...(state.settings.skillPins || {}) }, cur = pins[b.dataset.of] || [], r = b.dataset.pinRole;
+    pins[b.dataset.of] = cur.includes(r) ? cur.filter(x => x !== r) : [...cur, r];
+    if (await save({ skillPins: pins }, { rerender: false })) paintMine();
+  }
+  if (b.dataset.procGo) {
+    const url = $(`[data-proc-url="${CSS.escape(b.dataset.procGo)}"]`)?.value.trim();
+    if (url) importProcess(b.dataset.procGo, { url });
+  }
+  if (b.dataset.procRm) importProcess(b.dataset.procRm, { remove: true });
+});
 
 // Mini screen: work area, the band pets may use, a few pets at real scale and visibility.
 function renderPreview() {

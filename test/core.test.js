@@ -768,6 +768,28 @@ test('board: the skill to suggest for an issue, and the prompt with it', () => {
   assert.equal(B.withSkill(one, '', 'https://h/i/53'), text, 'no skill');
 });
 
+test('board: a process replaces the rules; without one the team first, then your pins', () => {
+  const B = require('../src/ui/board');
+  const sk = (name, source) => ({ name, source, description: '' });
+  const skills = [sk('fix-ticket', 'project'), sk('verify-change', 'project'), sk('ba-qa-kit:write-test-cases', 'team'), sk('ak:cook', 'personal'), sk('ak:fix', 'personal'), sk('docx', 'synced')];
+  const process = { rules: [{ when: { label: ['bug'] }, skill: 'deploy-fix' }, { when: { label: ['bug'] }, skill: 'verify-change' }, { when: { role: 'qa' }, skill: 'ba-qa-kit:write-test-cases' },
+    { when: { stage: 'verify' }, skill: 'fix-ticket' }, { when: { label: ['enhancement'], role: 'dev' }, skill: 'ak:cook' }], install: { 'deploy-fix': 'Install deploy-fix from the team wiki' } };
+  assert.deepEqual(B.suggest(skills, { labels: ['Bug'], role: 'qa', process }), { pick: { name: 'verify-change', from: 'process', label: 'bug', role: undefined, stage: undefined },
+    missing: [{ name: 'deploy-fix', hint: 'Install deploy-fix from the team wiki' }] }, "the first fitting rule with an installed skill; the one Claude lacks is listed with the process's hint");
+  assert.equal(B.suggest(skills, { labels: [], role: 'qa', process }).pick.name, 'ba-qa-kit:write-test-cases');
+  assert.equal(B.suggest(skills, { labels: [], role: 'dev', process }).pick, null, 'a process with no fitting rule suggests nothing (the label / role rules are not used)');
+  assert.equal(B.suggest(skills, { labels: ['enhancement'], role: 'dev', process }).pick.name, 'ak:cook', "a process may name one of your own skills");
+  assert.equal(B.suggest(skills, { labels: [], stage: 'verify', process }).pick.name, 'fix-ticket');
+  assert.equal(B.suggest(skills, { labels: ['bug'], role: 'dev' }).pick.name, 'fix-ticket', 'no process: the team first');
+  assert.deepEqual(B.suggest(skills, { labels: [], role: 'ba', pins: { 'ak:cook': ['ba'], 'ak:fix': [] } }).pick, { name: 'ak:cook', from: 'pin', role: 'ba' }, 'no team skill fits: a skill you pinned for your role');
+  assert.equal(B.suggest(skills, { labels: [], role: 'dev', pins: { 'ak:cook': ['dev'] } }).pick.name, 'fix-ticket', "a team skill that fits comes before your pin");
+  assert.equal(B.suggest(skills.filter(s => s.source !== 'project'), { labels: ['bug'], role: '', pins: { 'ak:fix': [] } }).pick.name, 'ak:fix', 'then your pins by label');
+  assert.equal(B.suggest(skills, { labels: ['bug'], role: '', pins: {} }).pick.name, 'fix-ticket');
+  assert.equal(B.suggest([sk('docx', 'synced')], { labels: ['bug'] }).pick, null, 'skills you did not pin are not suggested');
+  assert.equal(B.installHint('ba-qa-kit:write-test-cases'), '/plugin install ba-qa-kit');
+  assert.equal(B.installHint('fix-ticket'), '');
+});
+
 test("every script and stylesheet the pages load is one the app's server serves", () => {
   const ui = path.join(__dirname, '../src/ui');
   const listed = JSON.parse(fs.readFileSync(path.join(__dirname, '../src-tauri/src/server.rs'), 'utf8').match(/const ASSETS: \[&str; \d+\] = (\[[^\]]*\])/)[1]);

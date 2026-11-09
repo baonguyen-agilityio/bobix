@@ -88,6 +88,42 @@
     return best && { name: best.name, label: best.label, role: best.role };
   }
 
+  // Where a skill comes from, as the Start box groups them: the project's process (the repository's skills, the team's
+  // plugins, your organization's) first, then yours (only the ones you pinned in Settings).
+  const TEAM = ['project', 'team', 'managed'];
+
+  // What to tell Claude to get a skill a process names but Claude doesn't have: the process's own hint, else
+  // "/plugin install <plugin>" for a plugin's skill ("plugin:skill"), else '' (the panel asks in words).
+  const installHint = (name, process) => ((process && process.install) || {})[name] || (name.includes(':') ? `/plugin install ${name.split(':')[0]}` : '');
+
+  // The skill to suggest, never chosen for you. With a process (the repository's .bobix/skills.json or one you
+  // imported), its first rule that fits the issue and names an installed skill; it replaces the label / role rules.
+  // Without one, the team's skills by label and role, then your pins (one pinned for your role first).
+  // o: { labels, role, stage ('todo' when starting), process, pins: { name: [roles] } }.
+  // { pick: { name, from: 'process' | 'match' | 'pin', label, role, stage } | null, missing: [{ name, hint }] }:
+  // missing are the skills the fitting rules name that Claude doesn't have.
+  function suggest(skills, o = {}) {
+    const has = new Set(skills.map(s => s.name)), labels = (o.labels || []).map(l => String(l).toLowerCase());
+    const missing = [];
+    let pick = null;
+    if (o.process) {
+      for (const r of o.process.rules || []) {
+        const w = r.when || {}, label = w.label ? labels.find(l => w.label.includes(l)) : undefined;
+        if ((w.label && !label) || (w.role && w.role !== o.role) || (w.stage && w.stage !== (o.stage || 'todo'))) continue;
+        if (!has.has(r.skill)) { if (!missing.some(m => m.name === r.skill)) missing.push({ name: r.skill, hint: installHint(r.skill, o.process) }); continue; }
+        if (!pick) pick = { name: r.skill, from: 'process', label, role: w.role, stage: w.stage };
+      }
+      return { pick, missing };
+    }
+    const team = skillFor(skills.filter(s => TEAM.includes(s.source)), o.labels, o.role);
+    if (team) return { pick: { ...team, from: 'match' }, missing };
+    const pins = o.pins || {}, pinned = skills.filter(s => pins[s.name] && !TEAM.includes(s.source));
+    const mine = o.role && pinned.find(s => pins[s.name].includes(o.role));
+    if (mine) return { pick: { name: mine.name, from: 'pin', role: o.role }, missing };
+    const m = skillFor(pinned, o.labels, o.role);
+    return { pick: m && { ...m, from: 'match' }, missing };
+  }
+
   // The prompt with a skill: "/<skill> <link>" on its first line (replacing one there), or without it ('').
   function withSkill(text, skill, url) {
     const rest = String(text || '').replace(/^\/\S+[^\n]*\n*/, '');
@@ -147,6 +183,6 @@
     return `${T('su.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${[sec('su.yesterday', done), sec('su.today', today), sec('su.stuck', stuck.map(x => `- ${x.text}: ${x.why}`))].join('\n\n')}\n`;
   }
 
-  const api = { PRI, STEPS, day, stages, loose, short, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill };
+  const api = { PRI, STEPS, day, stages, loose, short, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill, suggest, installHint, TEAM };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);

@@ -16,6 +16,7 @@ mod panel;
 mod paths;
 mod petstore;
 mod procs;
+mod process;
 mod project;
 mod server;
 mod settings;
@@ -726,6 +727,52 @@ async fn work_start(path: String, iid: i64, prompt: Option<String>, b: B<'_>) ->
     tauri::async_runtime::spawn_blocking(move || start_issue(&b, &path, iid, prompt.as_deref().unwrap_or(""))).await.map_err(|_| ())
 }
 
+// Settings → My skills: your own skills (names and descriptions, read-only), to pin the ones to offer.
+#[tauri::command]
+async fn skills_mine() -> Result<Value, ()> {
+    tauri::async_runtime::spawn_blocking(|| json!(skills::mine(&paths::home()))).await.map_err(|_| ())
+}
+
+// Settings → Skill process: each project with a folder here, and the process Bobix uses for it: the repository's
+// .bobix/skills.json (or why it is not valid), and the one imported by hand.
+#[tauri::command]
+async fn process_status(b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (view, imported) = {
+            let c = b.core.lock().unwrap();
+            (c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work)), c.settings["skillProcess"].clone())
+        };
+        let list: Vec<Value> = view["local"].as_array().into_iter().flatten().map(|g| {
+            let (path, dir) = (g["path"].as_str().unwrap_or(""), g["dir"].as_str().unwrap_or(""));
+            let (repo, error) = match process::from_repo(std::path::Path::new(dir)) { Some(Ok(p)) => (p, Value::Null), Some(Err(e)) => (Value::Null, json!(e)), None => (Value::Null, Value::Null) };
+            json!({ "path": path, "repo": repo, "repoError": error, "imported": imported.get(path).cloned().unwrap_or(Value::Null) })
+        }).collect();
+        json!(list)
+    }).await.map_err(|_| ())
+}
+
+// Imports a process for a project, from the text of a file you chose or from an https URL; checked strictly and kept
+// in Bobix's settings only. { ok } or { ok: false, error }. remove: forgets the imported one.
+#[tauri::command]
+async fn process_import(project: String, text: Option<String>, url: Option<String>, remove: Option<bool>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut all = b.core.lock().unwrap().settings["skillProcess"].as_object().cloned().unwrap_or_default();
+        if remove == Some(true) { all.remove(&project); }
+        else {
+            let raw = match (text, url) { (Some(t), _) => Ok(t), (None, Some(u)) => process::fetch(&u), _ => Err("nothing to import".into()) };
+            match raw.and_then(|r| process::parse(&r)) {
+                Ok(p) => { all.insert(project.clone(), p); }
+                Err(e) => return json!({ "ok": false, "error": e }),
+            }
+        }
+        let next = update_settings(&b, json!({ "skillProcess": all }));
+        let kept = next["skillProcess"].get(project.as_str()).is_some() != (remove == Some(true));
+        if kept { json!({ "ok": true }) } else { json!({ "ok": false, "error": "not a project of yours" }) }
+    }).await.map_err(|_| ())
+}
+
 // For the Start box: an issue Bobix listed, with its description read now (one GET through glab / gh, not kept), its
 // labels, and the skills Claude Code has for the project's folder (names and descriptions, read-only, see skills.rs).
 // { ok, title, url, body, labels, skills } or { ok: false, title, url, labels, skills, reason } (the box still opens,
@@ -741,12 +788,22 @@ async fn work_brief(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
             (c.work.source_of(&c.settings, &path, iid), dir)
         };
         let Some((f, bin, host, i)) = src else { return json!({ "ok": false, "reason": "gone" }) };
-        let skills = dir.map(|d| skills::list(&paths::home(), std::path::Path::new(&d))).unwrap_or_default();
+        let skills = dir.as_deref().map(|d| skills::list(&paths::home(), std::path::Path::new(d))).unwrap_or_default();
+        // The team's process: the repository's .bobix/skills.json, else one imported in Settings for this project.
+        let repo = dir.as_deref().and_then(|d| process::from_repo(std::path::Path::new(d)));
+        let imported = b.core.lock().unwrap().settings["skillProcess"].get(path.as_str()).cloned();
+        let (proc_, proc_err) = match (repo, imported) {
+            (Some(Ok(p)), _) => (json!({ "source": "repo", "process": p }), Value::Null),
+            (Some(Err(e)), Some(p)) => (json!({ "source": "imported", "process": p }), json!(e)),
+            (Some(Err(e)), None) => (Value::Null, json!(e)),
+            (None, Some(p)) => (json!({ "source": "imported", "process": p }), Value::Null),
+            (None, None) => (Value::Null, Value::Null),
+        };
         let mut r = match work::fetch_body(f, &bin, &host, &path, iid) {
             Ok(body) => json!({ "ok": true, "body": body }),
             Err(e) => json!({ "ok": false, "reason": e["reason"] }),
         };
-        for (k, v) in [("title", i["title"].clone()), ("url", i["url"].clone()), ("labels", i["labels"].clone()), ("skills", json!(skills))] { r[k] = v; }
+        for (k, v) in [("title", i["title"].clone()), ("url", i["url"].clone()), ("labels", i["labels"].clone()), ("skills", json!(skills)), ("process", proc_), ("processError", proc_err)] { r[k] = v; }
         r
     }).await.map_err(|_| ())
 }
@@ -887,7 +944,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "pet_choose", "pet_original", "pet_save", "pet_reset"];
+    "work_brief", "skills_mine", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -982,7 +1039,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, skills_mine, process_status, process_import,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

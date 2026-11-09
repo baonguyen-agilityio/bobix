@@ -8,7 +8,8 @@
 //   project   .claude/skills/<skill>/SKILL.md in the folder and each parent up to the repository root
 //   plugin    <installPath>/skills/<skill>/SKILL.md (plus the manifest's "skills" folders, or a SKILL.md at its root) of each
 //             plugin in ~/.claude/plugins/installed_plugins.json installed for you or for this folder and enabled
-//             (enabledPlugins: user < project < local settings), /<plugin>:<name>
+//             (enabledPlugins: user < project < local settings), /<plugin>:<name>. "team" when the plugin is the
+//             project's: installed for this folder, or enabled in its shared .claude/settings.json.
 use serde::Serialize;
 use serde_json::Value;
 use std::{fs, io::Read, path::{Path, PathBuf}};
@@ -88,6 +89,7 @@ fn up_to_repo_root(dir: &Path) -> Vec<PathBuf> {
 // The skills of the plugins installed for you, or for this folder, that are enabled.
 fn plugin_skills(claude: &Path, dir: &Path, out: &mut Vec<Skill>) {
     let installed = json(&claude.join("plugins/installed_plugins.json"));
+    let shared = json(&dir.join(".claude/settings.json"));
     let mut enabled = serde_json::Map::new();
     for f in [claude.join("settings.json"), dir.join(".claude/settings.json"), dir.join(".claude/settings.local.json")] {
         if let Some(m) = json(&f)["enabledPlugins"].as_object() { enabled.extend(m.clone()); }
@@ -105,15 +107,16 @@ fn plugin_skills(claude: &Path, dir: &Path, out: &mut Vec<Skill>) {
         let name = manifest["name"].as_str().map(String::from).unwrap_or_else(|| key.split('@').next().unwrap_or(key).to_string());
         let extra: Vec<String> = match &manifest["skills"] { Value::String(s) => vec![s.clone()], Value::Array(a) => a.iter().filter_map(|x| x.as_str().map(String::from)).collect(), _ => vec![] };
         let has_dir = root.join("skills").is_dir();
-        read_dir(&root.join("skills"), Some(&name), "plugin", out);
+        let src = if entry["scope"] != "user" || shared["enabledPlugins"].get(key.as_str()).is_some() { "team" } else { "plugin" };
+        read_dir(&root.join("skills"), Some(&name), src, out);
         for x in &extra {
             let p = root.join(x.trim_start_matches("./"));
             if !p.starts_with(&root) || x.contains("..") { continue; } // only inside the plugin, as Claude Code allows
-            if p.join("SKILL.md").is_file() { if let Some(s) = read_skill(&p, Some(&name), "plugin") { if !out.iter().any(|y| y.name == s.name) { out.push(s); } } }
-            else { read_dir(&p, Some(&name), "plugin", out); }
+            if p.join("SKILL.md").is_file() { if let Some(s) = read_skill(&p, Some(&name), src) { if !out.iter().any(|y| y.name == s.name) { out.push(s); } } }
+            else { read_dir(&p, Some(&name), src, out); }
         }
         if !has_dir && extra.is_empty() && root.join("SKILL.md").is_file() {
-            if let Some(mut s) = read_skill(&root, None, "plugin") { s.name = format!("{name}:{}", s.name); out.push(s); }
+            if let Some(mut s) = read_skill(&root, None, src) { s.name = format!("{name}:{}", s.name); out.push(s); }
         }
     }
 }
@@ -133,6 +136,13 @@ pub fn list(home: &Path, dir: &Path) -> Vec<Skill> {
         for id in ids { read_dir(&id, Some("anthropic-skills"), "synced", &mut out); }
     }
     out
+}
+
+// Your own skills, wherever you start Claude: personal, synced from claude.ai, and plugins installed for you (for
+// Settings → My skills, where you pin the ones to offer).
+pub fn mine(home: &Path) -> Vec<Skill> {
+    let none = home.join(".claude/no-project"); // a folder with no project skills and no project settings
+    list(home, &none).into_iter().filter(|s| matches!(s.source, "personal" | "synced" | "plugin")).collect()
 }
 
 #[cfg(test)]
@@ -179,9 +189,11 @@ mod tests {
         write(&repo.join(".claude/settings.local.json"), r#"{ "enabledPlugins": { "off@m": false } }"#);
         let got: Vec<(String, &str, String)> = list(&home, &repo).into_iter().map(|s| (s.name, s.source, s.description)).collect();
         let want: Vec<(String, &str, String)> = [("no-front", "personal", ""), ("plan", "personal", "Plan a feature"), ("fix-ticket", "project", "Fix one ticket end to end."),
-            ("ux:ux", "plugin", ""), ("ba-kit:write-stories", "plugin", "Stories from a brief"), ("anthropic-skills:docx", "synced", "Word files")]
+            ("ux:ux", "plugin", ""), ("ba-kit:write-stories", "team", "Stories from a brief"), ("anthropic-skills:docx", "synced", "Word files")]
             .into_iter().map(|(a, b, c)| (a.to_string(), b, c.to_string())).collect();
-        assert_eq!(got, want, "personal wins over project; hidden, disabled, other folders' and outside-the-repo skills left out");
+        assert_eq!(got, want, "personal wins over project; hidden, disabled, other folders' and outside-the-repo skills left out; a plugin installed for the folder is the team's");
+        let mine: Vec<String> = mine(&home).into_iter().map(|s| s.name).collect();
+        assert_eq!(mine, ["no-front", "plan", "ux:ux", "off:x", "anthropic-skills:docx"], "yours only: no repository's or team's (off@m is off only in that repository)");
         let _ = fs::remove_dir_all(&t);
     }
 
