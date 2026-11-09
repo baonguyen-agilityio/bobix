@@ -1,9 +1,9 @@
 // Work items: a session's local git status (no network), and the GitLab / GitHub issues assigned to you, read through
 // your own `glab` / `gh` (Bobix keeps no token, writes nothing to either). Commands get argument lists, never a shell.
 // Port of the 0.1 (Electron) app's core/work.js, plus the Work tab's state from src/main.js (workView, takeIssue, startIssue...).
-use crate::{js::{head16, len16}, links::ClaudeSession, procs, state::Sessions};
+use crate::{js::{head16, len16}, links::ClaudeSession, model::{self, Model, Review}, procs};
 use fancy_regex::Regex;
-use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::LazyLock};
 
@@ -119,16 +119,16 @@ impl Forge {
         }
     }
     fn env(self) -> &'static [(&'static str, &'static str)] { if self == Forge::GitHub { GH_ENV } else { &[] } }
-    // The issues your open pull requests (GitHub) / merge requests (GitLab) close: they wait for review. Read-only
-    // (GitHub's is a GraphQL query, no mutation); a failed read gives none, the issue list still shows.
-    pub fn reviews(self, bin: &str, host: &str) -> Vec<Value> {
+    // Your open pull requests (GitHub) / merge requests (GitLab), with the issues they close: those wait for review.
+    // Read-only (GitHub's is a GraphQL query, no mutation); a failed read gives none, the issue list still shows.
+    pub fn reviews(self, bin: &str, host: &str) -> Vec<Review> {
         let r = match self {
             Forge::GitHub => procs::exec(bin, &["api", "--hostname", host, "graphql", "-f", &format!("query={GH_PRS}")], 30, GH_ENV),
             Forge::GitLab => procs::exec(bin, &["api", "--hostname", host, "merge_requests?scope=created_by_me&state=opened&per_page=100"], 30, &[]),
         };
         let Ok(v) = serde_json::from_str::<Value>(&r.out) else { return vec![] };
         let list = if self == Forge::GitHub { &v["data"]["viewer"]["pullRequests"]["nodes"] } else { &v };
-        list.as_array().into_iter().flatten().flat_map(|x| if self == Forge::GitHub { gh_pr_links(x) } else { gl_mr_links(x) }).collect()
+        list.as_array().into_iter().flatten().filter_map(|x| if self == Forge::GitHub { model::gh_pr(x) } else { model::gl_mr(x) }).collect()
     }
     // Issues assigned to you that were closed since `since` (ISO time, UTC); the panel keeps the ones closed today.
     pub fn closed(self, bin: &str, host: &str, since: &str) -> Vec<Value> {
@@ -147,70 +147,13 @@ impl Forge {
     }
 }
 
-// Your open pull requests on a GitHub host, with the issues GitHub links to each (closing references).
-const GH_PRS: &str = "query{viewer{pullRequests(states:OPEN,first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number url headRefName body repository{nameWithOwner} closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}}";
-
-// The issue numbers a description closes: "Closes #52", "fixes: #7", "Resolves #3" (GitHub's and GitLab's words).
-pub fn closes_in(text: &str) -> Vec<i64> {
-    static C: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|implement(?:s|ed)?)\s*:?\s+#(\d+)\b"));
-    C.captures_iter(text).flatten().filter_map(|m| m[1].parse().ok()).collect()
-}
-
-// { project, iid, url } per issue a review closes: the links the forge gives, "Closes #n" in its text, and a branch
-// named after the issue ("52-…", "feat/52-…") in the same project.
-fn review_links(project: &str, url: &Value, linked: Vec<(String, i64)>, text: &str, branch: &str) -> Vec<Value> {
-    let mut all = linked;
-    all.extend(closes_in(text).into_iter().chain(issue_of_branch(branch)).map(|n| (project.to_string(), n)));
-    let mut out: Vec<Value> = vec![];
-    for (p, n) in all {
-        let v = json!({ "project": p, "iid": n, "url": url });
-        if !p.is_empty() && !out.contains(&v) { out.push(v); }
-    }
-    out
-}
-pub fn gh_pr_links(pr: &Value) -> Vec<Value> {
-    let repo = |v: &Value| v["repository"]["nameWithOwner"].as_str().unwrap_or("").to_lowercase();
-    let linked = pr["closingIssuesReferences"]["nodes"].as_array().into_iter().flatten().filter_map(|n| Some((repo(n), n["number"].as_i64()?))).collect();
-    review_links(&repo(pr), &pr["url"], linked, pr["body"].as_str().unwrap_or(""), pr["headRefName"].as_str().unwrap_or(""))
-}
-pub fn gl_mr_links(mr: &Value) -> Vec<Value> {
-    static REF: LazyLock<Regex> = LazyLock::new(|| re(r"!\d+$"));
-    let project = REF.replace(mr["references"]["full"].as_str().unwrap_or(""), "").to_lowercase();
-    review_links(&project, &mr["web_url"], vec![], mr["description"].as_str().unwrap_or(""), mr["source_branch"].as_str().unwrap_or(""))
-}
+// Your open pull requests on a GitHub host, with the issues GitHub links to each (closing references) and its review decision.
+const GH_PRS: &str = "query{viewer{pullRequests(states:OPEN,first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number url headRefName body reviewDecision repository{nameWithOwner} closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}}";
 
 // gh never asks anything (no terminal) and does not look for a new version of itself.
 const GH_ENV: &[(&str, &str)] = &[("GH_PROMPT_DISABLED", "1"), ("GH_NO_UPDATE_NOTIFIER", "1"), ("NO_COLOR", "1")];
 
 pub fn any_on(settings: &Value) -> bool { FORGES.iter().any(|f| f.on(settings)) }
-
-// A git remote URL → GitLab project path ("group/sub/project", lower case) when it points at `host`, else None.
-// Forms: git@host:g/p.git, ssh://git@host[:port]/g/p.git, https://[user@]host[:port]/g/p(.git).
-pub fn project_path(remote: &str, host: &str) -> Option<String> {
-    static SCP: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:[A-Za-z0-9_.-]+@)?([^:/\s]+):(?!/)(.+)$"));
-    static SCHEME: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^[a-z][A-Za-z0-9_+.-]*://"));
-    static PORT: LazyLock<Regex> = LazyLock::new(|| re(r":\d+$"));
-    if host.is_empty() { return None; }
-    let h = PORT.replace(&host.to_lowercase(), "").into_owned();
-    let (rhost, p) = match SCP.captures(remote).ok().flatten() {
-        Some(m) if !SCHEME.is_match(remote).unwrap_or(false) => (m[1].to_string(), m[2].to_string()),
-        _ => {
-            let u = tauri::Url::parse(remote).ok()?;
-            if !["http", "https", "ssh", "git+ssh"].contains(&u.scheme()) { return None; }
-            (u.host_str()?.to_string(), percent_decode_str(u.path()).decode_utf8().ok()?.into_owned())
-        }
-    };
-    if rhost.to_lowercase() != h { return None; }
-    let p = p.trim_matches('/');
-    let p = if p.len() >= 4 && p[p.len() - 4..].eq_ignore_ascii_case(".git") { &p[..p.len() - 4] } else { p };
-    p.contains('/').then(|| p.to_lowercase())
-}
-
-// GitLab's "create branch" from an issue names it "<iid>-<title>", also under a prefix ("feat/<iid>-…").
-pub fn issue_of_branch(branch: &str) -> Option<i64> {
-    static B: LazyLock<Regex> = LazyLock::new(|| re(r"(?:^|/)(\d+)-"));
-    B.captures(branch).ok().flatten().and_then(|m| m[1].parse().ok())
-}
 
 // A project's short code, from its name (the last part of its path): the first two letters of the first word and the
 // first letter of the last word ("ba-qa-kit" → BAK); one word: its first three letters ("bobix" → BOB).
@@ -238,20 +181,6 @@ pub fn session_title_for(key: &str, iid: i64, title: &str) -> String {
         d = TRAIL.replace(&cut, "").into_owned() + "…";
     }
     if d.is_empty() { format!("[{key}-{iid}]") } else { format!("[{key}-{iid}] {d}") }
-}
-
-// Is `name` a session name of that issue? "[KEY-iid]" or "<project name> #<iid>", alone or followed by a space.
-pub fn names_issue(name: &str, key: &str, path: &str, iid: i64) -> bool {
-    [format!("[{key}-{iid}]"), format!("{} #{iid}", path.rsplit('/').next().unwrap_or(""))].iter()
-        .any(|p| name == p || name.starts_with(&format!("{p} ")))
-}
-
-// The issue a session works on: the session's own start (New on that issue), else the newest of its branches that
-// names one, else its parent's (a side session on a branch Claude names).
-pub fn issue_of_session(path: Option<&str>, started: Option<&Value>, branches: &[String], parent_iid: Option<i64>) -> Option<i64> {
-    let path = path?;
-    if let Some(s) = started.filter(|s| s["path"] == path) { return s["iid"].as_i64(); }
-    branches.iter().rev().find_map(|b| issue_of_branch(b)).or(parent_iid)
 }
 
 // The fields Bobix shows of one issue from GitLab's API.
@@ -332,9 +261,10 @@ fn failed(text: &str) -> Value {
 #[derive(Default)]
 pub struct GitCache { pub at: u64, pub busy: bool, pub git: Option<Value> }
 
-// One tracker's last read. issues: { status: off | loading | <missing> | <signed_out> | error | ok, hosts, at, failed, list }.
-pub struct Feed { pub bin: Option<String>, pub issues: Value, pub busy: bool }
-impl Default for Feed { fn default() -> Self { Feed { bin: None, issues: json!({ "status": "off" }), busy: false } } }
+// One tracker's last read. issues: { status: off | loading | <missing> | <signed_out> | error | ok, hosts, at, failed, list,
+// closed }; reviews: your open pull / merge requests, read with the issues.
+pub struct Feed { pub bin: Option<String>, pub issues: Value, pub reviews: Vec<Review>, pub busy: bool }
+impl Default for Feed { fn default() -> Self { Feed { bin: None, issues: json!({ "status": "off" }), reviews: vec![], busy: false } } }
 
 pub struct Work {
     pub git_cache: HashMap<String, GitCache>, // folder -> its last status
@@ -368,14 +298,6 @@ impl Work {
         self.on(settings).into_iter().flat_map(|f| f.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str().map(String::from))).collect()
     }
 
-    // A repository's project path ("group/project" on GitLab, "owner/repo" on GitHub): the first signed-in host one of
-    // its remotes points at.
-    // ponytail: the same path on two hosts (two GitLabs, or GitLab and GitHub) counts as one project; key by host too
-    // if anyone works like that.
-    pub fn path_in(remotes: &[String], hosts: &[String]) -> Option<String> {
-        hosts.iter().find_map(|h| remotes.iter().find_map(|u| project_path(u, h)))
-    }
-
     fn list(&self, settings: &Value) -> Vec<&Value> {
         self.on(settings).into_iter().flat_map(|f| f.issues["list"].as_array().into_iter().flatten()).collect()
     }
@@ -389,7 +311,8 @@ impl Work {
     }
     // Only links Bobix read: an issue, a review that closes one, an issue closed lately.
     pub fn open_issue_ok(&self, settings: &Value, url: &str) -> bool {
-        self.list(settings).into_iter().chain(self.extra(settings, "reviews")).chain(self.extra(settings, "closed")).any(|i| i["url"] == url)
+        self.list(settings).into_iter().chain(self.extra(settings, "closed")).any(|i| i["url"] == url)
+            || self.on(settings).into_iter().flat_map(|f| &f.reviews).any(|r| r.url == url)
     }
 
     // The trackers that are on, as one: ok when one read, loading while one reads for the first time, else error.
@@ -404,78 +327,42 @@ impl Work {
         json!({ "status": status, "at": at, "problems": problems, "failed": failed })
     }
 
-    // What the pages see: issues grouped by project, and for each session the issue it works on.
-    pub fn view(&self, settings: &Value, sessions: &Sessions) -> (Value, HashMap<String, Value>) {
-        let mut issue_of = HashMap::new();
-        if !any_on(settings) { return (json!({ "status": "off" }), issue_of); }
-        let hosts = self.hosts(settings);
-        let path_of = |top: &Value| Self::path_in(self.remotes_of.get(top.as_str().unwrap_or("")).map(Vec::as_slice).unwrap_or(&[]), &hosts);
-        let branches = |s: &crate::state::Session| -> Vec<String> {
-            s.branches.iter().cloned().chain(s.git.as_ref().and_then(|g| g["branch"].as_str()).map(String::from)).collect()
-        };
-        let by_host: HashMap<&str, &crate::state::Session> = sessions.values().filter(|s| s.git.is_some()).filter_map(|s| Some((s.host_session.as_deref()?, s))).collect();
-        let live: Vec<Live> = sessions.values().filter_map(|s| {
-            let g = s.git.as_ref()?;
-            let path = path_of(&g["top"]);
-            let parent_iid = s.parent_host.as_deref().and_then(|h| by_host.get(h)).filter(|p| path.is_some() && path_of(&p.git.as_ref().unwrap()["top"]) == path)
-                .and_then(|p| issue_of_session(path.as_deref(), p.started.as_ref(), &branches(p), None)); // a side session works on its parent's issue
-            let iid = issue_of_session(path.as_deref(), s.started.as_ref(), &branches(s), parent_iid);
-            let dir = s.project.clone().filter(|p| !p.is_empty()).unwrap_or_else(|| g["top"].as_str().unwrap_or("").to_string());
-            Some(Live { id: s.id.clone(), path, dir, iid })
-        }).collect();
-        for s in &live {
-            if let (Some(iid), Some(p)) = (s.iid, s.path.as_deref()) {
-                let i = self.find_issue(settings, p, iid);
-                issue_of.insert(s.id.clone(), json!({ "iid": iid, "title": i.map_or(json!(""), |i| i["title"].clone()), "url": i.map_or(json!(""), |i| i["url"].clone()) }));
-            }
-        }
+    // What the pages see: issues grouped by project, each with its stage and links from the work model.
+    pub fn view(&self, settings: &Value, m: &Model) -> Value {
+        if !any_on(settings) { return json!({ "status": "off" }); }
+        let live: Vec<Live> = m.sessions.iter().filter_map(|s| Some(Live { id: s.id.clone(), path: s.repo.as_ref().map(|r| r.to.path.clone()),
+            dir: s.dir.as_ref()?.to.path.clone(), iid: s.issue.as_ref().map(|i| i.to.iid) })).collect();
         let all: Vec<Value> = self.list(settings).into_iter().cloned().collect();
         let (mut local, mut away) = group_issues(&all, &live);
-        for g in &mut local {
-            let (path, dir) = (g["path"].as_str().unwrap_or("").to_string(), g["dir"].as_str().unwrap_or("").to_string());
-            let key = key_of(settings, &path);
-            for i in g["issues"].as_array_mut().into_iter().flatten() {
-                if i["sessions"].as_array().is_some_and(|a| a.is_empty()) {
-                    let iid = i["iid"].as_i64().unwrap_or(-1);
-                    i["resume"] = json!(crate::links::issue_session(&self.claude_list, &dir, |t| names_issue(t, &key, &path, iid)));
-                }
-            }
-        }
-        let reviews = self.extra(settings, "reviews");
-        for g in local.iter_mut().chain(away.iter_mut()) {
+        for (g, here) in local.iter_mut().map(|g| (g, true)).chain(away.iter_mut().map(|g| (g, false))) {
             let p = g["path"].as_str().unwrap_or("").to_string();
             g["key"] = json!(key_of(settings, &p));
             g["autoKey"] = json!(key_for(&p));
-            for i in g["issues"].as_array_mut().into_iter().flatten() { // an open PR / MR closes it: waits for review
-                if let Some(r) = reviews.iter().find(|r| r["project"] == p.as_str() && r["iid"] == i["iid"]) { i["review"] = r["url"].clone(); }
+            for i in g["issues"].as_array_mut().into_iter().flatten() {
+                let mi = m.issue(&p, i["iid"].as_i64().unwrap_or(-1));
+                if here && i["sessions"].as_array().is_some_and(|a| a.is_empty()) { i["resume"] = json!(mi.and_then(|x| x.resume.as_ref()).map(|r| &r.to.id)); }
+                if let Some(r) = mi.and_then(|x| x.reviews.first()) { i["review"] = json!(r.to.url); } // an open PR / MR closes it
+                i["stage"] = json!(mi.map_or("todo", |x| x.stage));
             }
         }
         let mut view = self.status(settings);
-        view["hosts"] = json!(hosts);
+        view["hosts"] = json!(self.hosts(settings));
         view["local"] = json!(local);
         view["away"] = json!(away);
         view["closed"] = json!(self.extra(settings, "closed"));
-        (view, issue_of)
+        view
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::Sessions;
+
+    fn view(w: &Work, settings: &Value, sessions: &Sessions) -> Value { w.view(settings, &Model::build(settings, sessions, w)) }
 
     #[test]
-    fn remote_urls_give_the_gitlab_project_only_on_its_host() {
-        let h = "gitlab.example.com";
-        assert_eq!(project_path("git@gitlab.example.com:team/shop-app.git", h).as_deref(), Some("team/shop-app"));
-        assert_eq!(project_path("ssh://git@gitlab.example.com:2222/Group/Sub/Proj.git", h).as_deref(), Some("group/sub/proj"));
-        assert_eq!(project_path("https://gitlab.example.com/team/shop-app", h).as_deref(), Some("team/shop-app"));
-        assert_eq!(project_path("https://oauth2:secret@gitlab.example.com/g/p.git/", h).as_deref(), Some("g/p"));
-        assert_eq!(project_path("https://gitlab.example.com:8443/g/p.git", "gitlab.example.com:8443").as_deref(), Some("g/p"));
-        assert_eq!(project_path("git@github.com:baonguyen-agilityio/bobix.git", h), None);
-        assert_eq!(project_path("https://gitlab.com/g/p.git", h), None);
-        assert_eq!(project_path("/Users/me/repo.git", h), None);
-        assert_eq!(project_path("git@gitlab.example.com:onlyname.git", h), None);
-        assert_eq!(project_path("git@gitlab.example.com:g/p.git", ""), None);
+    fn glab_status_gives_signed_in_hosts() {
         let status = "gitlab.com\n  x gitlab.com: API call failed: GET https://gitlab.com/api/v4/user: 401\n  ✓ Git operations for gitlab.com configured to use ssh protocol.\n\
             git.example.com:8443\n  ✓ Logged in to git.example.com:8443 as someone (keyring)\n  ✓ Token: **************************\n\
             Gitlab.Example.org\n  ✓ Logged in to Gitlab.Example.org as other (config.yml)\n";
@@ -495,8 +382,6 @@ mod tests {
         assert_eq!(gh_logged_in_hosts(second_active), ["github.com"]);
         assert_eq!(gh_logged_in_hosts("github.com\n  ✓ Logged in to github.com as old (oauth_token)\n  ✓ Token: *******\n"), ["github.com"], "gh before 2.40");
         assert!(gh_logged_in_hosts("You are not logged into any GitHub hosts. To log in, run: gh auth login\n").is_empty());
-        assert_eq!(project_path("git@github.com:Baonguyen-Agilityio/Bobix.git", "github.com").as_deref(), Some("baonguyen-agilityio/bobix"));
-        assert_eq!(project_path("https://ghe.example.com/team/app.git", "ghe.example.com").as_deref(), Some("team/app"));
     }
 
     #[test]
@@ -528,34 +413,22 @@ mod tests {
             "list": [{ "iid": 53, "project": "acme/shop-app", "title": "t", "labels": [], "due": null, "url": "https://github.com/acme/shop-app/issues/53" }] });
         let sessions = Sessions::default();
         let both = json!({ "gitlab": true, "github": true });
-        let (v, _) = w.view(&both, &sessions);
+        let v = view(&w, &both, &sessions);
         assert_eq!((&v["status"], &v["problems"], &v["hosts"], &v["at"]), (&json!("ok"), &json!(["noglab"]), &json!(["github.com"]), &json!(9)));
         assert_eq!(v["failed"][0]["host"], "ghe.example.com");
         assert_eq!((&v["away"][0]["path"], &v["away"][0]["key"]), (&json!("acme/shop-app"), &json!("SHA")));
         assert!(w.open_issue_ok(&both, "https://github.com/acme/shop-app/issues/53"));
         let gh_only = json!({ "gitlab": false, "github": true });
-        assert_eq!(w.view(&gh_only, &sessions).0["problems"], json!([]));
+        assert_eq!(view(&w, &gh_only, &sessions)["problems"], json!([]));
         let gl_only = json!({ "gitlab": true, "github": false });
-        let (v, _) = w.view(&gl_only, &sessions);
+        let v = view(&w, &gl_only, &sessions);
         assert_eq!((&v["status"], &v["away"]), (&json!("error"), &json!([])));
         assert!(!w.open_issue_ok(&gl_only, "https://github.com/acme/shop-app/issues/53"), "GitHub off: its links do not open");
-        assert_eq!(w.view(&json!({}), &sessions).0, json!({ "status": "off" }));
+        assert_eq!(view(&w, &json!({}), &sessions), json!({ "status": "off" }));
     }
 
     #[test]
-    fn branches_and_sessions_link_to_issues() {
-        assert_eq!(issue_of_branch("29-buy-item-list-cannot-be-used"), Some(29));
-        assert_eq!(issue_of_branch("feat/29-x"), Some(29));
-        assert_eq!(issue_of_branch("v29-x"), None);
-        assert_eq!(issue_of_branch("main"), None);
-        let b = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        let s = |br: &[&str], parent: Option<i64>, path: Option<&str>| issue_of_session(path, None, &b(br), parent);
-        assert_eq!(s(&["29-old", "main", "feat/31-new", "main"], None, Some("g/a")), Some(31));
-        assert_eq!(s(&["main", "HEAD"], None, Some("g/a")), None);
-        assert_eq!(s(&["claude/brave-otter"], Some(26), Some("g/a")), Some(26));
-        assert_eq!(s(&["29-x"], Some(26), Some("g/a")), Some(29));
-        assert_eq!(s(&["29-x"], None, None), None);
-        assert_eq!(issue_of_session(Some("g/a"), Some(&json!({ "path": "g/a", "iid": 7 })), &b(&["29-x"]), None), Some(7), "started from an issue");
+    fn issues_count_the_sessions_on_them() {
         let issues = [json!({ "iid": 29, "project": "g/a", "title": "x", "labels": [], "due": null, "url": "u" })];
         let live = |id: &str, p: &str, iid| Live { id: id.into(), path: Some(p.into()), dir: String::new(), iid: Some(iid) };
         let (local, away) = group_issues(&issues, &[]);
@@ -580,30 +453,21 @@ mod tests {
     }
 
     #[test]
-    fn reviews_name_the_issues_they_close() {
-        assert_eq!(closes_in("Closes #52\nCloses #60 and fixes: #61. Resolves #7, see #8; closed#9 prefix#10"), [52, 60, 61, 7]);
-        assert!(closes_in("Refs #4, mentions #5").is_empty());
+    fn reviews_put_issues_in_review() {
         let pr: Value = serde_json::from_str(r#"{ "number": 70, "url": "https://github.com/Acme/Shop/pull/70", "headRefName": "feat/52-board-day",
-            "body": "Closes #60\nCloses #52", "repository": { "nameWithOwner": "Acme/Shop" },
-            "closingIssuesReferences": { "nodes": [{ "number": 61, "repository": { "nameWithOwner": "Acme/Shop" } }, { "number": 3, "repository": { "nameWithOwner": "Acme/Other" } }] } }"#).unwrap();
-        let got: Vec<(String, i64)> = gh_pr_links(&pr).iter().map(|v| (v["project"].as_str().unwrap().into(), v["iid"].as_i64().unwrap())).collect();
-        assert_eq!(got, [("acme/shop".into(), 61), ("acme/other".into(), 3), ("acme/shop".into(), 60), ("acme/shop".into(), 52)], "no duplicate for #52 (body and branch)");
-        assert!(gh_pr_links(&pr).iter().all(|v| v["url"] == "https://github.com/Acme/Shop/pull/70"));
-        let mr = json!({ "iid": 12, "web_url": "https://gl.example.com/g/sub/app/-/merge_requests/12", "references": { "full": "G/Sub/App!12" },
-            "source_branch": "29-login-error", "description": null });
-        assert_eq!(gl_mr_links(&mr), [json!({ "project": "g/sub/app", "iid": 29, "url": "https://gl.example.com/g/sub/app/-/merge_requests/12" })]);
-        assert!(gl_mr_links(&json!({ "references": {}, "source_branch": "main" })).is_empty());
-        assert!(gh_pr_links(&json!({})).is_empty());
+            "body": "Closes #60\nCloses #52", "repository": { "nameWithOwner": "Acme/Shop" } }"#).unwrap();
         // in the view: the issue it closes carries the review's link, which may be opened; the closed list goes along
         let mut w = Work::default();
         w.feeds[Forge::GitHub as usize].issues = json!({ "status": "ok", "hosts": ["github.com"], "at": 1,
             "list": [{ "iid": 52, "project": "acme/shop", "title": "t", "labels": [], "due": null, "url": "https://github.com/acme/shop/issues/52" },
                      { "iid": 53, "project": "acme/shop", "title": "u", "labels": [], "due": null, "url": "https://github.com/acme/shop/issues/53" }],
-            "reviews": gh_pr_links(&pr), "closed": [{ "iid": 50, "project": "acme/shop", "title": "v", "url": "https://github.com/acme/shop/issues/50", "closedAt": "2026-11-08T03:00:00Z" }] });
+            "closed": [{ "iid": 50, "project": "acme/shop", "title": "v", "url": "https://github.com/acme/shop/issues/50", "closedAt": "2026-11-08T03:00:00Z" }] });
+        w.feeds[Forge::GitHub as usize].reviews = vec![model::gh_pr(&pr).unwrap()];
         let on = json!({ "github": true });
-        let (v, _) = w.view(&on, &Sessions::default());
+        let v = view(&w, &on, &Sessions::default());
         let issue = |n: i64| v["away"][0]["issues"].as_array().unwrap().iter().find(|i| i["iid"] == n).unwrap().clone();
         assert_eq!((&issue(52)["review"], issue(53).get("review")), (&json!("https://github.com/Acme/Shop/pull/70"), None));
+        assert_eq!((&issue(52)["stage"], &issue(53)["stage"]), (&json!("verify"), &json!("todo")));
         assert_eq!(v["closed"][0]["iid"], 50);
         assert!(w.open_issue_ok(&on, "https://github.com/Acme/Shop/pull/70") && w.open_issue_ok(&on, "https://github.com/acme/shop/issues/50"));
         assert!(!w.open_issue_ok(&on, "https://evil.example/pull/1"));
@@ -625,9 +489,6 @@ mod tests {
         for (p, k) in [("team/ba-qa-kit", "BAK"), ("bao/ba-qa-kit-sandbox", "BAS"), ("bao/html-css-training", "HTT"), ("g/shop_app", "SHA"), ("g/bobix", "BOB"), ("g/x2", "X2"), ("g/---", "ISSUE")] {
             assert_eq!(key_for(p), k, "{p}");
         }
-        let m = |n: &str| names_issue(n, "BAK", "bao/ba-qa-kit-sandbox", 2);
-        assert!(m("[BAK-2] Fix") && m("[BAK-2]") && m("ba-qa-kit-sandbox #2 Fix"));
-        assert!(!m("[BAK-23] Fix") && !m("[BAS-2] Fix") && !m("ba-qa-kit-sandbox #23 Fix") && !m("Fix [BAK-2]"));
         assert_eq!(enc("/Users/a b/ğ?&"), "%2FUsers%2Fa%20b%2F%C4%9F%3F%26");
     }
 

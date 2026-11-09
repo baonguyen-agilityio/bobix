@@ -1,0 +1,575 @@
+{
+  "work": {
+    "status": "ok",
+    "at": 200,
+    "problems": [],
+    "failed": [
+      {
+        "host": "ghe.example.com",
+        "detail": "x"
+      }
+    ],
+    "hosts": [
+      "gitlab.example.com",
+      "github.com"
+    ],
+    "local": [
+      {
+        "path": "acme/app",
+        "dir": "/src/app",
+        "issues": [
+          {
+            "iid": 52,
+            "title": "t52",
+            "url": "https://h/acme/app/issues/52",
+            "project": "acme/app",
+            "labels": [],
+            "due": null,
+            "sessions": [
+              "p4",
+              "c3"
+            ],
+            "review": "https://github.com/Acme/App/pull/60"
+          },
+          {
+            "iid": 55,
+            "title": "t55",
+            "url": "https://h/acme/app/issues/55",
+            "project": "acme/app",
+            "labels": [],
+            "due": null,
+            "sessions": [
+              "cli"
+            ],
+            "review": "https://github.com/Acme/App/pull/60"
+          },
+          {
+            "iid": 54,
+            "title": "t54",
+            "url": "https://h/acme/app/issues/54",
+            "project": "acme/app",
+            "labels": [],
+            "due": null,
+            "sessions": [
+              "s2"
+            ]
+          },
+          {
+            "iid": 53,
+            "title": "t53",
+            "url": "https://h/acme/app/issues/53",
+            "project": "acme/app",
+            "labels": [],
+            "due": null,
+            "sessions": [],
+            "resume": null,
+            "review": "https://github.com/Acme/App/pull/60"
+          }
+        ],
+        "key": "APP",
+        "autoKey": "APP"
+      },
+      {
+        "path": "team/shop",
+        "dir": "/src/shop",
+        "issues": [
+          {
+            "iid": 29,
+            "title": "t29",
+            "url": "https://h/team/shop/issues/29",
+            "project": "team/shop",
+            "labels": [],
+            "due": "2026-11-20",
+            "sessions": [
+              "s1"
+            ]
+          },
+          {
+            "iid": 30,
+            "title": "t30",
+            "url": "https://h/team/shop/issues/30",
+            "project": "team/shop",
+            "labels": [],
+            "due": null,
+            "sessions": [
+              "s1b"
+            ],
+            "review": "https://gitlab.example.com/team/shop/-/merge_requests/5"
+          },
+          {
+            "iid": 32,
+            "title": "t32",
+            "url": "https://h/team/shop/issues/32",
+            "project": "team/shop",
+            "labels": [],
+            "due": "2026-11-01",
+            "sessions": [],
+            "resume": "local_r1"
+          },
+          {
+            "iid": 31,
+            "title": "t31",
+            "url": "https://h/team/shop/issues/31",
+            "project": "team/shop",
+            "labels": [],
+            "due": null,
+            "sessions": [],
+            "resume": "local_r2",
+            "review": "https://gitlab.example.com/team/shop/-/merge_requests/5"
+          }
+        ],
+        "key": "SHO",
+        "autoKey": "SHO"
+      }
+    ],
+    "away": [
+      {
+        "path": "acme/away",
+        "issues": [
+          {
+            "iid": 1,
+            "title": "t1",
+            "url": "https://h/acme/away/issues/1",
+            "project": "acme/away",
+            "labels": [],
+            "due": null,
+            "sessions": []
+          }
+        ],
+        "key": "AWA",
+        "autoKey": "AWA"
+      }
+    ],
+    "closed": [
+      {
+        "iid": 28,
+        "title": "t28",
+        "url": "https://h/team/shop/issues/28",
+        "project": "team/shop",
+        "labels": [],
+        "due": null,
+        "closedAt": "2026-11-09T02:00:00Z"
+      },
+      {
+        "iid": 50,
+        "title": "t50",
+        "url": "https://h/acme/app/issues/50",
+        "project": "acme/app",
+        "labels": [],
+        "due": null,
+        "closedAt": "2026-11-09T01:00:00Z"
+      },
+      {
+        "iid": 50,
+        "title": "t50",
+        "url": "https://h/acme/app/issues/50",
+        "project": "acme/app",
+        "labels": [],
+        "due": null,
+        "closedAt": "2026-11-09T03:00:00Z"
+      },
+      {
+        "iid": 9,
+        "title": "t9",
+        "url": "https://h/acme/new/issues/9",
+        "project": "acme/new",
+        "labels": [],
+        "due": null,
+        "closedAt": "2026-11-08T03:00:00Z"
+      }
+    ]
+  },
+  "waiting": [
+    {
+      "dir": "/src/shop",
+      "path": "team/shop",
+      "iid": 32
+    }
+  ],
+  "sessions": [
+    {
+      "id": "s1",
+      "name": "shop",
+      "cwd": "/src/shop",
+      "title": "",
+      "transcript": "",
+      "state": "working",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": "local_s1",
+      "log": [],
+      "pet": "auto",
+      "project": "/src/shop",
+      "git": {
+        "branch": "29-login",
+        "top": "/src/shop",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0,
+        "changed": 0
+      },
+      "parent": null,
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": {
+        "iid": 29,
+        "title": "t29",
+        "url": "https://h/team/shop/issues/29"
+      }
+    },
+    {
+      "id": "s1b",
+      "name": "shop",
+      "cwd": "/src/shop",
+      "title": "",
+      "transcript": "",
+      "state": "working",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": "local_s1b",
+      "log": [],
+      "pet": "auto",
+      "project": "/src/shop",
+      "git": {
+        "branch": "main",
+        "top": "/src/shop",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0,
+        "changed": 0
+      },
+      "parent": null,
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": {
+        "iid": 30,
+        "title": "t30",
+        "url": "https://h/team/shop/issues/30"
+      }
+    },
+    {
+      "id": "s2",
+      "name": "app",
+      "cwd": "/src/app",
+      "title": "",
+      "transcript": "",
+      "state": "working",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": "local_s2",
+      "log": [],
+      "pet": "auto",
+      "project": "/src/app",
+      "git": {
+        "branch": "main",
+        "top": "/src/app",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0,
+        "changed": 0
+      },
+      "started": {
+        "path": "acme/app",
+        "iid": 54
+      },
+      "parent": null,
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": {
+        "iid": 54,
+        "title": "t54",
+        "url": "https://h/acme/app/issues/54"
+      }
+    },
+    {
+      "id": "p4",
+      "name": "app",
+      "cwd": "/src/app",
+      "title": "",
+      "transcript": "",
+      "state": "waiting",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": "local_p4",
+      "log": [],
+      "pet": "auto",
+      "project": "/src/app",
+      "git": {
+        "branch": "feat/52-board",
+        "top": "/src/app",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0,
+        "changed": 0
+      },
+      "parent": null,
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": {
+        "iid": 52,
+        "title": "t52",
+        "url": "https://h/acme/app/issues/52"
+      }
+    },
+    {
+      "id": "c3",
+      "name": "sub",
+      "cwd": "/src/app/sub",
+      "title": "",
+      "transcript": "",
+      "state": "working",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": "local_c3",
+      "log": [],
+      "pet": "auto",
+      "project": "/src/app",
+      "git": {
+        "branch": "claude/otter",
+        "top": "/src/app",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0,
+        "changed": 0
+      },
+      "parent": "p4",
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": {
+        "iid": 52,
+        "title": "t52",
+        "url": "https://h/acme/app/issues/52"
+      }
+    },
+    {
+      "id": "c5",
+      "name": "scratch",
+      "cwd": "/tmp/scratch",
+      "title": "",
+      "transcript": "",
+      "state": "working",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": "local_c5",
+      "log": [],
+      "pet": "auto",
+      "project": "/tmp/scratch",
+      "parent": "p4",
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": null
+    },
+    {
+      "id": "o6",
+      "name": "other",
+      "cwd": "/src/other",
+      "title": "",
+      "transcript": "",
+      "state": "working",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": "local_o6",
+      "log": [],
+      "pet": "auto",
+      "project": "/src/other",
+      "git": {
+        "branch": "7-x",
+        "top": "/src/other",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0,
+        "changed": 0
+      },
+      "parent": null,
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": null
+    },
+    {
+      "id": "s7",
+      "name": "shop",
+      "cwd": "/src/shop",
+      "title": "",
+      "transcript": "",
+      "state": "done",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": "local_s7",
+      "log": [],
+      "pet": "auto",
+      "project": "/src/shop",
+      "git": {
+        "branch": "main",
+        "top": "/src/shop",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0,
+        "changed": 0
+      },
+      "started": {
+        "path": "acme/app",
+        "iid": 99
+      },
+      "parent": null,
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": null
+    },
+    {
+      "id": "cli",
+      "name": "app",
+      "cwd": "/src/app",
+      "title": "",
+      "transcript": "",
+      "state": "idle",
+      "since": 1000,
+      "updated": 2000,
+      "lv": 1,
+      "xp": 0,
+      "quest": "",
+      "prompt": "",
+      "tool": "",
+      "toolArg": "",
+      "askTool": "",
+      "ask": "",
+      "summary": "",
+      "report": "",
+      "hits": 0,
+      "ctx": null,
+      "claudePid": null,
+      "hostSession": null,
+      "log": [],
+      "pet": "auto",
+      "project": "/src/app",
+      "git": {
+        "branch": "55-cli",
+        "top": "/src/app",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0,
+        "changed": 0
+      },
+      "parent": null,
+      "image": null,
+      "pixel": false,
+      "whole": false,
+      "issue": {
+        "iid": 55,
+        "title": "t55",
+        "url": "https://h/acme/app/issues/55"
+      }
+    }
+  ]
+}
