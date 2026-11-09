@@ -1,6 +1,7 @@
 // Bobix on Tauri: the Rust core (hook events, session state, settings, local server), the pets overlay, the panel and
 // the tray. Port of the 0.1 (Electron) app's main.js.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![recursion_limit = "256"] // serde_json's json! for the settings defaults (settings.rs) has grown past the default 128
 
 mod answers;
 mod autostart;
