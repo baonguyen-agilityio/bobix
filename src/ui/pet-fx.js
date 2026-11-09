@@ -11,20 +11,16 @@ const XP_PER_LV = 3; // XP_PER_LV in src-tauri/src/state.rs: finished tasks per 
 // The prop a pet holds for the tool its session is running: 0 pen and paper, 1 terminal, 2 book, 3 magnifier.
 const TOOL_PROP = { Edit: 0, Write: 0, MultiEdit: 0, NotebookEdit: 0, Bash: 1, PowerShell: 1, Read: 2, WebFetch: 2, Grep: 3, Glob: 3, WebSearch: 3 };
 const lowCtx = s => s.ctx != null && s.ctx < 25;
-// The one-shot effects a change of a session starts. prev: the session as its pet last saw it, null for a pet just
-// made; born: the pet is new and the session was never seen before (not just the overlay starting up).
-function fxEvents(prev, s, born) {
+// The one-shot effects a change of a session starts. prev: the session as its pet last saw it, null for a pet just made.
+function fxEvents(prev, s) {
   const out = [];
   if (prev && s.state === 'done' && prev.state !== 'done') out.push(['xp', { f0: (prev.xp || 0) / XP_PER_LV, f1: s.lv > prev.lv ? 1 : (s.xp || 0) / XP_PER_LV, lv: s.lv }]);
   if (lowCtx(s) && !(prev && lowCtx(prev))) out.push(['ctx']);
-  if (s.parent && (prev ? prev.parent !== s.parent : born)) out.push(['child']); // played by the parent's pet
   return out;
 }
-// Queue a one-shot on a pet: one of each kind waits at most. A second XP keeps the first's starting bar; a side session
-// born while another one's dash is queued or playing just appears (a burst of side sessions plays one dash).
+// Queue a one-shot on a pet: one of each kind waits at most. A second XP keeps the first's starting bar.
 function fxQueue(queue, playing, kind, o) {
   const i = queue.findIndex(e => e[0] === kind);
-  if (kind === 'child' && (i >= 0 || playing === 'child')) return queue;
   if (i < 0) return [...queue, o ? [kind, o] : [kind]];
   return queue.map((e, j) => (j !== i ? e : kind === 'xp' ? [kind, { ...o, f0: e[1].f0 }] : o ? [kind, o] : [kind]));
 }
@@ -42,7 +38,7 @@ const COOL = ramp(['#ffffff', '#dcfbff', '#a6ecff', '#62c8f4', '#3a8bd8', '#2c58
 const CORAL = ramp(['#ffffff', '#ffe4d6', '#ffb08a', '#ff7a4d', '#f04a2a', '#b8301f', '#6e1c16']);
 const RED = ramp(['#ffffff', '#ffd9d9', '#ff8a8a', '#ff4d4d', '#e02828', '#a3161b', '#5e0d12']);
 const GREEN = ramp(['#ffffff', '#e6ffdc', '#acff92', '#62e26a', '#30b55b', '#20804c', '#175237']);
-const WHITE = hex('#ffffff'), INK = hex('#1a1422'), SHADOW = hex('#0b0814'), DUST = hex('#9a90a8'), PAPER = hex('#fbf8f1'), LINE = hex('#9aa0b4'), SCREEN = hex('#161b2b');
+const WHITE = hex('#ffffff'), INK = hex('#1a1422'), SHADOW = hex('#0b0814'), PAPER = hex('#fbf8f1'), LINE = hex('#9aa0b4'), SCREEN = hex('#161b2b');
 const lum = c => ((c & 255) * .3 + ((c >>> 8) & 255) * .59 + ((c >>> 16) & 255) * .11) / 255;
 const scale = (c, k) => ((c >>> 24) << 24 | Math.min(255, ((c >>> 16) & 255) * k) << 16 | Math.min(255, ((c >>> 8) & 255) * k) << 8 | Math.min(255, (c & 255) * k)) >>> 0;
 const mix = (a, b, t) => { const ch = (c, s) => (c >>> s) & 255, m = s => Math.round(ch(a, s) * (1 - t) + ch(b, s) * t); return ((255 << 24) | (m(16) << 16) | (m(8) << 8) | m(0)) >>> 0; };
@@ -54,11 +50,6 @@ const outBack = (t, s = 1.7) => { const u = clamp(t) - 1; return 1 + (s + 1) * u
 const outCubic = t => 1 - Math.pow(1 - clamp(t), 3), outExpo = t => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * clamp(t)));
 const gauss = (t, c, w) => Math.exp(-(((t - c) / w) ** 2));
 const hash = (n, k = 0) => ((Math.imul(n + 1 + k * 7919, 2654435761) >>> 0) % 100000) / 100000;
-const noise2 = (x, y, seed = 0) => {
-  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
-  const h00 = hash(ix * 73 + iy * 9301, seed) * 2 - 1, h10 = hash((ix + 1) * 73 + iy * 9301, seed) * 2 - 1, h01 = hash(ix * 73 + (iy + 1) * 9301, seed) * 2 - 1, h11 = hash((ix + 1) * 73 + (iy + 1) * 9301, seed) * 2 - 1;
-  const top = h00 + (h10 - h00) * u, bot = h01 + (h11 - h01) * u; return top + (bot - top) * v;
-};
 class Rng {
   constructor(s = 1) { this.s = s >>> 0 || 1; }
   next() { let t = (this.s = (this.s + 0x6d2b79f5) >>> 0); t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
@@ -72,11 +63,15 @@ const dith = (a, x, y) => a >= 1 || a > bayer(x, y);
 // A sprite here is { w, h, data, k }: k fine pixels per sprite pixel (1 for the 36×36 pet). It stands on the bottom
 // of the pet's box, as the pet's art does.
 class Buf {
-  constructor() { this.c = new Uint32Array(GW * GH); this.l = new Float32Array(GW * GH); this.lc = new Uint32Array(GW * GH); this.m = new Uint8Array(GW * GH); this.f = new Uint8Array(GW * GH); this.pets = []; this.shake = [0, 0]; this.was = null; this.fx = this.fy = false; }
+  constructor() { this.c = new Uint32Array(GW * GH); this.l = new Float32Array(GW * GH); this.lc = new Uint32Array(GW * GH); this.m = new Uint8Array(GW * GH); this.f = new Uint8Array(GW * GH); this.pets = []; this.shake = [0, 0]; this.was = null; this.fx = this.fy = false; this.room = null; }
   clear() { this.c.fill(0); this.l.fill(0); this.m.fill(0); this.f.fill(0); this.pets.length = 0; this.shake = [0, 0]; }
-  at(x, y) { x = Math.floor(x); y = Math.floor(y); return x < 0 || y < 0 || x >= GW || y >= GH ? -1 : y * GW + x; }
+  // room: [x0, y0, x1, y1] cells, the part of the grid this frame may draw in (the pet's own room on screen, see
+  // fxRoom); nothing is drawn outside it. edge: how far a cell is from the room's edge; fits: a shape lies inside it.
+  at(x, y) { x = Math.floor(x); y = Math.floor(y); const r = this.room; return x < 0 || y < 0 || x >= GW || y >= GH || (r && (x < r[0] || y < r[1] || x >= r[2] || y >= r[3])) ? -1 : y * GW + x; }
+  fits(x0, y0, x1, y1) { const r = this.room; return !r || (x0 >= r[0] && y0 >= r[1] && x1 <= r[2] && y1 <= r[3]); }
   set(x, y, c) { const i = this.at(x, y); if (i >= 0) { this.c[i] = c; if (this.m[i]) this.f[i] = 1; } } // f: an effect pixel drawn over the pet
   glow(cx, cy, r, c, k) {
+    const rm = this.room; if (rm) r = Math.min(r, cx - rm[0], rm[2] - cx, cy - rm[1], rm[3] - cy); // light shrinks to the room, never cut
     if (r < 1 || k <= .01) return;
     const l = this.l, lc = this.lc, x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(GW - 1, Math.ceil(cx + r));
     for (let y = Math.max(0, Math.floor(cy - r)), y1 = Math.min(GH - 1, Math.ceil(cy + r)); y <= y1; y++) {
@@ -168,6 +163,9 @@ const FONT = {
   7: ['XXX', '..X', '..X', '.X.', '.X.'], 8: ['XXX', 'X.X', 'XXX', 'X.X', 'XXX'], 9: ['XXX', 'X.X', 'XXX', '..X', 'XXX'],
   L: ['X..', 'X..', 'X..', 'X..', 'XXX'], V: ['X...X', 'X...X', '.X.X.', '.X.X.', '..X..'], X: ['X.X', 'X.X', '.X.', 'X.X', 'X.X'], P: ['XX.', 'X.X', 'XX.', 'X..', 'X..'], ' ': ['.', '.', '.', '.', '.'], '!': ['X', 'X', 'X', '.', 'X'],
 };
+const textW = (s, k = 1) => ([...s].reduce((w, ch) => w + (FONT[ch] || FONT[' '])[0].length + 1, 0) - 1) * k;
+// Whether a text fits the room whole (with its outline).
+const textFits = (b, s, cx, top, k = 1) => { const w = textW(s, k), x0 = Math.round(cx - w / 2); return b.fits(x0 - 1, top - 1, x0 + w + 1, top + 5 * k + 1); };
 function text(b, s, cx, top, fill, k = 1, a = 1) {
   const cells = []; let x = 0;
   for (const ch of s) { const g = FONT[ch] || FONT[' ']; g.forEach((row, j) => [...row].forEach((v, i) => v === 'X' && cells.push([x + i, j]))); x += g[0].length + 1; }
@@ -194,7 +192,7 @@ function blit(b, spr, cx, feet, sx = 1, sy = 1, flash = null, fa = 0, o = {}) {
   }
   b.pets.push({ spr, cx, feet, sx, sy, flash, fa, a, clip });
 }
-const shadow = (b, cx, feet, w = 9) => { for (const [row, ww, k] of [[feet, w, .3], [feet + 1, w * .7, .2], [feet + 2, w * .4, .12]]) for (let x = Math.ceil(-ww); x <= ww; x++) { const i = b.at(cx + x, row); if (i >= 0 && !b.c[i] && b.l[i] < k) { b.l[i] = k; b.lc[i] = SHADOW; } } };
+const shadow = (b, cx, feet, w = 9) => { if (b.fy) return; /* no ground under a pet hanging from the top edge */ for (const [row, ww, k] of [[feet, w, .3], [feet + 1, w * .7, .2], [feet + 2, w * .4, .12]]) for (let x = Math.ceil(-ww); x <= ww; x++) { const i = b.at(cx + x, row); if (i >= 0 && !b.c[i] && b.l[i] < k) { b.l[i] = k; b.lc[i] = SHADOW; } } };
 function hopPose(t, t0, h = 4, dur = .3) {
   if (t >= t0 - .09 && t < t0) return { dy: 0, sx: 1.18, sy: .82 };
   if (t >= t0 && t < t0 + dur) { const p = (t - t0) / dur, mid = p > .3 && p < .7; return { dy: -Math.round(h * Math.sin(Math.PI * p)), sx: mid ? 1 : .88, sy: mid ? 1 : 1.14 }; }
@@ -218,28 +216,17 @@ function shock(b, cx, fy, t, z, L) {
     }
   }
 }
-// Aura that grips the pet's outline and licks upward (power-up): distance from the pet, pushed out by rising noise.
-const DIST = new Uint8Array(GW * GH);
-// Only cells within 21 of the pet can be painted (reach ≤ 20), and a chamfer path that leaves that box is longer than
-// 60 (3 per step), so the distances are worked out in that box alone: the same pixels as over the whole grid.
-function aura(b, a, t, pulse, L, midY) {
-  if (a <= .02) return;
+// An outline round the pet: 1 cell always, a 2nd and 3rd as it pulses (dithered), all inside its own slot.
+function halo(b, k, L) {
   let X0 = GW, Y0 = GH, X1 = -1, Y1 = -1;
   for (let y = 0, i = 0; y < GH; y++) for (let x = 0; x < GW; x++, i++) if (b.m[i]) { if (x < X0) X0 = x; if (x > X1) X1 = x; if (y < Y0) Y0 = y; if (y > Y1) Y1 = y; }
   if (X1 < 0) return;
-  X0 = Math.max(0, X0 - 21); Y0 = Math.max(0, Y0 - 21); X1 = Math.min(GW - 1, X1 + 21); Y1 = Math.min(GH - 1, Y1 + 21);
-  for (let y = Y0; y <= Y1; y++) for (let x = X0, i = y * GW + X0; x <= X1; x++, i++) DIST[i] = b.m[i] ? 0 : 255;
-  const relax = (i, j, w) => { if (DIST[j] + w < DIST[i]) DIST[i] = DIST[j] + w; };
-  for (let y = Y0; y <= Y1; y++) for (let x = X0; x <= X1; x++) { const i = y * GW + x; if (x > X0) relax(i, i - 1, 3); if (y > Y0) { relax(i, i - GW, 3); if (x > X0) relax(i, i - GW - 1, 4); if (x < X1) relax(i, i - GW + 1, 4); } }
-  for (let y = Y1; y >= Y0; y--) for (let x = X1; x >= X0; x--) { const i = y * GW + x; if (x < X1) relax(i, i + 1, 3); if (y < Y1) { relax(i, i + GW, 3); if (x < X1) relax(i, i + GW + 1, 4); if (x > X0) relax(i, i + GW - 1, 4); } }
-  for (let y = Y0; y <= Y1; y++) for (let x = X0; x <= X1; x++) {
-    const i = y * GW + x, d = DIST[i] / 3; if (d === 0 || d > 20 || b.c[i]) continue;
-    const n = Math.pow(noise2(x * .45, (y + t * 30) * .24, 7) * .5 + .5, 1.4), up = clamp((midY - y) / 12), reach = a * (2 + 10 * n * (.3 + 1.15 * up)) * (1 + .35 * pulse);
-    if (d > reach) continue; const band = d / reach;
-    if (band < .22) b.c[i] = pulse > .35 && band < .14 ? L[0] : L[1]; else if (band < .45) b.c[i] = L[2]; else if (band < .7) b.c[i] = L[3]; else if (bayer(x, y) < (1 - band) * 2.6) b.c[i] = band < .86 ? L[4] : L[5];
+  for (let y = Math.max(0, Y0 - 3); y <= Math.min(GH - 1, Y1 + 1); y++) for (let x = Math.max(0, X0 - 3); x <= Math.min(GW - 1, X1 + 3); x++) {
+    const i = y * GW + x; if (b.m[i] || b.c[i]) continue;
+    let d = 9; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const j = b.at(x + dx, y + dy); if (j >= 0 && b.m[j]) d = Math.min(d, Math.max(Math.abs(dx), Math.abs(dy))); }
+    if (d === 1) b.set(x, y, k > .6 ? L[1] : L[2]); else if (d === 2 && dith(k * 1.2, x, y)) b.set(x, y, L[3]); else if (d === 3 && dith(k * .7 - .1, x, y)) b.set(x, y, L[4]);
   }
 }
-function puffs(b, list) { for (const d of list) { const k = d.life / d.max; for (let y = Math.floor(d.y - d.s); y <= d.y + d.s; y++) for (let x = Math.floor(d.x - d.s); x <= d.x + d.s; x++) if ((x + .5 - d.x) ** 2 + (y + .5 - d.y) ** 2 <= d.s * d.s) dot(b, x, y, d.c || DUST, k * .8); } }
 function stepList(list, dt, drag = 0, grav = 0) { for (let i = list.length - 1; i >= 0; i--) { const p = list[i]; if ((p.life -= dt) <= 0) { list.splice(i, 1); continue; } p.vx -= p.vx * drag * dt; p.vy -= p.vy * drag * dt; p.vy += grav * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.grow) p.s += p.grow * dt; } }
 const shake = (b, t, t0, dur, amp = 1) => { if (t >= t0 && t < t0 + dur) { const k = Math.floor(t * 40); b.shake = [(hash(k, 1) < .5 ? -1 : 1) * amp, (hash(k, 2) < .5 ? -1 : 1) * amp]; } };
 // A tool as a small badge (11 x 11 cells): a paper disc with the tool drawn on it; the terminal's cursor blinks.
@@ -256,6 +243,13 @@ function toolBadge(b, seg, x0, y0, t) {
   const icon = BADGE_ICON[seg].map((r, j) => (seg === 1 && j === 3 && Math.floor(t * 4 + 1e-6) % 2 ? r.slice(0, 4) + '000' : r));
   bmp(b, icon, x0 + 2, y0 + 2, pal);
 }
+// The tool as a small card held in the pet's hands (9 x 9 cells, inside its own box); the terminal's cursor blinks.
+function toolMini(b, seg, x0, y0, t) {
+  const pal = [SCREEN, GREEN[3], PAPER, LINE, WARM[3], hex('#7a5a3a'), hex('#bfe6ff'), hex('#3a3f6b')];
+  b.frame(x0, y0, 9, 9, seg === 1 ? SCREEN : PAPER);
+  const icon = BADGE_ICON[seg].map((r, j) => (seg === 1 && j === 3 && Math.floor(t * 4 + 1e-6) % 2 ? r.slice(0, 4) + '000' : r));
+  bmp(b, icon, x0 + 1, y0 + 1, pal);
+}
 function pencilTip(lt, PX0, PY0) { const u = Math.min(1, lt / 1.1), row = Math.floor(u * 3); return [PX0 + 3 + (u * 3 % 1) * 14, PY0 + 7 + row * 3 + Math.sin(u * 60) * .9]; }
 function pencil(b, x, y) {
   x = Math.round(x); y = Math.round(y);
@@ -265,29 +259,19 @@ function pencil(b, x, y) {
 
 // ---- the effects --------------------------------------------------------------------------------------------------
 // Each: D seconds long, ox the grid column the pet stands on (the canvas is placed so that column is the pet's middle),
-// make(o) a fresh run. o.pet(st) / o.kid(st) give sprites. Timing, colours and look follow the approved mockup.
+// make(o) a fresh run. o.pet(st) gives sprites. Timing, colours and look follow the approved mockup.
 const FX = {
-  // Waiting for your approval: orange fire grips the pet's outline and rises, pulsing; at each pulse it hops, flashes
-  // and a wave runs along the ground. (Power Up.)
+  // Waiting for your approval: a tight orange outline that hugs the pet and pulses, never past its own slot.
   aura: {
     D: 2.4, ox: CX, loop: true, cycle: 2.4,
     make(o) {
-      const R = new Rng(21), m = [];
       return {
-        update(dt) {
-          if (R.chance(.45)) m.push({ k: 's', x: CX + R.sign() * R.range(7, 15), y: FEET - R.range(4, 24), vx: 0, vy: -R.range(45, 75), life: R.range(.16, .3), max: .3, len: R.range(4, 9), c: R.chance(.5) ? CORAL[2] : CORAL[1] });
-          if (R.chance(.3)) m.push({ k: 'p', x: CX + R.range(-12, 12), y: FEET - R.range(6, 26), vx: R.range(-6, 6), vy: -R.range(12, 28), life: R.range(.5, .9), max: .9, s: R.chance(.3) ? 1 : 0, c: R.pick([WHITE, CORAL[1], CORAL[2]]) });
-          stepList(m, dt, 1.4);
-        },
+        update() {},
         draw(b, t) {
-          const pulse = gauss(t, .5, .07) + gauss(t, 1.7, .07), p = hopPose(t, .22, 6, .28), p2 = hopPose(t, 1.42, 4, .24), q = p.dy || p.sx !== 1 ? p : p2;
-          shadow(b, CX, FEET);
-          for (const s of m) if (s.k === 's') { const l = s.len * (.5 + .5 * s.life / s.max); for (let j = 0; j <= l; j++) dot(b, s.x, s.y + j, j < 1.5 ? WHITE : s.c, j < l * .5 ? 1 : (1 - j / (l + 1)) * 1.6); }
-          blit(b, o.pet('waiting'), CX, FEET + q.dy, q.sx, q.sy, CORAL, pulse * 1.5);
-          aura(b, .85 + .15 * Math.sin(t * 13), t, pulse, CORAL, MID + q.dy);
-          shock(b, CX, FEET, t - .5, .3, CORAL); shock(b, CX, FEET, t - 1.7, .22, CORAL); shake(b, t, .5, .12);
-          for (const s of m) if (s.k === 'p') { const k = s.life / s.max, tw = .6 + .4 * Math.sin(s.life * 26 + s.x); if (tw * k > .2) star(b, s.x, s.y, Math.round(s.s * tw * Math.min(1, k * 2.5)), s.c); }
-          b.glow(CX, MID, 24, CORAL[3], .4 + .35 * pulse);
+          const pulse = .5 + .5 * Math.sin(t / 1.2 * TAU - Math.PI / 2);
+          blit(b, o.pet('waiting'), CX, FEET, 1, 1, CORAL, .35 * pulse);
+          halo(b, pulse, CORAL);
+          b.glow(CX, MID, 13, CORAL[3], .12 + .22 * pulse);
         },
       };
     },
@@ -300,7 +284,7 @@ const FX = {
     make(o) {
       const R = new Rng(31), orbs = [], sp = [], pops = [], up = o.f1 >= 1, step = (o.f1 - o.f0) / 3;
       let fill = o.f0, shown = o.f0, full = -1, lvl = -1, burst = false;
-      const LIFT = o.flipY ? 9 : 0, BX = CX - 13, BY = TOP - 10 - LIFT, BW = 26; // LIFT: mirrored, clear of the name tag under the pet
+      const LIFT = o.flipY ? 9 : 0, BX = CX - 8, BY = TOP - 10 - LIFT, BW = 16; // a bar as wide as the pet; LIFT: mirrored, clear of the name tag under the pet
       for (let i = 0; i < 3; i++) orbs.push({ t0: .35 + i * .2, x: CX, y: MID, done: false, tr: [] });
       return {
         D: up ? 3.8 : 2.1,
@@ -332,15 +316,20 @@ const FX = {
           blit(b, o.pet('done'), CX, FEET + q.dy, q.sx, q.sy, WARM, flash);
           if (T >= 0) { shock(b, CX, FEET, T, .32, WARM); shake(b, T, 0, .25, 1); }
           const barA = T >= 0 ? 1 - smooth(.1, .5, T) : up ? 1 : 1 - smooth(1.6, 2.05, t);
-          if (barA > .05) {
+          // The bar, its label, the "+1"s and "LV n" are drawn whole or not at all: where the room is too tight (a packed
+          // row, the top edge over the name tag) the pet just hops and flashes and the orbs fly off.
+          if (barA > .05 && b.fits(BX, BY, BX + BW, BY + 5)) {
             const fw = Math.round((BW - 2) * shown);
             for (let j = 0; j < 5; j++) for (let i = 0; i < BW; i++) { const edge = j === 0 || j === 4 || i === 0 || i === BW - 1, inFill = i - 1 < fw; dot(b, BX + i, BY + j, edge ? INK : inFill ? (j === 1 ? WARM[1] : j === 3 ? WARM[4] : WARM[3]) : hex('#3a3550'), barA); }
-            text(b, 'XP', BX - 6, BY, WARM[3], 1, barA); if (full > 0 && t - full < .2) b.glow(BX + BW / 2, BY + 2, 16, WARM[2], .8);
+            if (textFits(b, 'XP', BX - 6, BY)) text(b, 'XP', BX - 6, BY, WARM[3], 1, barA); if (full > 0 && t - full < .2) b.glow(BX + BW / 2, BY + 2, 16, WARM[2], .8);
           }
           for (const ob of orbs) { if (t < ob.t0 || ob.done) continue; ob.tr.forEach(([x, y], i) => i > 0 && b.line(ob.tr[i - 1][0], ob.tr[i - 1][1], x, y, i < 3 ? WARM[2] : WARM[4])); star(b, ob.x, ob.y, 1, WARM[2], .6); }
-          for (const pp of pops) { const k = (t - pp.t) / .7; if (k < 1) text(b, '+1', pp.x, Math.round(pp.y - 6 * outCubic(k)), WARM[3], 1, 1 - smooth(.6, 1, k)); }
+          for (const pp of pops) { const k = (t - pp.t) / .7, y = Math.round(pp.y - 6 * outCubic(k)); if (k < 1 && textFits(b, '+1', pp.x, y)) text(b, '+1', pp.x, y, WARM[3], 1, 1 - smooth(.6, 1, k)); }
           for (const s of sp) { const k = s.life / s.max; star(b, s.x, s.y, Math.round(s.s * Math.min(1, k * 3)), s.c); }
-          if (T >= .1) { const k = outBack(clamp((T - .1) / .25), 2.5), a = 1 - smooth(2.2, 2.9, T); text(b, `LV ${o.lv}`, CX, Math.round(TOP - 18 - LIFT + (1 - k) * 6), WARM[3], k > .6 ? 2 : 1, a); }
+          if (T >= .1) {
+            const k = outBack(clamp((T - .1) / .25), 2.5), a = 1 - smooth(2.2, 2.9, T), s = `LV ${o.lv}`, top = Math.round(TOP - 18 - LIFT + (1 - k) * 6);
+            const z = [k > .6 ? 2 : 1, 1].find(z => textFits(b, s, CX, top, z)); if (z) text(b, s, CX, top, WARM[3], z, a);
+          }
         },
       };
     },
@@ -349,15 +338,17 @@ const FX = {
   // types on a small terminal, turns a book's page, sweeps a magnifier. One run is one 1.2 s loop; o.first pops it in.
 // o.badge: no room beside the pet (a packed row): a small badge of the tool over its head instead, inside its own slot.
   tool: {
-    D: 1.2, ox: o => (o.badge ? CX : CX - 8), loop: true, cycle: 6, // the pet's bob (1/3 s) and the cursor (1/2 s) repeat with the loop every 6 s
+    D: 1.2, ox: o => (o.badge || o.plain || o.mini ? CX : CX - 8), loop: true, cycle: 6, // the pet's bob (1/3 s) and the cursor (1/2 s) repeat with the loop every 6 s
     make(o) {
-      const R = new Rng(41), sp = [], seg = o.seg, PCX = o.badge ? CX : CX - 8, PX0 = CX + 4, PY0 = FEET - 20;
+      const R = new Rng(41), sp = [], seg = o.seg, PCX = o.badge || o.plain || o.mini ? CX : CX - 8, PX0 = CX + 4, PY0 = FEET - 20;
       return {
         update(dt, lt) { if (seg === 0 && !o.badge && R.chance(.4)) { const tip = pencilTip(lt, PX0, PY0); sp.push({ x: tip[0], y: tip[1], vx: R.range(-10, 10), vy: -R.range(5, 15), life: .3, max: .3, c: WARM[2] }); } stepList(sp, dt, 2, 20); },
         draw(b, lt, t) {
           const bob = Math.floor(t * 6 + 1e-6) % 2; // + 1e-6: whole steps land on the same side every cycle
           shadow(b, PCX, FEET); blit(b, o.pet('working'), PCX, FEET - bob);
-          if (o.badge) { toolBadge(b, seg, CX - 5, FEET - 31 - bob, t); return; }
+          if (o.plain) return; // no room for a prop at all
+          if (o.mini) { toolMini(b, seg, CX, FEET - 9 - bob, t); return; } // held in its hands, inside its box
+          if (o.badge) { if (b.fits(CX - 5, FEET - 31 - bob, CX + 6, FEET - 20 - bob)) toolBadge(b, seg, CX - 5, FEET - 31 - bob, t); return; }
           if (o.first && lt < .1) for (let i = 0; i < 8; i++) { const a = i / 8 * TAU, r = 4 + lt / .1 * 8; dot(b, PX0 + 10 + Math.cos(a) * r, PY0 + 10 + Math.sin(a) * r * .7, WHITE, 1 - lt / .1); }
           if (seg === 0) {
             b.frame(PX0, PY0 + 4, 20, 15, PAPER); for (let r = 0; r < 3; r++) b.rect(PX0 + 3, PY0 + 7 + r * 3, 14, 1, hex('#e3e0d8'));
@@ -410,39 +401,14 @@ const FX = {
         },
         draw(b, t) {
           const jit = Math.floor(t * 18) % 2 ? 1 : 0; shadow(b, CX, FEET); blit(b, o.pet('working'), CX + jit, FEET, 1.04, .94);
-          const X0 = CX - 8, Y0 = TOP - 13 - (o.flipY ? 9 : 0); b.frame(X0, Y0, 15, 9, hex('#2a2f3e')); b.rect(X0 + 15, Y0 + 3, 2, 3, INK);
-          const on = (t % .5) < .28; b.rect(X0 + 2, Y0 + 2, 3, 5, on ? RED[3] : RED[5]); if (on) { b.rect(X0 + 2, Y0 + 2, 3, 1, RED[2]); b.glow(X0 + 3, Y0 + 4, 9, RED[3], .6); }
-          text(b, '!', X0 + 21, Y0 + 2, RED[3], 1, on ? 1 : .4);
+          const X0 = CX - 8, Y0 = TOP - 13 - (o.flipY ? 9 : 0), on = (t % .5) < .28; // the battery whole or not at all (no room: the pet shivers and sweats)
+          if (b.fits(X0, Y0, X0 + 17, Y0 + 9)) {
+            b.frame(X0, Y0, 15, 9, hex('#2a2f3e')); b.rect(X0 + 15, Y0 + 3, 2, 3, INK);
+            b.rect(X0 + 2, Y0 + 2, 3, 5, on ? RED[3] : RED[5]); if (on) { b.rect(X0 + 2, Y0 + 2, 3, 1, RED[2]); b.glow(X0 + 3, Y0 + 4, 9, RED[3], .6); }
+            if (textFits(b, '!', X0 + 21, Y0 + 2)) text(b, '!', X0 + 21, Y0 + 2, RED[3], 1, on ? 1 : .4);
+          }
           for (const d of drops) if (t >= d.t0 && !d.done) bmp(b, ['..o..', '.o2o.', 'o122o', 'o1W3o', 'o233o', '.ooo.'], Math.round(d.x) - 2, Math.round(d.y) - 3, COOL);
           for (const s of splash) dot(b, s.x, s.y, s.life / s.max > .5 ? COOL[2] : COOL[3]);
-        },
-      };
-    },
-  },
-  // Claude opened a side session: the parent gathers power (light pulled in), pauses, flashes white; the side
-  // session's pet dashes out leaving afterimages, lands with dust and squashes; the parent recoils, then both hop.
-  // (Power Up / Dash.) o.dir: the side the kid lands on (1 right, -1 left), o.dist: how far, in cells.
-  child: {
-    D: 3.2, ox: CX,
-    make(o) {
-      const R = new Rng(61), m = [], dust = [], dir = o.dir, PXp = CX, KX = CX + dir * o.dist, B = .62; let fired = false;
-      return {
-        update(dt, t) {
-          if (t < B && R.chance(.7)) { const a = R.range(0, TAU), r = R.range(14, 26), v = R.range(70, 100); m.push({ x: PXp + Math.cos(a) * r, y: MID + Math.sin(a) * r * .7, vx: -Math.cos(a) * v, vy: -Math.sin(a) * v * .7, life: r / v, max: r / v, c: R.chance(.3) ? COOL[1] : COOL[2] }); }
-          if (!fired && t >= B + .38) { fired = true; for (let i = 0; i < 9; i++) dust.push({ x: KX + dir * R.range(-4, 2), y: FEET - R.range(0, 2), vx: dir * R.range(-30, 10), vy: -R.range(2, 10), life: R.range(.4, .7), max: .7, s: R.range(1, 2.4), grow: 2 }); }
-          if (t > B && t < B + .08) return; stepList(m, dt); stepList(dust, dt, 3.5);
-        },
-        draw(b, t) {
-          const k = clamp((t - B - .08) / .3), kx = PXp + (KX - PXp) * outCubic(k), recoil = t > B && t < B + .35 ? -dir * Math.round(3 * (1 - (t - B) / .35)) : 0;
-          const hopA = hopPose(t, 1.5, 5, .28), hopK = hopPose(t, 1.62, 5, .26), landK = t > B + .38 && t < B + .48;
-          shadow(b, PXp + recoil, FEET); puffs(b, dust);
-          blit(b, o.pet('working'), PXp + recoil, FEET + hopA.dy, t < B ? 1 + .06 * Math.sin(t * 60) : hopA.sx, hopA.sy, COOL, gauss(t, B + .04, .07) * 1.6);
-          if (t < B) { b.glow(PXp, MID, 10 + t * 20, COOL[2], .3 + t); for (const p of m) { const v = Math.hypot(p.vx, p.vy) || 1, ux = p.vx / v, uy = p.vy / v; b.line(p.x - ux * 6, p.y - uy * 6, p.x - ux * 2.5, p.y - uy * 2.5, p.c); b.line(p.x - ux * 2, p.y - uy * 2, p.x, p.y, WHITE); } }
-          if (t >= B + .08) {
-            if (k < 1) for (let g = 1; g <= 4; g++) { const gx = PXp + (KX - PXp) * outCubic(clamp(k - g * .09)); blit(b, o.kid('done'), gx, FEET, .75, .75, COOL, 1, { a: .65 - g * .13 }); }
-            shadow(b, Math.round(kx), FEET, 6); blit(b, o.kid('done'), kx, FEET + hopK.dy, (landK ? 1.25 : k < 1 ? 1.2 : hopK.sx) * .75, (landK ? .7 : k < 1 ? .85 : hopK.sy) * .75);
-          }
-          if (t > B && t < B + .1) b.disc(PXp, MID, 9 * (1 - (t - B) / .1) + 2, WHITE); shake(b, t, B, .1);
         },
       };
     },
@@ -474,13 +440,21 @@ const FX = {
   },
 };
 
-// Where a pet's tool prop goes: beside it (it reaches 37 cells out) on the side away from its family (away: -1 left, 1
-// right) when the next pet there stands far enough for the whole prop to stay in this pet's slot (half way to that pet),
-// else on the other side if that one is, else (a packed row) a small badge over its head. cx, others: pets' middles.
-function propSide(cx, others, cell, away) {
-  const blocked = d => others.some(m => d * (m - cx) > -1e-6 && d * (m - cx) < 2 * 37 * cell);
-  const side = !blocked(away) ? away : !blocked(-away) ? -away : 0;
-  return { flipX: side < 0, badge: side === 0 };
+// How far the tool's prop reaches from the pet's column (its ox) and feet, in cells, over its whole loop: { l, r, u, d }
+// (left, right, up, down). Only the prop (not the pet, not its shadow): the overlay places it where all of it fits.
+const NOPET = { w: 1, h: 1, data: new Uint32Array(1), k: 1 }, EXTENT = new Map();
+function fxExtent(o) {
+  const key = `${o.seg}|${!!o.badge}`;
+  if (!EXTENT.has(key)) {
+    const run = fxRun('tool', { seg: o.seg, badge: !!o.badge, pet: () => NOPET, first: false }), b = new Buf();
+    let x0 = GW, y0 = GH, x1 = -1, y1 = -1;
+    for (let f = 0; f < FX.tool.cycle * 30; f++) {
+      run.step(1 / 30); run.draw(b);
+      for (let y = 0, i = 0; y < GH; y++) for (let x = 0; x < GW; x++, i++) if (b.c[i]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    EXTENT.set(key, { l: run.ox - x0, r: x1 + 1 - run.ox, u: FEET - y0, d: y1 + 1 - FEET });
+  }
+  return EXTENT.get(key);
 }
 
 // A pet's status balloon ("!" waiting, tick done): only without effects; with them the aura, the XP and the battery tell
@@ -543,7 +517,7 @@ function fxRun(kind, o) {
         fx.update(SIM, k * SIM, steps * SIM);
       }
     },
-    draw(b) { b.fx = !!o.flipX; b.fy = !!o.flipY; b.clear(); fx.draw(b, k * SIM, steps * SIM); },
+    draw(b, room = o.room) { b.fx = !!o.flipX; b.fy = !!o.flipY; b.room = room || null; b.clear(); fx.draw(b, k * SIM, steps * SIM); },
   };
 }
 
