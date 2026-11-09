@@ -766,3 +766,40 @@ test("every script and stylesheet the pages load is one the app's server serves"
     }
   }
 });
+
+test('board: the step a ticket is at and why, two sessions on one piece of work, and the stand-up', () => {
+  const B = require('../src/ui/board');
+  const I18N = require('../src/ui/i18n');
+  const T = (k, v) => I18N.t('vi', k, v);
+  // "ask" is listed with the tickets in progress
+  const work = { status: 'ok', local: [{ path: 'g/app', dir: '/src/app', issues: [{ iid: 1, title: 'a', stage: 'ask', sessions: ['w'] }, { iid: 2, title: 'b', stage: 'doing', sessions: ['x'] }] }], closed: [] };
+  assert.deepEqual(B.stages(work, [{ id: 'w', st: 'waiting' }, { id: 'x', st: 'working' }]).doing.map(([i]) => i.iid), [1, 2]);
+  // why
+  const s = (id, st, extra = {}) => ({ id, st, ...extra });
+  assert.equal(B.why({ stage: 'verify', review: 'https://github.com/a/b/pull/62' }, [], T), 'có PR #62 đang mở');
+  assert.equal(B.why({ stage: 'verify', review: 'https://gl.example.com/g/p/-/merge_requests/41' }, [], T), 'có MR !41 đang mở');
+  assert.equal(B.why({ stage: 'ask' }, [s('a', 'waiting'), s('b', 'waiting'), s('c', 'working')], T), '2 yêu cầu đang chờ bạn duyệt');
+  assert.equal(B.why({ stage: 'doing' }, [s('a', 'working', { git: { branch: 'feat/7-x' } })], T), '1 phiên đang làm trên nhánh feat/7-x');
+  assert.equal(B.why({ stage: 'doing' }, [s('a', 'done'), s('b', 'idle')], T), 'các phiên đã dừng, chưa có PR hay MR');
+  assert.equal(B.why({ stage: 'todo' }, [], T), 'chưa có phiên nào');
+  assert.equal(B.why({ closedAt: new Date(2026, 10, 9, 14, 5).toISOString() }, [], T, 'vi-VN'), 'đóng lúc 14:05');
+  assert.deepEqual(['todo', 'doing', 'ask', 'verify'].map(stage => B.stepOf({ stage })).concat(B.stepOf({ closedAt: 'x' })), B.STEPS);
+  // duplicates: a side session goes with its parent; a resting session counts for nothing; one issue warning, not two
+  const model = { issues: [{ project: 'g/app', iid: 1, sessions: [{ id: 'p' }, { id: 'kid' }] }, { project: 'g/app', iid: 2, sessions: [{ id: 'q' }, { id: 'r' }] }, { project: 'g/app', iid: 3, sessions: [{ id: 'u' }, { id: 'zz' }] }],
+    branches: [{ project: 'g/app', name: '2-x', issue: { project: 'g/app', iid: 2 }, sessions: ['q', 'r'] }, { project: 'g/app', name: 'main', issue: null, sessions: ['m1', 'm2', 'zz'] }, { project: 'g/app', name: 'feat/a', issue: null, sessions: ['p', 'kid'] }] };
+  const ss = [s('p', 'working'), s('kid', 'waiting', { parent: 'p' }), s('q', 'working'), s('r', 'done'), s('u', 'working'), s('zz', 'idle'), s('m1', 'working'), s('m2', 'waiting')];
+  const d = B.dups(model, ss);
+  assert.deepEqual([...d.issues], [['g/app#2', 2]], 'parent + side session is one; a resting one is none');
+  assert.deepEqual([...d.sessions], [['m1', { branch: 'main', with: 'm2' }], ['m2', { branch: 'main', with: 'm1' }]], 'branch 2-x is covered by its issue warning');
+  assert.deepEqual(B.dups({}, ss), { issues: new Map(), sessions: new Map() });
+  // stand-up: the last working day, today's tickets, what is stuck
+  const mon = new Date(2026, 10, 9, 9, 0).getTime(); // a Monday
+  assert.equal(B.lastWorkday(mon), '2026-11-06', 'Monday looks back to Friday');
+  assert.equal(B.lastWorkday(new Date(2026, 10, 11, 9).getTime()), '2026-11-10');
+  const fri = new Date(2026, 10, 6, 16, 0).toISOString(), sun = new Date(2026, 10, 8, 10, 0).toISOString();
+  const st = { doing: [[{ iid: 1, title: 'a', stage: 'ask' }, { path: 'g/app' }], [{ iid: 2, title: 'b', stage: 'doing' }, { path: 'g/app' }]], verify: [[{ iid: 3, title: 'c', stage: 'verify' }, { path: 'g/web' }]] };
+  const closed = [{ iid: 9, title: 'x', project: 'g/app', closedAt: fri }, { iid: 9, title: 'x', project: 'g/app', closedAt: fri }, { iid: 8, title: 'y', project: 'g/app', closedAt: sun }];
+  assert.equal(B.standup(st, closed, [{ text: '[app] #1 a', why: 'chờ bạn duyệt 5 phút' }], T, mon, 'vi-VN'),
+    'Standup 9/11/2026\n\nHôm qua xong:\n- [app] #9 x\n\nHôm nay đang làm:\n- [app] #1 a (Chờ duyệt)\n- [app] #2 b\n- [web] #3 c (Chờ kiểm tra)\n\nĐang kẹt:\n- [app] #1 a: chờ bạn duyệt 5 phút\n');
+  assert.match(B.standup({ doing: [], verify: [] }, [], [], T, mon, 'vi-VN'), /Hôm qua xong:\n- không có\n\nHôm nay đang làm:\n- không có\n\nĐang kẹt:\n- không có\n$/);
+});
