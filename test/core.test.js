@@ -735,3 +735,17 @@ test('board: each issue in one stage of the day, and the end-of-day report', () 
   assert.equal(B.report({ done: [], verify: [] }, T, now, 'vi-VN'), 'Báo cáo ngày 8/11/2026\n\nHôm nay chưa có việc xong hay chờ kiểm tra.\n');
   assert.equal(B.day(new Date(2026, 0, 2, 0, 5).getTime()), '2026-01-02');
 });
+
+test("every script and stylesheet the pages load is one the app's server serves", () => {
+  const ui = path.join(__dirname, '../src/ui');
+  const listed = JSON.parse(fs.readFileSync(path.join(__dirname, '../src-tauri/src/server.rs'), 'utf8').match(/const ASSETS: \[&str; \d+\] = (\[[^\]]*\])/)[1]);
+  const fonts = rel => /^fonts\/[a-z0-9-]+\.(woff2|css)$/.test(rel);
+  for (const page of ['pets.html', 'panel.html']) {
+    const refs = [...fs.readFileSync(path.join(ui, page), 'utf8').matchAll(/(?:src|href)="\/ui\/([^"?#]+)"/g)].map(m => m[1]);
+    assert.ok(refs.length > 2, page);
+    for (const rel of refs) {
+      assert.ok(listed.includes(rel) || fonts(rel), `${page} loads /ui/${rel}, which src-tauri/src/server.rs (ASSETS) does not serve`);
+      assert.ok(fs.existsSync(path.join(ui, rel)), `${page} loads /ui/${rel}, which does not exist`);
+    }
+  }
+});

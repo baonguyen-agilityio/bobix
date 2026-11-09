@@ -74,10 +74,14 @@ async function browser(exe) {
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Serves the pages as the app does: /pets, and under /ui/ only the files the app's server lists (ASSETS in
+// src-tauri/src/server.rs) and its fonts, so a file the app would not serve fails here too.
+const APP_ASSETS = JSON.parse(fs.readFileSync(path.join(__dirname, '../src-tauri/src/server.rs'), 'utf8').match(/const ASSETS: \[&str; \d+\] = (\[[^\]]*\])/)[1]);
+const appServes = rel => APP_ASSETS.includes(rel) || /^fonts\/[a-z0-9-]+\.(woff2|css)$/.test(rel);
 function server() {
   const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png' };
   const s = http.createServer((q, r) => {
-    const u = new URL(q.url, 'http://x').pathname, f = u === '/pets' ? path.join(UI, 'pets.html') : u.startsWith('/ui/') ? path.join(UI, path.normalize(u.slice(4))) : null;
+    const u = new URL(q.url, 'http://x').pathname, f = u === '/pets' ? path.join(UI, 'pets.html') : u.startsWith('/ui/') && appServes(u.slice(4)) ? path.join(UI, u.slice(4)) : null;
     if (!f || !f.startsWith(UI) || !fs.existsSync(f)) { r.writeHead(404); r.end(); return; }
     r.writeHead(200, { 'content-type': types[path.extname(f)] || 'application/octet-stream' }); r.end(fs.readFileSync(f));
   });
