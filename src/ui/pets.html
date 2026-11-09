@@ -435,6 +435,9 @@ const sideFirst = () => cfg.size * 0.9 + FX_GAP(), sideStep = () => cfg.size * 0
 // and back in. Near the zone's ends a pet fades out (going) or in (coming): no part of a pet is ever cut at an end.
 // Hovering any pet stops the whole line. A new pet waits to come in at the near end.
 const LINEUP = { vis: [], wait: [], v: 0, moving: false, booted: false, held: null }; // held: the lead pet being dragged
+const SLIDE = 0.8; // seconds a dropped family and the line take to settle in their new places
+// The gap between units: spread over the zone when they all fit in it (Z wide), the least gap when not.
+const lineGap = (widths, Z) => { const sum = widths.reduce((a, w) => a + w, 0), G = unitGap(); return sum + widths.length * G <= Z ? (Z - sum) / widths.length : G; };
 const unitGap = () => Math.max(18, cfg.size * 0.45), FADE = () => cfg.size * 0.8, rtl = () => cfg.walkDir === 'rtl';
 function unitOf(p, all) { // [root, ...its side pets in arrival order]
   const ids = (lastList || []).map(s => s.id), kids = all.filter(q => q.s.parent === p.s.id && attached(q.s)).sort((a, b) => ids.indexOf(a.s.id) - ids.indexOf(b.s.id));
@@ -451,14 +454,14 @@ function lineStep(all, dt) {
   const units = new Map(roots.map(p => [p, unitOf(p, all)])), W = p => unitWidth(units.get(p));
   LINEUP.vis = LINEUP.vis.filter(e => units.has(e.p)); LINEUP.wait = LINEUP.wait.filter(p => units.has(p));
   const fresh = roots.filter(p => !LINEUP.vis.some(e => e.p === p) && !LINEUP.wait.includes(p));
-  const sum = roots.reduce((a, p) => a + W(p), 0), G = unitGap(), gapT = sum + roots.length * G <= Z ? (Z - sum) / roots.length : G;
+  const gapT = lineGap(roots.map(W), Z);
   if (!LINEUP.booted && fresh.length) { // the overlay opening: everyone already spread over the zone, evenly
     LINEUP.booted = true; let f = right - gapT / 2;
     for (const p of fresh) { if (f - W(p) >= min) { LINEUP.vis.push({ p, f }); f -= W(p) + gapT; } else LINEUP.wait.push(p); }
   } else LINEUP.wait.push(...fresh);
   LINEUP.v = cfg.size * 0.4; LINEUP.moving = !all.some(p => p.hover || p.dragging);
   if (LINEUP.moving) for (const e of LINEUP.vis) e.f += LINEUP.v * dt; // f: the unit's front (its right end, left to right)
-  for (const e of LINEUP.vis) if (e.slide) { const d = Math.sign(e.slide) * Math.min(Math.abs(e.slide), cfg.size * 3 * dt); e.f += d; e.slide -= d; } // just dropped
+  for (const e of LINEUP.vis) if (e.slide) { const d = Math.sign(e.slide) * Math.min(Math.abs(e.slide), e.slideV * dt); e.f += d; e.slide -= d; } // after a drop: there in SLIDE s
   for (const e of [...LINEUP.vis]) if (e.f - W(e.p) >= right - cfg.size) { LINEUP.vis.splice(LINEUP.vis.indexOf(e), 1); LINEUP.wait.push(e.p); } // its last pet has faded out
   if (LINEUP.wait.length && LINEUP.moving) { // the next one comes in once the last one in is gapT in
     const rear = LINEUP.vis.reduce((r, e) => (!r || e.f - W(e.p) < r.f - W(r.p) ? e : r), null);
@@ -481,19 +484,28 @@ function lineStep(all, dt) {
   return out;
 }
 function lineHold(p) { LINEUP.held = p; LINEUP.vis = LINEUP.vis.filter(e => e.p !== p); LINEUP.wait = LINEUP.wait.filter(q => q !== p); }
-// Let go: the family goes back into the line at the free place nearest to where it was dropped (a gap kept on both
-// sides), sliding there; with no free place, it comes in next at the near end.
+// Let go: the family goes back into the line where it was dropped. While every unit fits in the zone, the line spreads
+// out evenly again at once, the dropped one in its new place (all sliding there); when not, it takes the free place
+// nearest to where it was dropped (the least gap on both sides), and with no free place it comes in next.
 function lineDrop(p) {
   p.dragging = false; LINEUP.held = null; rectAt = 0; wake();
   if (!pets.has(p.s.id)) return;
   const { min, max } = zone(), right = max + cfg.size, all = [...pets.values()], W = q => unitWidth(unitOf(q, all)), G = unitGap(), w = W(p);
   const f0 = (rtl() ? min + right - p.x - cfg.size : p.x) + cfg.size; // its front, left to right
+  const roots = [...all, ...leaving].filter(q => !attached(q.s)), gap = lineGap(roots.map(W), right - min);
+  if (gap > G) {
+    const line = [...LINEUP.vis, { p, f: f0 }].sort((a, b) => b.f - a.f); // front first
+    let off = 0; const offs = line.map(e => { const o = off; off += W(e.p) + gap; return o; });
+    const F = line.reduce((a, e, i) => a + e.f + offs[i], 0) / line.length; // the even spacing nearest to where they are
+    line.forEach((e, i) => { e.slide = F - offs[i] - e.f; e.slideV = Math.abs(e.slide) / SLIDE; });
+    LINEUP.vis = line; return;
+  }
   const spans = []; let hi = right;
   for (const e of [...LINEUP.vis].sort((a, b) => b.f - a.f)) { spans.push([e.f + G + w, hi]); hi = e.f - W(e.p) - G; }
   spans.push([min + cfg.size, hi]);
   let best = null;
   for (const [lo, up] of spans) if (lo <= up) { const t = Math.min(up, Math.max(lo, f0)); if (!best || Math.abs(t - f0) < Math.abs(best - f0)) best = t; }
-  if (best == null) LINEUP.wait.unshift(p); else LINEUP.vis.push({ p, f: f0, slide: best - f0 });
+  if (best == null) LINEUP.wait.unshift(p); else LINEUP.vis.push({ p, f: f0, slide: best - f0, slideV: Math.abs(best - f0) / SLIDE });
 }
 // A pet's name tag is the ground it stands on: as wide as the pet, or as the whole family (a parent and the side
 // sessions walking right behind it; not one that has already come round again).

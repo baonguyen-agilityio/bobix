@@ -1,6 +1,7 @@
 // The pets overlay (src/ui/pets.html) in a real headless Chrome, its clock stepped by hand: no pixel any effect draws may
 // land on another pet, on any name tag, balloon, bubble or card, or on another pet's effect (a prop, an aura, a bar), and
-// no two pets in sight ever stand on each other. Checked on the composited page: for each pet with an effect, a
+// no two pets in sight ever stand on each other (also while one is dragged and let go, after which the line must be
+// evenly spaced again). Checked on the composited page: for each pet with an effect, a
 // screenshot of that effect alone against a screenshot of everything else on the page, pixel by pixel. Needs Chrome (CHROME_PATH, or the usual install place);
 // without it the test is skipped.
 const { test } = require('node:test');
@@ -130,7 +131,13 @@ async function run(b, url, settings, script, label) {
   };
   // No two pets in sight overlap (their boxes, a side pet's drawn at 80%).
   const BODIES = `(() => { const b = [...document.querySelectorAll('.pet:not(.line-off)')].filter(e => +e.style.opacity > .05).map(e => { const r = e.querySelector('.spr').getBoundingClientRect(), k = e.classList.contains('side') ? .1 : 0, w = r.width * k; return [r.left + w, r.right - w]; });
-    const out = []; for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) if (b[i][1] > b[j][0] + .5 && b[j][1] > b[i][0] + .5) out.push([b[i], b[j]].map(r => r.map(Math.round).join('-')).join(' / ')); return out; })()`;
+    const out = []; for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) if (b[i][1] > b[j][0] + .5 && b[j][1] > b[i][0] + .5) out.push([b[i], b[j]].map(r => r.map(Math.round).join('-')).join(' / '));
+    // Name tags never touch (1 px apart at least), except while a pet is held or is still sliding from a drop.
+    if (!LINEUP.held && !LINEUP.vis.some(e => e.slide)) {
+      const t = [...document.querySelectorAll('.pet:not(.line-off) .tag:not(.ghost)')].filter(e => +e.closest('.pet').style.opacity > .05).map(e => e.getBoundingClientRect());
+      for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) if (t[i].right + 1 > t[j].left && t[j].right + 1 > t[i].left) out.push('tags touch: ' + [t[i], t[j]].map(r => Math.round(r.left) + '-' + Math.round(r.right)).join(' / '));
+    }
+    return out; })()`;
   // One effect against the rest: pixels both screenshots draw.
   const check = async () => {
     for (const o of await ev(BODIES)) bad.push(`t=${(t / 1000).toFixed(2)}s pets overlap: ${o}`);
@@ -156,7 +163,8 @@ async function run(b, url, settings, script, label) {
       if (n) bad.push(`t=${(t / 1000).toFixed(2)}s pet ${p.k}: ${n} px at x ${x + x0}-${x + x1}, y ${y + y0}-${y + y1}`);
     }
   };
-  await script({ push, steps, ses });
+  const mouse = (type, x, y) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
+  await script({ push, steps, ses, ev, mouse, fail: m => bad.push(`t=${(t / 1000).toFixed(2)}s ${m}`) });
   if (!seen) bad.push('no effect was shown');
   bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
   return bad;
@@ -197,6 +205,24 @@ async function reducedMotion(b, url) {
   } finally { await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] }); }
 }
 
+// A pet dragged onto its neighbour and let go: no overlap after it, and 1.5 s after the drop the line is evenly spaced
+// again (every gap the line's own gap, nothing still sliding).
+const dragged = async ({ push, steps, ses, ev, mouse, fail }) => {
+  const one = (id, tool) => ses(id, { cwd: `/tmp/${id}`, state: 'working', tool });
+  await push([one('pa', 'Bash'), one('pb', 'Edit'), one('pc', 'Read'), one('pd', 'Grep')]);
+  await steps(2, 10);
+  const at = id => ev(`(() => { const b = pets.get('${id}').el.querySelector('.spr').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+  const [from, to] = [await at('pb'), await at('pc')];
+  await mouse('mousePressed', ...from);
+  for (let i = 1; i <= 10; i++) { await mouse('mouseMoved', from[0] + (to[0] - from[0]) * i / 10, from[1]); await steps(1 / 30); }
+  await mouse('mouseReleased', ...to); await mouse('mouseMoved', 1, 1); // and away, so the line is not held by a hover
+  await steps(1.5, 6);
+  const line = await ev(`(() => { const all = [...pets.values()], W = q => unitWidth(unitOf(q, all)), L = [...LINEUP.vis].sort((a, b) => b.f - a.f), { min, max } = zone();
+    return { gaps: L.slice(1).map((e, i) => (L[i].f - W(L[i].p)) - e.f), want: lineGap([...all, ...leaving].filter(q => !attached(q.s)).map(W), max + cfg.size - min), sliding: L.filter(e => Math.abs(e.slide || 0) > .5).length, held: !!LINEUP.held }; })()`);
+  if (line.held || line.sliding || line.gaps.some(g => Math.abs(g - line.want) > 2)) fail(`1.5 s after the drop the line is not evenly spaced: ${JSON.stringify(line)}`);
+  await steps(2, 6);
+};
+
 const exe = chrome();
 test('no effect pixel lands on another pet, a tag, a balloon or another effect, and no pets overlap (real overlay, both edges, both ways, 32/56/128 px)', { skip: !exe && 'no Chrome', timeout: 600e3 }, async () => {
   const srv = await server(), b = await browser(exe), bad = [];
@@ -220,6 +246,7 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
       cases.push([`${edge} ${size} family of 10`, { edge, size, zoneStart: 5, zoneEnd: 55 }, fam(10)]);
       cases.push([`${edge} ${size} separate pets coming and going`, { edge, size, zoneStart: 20, zoneEnd: size > 56 ? 45 : 32 }, separate]);
     }
+    for (const edge of ['bottom', 'top']) cases.push([`${edge} 56 a pet dragged onto another and let go`, { edge, size: 56, zoneStart: 20, zoneEnd: 80 }, dragged]);
     for (const edge of ['bottom', 'top']) cases.push([`${edge} 56 family of 10, right to left`, { edge, size: 56, walkDir: 'rtl', zoneStart: 5, zoneEnd: 55 }, fam(10)]);
     for (const [name, s, script] of cases.filter(c => !process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(c[0]))) {
       const found = await run(b, url, { ...s, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' }, script, name);
