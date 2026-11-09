@@ -490,7 +490,9 @@ input[type=number]{width:104px}
 .guide li{display:grid;grid-template-columns:40px minmax(0,1fr);gap:var(--s3);align-items:center;font-size:var(--t-sm)}
 .guide .sprite{width:40px;height:40px}.guide .st-waiting .sprite{background:var(--coral-soft);box-shadow:inset 0 0 0 1px var(--coral)}.guide .st-done .sprite{background:var(--mint-soft)}.guide .st-idle .sprite svg{opacity:.6}.guide-more{margin:var(--s4) 0 0;padding-left:1.2em;font-size:var(--t-sm);display:grid;gap:var(--s2)}
 /* the tour of what is new: the element a step points at stays lit, the rest dims; one bubble beside it */
-.tour{position:fixed;inset:0;z-index:50}
+/* a modal dialog, so it also stands over the Start box it points into (the top layer stacks in opening order) */
+.tour{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:none;overflow:visible}
+.tour::backdrop{background:transparent}
 .tour-hole{position:fixed;border-radius:14px;box-shadow:0 0 0 2px var(--ink),0 0 0 100vmax oklch(20% .02 266 / .55);pointer-events:none;transition:all 200ms var(--ease)}
 .tour-hole.none{left:50%!important;top:50%!important;width:0!important;height:0!important;box-shadow:0 0 0 100vmax oklch(20% .02 266 / .55)}
 .tour-pop{position:fixed;display:flex;flex-direction:column;gap:var(--s2);max-height:calc(100dvh - 24px);overflow:auto;padding:var(--s4) var(--s4) var(--s3);background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);border-radius:18px;box-shadow:var(--lift)}
@@ -586,7 +588,7 @@ input[type=number]{width:104px}
 <section id="tab-settings" hidden><div class="set-wrap" id="settings"></div></section>
 <section id="tab-setup" hidden><div class="setup-wrap" id="setup"></div></section>
 <div class="toasts" id="toasts"></div>
-<div class="tour" id="tour" role="dialog" aria-modal="true" aria-labelledby="tour-h" hidden><div class="tour-hole" id="tour-hole"></div><div class="tour-pop" id="tour-pop"></div></div>
+<dialog class="tour" id="tour" aria-labelledby="tour-h"><div class="tour-hole" id="tour-hole"></div><div class="tour-pop" id="tour-pop"></div></dialog>
 
 <script src="/ui/i18n.js"></script>
 <script src="/ui/creature.js"></script>
@@ -1676,27 +1678,39 @@ $('#intro').addEventListener('click', async e => {
 // The tour: a few steps, each lighting up the real element it talks about (TOUR.STEPS in tour.js). It opens by itself
 // with the steps not seen yet, and whole from Settings → Tour; Skip and Done both mark every step seen (and the
 // version's news, which the tray offers too).
-let tourAt = -1, tourAuto = false, tourSteps = [];
+let tourAt = -1, tourAuto = false, tourSteps = [], tourBox = false; // tourBox: the tour opened the Start box
 function tourStart(auto, steps = TOUR.STEPS) {
   tourAuto = auto; tourSteps = steps; tourAt = 0;
   select(null);
-  document.querySelector('dialog[open]')?.close();
-  $('#tour').hidden = false;
+  document.querySelectorAll('dialog[open]').forEach(d => d.close());
+  $('#tour').showModal();
   tourShow();
 }
+// Back on top of a dialog opened after it (the Start box).
+const tourOnTop = () => { $('#tour').close(); $('#tour').showModal(); };
+function tourBoxClose() { if (tourBox) { tourBox = false; $('#st-dialog').close(); } }
 async function tourEnd() {
   tourAt = -1; tab = null; // the board picks its section again
-  $('#tour').hidden = true;
+  tourBoxClose();
+  $('#tour').close();
   showTab(tourAuto ? 'sessions' : 'settings'); // back where it was opened from
   if (bridge && state) {
     state.settings = await bridge.setSettings({ tourSeen: TOUR.STEPS.map(s => s.key), ...(state.news ? { seenVersion: state.news } : {}) });
     state.news = null;
   }
 }
-function tourShow() {
+async function tourShow() {
   const st = tourSteps[tourAt], n = tourSteps.length, last = tourAt === n - 1;
+  tourBoxClose();
   if ($('#tab-' + st.tab).hidden) showTab(st.tab);
   if (st.section && narrow() && tab !== st.section) { tab = st.section; render(); }
+  const go = st.open === 'start' && document.querySelector('.nx [data-start]');
+  if (go) { // what Start on the suggested issue opens (it reads the issue; nothing starts until its own button)
+    await startIssue(go);
+    if (tourAt < 0 || tourSteps[tourAt] !== st) return $('#st-dialog').close(); // the tour moved on meanwhile
+    tourBox = $('#st-dialog').open;
+    if (tourBox) tourOnTop();
+  }
   if (st.alt && !tourTarget(st.at)) showTab(st.alt.tab);
   if (st.open === 'ticket' && !document.querySelector('#d-doing .stg')) {
     const ts = [...document.querySelectorAll('#d-doing .tr-main')];
@@ -1725,8 +1739,8 @@ $('#tour').addEventListener('click', e => {
   if (b === 'skip' || (b === 'next' && tourAt === tourSteps.length - 1)) return tourEnd();
   if (b === 'next' || b === 'back') { tourAt += b === 'next' ? 1 : -1; tourShow(); }
 });
+$('#tour').addEventListener('cancel', e => { e.preventDefault(); tourEnd(); }); // Esc
 $('#tour').addEventListener('keydown', e => {
-  if (e.key === 'Escape') { e.preventDefault(); tourEnd(); }
   if (e.key === 'Tab') { // focus stays in the bubble
     const bs = [...$('#tour-pop').querySelectorAll('button')], i = bs.indexOf(document.activeElement);
     e.preventDefault(); bs[(i + (e.shiftKey ? bs.length - 1 : 1)) % bs.length].focus();

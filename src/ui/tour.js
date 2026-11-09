@@ -3,7 +3,7 @@
 // by itself with the steps not seen yet (settings.tourSeen: a new install counts today's as seen), and whole from Settings.
 (function (root) {
   // Each step: the tab it shows, the elements it points at (the first one on screen wins; none: the bubble stands in
-  // the middle), and its strings tour.<key>.title / tour.<key>.body. open: what the panel opens first (a ticket, one with a ⚠ if there is one).
+  // the middle), and its strings tour.<key>.title / tour.<key>.body. open: what the panel opens first: a ticket (one with a ⚠ if there is one), or the Start box of the issue Next up suggests.
   // section: the board's section a narrow window must show (it shows one at a time). alt: where to point instead when
   // none of `at` is there (another tab).
   const STEPS = [
@@ -14,6 +14,7 @@
     { key: 'stages', tab: 'sessions', section: 'doing', at: ['#d-doing .tr:has(.stg)', '#d-doing'], open: 'ticket' },
     { key: 'stuck', tab: 'sessions', at: ['#d-stuck'], alt: { tab: 'settings', at: ['[data-row="stuckOn"]'] } },
     { key: 'next', tab: 'sessions', section: 'todo', at: ['.nx', '#d-todo'] },
+    { key: 'skill', tab: 'sessions', section: 'todo', at: ['#st-skills'], open: 'start', alt: { tab: 'settings', at: ['[data-row="role"]'] } },
     { key: 'standup', tab: 'sessions', at: ['[data-standup]'] },
     { key: 'allow', tab: 'sessions', at: ['#d-aq', '.flow'] },
   ];
