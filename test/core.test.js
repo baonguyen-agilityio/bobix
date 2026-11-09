@@ -800,3 +800,53 @@ test('board: the step a ticket is at and why, two sessions on one piece of work,
     'Standup 9/11/2026\n\nHôm qua xong:\n- [app] #9 x\n\nHôm nay đang làm:\n- [app] #1 a (Chờ duyệt)\n- [app] #2 b\n- [web] #3 c (Chờ kiểm tra)\n\nĐang kẹt:\n- [app] #1 a: chờ bạn duyệt 5 phút\n');
   assert.match(B.standup({ doing: [], verify: [] }, [], [], T, mon, 'vi-VN'), /Hôm qua xong:\n- không có\n\nHôm nay đang làm:\n- không có\n\nĐang kẹt:\n- không có\n$/);
 });
+
+test('habits: days of activity, the first-days state, and each suggestion rule', () => {
+  const Hb = require('../src/ui/habits');
+  const at = (d, h, m = 0) => new Date(2026, 10, d, h, m).getTime(); // November 2026; the 9th is a Monday
+  const now = at(9, 9, 5), D = 864e5;
+  const ev = (t, k, more = {}) => ({ t, k, s: more.s || 's' + t, d: '/src/shop', p: 'team/shop', ...more });
+  // days: per session per local day, with approvals, waiting and skills
+  const one = [ev(at(6, 14), 'start', { s: 'a', i: 128, b: '128-cart' }), ev(at(6, 14, 5), 'skill', { s: 'a', v: 'fix' }), ev(at(6, 15), 'ask', { s: 'a', ms: 120e3, ok: true, r: 'Bash(npm test:*)' }),
+    ev(at(6, 17, 35), 'end', { s: 'a', i: 128 })];
+  assert.deepEqual(Hb.days(one).map(x => [x.day, x.items.map(y => [y.iid, y.asks, y.waitMs, y.skills, y.ended, y.to - y.from])]), [['2026-11-06', [[128, 1, 120e3, ['fix'], true, (3 * 60 + 35) * 60e3]]]]);
+  // not ready while fewer than 5 days were logged
+  assert.deepEqual(Hb.suggest(one, {}, {}, now), { ready: false, logged: 1, need: 5, cards: [] });
+  const filler = [2, 3, 4, 5].map(d => ev(at(d, 10), 'st', { v: 'working', d: '/src/other' })); // other days, another folder
+  // morning: the issue last worked on Friday is open, has no PR and nobody is on it
+  const model = { repos: [{ path: 'team/shop', dirs: [] }], issues: [{ project: 'team/shop', iid: 128, title: 'Cart total', reviews: [], sessions: [] }] };
+  const s1 = Hb.suggest([...filler, ...one], { model, sessions: [] }, {}, now);
+  assert.equal(s1.ready, true);
+  assert.deepEqual(s1.cards.map(c => [c.kind, c.iid, c.dir, c.at]), [['morning', 128, '/src/shop', at(6, 17, 35)]]);
+  assert.equal(Hb.morning(one, model, [], at(9, 13)), null, 'only in the morning');
+  assert.equal(Hb.morning(one, { ...model, issues: [{ ...model.issues[0], reviews: [{ url: 'u' }] }] }, [], now), null, 'a PR closes it: not unfinished');
+  assert.equal(Hb.morning(one, { ...model, issues: [] }, [], now), null, 'closed (no longer open)');
+  assert.equal(Hb.morning([...one, ev(at(9, 8), 'st', { i: 128, v: 'working' })], model, [], now), null, 'already worked on today');
+  // allow: the same approval allowed again and again this week, never denied
+  const asks = n => Array.from({ length: n }, (_, k) => ev(now - (k + 1) * 3600e3, 'ask', { s: 'w', ok: true, r: 'Bash(npm test:*)', tool: 'Bash' }));
+  assert.deepEqual(Hb.allows(asks(23), now, 0).map(c => [c.what, c.count, c.rule, c.dir]), [['npm test', 23, 'Bash(npm test:*)', '/src/shop']]);
+  assert.deepEqual(Hb.allows([...asks(23), ev(now - 3600e3, 'ask', { ok: false, r: 'Bash(npm test:*)' })], now, 0), [], 'denied once: no suggestion');
+  assert.deepEqual(Hb.allows(asks(9), now, 0), []);
+  assert.deepEqual(Hb.allows(asks(23), now, 2), [], '"Không cần" twice: needs 30');
+  assert.deepEqual(Hb.allows(asks(23).map(e => ({ ...e, t: e.t - 8 * D })), now, 0), [], 'only this week');
+  // recurring: the stand-up opened on Monday around 9:00, 4 weeks in a row
+  const mondays = [12, 19, 26].map(d => new Date(2026, 9, d, 8, 55).getTime()).concat(new Date(2026, 10, 2, 9, 10).getTime()).map(t => ({ t, k: 'ui', v: 'standup' }));
+  assert.deepEqual(Hb.recurring(mondays, now, 0).map(c => [c.what, c.weekday, Hb.hhmm(c.at), c.count]), [['standup', 1, '8:55', 4]]);
+  assert.deepEqual(Hb.recurring(mondays, at(9, 11), 0), [], 'too late in the day');
+  assert.deepEqual(Hb.recurring([...mondays, { t: at(9, 8, 58), k: 'ui', v: 'standup' }], now, 0), [], 'already opened today');
+  assert.deepEqual(Hb.recurring(mondays.slice(1), now, 0).length, 1, '3 of the last 4 weeks are enough');
+  assert.deepEqual(Hb.recurring(mondays.slice(2), now, 0), []);
+  // skill: most sessions in a folder this week start with the same skill
+  const sess = Array.from({ length: 11 }, (_, k) => [ev(now - k * 3600e3, 'start', { s: 'q' + k }), ...(k < 9 ? [ev(now - k * 3600e3 + 60e3, 'skill', { s: 'q' + k, v: 'fix' })] : [ev(now - k * 3600e3 + 60e3, 'skill', { s: 'q' + k, v: 'clear' })])]).flat();
+  assert.deepEqual(Hb.skills(sess, now, 0, {}).map(c => [c.skill, c.count, c.of]), [['fix', 9, 11]]);
+  assert.deepEqual(Hb.skills(sess, now, 0, { '/src/shop': 'fix' }), [], 'already chosen for that folder');
+  assert.deepEqual(Hb.skills(sess.filter(e => e.v !== 'fix'), now, 0, {}), [], 'Claude Code commands are not skills');
+  // all together: at most 3, the kinds turned down less first, a hidden one stays out
+  const all = [...filler, ...one, ...asks(23), ...mondays, ...sess];
+  const ids = cfg => Hb.suggest(all, { model, sessions: [] }, cfg, now).cards.map(c => c.kind);
+  assert.deepEqual(ids({}), ['morning', 'allow', 'recurring']);
+  assert.deepEqual(ids({ habitsNo: { morning: 1 } }), ['allow', 'recurring', 'skill', 'morning'].slice(0, 3));
+  const morningId = Hb.suggest(all, { model, sessions: [] }, {}, now).cards[0].id;
+  assert.deepEqual(ids({ habitsHidden: { [morningId]: now } }), ['allow', 'recurring', 'skill']);
+  assert.deepEqual(ids({ habitsNo: { morning: 3 } }), ['allow', 'recurring', 'skill'], '"Không cần" 3 times: no more start-of-day');
+});

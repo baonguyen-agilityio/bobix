@@ -35,6 +35,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .edge-l .say,.edge-l .card{left:0;transform:none}
 .edge-r .say,.edge-r .card{left:auto;right:0;transform:none}
 .say{padding:var(--s1) var(--s3);white-space:nowrap;font-weight:500;animation:pop 200ms var(--ease)}
+.say.habit{cursor:pointer}
 .say.waiting{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink);font-weight:600}
 .say.done{background:var(--mint-soft)}
 .where{display:block;font-size:var(--t-xs);font-weight:500}
@@ -124,6 +125,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 <script src="/ui/pet-fx.js"></script>
 <script src="/ui/pet-ride.js"></script>
 <script src="/ui/pets-ondemand.js"></script>
+<script src="/ui/habits.js"></script>
 <script>
 const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -201,7 +203,7 @@ function paint(p, now) {
   const balloon = mine && !p.hover ? statusBalloon(FX_ON, mine.kind) : '';
   // A bubble: its request when hovered; the tool it just picked up, for a pet on its own.
   const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
-  const say = t && (p.hover || t[0] === '') ? t : null;
+  const say = (habitSay && habitSay.id === s.id && !p.hover && Date.now() < habitSay.until ? ['habit', habitSay.text] : null) || (t && (p.hover || t[0] === '') ? t : null);
   const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
@@ -220,7 +222,7 @@ function paint(p, now) {
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon, cfg.edge === 'top')}</div>` : ''}
-    ${say && say[1] ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
+    ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(parent || s, st, color)}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>`}`;
@@ -412,6 +414,7 @@ function draggable(p, id) {
     const a = e.target.closest('[data-answer]');
     if (a) { if (p.s.answer) bridge?.answer(p.s.answer.id, a.dataset.answer); return; }
     if (e.target.closest('[data-bb]')) { p.hoverUntil = Date.now() + 8000; p.key = null; wake(); return; }
+    if (e.target.closest('[data-habit]')) { habitSay = null; p.key = null; bridge?.showBoard(); wake(); return; }
     const lead = attached(p.s) ? pets.get(p.s.parent) : p; // a side session's family moves as one: drag its parent
     drag = { p: lead, id, dx: e.clientX - lead.x, x0: e.clientX, moved: false };
     el.setPointerCapture(e.pointerId);
@@ -677,6 +680,29 @@ function applySettings(s) {
 }
 
 let lastList = null;
+// Habits (#80, Settings → "Bobix nhớ gì về bạn"): the morning "start of day" suggestion, once a day for a minute, on a
+// pet of that folder (else the first one); a click on it opens the board. No other suggestion comes to the pets.
+let habitSay = null, lastModel = null, habitBusy = false;
+async function habitMorning() {
+  const now = Date.now(), today = window.HABITS && HABITS.dayOf(now);
+  if (!bridge || !today || !cfg.habitsOn || habitBusy || habitSay || cfg.habitsPetDay === today || new Date(now).getHours() >= 12 || !lastList?.length) return;
+  habitBusy = true;
+  try {
+    const d = await bridge.habitsRead().catch(() => null);
+    if (!d || HABITS.loggedDays(d.events) < HABITS.MIN_DAYS || (cfg.habitsNo?.morning || 0) >= 3) return;
+    const c = HABITS.morning(d.events, lastModel, lastList, now);
+    if (!c || (cfg.habitsHidden || {})[c.id] != null) return;
+    const roots = [...pets.values()].filter(p => !attached(p.s) && visible(p.s)), p = roots.find(x => x.s.project === c.dir) || roots[0];
+    if (!p) return;
+    const when = HABITS.dayOf(now - 864e5) === HABITS.dayOf(c.at) ? T('hab.yesterday') : new Date(c.at).toLocaleDateString(lang, { weekday: 'long' });
+    habitSay = { id: p.s.id, text: T('pet.habit', { n: c.iid, d: when }), until: now + 60e3 };
+    cfg.habitsPetDay = today;
+    bridge.setSettings({ habitsPetDay: today });
+    setTimeout(() => { habitSay = null; for (const q of pets.values()) q.key = null; wake(); }, 60e3);
+    p.key = null; wake();
+  } finally { habitBusy = false; }
+}
+setInterval(habitMorning, 5 * 60e3);
 const moveTo = m => { mouse = m; mouseMoved = true; wake(); };
 addEventListener('mousemove', e => moveTo({ x: e.clientX, y: e.clientY }));
 addEventListener('mouseleave', () => moveTo({ x: -1, y: -1 }));
@@ -686,7 +712,7 @@ if (bridge) {
   bridge.onSettings(applySettings);
   bridge.getState().then(st => applySettings(st.settings));
 }
-new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || '')).onmessage = m => { lastList = forShow(JSON.parse(m.data).sessions); sync(lastList); wake(); };
+new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || '')).onmessage = m => { const d = JSON.parse(m.data); lastModel = d.model || null; lastList = forShow(d.sessions); sync(lastList); wake(); if (!habitSay) habitMorning(); };
 setInterval(() => lastList && sync(lastList), 15e3); // "done" turns into "resting" by time alone
 frame(performance.now());
 </script>

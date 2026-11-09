@@ -13,6 +13,7 @@ pub fn defaults() -> Value {
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
         "seenVersion": "", "gitlab": false, "github": false, "workProjects": [], "workKeys": {}, "petImages": {},
+        "habitsOn": false, "habitsNo": {}, "habitsHidden": {}, "habitsSkill": {}, "habitsPetDay": "",
     })
 }
 
@@ -112,6 +113,21 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
                 let ok = s.is_empty() || { let p: Vec<&str> = s.split('.').collect(); p.len() == 3 && p.iter().all(|x| (1..=4).contains(&x.len()) && x.bytes().all(|b| b.is_ascii_digit())) };
                 if ok { out.insert(k.into(), v.clone()); }
             }
+        } else if ["habitsNo", "habitsHidden", "habitsSkill"].contains(&k) {
+            // habits: "Không cần" per kind (habitsNo: kind → how many times) and per suggestion (habitsHidden: id → when),
+            // and the skill a repository's Start box begins with (habitsSkill: folder → skill name)
+            if let Some(o) = v.as_object() {
+                let ok_key = |x: &str| (1..=600).contains(&x.len()) && !x.chars().any(char::is_control);
+                let m: Map<String, Value> = o.iter().filter(|(x, _)| ok_key(x)).filter_map(|(x, t)| {
+                    if k == "habitsSkill" {
+                        let n = t.as_str()?.trim_start_matches('/');
+                        ((1..=60).contains(&n.len()) && n.chars().all(|c| c.is_ascii_alphanumeric() || "-_:.".contains(c))).then(|| (x.clone(), json!(n)))
+                    } else { let n = js_number(t); (n.is_finite() && n >= 0.0).then(|| (x.clone(), num_value(round(n)))) }
+                }).take(300).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "habitsPetDay" {
+            if let Some(d) = v.as_str().filter(|d| d.len() == 10 && d.bytes().enumerate().all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() })) { out.insert(k.into(), json!(d)); }
         } else if k == "workKeys" {
             if let Some(o) = v.as_object() {
                 let m: Map<String, Value> = o.iter()
@@ -325,6 +341,12 @@ mod tests {
         assert_eq!(o["sound"], true);
         assert_eq!(s(json!({ "sleepHide": "60" }))["sleepHide"], 60);
         assert_eq!(s(json!({ "sleepHide": -5 }))["sleepHide"], 0);
+        assert_eq!(defaults()["habitsOn"], false, "habits: off until you turn them on");
+        let h = s(json!({ "habitsOn": true, "habitsNo": { "allow": 2, "x": "y" }, "habitsHidden": { "morning:/src/a#1": 1762650000000_i64 },
+            "habitsSkill": { "/src/shop": "/fix", "/src/a": "rm -rf", "/src/b": "ak:cook" }, "habitsPetDay": "2026-11-09" }));
+        assert_eq!((&h["habitsOn"], &h["habitsNo"], &h["habitsSkill"], &h["habitsPetDay"]), (&json!(true), &json!({ "allow": 2 }), &json!({ "/src/shop": "fix", "/src/b": "ak:cook" }), &json!("2026-11-09")));
+        assert_eq!(h["habitsHidden"], json!({ "morning:/src/a#1": 1762650000000_i64 }));
+        assert_eq!(s(json!({ "habitsPetDay": "today" }))["habitsPetDay"], "");
     }
 
     #[test]

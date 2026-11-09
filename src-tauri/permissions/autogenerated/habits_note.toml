@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-habits-note"
+description = "Enables the habits_note command without any pre-configured scope."
+commands.allow = ["habits_note"]
+
+[[permission]]
+identifier = "deny-habits-note"
+description = "Denies the habits_note command without any pre-configured scope."
+commands.deny = ["habits_note"]

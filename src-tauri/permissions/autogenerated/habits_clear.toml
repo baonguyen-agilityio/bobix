@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-habits-clear"
+description = "Enables the habits_clear command without any pre-configured scope."
+commands.allow = ["habits_clear"]
+
+[[permission]]
+identifier = "deny-habits-clear"
+description = "Denies the habits_clear command without any pre-configured scope."
+commands.deny = ["habits_clear"]
