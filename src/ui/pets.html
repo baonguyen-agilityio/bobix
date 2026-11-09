@@ -443,10 +443,11 @@ function unitOf(p, all) { // [root, ...its side pets in arrival order]
   const ids = (lastList || []).map(s => s.id), kids = all.filter(q => q.s.parent === p.s.id && attached(q.s)).sort((a, b) => ids.indexOf(a.s.id) - ids.indexOf(b.s.id));
   return [p, ...kids];
 }
+// A unit's width: its pets, and its name tag reaching TAG past them on each side (groundTags), so tags never touch.
+const TAG = 8;
 function unitWidth(u) {
-  const n = u.length - 1, w = n ? sideFirst() + (n - 1) * sideStep() + cfg.size : cfg.size;
-  const tg = u[0].el.querySelector('.tag:not(.ghost)'); // a single pet's tag can be wider than the pet
-  return Math.max(w, n ? 0 : (tg ? tg.scrollWidth : 0));
+  const n = u.length - 1;
+  return (n ? sideFirst() + (n - 1) * sideStep() + cfg.size : cfg.size) + 2 * TAG;
 }
 // Moves the line on by dt and returns where each pet stands now (pets out of sight have none).
 function lineStep(all, dt) {
@@ -462,14 +463,14 @@ function lineStep(all, dt) {
   LINEUP.v = cfg.size * 0.4; LINEUP.moving = !all.some(p => p.hover || p.dragging);
   if (LINEUP.moving) for (const e of LINEUP.vis) e.f += LINEUP.v * dt; // f: the unit's front (its right end, left to right)
   for (const e of LINEUP.vis) if (e.slide) { const d = Math.sign(e.slide) * Math.min(Math.abs(e.slide), e.slideV * dt); e.f += d; e.slide -= d; } // after a drop: there in SLIDE s
-  for (const e of [...LINEUP.vis]) if (e.f - W(e.p) >= right - cfg.size) { LINEUP.vis.splice(LINEUP.vis.indexOf(e), 1); LINEUP.wait.push(e.p); } // its last pet has faded out
+  for (const e of [...LINEUP.vis]) if (e.f - W(e.p) + TAG >= right - cfg.size) { LINEUP.vis.splice(LINEUP.vis.indexOf(e), 1); LINEUP.wait.push(e.p); } // its last pet has faded out
   if (LINEUP.wait.length && LINEUP.moving) { // the next one comes in once the last one in is gapT in
     const rear = LINEUP.vis.reduce((r, e) => (!r || e.f - W(e.p) < r.f - W(r.p) ? e : r), null);
     if (!rear || rear.f - W(rear.p) - (min + cfg.size) >= gapT) LINEUP.vis.push({ p: LINEUP.wait.shift(), f: min + cfg.size }); // its leader starts fading in at the zone's start
   }
   const at = new Map(), fade = FADE();
   for (const e of LINEUP.vis) {
-    const u = units.get(e.p), lead = e.f - cfg.size;
+    const u = units.get(e.p), lead = e.f - TAG - cfg.size;
     [[u[0], lead], ...u.slice(1).map((k, j) => [k, lead - (sideFirst() + j * sideStep())])].forEach(([q, x]) => at.set(q, x));
   }
   for (const p of LINEUP.wait) for (const q of units.get(p)) at.set(q, null);
@@ -491,7 +492,7 @@ function lineDrop(p) {
   p.dragging = false; LINEUP.held = null; rectAt = 0; wake();
   if (!pets.has(p.s.id)) return;
   const { min, max } = zone(), right = max + cfg.size, all = [...pets.values()], W = q => unitWidth(unitOf(q, all)), G = unitGap(), w = W(p);
-  const f0 = (rtl() ? min + right - p.x - cfg.size : p.x) + cfg.size; // its front, left to right
+  const f0 = (rtl() ? min + right - p.x - cfg.size : p.x) + cfg.size + TAG; // its front, left to right
   const roots = [...all, ...leaving].filter(q => !attached(q.s)), gap = lineGap(roots.map(W), right - min);
   if (gap > G) {
     const line = [...LINEUP.vis, { p, f: f0 }].sort((a, b) => b.f - a.f); // front first
@@ -515,7 +516,7 @@ function groundTags(all) {
     if (!tg) continue;
     const fam = all.filter(q => q.s.parent === p.s.id), reach = sideFirst() + fam.length * sideStep() + 8, back = rtl() ? 1 : -1;
     const kids = fam.filter(q => (q.x - p.x) * back > 0 && Math.abs(q.x - p.x) <= reach), xs = [p.x, ...kids.map(q => q.x)];
-    const l = Math.max(0, Math.min(...xs) - 8), r = Math.min(innerWidth, Math.max(...xs) + cfg.size + 8); // never past the screen's ends
+    const l = Math.max(0, Math.min(...xs) - TAG), r = Math.min(innerWidth, Math.max(...xs) + cfg.size + TAG); // never past the screen's ends
     const g = `${Math.round(l - p.x)}|${Math.round(r - l)}`;
     if (tg.dataset.g === g) continue;
     tg.dataset.g = g;
@@ -565,7 +566,10 @@ function frame(t) {
     paint(p, now);
     if (FX_ON) fxTick(p, dt);
   }
-  for (const p of leaving) { fxTick(p, dt); if (!p.fx) { p.el.remove(); leaving.delete(p); } }
+  for (const p of leaving) { // a pet saying goodbye keeps its place in the line until it is gone
+    const x = lineAt.get(p); if (x != null && x !== p.x) { p.x = x; p.el.style.transform = `translateX(${x}px)`; }
+    fxTick(p, dt); if (!p.fx) { p.el.remove(); leaving.delete(p); }
+  }
   stackBubbles(all);
   for (const el of document.querySelectorAll('.answer .left[data-sid]')) { // seconds left, without redrawing the card
     const t = byId(el.dataset.sid), txt = T('ask.left', { n: t ? left(t, now) : 0 });
