@@ -40,6 +40,7 @@
     refreshWork: () => invoke('work_refresh'), // GitLab issues, read again now (only while GitLab is on)
     openIssue: url => invoke('work_open', { url }), // in the browser; only links to the configured GitLab
     cancelNew: dir => invoke('work_cancel', { dir }), // stop waiting for a new session in that folder
+    newReview: (project, branch) => invoke('work_new_review', { project, branch }), // the forge's new PR / MR page for that branch
     // prompt: prefilled in the new session's prompt box (claude://code/new?q=…)
     startIssue: (path, iid, prompt) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_start', { path, iid, prompt: typeof prompt === 'string' ? prompt : null }) : Promise.resolve(null)),
     issueBrief: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_brief', { path, iid }) : Promise.resolve(null)), // title, description (read now), link
