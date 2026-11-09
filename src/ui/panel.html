@@ -768,6 +768,8 @@ async function habNo(id) {
   await save({ habitsNo: { ...s.habitsNo, [c.kind]: (s.habitsNo?.[c.kind] || 0) + 1 }, habitsHidden: Object.fromEntries(hidden) }, { rerender: false });
   nextFocus = 'hab-undo';
   render();
+}
+
 // Work that stands still (BOARD.stuck), minus what you skipped (kept in Bobix's settings; outside the app, in this
 // page only); nothing while Settings → "Nudge about stuck work" is off.
 const stuckCfg = () => ({ ...state?.settings, stuckSkipped: { ...state?.settings?.stuckSkipped, ...skippedHere } });
