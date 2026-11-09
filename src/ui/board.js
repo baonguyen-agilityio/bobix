@@ -57,6 +57,18 @@
     return `${T('report.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${parts.join('\n\n') || T('report.none')}\n`;
   }
 
-  const api = { PRI, day, stages, loose, short, report };
+  // The issue to start next: one in To do that nobody started (no session, none named after it, no new session
+  // waiting for it) in a project with a folder on this machine. Overdue or due soonest first, then the oldest.
+  // proj: the project picked in To do ('all' for any); waiting: [{ dir, iid }].
+  function next(st, waiting = [], proj = 'all') {
+    const free = st.todo.filter(([i, g]) => g.dir && !i.resume && (proj === 'all' || g.path === proj) && !waiting.some(w => w.dir === g.dir && w.iid === i.iid));
+    const due = ([i]) => i.due || '9999';
+    return free.sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : 0) || a[0].iid - b[0].iid)[0] || null;
+  }
+
+  // What Claude gets in the new session: the issue's title, its description and its link.
+  const brief = (i, body) => [`#${i.iid} ${i.title}`, String(body || '').trim(), i.url ? String(i.url) : ''].filter(Boolean).join('\n\n');
+
+  const api = { PRI, day, stages, loose, short, report, next, brief };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);

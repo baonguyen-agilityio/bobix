@@ -163,6 +163,18 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .tf input,.tf select{min-height:36px;padding:6px 12px;border:1px solid var(--line-strong);border-radius:var(--pill);background:var(--surface);color:var(--ink);font-size:var(--t-sm)}
 .tf input{flex:1 1 12em;min-width:0}
 .tf select{flex:0 1 auto;max-width:100%}
+.nx{display:flex;align-items:center;gap:var(--s3);margin:0 0 var(--s3);padding:var(--s3) var(--s3) var(--s3) var(--s4);background:var(--surface);border:1px solid var(--line-strong);border-radius:16px}
+.nx .egg{flex:none;width:27px;height:30px}
+.nx-tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:var(--t-sm)}
+.nx-k{font-size:var(--t-xs);font-weight:600;color:var(--ink-3)}
+.nx-tx .tt{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nx-tx .id{color:var(--ink-3);font-weight:500;margin-right:6px}
+.nx-why{font-size:var(--t-xs);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nx .btn{flex:none}
+.stbox dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px var(--s3);margin:0;font-size:var(--t-sm)}
+.stbox dt{color:var(--ink-3)}.stbox dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.stbox label{margin:0}
+.fb.stbox textarea{min-height:min(240px,40dvh)}
 .ir{display:flex;align-items:center;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;transition:border-color 120ms var(--ease),box-shadow 120ms var(--ease)}
 .ir:hover{border-color:var(--line-strong);box-shadow:var(--lift)}
 .ir-main{flex:1;min-width:0;display:flex;align-items:center;gap:var(--s2);min-height:40px;border:0;background:none;padding:6px 6px 6px 12px;border-radius:inherit;text-align:left;cursor:pointer;font-size:var(--t-sm)}
@@ -463,6 +475,15 @@ input[type=number]{width:104px}
 </header>
 <dialog id="fb-dialog" class="fb" aria-labelledby="fb-heading"></dialog>
 <dialog id="pd-dialog" class="fb pd" aria-labelledby="pd-heading"></dialog>
+<dialog id="st-dialog" class="fb rp stbox" aria-labelledby="st-heading"><form method="dialog">
+  <h2 id="st-heading"></h2>
+  <p class="note" data-t="start.body"></p>
+  <dl><dt data-t="start.repo"></dt><dd><code id="st-dir"></code></dd></dl>
+  <p class="note err" id="st-err" hidden data-t="start.nobody"></p>
+  <label for="st-text" data-t="start.brief"></label>
+  <textarea id="st-text" spellcheck="false"></textarea>
+  <div class="acts"><button class="btn" value="close" data-t="pd.cancel"></button><button class="btn pri" type="button" id="st-go" data-t="start.go"></button></div>
+</form></dialog>
 <dialog id="rp-dialog" class="fb rp" aria-labelledby="rp-heading"><form method="dialog">
   <h2 id="rp-heading" data-t="report.title"></h2>
   <p class="note" data-t="report.body"></p>
@@ -685,7 +706,17 @@ function todoHTML() {
     return `<section class="grp" aria-label="${esc(BOARD.short(p))}"><div class="gh"><span class="egg">${eggSVG(p)}</span><b title="${esc(p)}">${esc(BOARD.short(p))}</b>${g.dir ? '' : `<span class="away" title="${esc(T('work.away.desc'))}">${esc(T('work.away'))}</span>`}<span class="n">${xs.length}</span></div>
       <ol class="il">${shown.map(issueRow).join('')}</ol>${!uncapped && xs.length > PER_GROUP ? moreBtn(k, xs.length - PER_GROUP) : ''}</section>`;
   }).join('');
-  return problems + bar + (groups ? `<div class="grps">${groups}</div>` : `<p class="blank">${esc(T('day.todo.nomatch', { q: query }))}</p>`);
+  return problems + nextHTML() + bar + (groups ? `<div class="grps">${groups}</div>` : `<p class="blank">${esc(T('day.todo.nomatch', { q: query }))}</p>`);
+}
+// The project's pet (still an egg) suggests the issue to start next; Start opens the Start box.
+function nextHTML() {
+  const x = bridge && BOARD.next(st, waiting, proj);
+  if (!x) return '';
+  const [i, g] = x;
+  const why = i.due ? T(i.due < today() ? 'next.overdue' : 'next.due', { d: i.due }) : T('next.oldest');
+  return `<div class="nx" role="group" aria-label="${esc(T('next.title'))}"><span class="egg">${eggSVG(g.path)}</span><span class="nx-tx"><span class="nx-k">${esc(T('next.title'))}</span>
+    <span class="tt" title="${esc(i.title)}"><span class="id">#${i.iid}</span>${esc(i.title)}</span><span class="nx-why">${esc(BOARD.short(g.path))} · ${esc(why)}</span></span>
+    <button class="btn sm pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" data-f="next" title="${esc(T('day.startDesc', { n: i.iid }))}">${esc(T('day.start'))}</button></div>`;
 }
 const sessRow = s => `<li class="st-${look(s)}"><button class="sr-main" type="button" data-sel="${esc(s.id)}" aria-pressed="${s.id === selected}" title="${esc(line2(s, look(s)))}">${pet(s)}
   <span class="sr-tx"><span class="nm">${esc(s.title || s.name)}${s.issue ? ` <span class="note">#${s.issue.iid}</span>` : ''}</span><span class="ac">${esc(statusText(s, look(s)))}</span></span>
@@ -831,14 +862,46 @@ function eggSVG(seed) {
   return `<svg viewBox="0 0 9 10" shape-rendering="crispEdges" aria-hidden="true">${out + px(3, 1, shine) + px(2, 2, shine)}</svg>`;
 }
 function select(id) { if (hint?.id !== id) hint = null; selected = id; render(); }
-// Start (a new Claude session in the project's folder) or Resume (the session that works on it).
+// Start (a new Claude session in the project's folder, through the Start box when nothing works on the issue yet)
+// or Resume (the session that works on it).
 async function startIssue(b) {
+  const path = b.dataset.path, iid = Number(b.dataset.start);
+  const x = st.todo.find(([i, g]) => g.path === path && i.iid === iid);
+  if (x && x[1].dir && !x[0].resume) return openStart(b, x);
   b.disabled = true;
-  const r = await bridge.startIssue(b.dataset.path, Number(b.dataset.start));
+  const r = await bridge.startIssue(path, iid);
   b.disabled = false;
   if (r?.mode === 'new' && r.ok) toast(T('work.new.done'));
   else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
 }
+// The Start box: the folder, and the prompt Claude gets (title, description read now, link), editable.
+let starting = null;
+async function openStart(b, [i, g]) {
+  b.disabled = true;
+  const r = await bridge.issueBrief(g.path, i.iid).catch(() => null);
+  b.disabled = false;
+  starting = { path: g.path, iid: i.iid };
+  $('#st-heading').textContent = T('start.title', { n: i.iid });
+  $('#st-dir').textContent = g.dir.replace(/^(\/Users|\/home|[A-Za-z]:\\Users)[\\/][^\\/]+/, '~'); // the folder, home as ~
+  $('#st-dir').title = g.dir;
+  $('#st-err').hidden = !!r?.ok;
+  $('#st-text').value = BOARD.brief(i, r?.ok ? r.body : '');
+  $('#st-dialog').showModal();
+  $('#st-text').scrollTop = 0;
+  $('#st-go').focus();
+}
+// Copies the prompt (the sure way), then opens the new session with it in its prompt box.
+$('#st-go').addEventListener('click', async () => {
+  const t = $('#st-text'), s = starting;
+  if (!s) return;
+  let copied = true;
+  try { await navigator.clipboard.writeText(t.value); } catch { t.select(); copied = document.execCommand('copy'); }
+  $('#st-dialog').close();
+  starting = null;
+  const r = await bridge.startIssue(s.path, s.iid, t.value);
+  if (r?.mode === 'new' && r.ok) toast(T(copied ? 'start.done' : 'start.done.nocopy'));
+  else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
+});
 function openReport() {
   $('#rp-text').value = BOARD.report(st, T, Date.now(), I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB');
   $('#rp-dialog').showModal();
