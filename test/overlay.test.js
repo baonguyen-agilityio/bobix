@@ -121,7 +121,7 @@ async function run(b, url, settings, script, label) {
   await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
   const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   await ev(`__apply(${JSON.stringify(settings)})`);
-  const now = () => ev('__now()'), bad = []; let seen = 0;
+  const now = () => ev('__now()'), bad = [], glitches = []; let seen = 0;
   // Effects are off with reduced motion (pets.html, FX_ON): say so instead of "no effect was shown".
   if (!await ev('FX_ON')) return [`effects are off in the page (prefers-reduced-motion: reduce: ${await ev("matchMedia('(prefers-reduced-motion: reduce)').matches")})`];
   let t = 0;
@@ -148,16 +148,30 @@ async function run(b, url, settings, script, label) {
       seen++;
       const x = Math.max(0, Math.floor(p.x)), y = Math.max(0, Math.floor(p.y)), r = Math.min(W, Math.ceil(p.x + p.w)), bo = Math.min(H, Math.ceil(p.y + p.h));
       if (r <= x || bo <= y) continue;
-      const clip = { x, y, width: r - x, height: bo - y, scale: 1 }, shot = async () => png(Buffer.from((await b.send('Page.captureScreenshot', { format: 'png', clip })).data, 'base64'));
+      const clip = { x, y, width: r - x, height: bo - y, scale: 1 }, shot = async () => { const d = (await b.send('Page.captureScreenshot', { format: 'png', clip })).data; return { ...png(Buffer.from(d, 'base64')), d }; };
       // (A loop's sheet can take its canvas's place between two calls: then this pet waits for the next look.)
       const node = `document.querySelector('[data-probe="${p.k}"]:not(.pet)')`, spr = `document.querySelector('.pet[data-probe="${p.k}"] .spr')`;
-      if (!await ev(`(() => { const n = ${node}; if (!n) return false; document.body.classList.add('__only'); n.classList.add('__on'); return true; })()`)) continue;
-      const fx = await shot();
-      await ev(`document.body.classList.remove('__only'); ${node}?.classList.remove('__on'); ${spr}?.classList.add('__off')`);
-      const rest = await shot();
-      if (!await ev(`(() => { ${spr}?.classList.remove('__off'); return !!${node}; })()`)) continue;
-      let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
-      for (let j = 0; j < fx.w * fx.h; j++) if (fx.data[j * 4 + 3] > 8 && rest.data[j * 4 + 3] > 8) { n++; const px = j % fx.w, py = (j / fx.w) | 0; x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py); }
+      const look = async () => {
+        if (!await ev(`(() => { const n = ${node}; if (!n) return false; document.body.classList.add('__only'); n.classList.add('__on'); return true; })()`)) return null;
+        const fx = await shot();
+        await ev(`document.body.classList.remove('__only'); ${node}?.classList.remove('__on'); ${spr}?.classList.add('__off')`);
+        const rest = await shot();
+        if (!await ev(`(() => { ${spr}?.classList.remove('__off'); return !!${node}; })()`)) return null;
+        let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+        for (let j = 0; j < fx.w * fx.h; j++) if (fx.data[j * 4 + 3] > 8 && rest.data[j * 4 + 3] > 8) { n++; const px = j % fx.w, py = (j / fx.w) | 0; x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py); }
+        return { fx, rest, n, x0, y0, x1, y1, same: fx.d === rest.d };
+      };
+      let l = await look();
+      if (!l) continue;
+      // The clock stands still between two looks, so an effect really over something is over it again on a second look.
+      // One that is not came from a screenshot that missed the class change before it (seen once on CI's Linux and on its
+      // Windows Chrome): say so, naming the screenshot that came out different, and judge by the second look.
+      if (l.n) {
+        const again = await look();
+        if (again && !again.n) { glitches.push(`${label} t=${(t / 1000).toFixed(2)}s pet ${p.k}: ${l.n} px on the first look, 0 on a second; the screenshot that changed: ${[l.fx.d !== again.fx.d && 'effect alone', l.rest.d !== again.rest.d && 'the rest'].filter(Boolean).join(' and ') || 'none'}; the first look's two identical: ${l.same}`); l = again; }
+        else if (again) l = again;
+      }
+      const { fx, rest, n, x0, y0, x1, y1 } = l;
       if (n && process.env.OVERLAY_DUMP) {
         const o = new Uint8Array(fx.w * fx.h * 4);
         for (let j = 0; j < fx.w * fx.h; j++) { const f = fx.data[j * 4 + 3] > 8, q = rest.data[j * 4 + 3] > 8, s = f && q ? [255, 0, 255, 255] : f ? [...fx.data.subarray(j * 4, j * 4 + 3), 255] : q ? [...rest.data.subarray(j * 4, j * 4 + 3), 120] : [0, 0, 0, 0]; o.set(s, j * 4); }
@@ -169,6 +183,7 @@ async function run(b, url, settings, script, label) {
   const mouse = (type, x, y) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
   await script({ push, steps, ses, ev, mouse, fail: m => bad.push(`t=${(t / 1000).toFixed(2)}s ${m}`) });
   if (!seen) bad.push('no effect was shown');
+  for (const g of glitches) console.log(`# screenshot missed a change, looked again: ${g}`);
   bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
   return bad;
 }
