@@ -9,7 +9,7 @@ pub const UNTIL_ANSWER: f64 = -1.0; // approveWait: no countdown, the request wa
 pub fn defaults() -> Value {
     json!({
         "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "walkDir": "ltr", "petMode": "edge", "dnd": "0", "dndUntil": 0, "zoneStart": 0, "zoneEnd": 100,
-        "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "longWait": 10, "sleepHide": 30,
+        "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "longWait": 10, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
         "seenVersion": "", "gitlab": false, "github": false, "workProjects": [], "workKeys": {}, "petImages": {},
@@ -39,6 +39,13 @@ fn range_of(k: &str) -> Option<(f64, f64)> {
         "sleepHide" => (0.0, 1440.0),
         "approveWait" => (0.0, 300.0),
         "longWait" => (1.0, 120.0), // minutes after which a request waiting for your answer shows as a long wait
+        // stuck work, in hours: a finished session with no PR / MR, a PR / MR nobody reviewed, a branch with commits and
+        // no PR / MR, an issue's sessions all resting
+        "stuckNoPr" => (1.0, 72.0),
+        "stuckNoReview" => (1.0, 168.0),
+        "stuckBranch" => (1.0, 72.0),
+        "stuckIdle" => (1.0, 72.0),
+        "stuckMaxAge" => (1.0, 365.0), // days: stuck work quiet longer than this is old, not a nudge
         "dndUntil" => (0.0, 1e14), // when "do not disturb" ends, in ms since 1970 (0: off)
         _ => return None,
     })
@@ -112,6 +119,15 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
             if let Some(s) = v.as_str() {
                 let ok = s.is_empty() || { let p: Vec<&str> = s.split('.').collect(); p.len() == 3 && p.iter().all(|x| (1..=4).contains(&x.len()) && x.bytes().all(|b| b.is_ascii_digit())) };
                 if ok { out.insert(k.into(), v.clone()); }
+            }
+        } else if k == "stuckSkipped" {
+            // stuck items you skipped: their id → the time of the last activity they had then (ms); one that moves again comes back
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter()
+                    .filter(|(id, _)| (1..=600).contains(&id.len()) && !id.chars().any(char::is_control))
+                    .filter_map(|(id, t)| { let n = js_number(t); (n.is_finite() && n >= 0.0).then(|| (id.clone(), num_value(round(n)))) })
+                    .take(300).collect();
+                out.insert(k.into(), Value::Object(m));
             }
         } else if k == "workKeys" {
             if let Some(o) = v.as_object() {
@@ -327,6 +343,12 @@ mod tests {
         assert_eq!(s(json!({ "sleepHide": "60" }))["sleepHide"], 60);
         assert_eq!(s(json!({ "sleepHide": -5 }))["sleepHide"], 0);
         assert_eq!((defaults()["longWait"].clone(), s(json!({ "longWait": "25" }))["longWait"].clone(), s(json!({ "longWait": 0 }))["longWait"].clone(), s(json!({ "longWait": 999 }))["longWait"].clone()), (json!(10), json!(25), json!(1), json!(120)));
+        assert_eq!([("stuckOn", json!(true)), ("stuckNoPr", json!(2)), ("stuckNoReview", json!(24)), ("stuckBranch", json!(4)), ("stuckIdle", json!(4))].map(|(k, v)| defaults()[k] == v), [true; 5]);
+        assert_eq!((defaults()["stuckMaxAge"].clone(), s(json!({ "stuckMaxAge": 0 }))["stuckMaxAge"].clone(), defaults()["stuckSkipped"].clone()), (json!(14), json!(1), json!({})));
+        assert_eq!(s(json!({ "stuckSkipped": { "noreview:https://h/g/a/pull/9": 1762650000000_i64, "bad": "x", "": 5, "branch:g/a:x": -1, "idle:g/a#3": "1762650000000" } }))["stuckSkipped"],
+            json!({ "noreview:https://h/g/a/pull/9": 1762650000000_i64, "idle:g/a#3": 1762650000000_i64 }));
+        assert_eq!(s(json!({ "stuckSkipped": [1] }))["stuckSkipped"], json!({}), "not a map: kept as it was");
+        assert_eq!((s(json!({ "stuckNoReview": 500 }))["stuckNoReview"].clone(), s(json!({ "stuckIdle": "0" }))["stuckIdle"].clone(), s(json!({ "stuckOn": "no" }))["stuckOn"].clone()), (json!(168), json!(1), json!(true)));
     }
 
     #[test]
