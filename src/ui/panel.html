@@ -68,6 +68,16 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .hb .confirm{display:flex;flex-direction:column;gap:8px;margin-top:var(--s3);padding:10px 12px;border:1px solid var(--coral);border-radius:14px;background:var(--coral-soft)}
 .hb .confirm p{margin:0;font-weight:600;color:var(--coral-ink)}.hb .confirm div{display:flex;gap:6px}
 .btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}.btn.danger{color:var(--coral-ink)}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}.btn.ghost:hover{border-color:var(--line-strong)}
+/* stuck work: neutral, not "needs you now" */
+.stk{display:flex;flex-direction:column;gap:var(--s2);margin:0 0 var(--s6);padding:var(--s3) var(--s4);background:var(--surface);border:1px solid var(--line);border-radius:22px}
+.stl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.stl li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 12px;padding:8px 10px 8px 14px;border:1px solid var(--line);border-radius:14px}
+.sk-tx{min-width:0;display:flex;flex-direction:column;gap:2px}
+.sk-tx .tt1{min-width:0;font-weight:600;font-size:var(--t-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sk-tx .id{font-weight:500;margin-right:6px}
+.sk-tx .why{font-size:var(--t-xs);color:var(--ink-3)}
+.stl .acts{margin:0;gap:6px;flex-wrap:nowrap}
+.sk-old summary{cursor:pointer;width:max-content;font-size:var(--t-xs);color:var(--ink-3)}.sk-old[open] summary{margin-bottom:var(--s2)}
 .icon-btn{flex:none;width:36px;height:36px;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);cursor:pointer;font-size:15px}
 .icon-btn:hover{border-color:var(--ink-3)}
 :focus-visible{outline:2px solid var(--ink);outline-offset:3px}
@@ -252,7 +262,7 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
   .step[aria-pressed=true]{border-color:var(--ink);box-shadow:var(--lift)}
   .d-hi h2{font-size:var(--t-xl)}
   .aq{padding:var(--s3);border-radius:18px}
-  .ap{grid-template-columns:36px minmax(0,1fr)}.ap .acts,.ap>.note{grid-column:1/-1;flex-wrap:wrap;max-width:none}
+  .ap{grid-template-columns:36px minmax(0,1fr)}.ap .acts,.ap>.note{grid-column:1/-1;flex-wrap:wrap;max-width:none}.stl li{grid-template-columns:minmax(0,1fr)}
   .ap-who{flex-wrap:wrap}.ap-who .pj{flex-basis:100%}.ap-who .pj::before{content:none}
   .vr{grid-template-columns:minmax(0,1fr)}.vr .acts{flex-wrap:wrap}
 }
@@ -462,7 +472,19 @@ input[type=number]{width:104px}
 .guide{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s3) var(--s6)}
 .guide li{display:grid;grid-template-columns:40px minmax(0,1fr);gap:var(--s3);align-items:center;font-size:var(--t-sm)}
 .guide .sprite{width:40px;height:40px}.guide .st-waiting .sprite{background:var(--coral-soft);box-shadow:inset 0 0 0 1px var(--coral)}.guide .st-done .sprite{background:var(--mint-soft)}.guide .st-idle .sprite svg{opacity:.6}.guide-more{margin:var(--s4) 0 0;padding-left:1.2em;font-size:var(--t-sm);display:grid;gap:var(--s2)}
-.news{margin:0;padding-left:1.2em;display:grid;gap:var(--s2);font-size:var(--t-sm)}
+/* the tour of what is new: the element a step points at stays lit, the rest dims; one bubble beside it */
+.tour{position:fixed;inset:0;z-index:50}
+.tour-hole{position:fixed;border-radius:14px;box-shadow:0 0 0 2px var(--ink),0 0 0 100vmax oklch(20% .02 266 / .55);pointer-events:none;transition:all 200ms var(--ease)}
+.tour-hole.none{left:50%!important;top:50%!important;width:0!important;height:0!important;box-shadow:0 0 0 100vmax oklch(20% .02 266 / .55)}
+.tour-pop{position:fixed;display:flex;flex-direction:column;gap:var(--s2);max-height:calc(100dvh - 24px);overflow:auto;padding:var(--s4) var(--s4) var(--s3);background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);border-radius:18px;box-shadow:var(--lift)}
+.tour-pop h2{font-size:var(--t-lg)}
+.tour-pop p{margin:0;font-size:var(--t-sm);color:var(--ink-2)}
+.tour-pop .n{font-size:var(--t-xs);font-weight:600;color:var(--ink-3)}
+.tour-pop .acts{margin:var(--s1) 0 0;justify-content:flex-end;gap:var(--s2)}
+.tour-pop .acts .skip{margin-right:auto}
+.tour-art{display:flex;gap:var(--s2)}
+.tour-art .sprite{width:36px;height:36px;border-radius:10px}
+.tour-art .st-waiting .sprite{background:var(--coral-soft);box-shadow:inset 0 0 0 1px var(--coral)}
 .steps{list-style:none;margin:0;padding:0}
 .steps li{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:var(--s4);align-items:center;padding:var(--s4) 0;border-top:1px solid var(--line)}
 .steps .num{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:var(--t-sm);background:var(--n-200)}
@@ -546,6 +568,7 @@ input[type=number]{width:104px}
 <section id="tab-settings" hidden><div class="set-wrap" id="settings"></div></section>
 <section id="tab-setup" hidden><div class="setup-wrap" id="setup"></div></section>
 <div class="toasts" id="toasts"></div>
+<div class="tour" id="tour" role="dialog" aria-modal="true" aria-labelledby="tour-h" hidden><div class="tour-hole" id="tour-hole"></div><div class="tour-pop" id="tour-pop"></div></div>
 
 <script src="/ui/i18n.js"></script>
 <script src="/ui/creature.js"></script>
@@ -553,6 +576,7 @@ input[type=number]{width:104px}
 <script src="/ui/log.js"></script>
 <script src="/ui/board.js"></script>
 <script src="/ui/habits.js"></script>
+<script src="/ui/tour.js"></script>
 <script>
 // The panel shows after 1 s at the latest. Set first, so an error further down cannot leave it hidden (body.boot).
 setTimeout(() => document.body.classList.remove('boot'), 1000);
@@ -744,6 +768,54 @@ async function habNo(id) {
   await save({ habitsNo: { ...s.habitsNo, [c.kind]: (s.habitsNo?.[c.kind] || 0) + 1 }, habitsHidden: Object.fromEntries(hidden) }, { rerender: false });
   nextFocus = 'hab-undo';
   render();
+// Work that stands still (BOARD.stuck), minus what you skipped (kept in Bobix's settings; outside the app, in this
+// page only); nothing while Settings → "Nudge about stuck work" is off.
+const stuckCfg = () => ({ ...state?.settings, stuckSkipped: { ...state?.settings?.stuckSkipped, ...skippedHere } });
+const stuckList = () => BOARD.stuck(model, list, stuckCfg());
+const forgeOf = p => (model?.repos || []).find(r => r.path === p)?.forge;
+const prOf = x => ((x.review || (forgeOf(x.project) === 'gitlab' ? 'mr' : 'pr')) === 'mr' ? 'MR' : 'PR'); // GitLab says merge request
+const refOf = x => { const n = (String(x.url || '').match(/(\d+)\/?$/) || [])[1]; return n ? (x.review === 'mr' ? '!' : '#') + n : ''; };
+function stuckWhy(x) {
+  const v = { x: ago(Date.now() - x.ms), n: x.limit, pr: prOf(x), ref: refOf(x), c: x.commits };
+  return `${BOARD.short(x.project)} · ${T('why.' + x.kind, v)}`;
+}
+const nudgeLabel = x => (x.kind === 'noreview' ? T('nudge.ask') : x.branch && x.kind !== 'idle' ? T('nudge.newReview', { pr: prOf(x) }) : T('nudge.open'));
+const stuckRow = x => `<li><span class="sk-tx"><span class="tt1">${x.iid != null ? `<span class="id">#${x.iid}</span>` : ''}${esc(x.title)}</span><span class="why">${esc(stuckWhy(x))}</span></span>
+  <span class="acts">${bridge || x.kind === 'noreview' ? `<button class="btn sm" type="button" data-nudge="${esc(x.id)}" data-f="nudge:${esc(x.id)}">${esc(nudgeLabel(x))}</button>` : ''}<button class="btn sm ghost" type="button" data-skip="${esc(x.id)}" data-f="skip:${esc(x.id)}">${esc(T('day.skip'))}</button></span></li>`;
+// Today's stuck work as lines; what has been quiet for longer (old) folds into one quiet line at the end.
+function stuckHTML() {
+  const all = stuckList(), xs = all.filter(x => !x.old), old = all.filter(x => x.old);
+  if (!all.length) return '';
+  const shown = opened.has('stuck') ? xs : xs.slice(0, 3);
+  return `<section class="stk" id="d-stuck" aria-labelledby="h-stuck">${head('stuck', T('day.stuck'), xs.length, esc(T('day.stuck.tip')))}
+    ${xs.length ? `<ul class="stl">${shown.map(stuckRow).join('')}</ul>` : ''}
+    ${xs.length > 3 ? moreBtn('stuck', xs.length - 3) : ''}
+    ${old.length ? `<details class="sk-old"${opened.has('stuck-old') ? ' open' : ''}><summary data-flag="stuck-old" data-f="flag:stuck-old">${esc(T('day.stuckOld', { n: old.length, d: stuckCfg().stuckMaxAge ?? 14 }))}</summary><ul class="stl">${old.map(stuckRow).join('')}</ul></details>` : ''}</section>`;
+}
+// Skip: kept with the last activity it had, so it comes back only once it moves again. In the app it goes to Bobix's
+// own settings (the newest 300); elsewhere this page keeps it.
+async function skip(id) {
+  const x = BOARD.stuck(model, list, { ...state?.settings, stuckSkipped: {} }).find(y => y.id === id);
+  if (!x) return;
+  if (bridge && state) {
+    const next = Object.entries({ ...state.settings.stuckSkipped, [id]: x.at }).sort((a, b) => b[1] - a[1]).slice(0, 300);
+    if (!(await save({ stuckSkipped: Object.fromEntries(next) }, { rerender: false }))) return;
+  } else skippedHere[id] = x.at;
+  toast(T('day.skipped'));
+  render();
+}
+// The next step for one: ask for a review (its link copied), open the forge's new PR / MR page, or open the session.
+async function nudge(id) {
+  const x = stuckList().find(y => y.id === id);
+  if (!x) return;
+  if (x.kind === 'noreview') {
+    try { await navigator.clipboard.writeText(x.url); } catch { return toast(x.url); }
+    return toast(T('nudge.copied', { pr: prOf(x), ref: refOf(x) }));
+  }
+  if (!bridge) return;
+  if (x.branch && x.kind !== 'idle') return (await bridge.newReview(x.project, x.branch)) || toast(T('nudge.fail'));
+  const r = await bridge.openSession(x.session);
+  if (r && !r.ok) openFail(r);
 }
 
 function queueHTML() {
@@ -856,6 +928,7 @@ function dayHTML() {
   const idle = lz.length && lz.every(s => look(s) === 'idle');
   return `<div class="d-top"><div class="d-hi"><h2>${esc(date)}</h2><p>${esc(T('day.sub'))}</p></div><div class="d-acts"><button class="btn" type="button" data-standup data-f="standup">${T('su.title')}</button><button class="btn pri" type="button" data-report data-f="report">${T('day.report')}</button></div></div>
     ${queueHTML()}
+    ${stuckHTML()}
     ${habitsHTML()}
     <ol class="flow" aria-label="${esc(T('day.flow'))}">${['todo', 'doing', 'verify', 'done'].map(k => `<li><button class="step" type="button" data-step="${k}" data-f="step:${k}" aria-pressed="${k === cur}" aria-controls="d-${k}"><b>${count[k]}</b><span>${esc(T('day.' + k))}</span></button></li>`).join('')}</ol>
     <div class="dg">
@@ -974,6 +1047,7 @@ $('#pane').addEventListener('click', async e => {
 
 // ---------- work: GitLab / GitHub issues assigned to you ----------
 let work = { status: 'off' }, model = {}, lastProjects = '', waiting = []; // waiting: New pressed, no new session there yet
+const skippedHere = {}; // stuck items skipped outside the app (this page only); in the app: settings.stuckSkipped
 const today = () => BOARD.day(Date.now());
 // An egg in the pets' pixel style, for a project.
 function eggSVG(seed) {
@@ -1029,10 +1103,11 @@ $('#st-go').addEventListener('click', async () => {
   if (r?.mode === 'new' && r.ok) toast(T(copied ? 'start.done' : 'start.done.nocopy'));
   else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
 });
-// Stuck for the stand-up: requests waiting for you, and your PRs / MRs whose review asked for changes.
+// Stuck for the stand-up: requests waiting for you, the board's stuck work, and your PRs / MRs whose review asked for changes.
 function stuckLines() {
   const title = (p, iid) => (model.issues || []).find(x => x.project === p && x.iid === iid)?.title || '';
   return [...waitingList().map(s => { const t = ticketOf(s); return { text: t ? `[${BOARD.short(t[1].path)}] #${t[0].iid} ${t[0].title}` : s.title || s.name, why: T('su.waiting', { x: ago(s.since) }) }; }),
+    ...stuckList().filter(x => !x.old).map(x => ({ text: `[${BOARD.short(x.project)}] ${x.iid != null ? '#' + x.iid + ' ' : ''}${x.title}`, why: stuckWhy(x).split(' · ').slice(1).join(' · ') })),
     ...(model.reviews || []).filter(r => r.review === 'changes_requested').map(r => { const l = r.issues[0]; return { text: l ? `[${BOARD.short(l.project)}] #${l.iid} ${title(l.project, l.iid)}`.trim() : r.url, why: T('su.changes') }; })];
 }
 function openStandup() {
@@ -1098,6 +1173,8 @@ $('#day').addEventListener('click', async e => {
     return render();
   }
   if (d.standup !== undefined) return openStandup();
+  if (d.skip) return skip(d.skip);
+  if (d.nudge) return nudge(d.nudge);
   if (d.tabGo) return showTab(d.tabGo);
   if (!bridge) return;
   if (d.url) return bridge.openIssue(d.url);
@@ -1154,6 +1231,14 @@ const SECTIONS = [
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
     { k: 'checkUpdates', type: 'switch' },
   ]],
+  ['set.section.stuck', [
+    { k: 'stuckOn', type: 'switch' },
+    { k: 'stuckNoPr', type: 'number', min: 1, max: 72, step: 1, unit: 'set.hours', dim: s => !s.stuckOn },
+    { k: 'stuckNoReview', type: 'number', min: 1, max: 168, step: 1, unit: 'set.hours', dim: s => !s.stuckOn },
+    { k: 'stuckBranch', type: 'number', min: 1, max: 72, step: 1, unit: 'set.hours', dim: s => !s.stuckOn },
+    { k: 'stuckIdle', type: 'number', min: 1, max: 72, step: 1, unit: 'set.hours', dim: s => !s.stuckOn },
+    { k: 'stuckMaxAge', type: 'number', min: 1, max: 365, step: 1, unit: 'set.days', dim: s => !s.stuckOn },
+  ]],
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
     { k: 'github', type: 'switch' },
@@ -1162,6 +1247,7 @@ const SECTIONS = [
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
     { k: 'autostart', type: 'switch' },
+    { k: 'tour', type: 'tour' },
   ]],
   ['set.section.advanced', [{ k: 'port', type: 'port' }, { k: 'reset', type: 'reset' }]],
 ];
@@ -1189,6 +1275,7 @@ function control(r, s) {
     if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
     return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
   }
+  if (r.type === 'tour') return `<button class="btn" type="button" data-act="tour">${T('set.tour.open')}</button>`;
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
 }
@@ -1205,7 +1292,7 @@ function renderSettings() {
       <span class="saved" id="saved" role="status">${T('set.saved')}</span>
     </aside>
     <div>${SECTIONS.map(([title, rows]) => `<section class="sec"><h2>${T(title)}</h2>${rows.map(r => `
-      <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}">
+      <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}" data-row="${r.k}">
         <div><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`)}${r.k === 'dnd' && dndLeft(s) ? ' ' + T('set.dnd.left', { n: dndLeft(s) }) : ''}</div>` : ''}</div>
         <div class="ctl">${control(r, s)}</div>
       </div>`).join('')}</section>`).join('')}${habitsSettingsHTML(s)}</div>`;
@@ -1308,6 +1395,7 @@ $('#settings').addEventListener('click', async e => {
     toast(T('hab.set.wiped'));
     return $('#f-habitsOn')?.focus();
   }
+  if (t.dataset.act === 'tour') return tourStart(false);
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
     if (v === state.settings.port) return;
@@ -1504,7 +1592,7 @@ $('#pd-dialog').addEventListener('close', e => { // Esc, Cancel, Save or an erro
   if (!pd.saved) bridge.petImage(pd.id, 'cancel');
 });
 
-// ---------- first-run guide and "What's new" (shown once each; see news_for in src-tauri/src/settings.rs) ----------
+// ---------- first-run guide, and the tour of what is new (shown once each; see news_for in src-tauri/src/settings.rs) ----------
 function guideHTML() {
   const art = st => `<span class="sprite">${creature('bobix', st)}</span>`;
   return `<ul class="guide">${['working', 'waiting', 'done', 'idle'].map(st => `<li class="st-${st}">${art(st)}<span>${esc(T('guide.' + st))}</span></li>`).join('')}</ul>
@@ -1513,26 +1601,77 @@ function guideHTML() {
 let guideOut = false;
 function renderIntro() {
   const box = $('#intro');
-  const showNews = !!state?.news;
   // The guide waits for a first pet, then stays until Got it, even when that session ends.
   guideOut ||= !!state && !state.settings.guideSeen && list.length > 0;
   const showGuide = guideOut && !state.settings.guideSeen;
-  const key = JSON.stringify([showNews && state.news, showGuide, lang]);
+  const key = JSON.stringify([showGuide, lang]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
-  box.innerHTML = (showNews ? `<section class="card" aria-labelledby="news-h"><h2 id="news-h">${esc(T('news.title', { v: state.news }))}</h2>
-      <ul class="news">${[...T('news.items').split('\n'), ...(state.platform === 'linux' ? [T('news.items.linux')] : [])].map(x => `<li>${esc(x)}</li>`).join('')}</ul>
-      <div class="acts"><button class="btn" type="button" data-intro="news">${T('news.ok')}</button></div></section>` : '')
-    + (showGuide ? `<section class="card" aria-labelledby="guide-h"><h2 id="guide-h">${esc(T('guide.title'))}</h2>${guideHTML()}
+  box.innerHTML = (showGuide ? `<section class="card" aria-labelledby="guide-h"><h2 id="guide-h">${esc(T('guide.title'))}</h2>${guideHTML()}
       <div class="acts"><button class="btn pri" type="button" data-intro="guide">${T('guide.ok')}</button></div></section>` : '');
 }
 $('#intro').addEventListener('click', async e => {
   const which = e.target.closest('[data-intro]')?.dataset.intro;
   if (!which || !bridge) return;
-  if (which === 'news') { state.settings = await bridge.setSettings({ seenVersion: state.news }); state.news = null; }
-  else state.settings = await bridge.setSettings({ guideSeen: true });
+  state.settings = await bridge.setSettings({ guideSeen: true });
   renderIntro();
 });
+
+// The tour: a few steps, each lighting up the real element it talks about (TOUR.STEPS in tour.js). It opens by itself
+// once for a version with news (state.news), and from Settings → Tour; Skip and Done both mark that version seen.
+let tourAt = -1, tourNews = false;
+function tourStart(news) {
+  tourNews = news; tourAt = 0;
+  select(null);
+  document.querySelector('dialog[open]')?.close();
+  $('#tour').hidden = false;
+  tourShow();
+}
+async function tourEnd() {
+  tourAt = -1; tab = null; // the board picks its section again
+  $('#tour').hidden = true;
+  showTab(tourNews ? 'sessions' : 'settings'); // back where it was opened from
+  if (tourNews && bridge && state?.news) { state.settings = await bridge.setSettings({ seenVersion: state.news }); state.news = null; }
+}
+function tourShow() {
+  const st = TOUR.STEPS[tourAt], n = TOUR.STEPS.length, last = tourAt === n - 1;
+  if ($('#tab-' + st.tab).hidden) showTab(st.tab);
+  if (st.section && narrow() && tab !== st.section) { tab = st.section; render(); }
+  if (st.open === 'ticket' && !document.querySelector('#d-doing .stg')) {
+    const ts = [...document.querySelectorAll('#d-doing .tr-main')];
+    (ts.find(b => b.querySelector('.dup')) || ts[0])?.click();
+  }
+  const target = st.at.map(q => document.querySelector(q)).find(e => e && e.getClientRects().length);
+  const art = st.art ? `<div class="tour-art" aria-hidden="true">${['working', 'waiting', 'done', 'idle'].map(k => `<span class="st-${k}"><span class="sprite">${creature('bobix', k)}</span></span>`).join('')}</div>` : '';
+  $('#tour-pop').innerHTML = `<span class="n">${tourAt + 1} / ${n}</span><h2 id="tour-h">${esc(T(`tour.${st.key}.title`))}</h2>${art}<p>${esc(T(`tour.${st.key}.body`))}</p>
+    <div class="acts">${last ? '' : `<button class="btn ghost skip" type="button" data-tour="skip">${T('tour.skip')}</button>`}${tourAt ? `<button class="btn" type="button" data-tour="back">${T('tour.back')}</button>` : ''}<button class="btn pri" type="button" data-tour="next">${T(last ? 'tour.done' : 'tour.next')}</button></div>`;
+  target?.scrollIntoView({ block: 'center', behavior: 'instant' });
+  tourPlace(target);
+  $('#tour-pop [data-tour="next"]').focus();
+}
+function tourPlace(target = TOUR.STEPS[tourAt] && TOUR.STEPS[tourAt].at.map(q => document.querySelector(q)).find(e => e && e.getClientRects().length)) {
+  if (tourAt < 0) return;
+  const r = target?.getBoundingClientRect(), hole = $('#tour-hole'), pop = $('#tour-pop'), pad = 6;
+  hole.classList.toggle('none', !r);
+  if (r) Object.assign(hole.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + 2 * pad + 'px', height: r.height + 2 * pad + 'px' });
+  pop.style.width = Math.min(380, innerWidth - 24) + 'px';
+  const p = TOUR.place(r ? { left: r.left - pad, top: r.top - pad, width: r.width + 2 * pad, height: r.height + 2 * pad } : null, innerWidth, innerHeight, 380, pop.offsetHeight);
+  Object.assign(pop.style, { left: p.left + 'px', top: p.top + 'px', width: p.width + 'px' });
+}
+$('#tour').addEventListener('click', e => {
+  const b = e.target.closest('[data-tour]')?.dataset.tour;
+  if (b === 'skip' || (b === 'next' && tourAt === TOUR.STEPS.length - 1)) return tourEnd();
+  if (b === 'next' || b === 'back') { tourAt += b === 'next' ? 1 : -1; tourShow(); }
+});
+$('#tour').addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); tourEnd(); }
+  if (e.key === 'Tab') { // focus stays in the bubble
+    const bs = [...$('#tour-pop').querySelectorAll('button')], i = bs.indexOf(document.activeElement);
+    e.preventDefault(); bs[(i + (e.shiftKey ? bs.length - 1 : 1)) % bs.length].focus();
+  }
+});
+addEventListener('resize', () => tourPlace());
+addEventListener('scroll', () => tourPlace(), true);
 
 // ---------- setup ----------
 async function renderSetup(note) {
@@ -1596,7 +1735,7 @@ function applyLang() {
 $('#logo').innerHTML = creature('bobix', 'done');
 // Shown once its language and the first sessions are in, so the bar doesn't jump as they arrive (fallback: top of this script).
 const pending = new Set(['state', 'list']);
-const arrived = k => pending.delete(k) && !pending.size && document.body.classList.remove('boot');
+const arrived = k => { if (pending.delete(k) && !pending.size) { document.body.classList.remove('boot'); if (state?.news) tourStart(true); } };
 const es = new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || ''));
 es.onopen = () => { $('#conn').textContent = T('conn.ok'); $('#conn').className = 'conn'; };
 es.onerror = () => { $('#conn').textContent = T('conn.lost'); $('#conn').className = 'conn lost'; };

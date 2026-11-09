@@ -712,6 +712,74 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('board: stuck work, one item each, past the limits in Settings', () => {
+  const B = require('../src/ui/board');
+  const now = Date.UTC(2026, 10, 9, 10), H = 3600e3, iso = t => new Date(t).toISOString();
+  const git = (branch, own, ago) => ({ branch, own, last: { t: now - ago * H, subject: 'x' } });
+  const sessions = [
+    { id: 's1', state: 'done', since: now - 3 * H, updated: now - 3 * H, git: git('1-cart', 2, 5) }, // finished 3 h ago, no PR
+    { id: 's2', state: 'done', since: now - 1 * H, updated: now - 1 * H }, // finished 1 h ago: not yet
+    { id: 's3', state: 'idle', since: now - 5 * H, updated: now - 5 * H, git: git('3-login', 0, 9) }, // resting 5 h
+    { id: 's4', state: 'working', since: now - 9 * H, updated: now }, // works: never stuck
+    { id: 's5', state: 'done', since: now - 9 * H, updated: now - 9 * H }, // its issue has a PR
+    { id: 's6', state: 'done', since: now - 7 * H, updated: now - 7 * H, git: git('feat/cache', 4, 6) }, // no issue, 4 commits, 6 h
+    { id: 's7', state: 'idle', since: 0, updated: 0, git: git('main', 0, 50) },
+    { id: 's8', state: 'waiting', since: now, updated: now, git: git('feat/busy', 3, 9) },
+    { id: 's9', state: 'idle', since: 0, updated: 0, git: git('feat/new', 3, 1) },
+  ];
+  const on = (...ids) => ids.map(id => ({ id, why: 'branch' }));
+  const model = {
+    issues: [
+      { project: 'g/app', iid: 1, title: 'Cart', sessions: on('s1'), reviews: [] }, { project: 'g/app', iid: 2, title: 'Two', sessions: on('s2'), reviews: [] },
+      { project: 'g/app', iid: 3, title: 'Login', sessions: on('s3'), reviews: [] }, { project: 'g/app', iid: 4, title: 'Four', sessions: on('s4', 's3'), reviews: [] },
+      { project: 'g/app', iid: 5, title: 'Five', sessions: on('s5'), reviews: [{ url: 'https://h/g/app/pull/9', why: 'closes' }] },
+      { project: 'g/app', iid: 6, title: 'Six', sessions: [], reviews: [] },
+    ],
+    reviews: [
+      { kind: 'pr', url: 'https://h/g/app/pull/9', project: 'g/app', branch: 'r-branch', created: iso(now - 26 * H), reviewed: false, issues: [{ project: 'g/app', iid: 5, why: 'closes' }] },
+      { kind: 'mr', url: 'https://h/g/web/-/merge_requests/3', project: 'g/web', branch: 'x', created: iso(now - 30 * H), reviewed: true, issues: [] },
+      { kind: 'pr', url: 'https://h/g/app/pull/10', project: 'g/app', branch: 'y', created: iso(now - 1 * H), reviewed: false, issues: [] },
+      { kind: 'pr', url: 'https://h/g/app/pull/11', project: 'g/app', branch: 'z', created: null, reviewed: false, issues: [] },
+    ],
+    branches: [['1-cart', 's1'], ['3-login', 's3'], ['feat/cache', 's6'], ['main', 's7'], ['feat/busy', 's8'], ['feat/new', 's9'], ['r-branch', 's5']]
+      .map(([name, s]) => ({ project: 'g/app', name, issue: null, sessions: [s], reviews: [] })),
+  };
+  model.branches.find(b => b.name === 'r-branch').sessions = ['s5'];
+  sessions.find(s => s.id === 's5').git = git('r-branch', 2, 40);
+  const got = B.stuck(model, sessions, undefined, now);
+  assert.deepEqual(got.map(x => [x.kind, x.iid ?? x.title]), [['nopr', 1], ['noreview', 5], ['branch', 'feat/cache'], ['idle', 3]],
+    'finished with no PR, PR not reviewed, branch with commits and no PR, resting; nothing that works, waits, is too new, has a PR or no commits of its own');
+  assert.deepEqual([got[0].branch, got[0].session, got[0].limit, got[0].ms], ['1-cart', 's1', 2, 3 * H]);
+  assert.deepEqual([got[1].url, got[1].review, got[2].commits, got[3].session], ['https://h/g/app/pull/9', 'pr', 4, 's3']);
+  assert.deepEqual(B.stuck(model, sessions, { stuckOn: false }, now), []);
+  assert.deepEqual(B.stuck(model, sessions, { stuckNoPr: 4, stuckNoReview: 48, stuckBranch: 5, stuckIdle: 6 }, now).map(x => [x.kind, x.title]), [['branch', 'feat/cache'], ['branch', '1-cart']],
+    'longer limits: a finished session not yet listed leaves its branch to the branch rule; the oldest first');
+  assert.deepEqual(B.stuck(null, sessions, undefined, now), []);
+  assert.ok(got.every(x => !x.old) && got[0].at === now - 3 * H, 'all of these moved within 14 days');
+});
+
+test('board: stuck work quiet for weeks is old, and a skip lasts until the item moves again', () => {
+  const B = require('../src/ui/board');
+  const now = Date.UTC(2026, 10, 9, 10), H = 3600e3, D = 24 * H, iso = t => new Date(t).toISOString();
+  const sessions = [{ id: 's1', state: 'done', since: now - 3 * H, updated: now - 3 * H }, { id: 'o1', state: 'idle', since: now - 30 * D, updated: now - 30 * D, git: { branch: 'feat/old', own: 2, last: { t: now - 31 * D } } }];
+  const model = {
+    issues: [{ project: 'g/a', iid: 1, title: 'New', sessions: [{ id: 's1' }], reviews: [] }],
+    reviews: [{ kind: 'pr', url: 'u/pull/1', project: 'g/a', branch: 'x', created: iso(now - 532 * D), updated: iso(now - 470 * D), reviewed: false, issues: [] },
+      { kind: 'pr', url: 'u/pull/2', project: 'g/a', branch: 'y', created: iso(now - 40 * D), updated: iso(now - 2 * D), reviewed: false, issues: [] }],
+    branches: [{ project: 'g/a', name: 'feat/old', issue: null, sessions: ['o1'], reviews: [] }],
+  };
+  const pick = xs => xs.map(x => [x.id, x.old]);
+  assert.deepEqual(pick(B.stuck(model, sessions, undefined, now)), [['nopr:g/a#1', false], ['noreview:u/pull/1', true], ['noreview:u/pull/2', false], ['branch:g/a:feat/old', true]],
+    'quiet for over 14 days (by its last change, not its age): old');
+  assert.deepEqual(pick(B.stuck(model, sessions, { stuckMaxAge: 60 }, now)).filter(x => x[1]).map(x => x[0]), ['noreview:u/pull/1'], 'the limit is a setting (days)');
+  const all = B.stuck(model, sessions, undefined, now), at = id => all.find(x => x.id === id).at;
+  const skipped = { 'nopr:g/a#1': at('nopr:g/a#1'), 'noreview:u/pull/2': at('noreview:u/pull/2') - 1 };
+  assert.deepEqual(B.stuck(model, sessions, { stuckSkipped: skipped }, now).map(x => x.id), ['noreview:u/pull/1', 'noreview:u/pull/2', 'branch:g/a:feat/old'],
+    'skipped: gone while nothing moved; one that changed since it was skipped comes back');
+  sessions[0].updated = now; // the session moved again
+  assert.ok(B.stuck(model, sessions, { stuckSkipped: skipped, stuckNoPr: 0 }, now).some(x => x.id === 'nopr:g/a#1'));
+});
+
 test('board: each issue in one stage of the day, and the end-of-day report', () => {
   const B = require('../src/ui/board');
   const now = new Date(2026, 10, 8, 17, 0).getTime(), yesterday = new Date(2026, 10, 7, 23, 0).toISOString();
@@ -849,4 +917,27 @@ test('habits: days of activity, the first-days state, and each suggestion rule',
   const morningId = Hb.suggest(all, { model, sessions: [] }, {}, now).cards[0].id;
   assert.deepEqual(ids({ habitsHidden: { [morningId]: now } }), ['allow', 'recurring', 'skill']);
   assert.deepEqual(ids({ habitsNo: { morning: 3 } }), ['allow', 'recurring', 'skill'], '"Không cần" 3 times: no more start-of-day');
+});
+
+test('tour: every step has its words in both languages, NEWS is this version, and the bubble stays on screen', () => {
+  const TOUR = require('../src/ui/tour');
+  const I18N = require('../src/ui/i18n');
+  assert.ok(TOUR.STEPS.length >= 6 && TOUR.STEPS.length <= 8, 'about 6 to 8 steps');
+  for (const s of TOUR.STEPS) {
+    assert.ok(['sessions', 'settings'].includes(s.tab) && s.at.length, s.key);
+    for (const lang of ['en', 'vi']) for (const k of ['title', 'body']) assert.ok(I18N.STR[lang][`tour.${s.key}.${k}`], `${lang} tour.${s.key}.${k}`);
+  }
+  assert.equal(I18N.NEWS, require('../package.json').version.split('-')[0], 'the tour opens once for this version');
+  const on = (p, vw, vh, bh) => p.left >= 12 && p.top >= 12 && p.left + p.width <= vw - 12 && p.top + bh <= vh - 12;
+  // wide: below the element when it fits, else above
+  assert.deepEqual(TOUR.place({ left: 100, top: 100, width: 300, height: 40 }, 1440, 900, 380, 160), { left: 100, top: 152, width: 380 });
+  assert.deepEqual(TOUR.place({ left: 1300, top: 800, width: 120, height: 40 }, 1440, 900, 380, 160), { left: 1048, top: 628, width: 380 });
+  // a tall element: neither fits, it sits at the bottom
+  const tall = TOUR.place({ left: 0, top: 20, width: 800, height: 860 }, 1440, 900, 380, 160);
+  assert.ok(on(tall, 1440, 900, 160), JSON.stringify(tall));
+  // no element: centred
+  assert.deepEqual(TOUR.place(null, 1440, 900, 380, 160), { left: 530, top: 370, width: 380 });
+  // narrow: across the bottom, or the top when the element is low
+  assert.deepEqual(TOUR.place({ left: 10, top: 100, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 688, width: 396 });
+  assert.deepEqual(TOUR.place({ left: 10, top: 700, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 12, width: 396 });
 });

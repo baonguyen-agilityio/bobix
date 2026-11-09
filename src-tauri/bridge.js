@@ -40,6 +40,7 @@
     refreshWork: () => invoke('work_refresh'), // GitLab issues, read again now (only while GitLab is on)
     openIssue: url => invoke('work_open', { url }), // in the browser; only links to the configured GitLab
     cancelNew: dir => invoke('work_cancel', { dir }), // stop waiting for a new session in that folder
+    newReview: (project, branch) => invoke('work_new_review', { project, branch }), // the forge's new PR / MR page for that branch
     // prompt: prefilled in the new session's prompt box (claude://code/new?q=…)
     // dir: a folder the habit log names, for a project no session has open here now (Bobix checks its git remote)
     startIssue: (path, iid, prompt, dir) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_start', { path, iid, prompt: typeof prompt === 'string' ? prompt : null, dir: typeof dir === 'string' ? dir : null }) : Promise.resolve(null)),

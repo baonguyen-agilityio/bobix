@@ -790,6 +790,13 @@ fn habits_note(what: String, b: B) {
 #[tauri::command]
 fn show_board(b: B, app: AppHandle) { panel::show(&app, &b, None, Some("sessions".into()), None); }
 
+// Stuck work: the page for a new pull / merge request from that branch, in the browser.
+#[tauri::command]
+fn work_new_review(project: String, branch: String, b: B) -> bool {
+    let url = { let c = b.core.lock().unwrap(); work::new_review_url(&model::Model::build(&c.settings, &c.sessions, &c.work), &project, &branch) };
+    url.is_some_and(|u| tauri_plugin_opener::open_url(u, None::<&str>).is_ok())
+}
+
 // Stop waiting for a new session in that folder.
 #[tauri::command]
 fn work_cancel(dir: String, b: B) {
@@ -954,7 +961,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board"];
+    "work_brief", "work_new_review", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1049,7 +1056,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, habits_read, habits_clear, habits_note, show_board,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, habits_read, habits_clear, habits_note, show_board,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -1186,23 +1193,26 @@ mod snapshot_tests {
     // same, plus two things nothing read before: each issue's "stage" and the model itself ("model").
     #[test]
     fn pages_get_the_same_json() {
-        let mut got = snapshot_of(&fixture());
+        let c = fixture();
+        let mut got = snapshot_of(&c);
         let added = got.as_object_mut().unwrap().shift_remove("model").expect("the model goes along");
         let mut stages = vec![];
         for side in ["local", "away"] {
             for i in got["work"][side].as_array_mut().unwrap().iter_mut().flat_map(|g| g["issues"].as_array_mut().unwrap()) {
-                // the rule the board had in src/ui/board.js: i.review ? verify : i.sessions.length ? doing : todo; doing now
-                // splits off "ask" (a session on it waits for approval), which the board still lists as in progress
-                let was = if i.get("review").is_some_and(|r| r.as_str().is_some_and(|r| !r.is_empty())) { "verify" } else if i["sessions"].as_array().is_some_and(|a| !a.is_empty()) { "doing" } else { "todo" };
-                let was = if was == "doing" && i["stage"] == "ask" { "ask" } else { was };
+                // a session on it waiting for you (ask) or working (doing), open PR / MR or not; else an open PR / MR
+                // (verify); else a live session (doing); else todo
+                let st: Vec<&str> = i["sessions"].as_array().unwrap().iter().map(|id| c.sessions[id.as_str().unwrap()].state.as_str()).collect();
+                let review = i.get("review").is_some_and(|r| r.as_str().is_some_and(|r| !r.is_empty()));
+                let was = if st.contains(&"waiting") { "ask" } else if st.contains(&"working") { "doing" } else if review { "verify" } else if !st.is_empty() { "doing" } else { "todo" };
                 assert_eq!(i["stage"], was, "#{}", i["iid"]); stages.push((i["iid"].as_i64().unwrap(), i.as_object_mut().unwrap().shift_remove("stage").unwrap())); }
         }
         if std::env::var_os("BOBIX_WRITE_SNAPSHOT").is_some() { std::fs::write(SNAPSHOT, serde_json::to_string_pretty(&got).unwrap() + "\n").unwrap(); }
         let want: Value = serde_json::from_str(&std::fs::read_to_string(SNAPSHOT).unwrap()).unwrap();
         assert_eq!(serde_json::to_string_pretty(&got).unwrap(), serde_json::to_string_pretty(&want).unwrap(), "same JSON, same key order");
         let stage = |n: i64| stages.iter().find(|x| x.0 == n).unwrap().1.as_str().unwrap();
-        // an open PR / MR wins over a live session (#52, #55, #30: verify), then a live session (#54, #29: doing)
-        assert_eq!([52, 55, 54, 53, 29, 30, 32, 31, 1].map(stage), ["verify", "verify", "doing", "verify", "doing", "verify", "todo", "verify", "todo"]);
+        // a session still waiting or working on it keeps an issue out of review, open PR / MR or not (#52 waits: ask,
+        // #30 works: doing); an open PR / MR with its session resting is in review (#55); then a live session (#54, #29)
+        assert_eq!([52, 55, 54, 53, 29, 30, 32, 31, 1].map(stage), ["ask", "verify", "doing", "verify", "doing", "doing", "todo", "verify", "todo"]);
         assert_eq!(added, model::Model::build(&fixture().settings, &fixture().sessions, &fixture().work).json());
     }
 
@@ -1242,6 +1252,10 @@ mod snapshot_tests {
         assert_eq!(branch("team/shop", "30-cart"), (Some(30), vec![], 1), "worked on before, and the MR's source branch");
         assert_eq!(branch("acme/app", "feat/52-board"), (Some(52), vec!["p4".to_string()], 1));
         assert_eq!(branch("acme/app", "claude/otter"), (None, vec!["c3".to_string()], 0));
+        // stuck work: the forge's page for a new PR / MR, only for a project and a branch the model knows
+        assert_eq!(work::new_review_url(&m, "acme/app", "claude/otter").as_deref(), Some("https://github.com/acme/app/compare/claude/otter?expand=1"));
+        assert_eq!(work::new_review_url(&m, "team/shop", "29-login").as_deref(), Some("https://gitlab.example.com/team/shop/-/merge_requests/new?merge_request%5Bsource_branch%5D=29-login"));
+        assert_eq!([work::new_review_url(&m, "team/shop", "evil?x=1"), work::new_review_url(&m, "acme/other", "main")], [None, None]);
         // trackers off: no project, issue or review links; side sessions still know their parent
         let off = model::Model::build(&json!({}), &c.sessions, &c.work);
         assert!(off.issues.is_empty() && off.repos.is_empty() && off.reviews.is_empty() && off.sessions.iter().all(|x| x.issue.is_none() && x.repo.is_none()));
