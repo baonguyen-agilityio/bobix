@@ -2,8 +2,8 @@
 // land on another pet, on any name tag, balloon, bubble or card, or on another pet's effect (a prop, an aura, a bar), and
 // no two pets in sight ever stand on each other (also while one is dragged and let go, after which the line must be
 // evenly spaced again). Checked on the composited page: for each pet with an effect, a
-// screenshot of that effect alone against a screenshot of everything else on the page, pixel by pixel. Needs Chrome (CHROME_PATH, or the usual install place);
-// without it the test is skipped.
+// screenshot of that effect alone against a screenshot of everything else on the page, pixel by pixel. Also "show when
+// needed" (onDemand below). Needs Chrome (CHROME_PATH, or the usual install place); without it the test is skipped.
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs'), path = require('path'), os = require('os'), http = require('http'), zlib = require('zlib');
@@ -223,6 +223,78 @@ async function reducedMotion(b, url) {
   } finally { await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] }); }
 }
 
+// "Show when needed" (pets-ondemand.js), on a 1440×900 work area: only the sessions that need you get a pet, which
+// rises under its balloon from below the screen to past the top and never stops on the way, nor touches another pet;
+// pointed at, it stops and shows its card; Allow on the card answers and it goes; a finished task crosses once;
+// "do not disturb" hides them all and they come back after it. With reduced motion they stand near the bottom edge.
+async function onDemand(b, url, rm) {
+  const out = [], fail = m => out.push(`show when needed${rm ? ' (reduced motion)' : ''}: ${m}`);
+  await b.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  if (rm) await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  try {
+    await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+    const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
+    await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, petMode: 'ondemand', dndUntil: 0, zoneStart: 0, zoneEnd: 100, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })}); bobix.answer = (id, c) => { window.__ans = [id, c]; }`);
+    const n = await ev('__now()'), one = (id, o) => ses(id, { cwd: `/tmp/${id}`, state: 'working', tool: 'Bash', ctx: 60, since: n, ...o });
+    const list = [one('pa', { state: 'waiting', askTool: 'Bash', ask: 'npm test', answer: { id: 'a-pa', until: null } }), one('pb', { state: 'done' }), one('pc', { ctx: 18 }), one('pd'), one('pe')];
+    await ev(`__push(${JSON.stringify(list)})`);
+    const state = () => ev(`({ pets: [...OD.pets.values()].map(p => ({ id: p.s.id, y: p.y, box: p.box, hover: p.hover, leaving: !!p.leaving, card: p.el.querySelector('.card')?.offsetParent != null })), edge: document.querySelectorAll('.pet:not(.od)').length, pill: document.querySelector('#odPill span')?.textContent || '' })`);
+    const lastY = new Map(); let t = 0;
+    const steps = async (sec, check = true) => {
+      for (let i = 0; i < Math.round(sec * 30); i++) {
+        await ev('__step(33.4)'); t += 33.4;
+        if (!check || i % 5) continue;
+        const st = await state(), at = `t=${(t / 1000).toFixed(2)}s`;
+        if (st.edge) fail(`${at} ${st.edge} pets on the edge`);
+        for (const p of st.pets) if (!['pa', 'pb', 'pc'].includes(p.id)) fail(`${at} ${p.id} shows, but needs nothing`);
+        const live = st.pets.filter(p => !p.leaving);
+        for (let a = 0; a < live.length; a++) for (let c = a + 1; c < live.length; c++) { const [x, y] = [live[a].box, live[c].box]; if (x.l < y.r && y.l < x.r && x.t < y.b && y.t < x.b) fail(`${at} ${live[a].id} and ${live[c].id} overlap`); }
+        for (const p of live) {
+          const was = lastY.get(p.id);
+          if (!rm && was != null && p.y > was + .5 && p.y < 800) fail(`${at} ${p.id} went down (${Math.round(was)} → ${Math.round(p.y)})`); // (or started a new crossing from below)
+          if (rm && p.box.b < 900 - 56 - 40) fail(`${at} ${p.id} stands at ${Math.round(p.box.b)}, not near the bottom edge`);
+          if (rm && was != null && p.y !== was) fail(`${at} ${p.id} moved with reduced motion`);
+          lastY.set(p.id, p.y);
+        }
+      }
+    };
+    await steps(5);
+    let st = await state();
+    if (!/5 sessions · 1 need you/.test(st.pill)) fail(`the pill says "${st.pill}"`);
+    const pa = st.pets.find(p => p.id === 'pa');
+    if (!pa) fail('no pet for the waiting session');
+    else {
+      if (!rm && !(pa.box.b < 900 && pa.box.t > 0)) fail(`at 5 s the waiting pet is not on screen (${Math.round(pa.box.t)}-${Math.round(pa.box.b)})`);
+      const mx = (pa.box.l + pa.box.r) / 2, my = pa.box.b - 20;
+      await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: mx, y: my });
+      await steps(1, false);
+      const a1 = (await state()).pets.find(p => p.id === 'pa'); await steps(1, false); const a2 = (await state()).pets.find(p => p.id === 'pa');
+      if (!a1?.hover || !a1.card || a1.y !== a2?.y) fail(`pointed at, the waiting pet does not stop with its card open: ${JSON.stringify([a1, a2].map(p => p && [p.hover, p.card, Math.round(p.y)]))}`);
+      const btn = await ev(`(() => { const k = OD.pets.get('pa')?.el.querySelector('[data-answer=allow]')?.getBoundingClientRect(); return k ? [k.left + k.width / 2, k.top + k.height / 2] : null; })()`);
+      if (!btn) fail('no Allow button on its card');
+      else {
+        for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await b.send('Input.dispatchMouseEvent', { type, x: btn[0], y: btn[1], button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
+        await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 5 });
+        await steps(2, false);
+        if (JSON.stringify(await ev('window.__ans')) !== '["a-pa","allow"]') fail(`Allow answered ${JSON.stringify(await ev('window.__ans'))}`);
+        if ((await state()).pets.some(p => p.id === 'pa')) fail('the answered pet is still there 2 s later');
+      }
+    }
+    await ev(`__apply({ dndUntil: Date.now() + 30 * 60e3 })`); await steps(.5, false); st = await state();
+    if (st.pets.length || !st.pill.includes('☾')) fail(`with "do not disturb" on: ${st.pets.length} pets, the pill says "${st.pill}"`);
+    await ev(`__apply({ dndUntil: 0 })`); lastY.clear(); await steps(.5, false); st = await state();
+    if (!st.pets.some(p => p.id === 'pc')) fail('after "do not disturb", the low-context pet does not come back');
+    if (!rm) { // a finished task crosses once, then goes for good
+      await steps(14); st = await state();
+      if (st.pets.some(p => p.id === 'pb')) fail(`the finished task still shows 14 s later (y ${Math.round(st.pets.find(p => p.id === 'pb').y)})`);
+    }
+  } finally {
+    await b.send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
+    await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+  }
+  return out;
+}
+
 // A pet dragged onto its neighbour and let go: no overlap after it, and 1.5 s after the drop the line is evenly spaced
 // again (every gap the line's own gap, nothing still sliding).
 const dragged = async ({ push, steps, ses, ev, mouse, fail }) => {
@@ -258,6 +330,7 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     console.log(`# with reduced motion: ${JSON.stringify(r)}`);
     if (r.fxOn || r.effects || r.balloons.join() !== 'bb done,bb waiting') bad.push(`reduced motion: want no effect and a balloon on the waiting and the done pet, got ${JSON.stringify(r)}`);
     await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+    if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 show when needed')) for (const rm of [false, true]) bad.push(...await onDemand(b, url, rm), ...b.errors.splice(0).map(e => `show when needed: page error: ${e}`));
     const cases = [];
     for (const edge of ['bottom', 'top']) for (const size of [32, 56, 128]) {
       cases.push([`${edge} ${size} family of 3, narrow zone`, { edge, size, zoneStart: 20, zoneEnd: 32 }, fam(3)]);
