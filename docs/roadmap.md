@@ -50,6 +50,7 @@ Release checklist: bump `version` in `package.json` → tag `vX.Y.Z` → check t
 
 Small, they reuse data Bobix already has. Good to do together:
 
+- [x] **Pick the next issue** ([#54](https://github.com/baonguyen-agilityio/bobix/issues/54)): To do suggests the issue to start next (on this machine, nobody started it: due soonest, then the oldest). Start opens a box with the prompt Claude gets (title, description read now, link), editable; then Bobix copies it and opens a new Claude desktop session in the folder with `claude://code/new?folder=…&q=…` (the prompt box filled in, documented by Claude). The session is linked to the issue as before. Checked from source with pretend sessions; that the Claude app fills the box with `q` is from its help page, not tried here.
 - [ ] **Remind when stuck**: a session waiting for approval longer than N minutes notifies again, and its pet changes look.
 - [ ] **Global shortcut**: jump to the next session that is waiting for you.
 - [ ] **Cost per session**: tokens used (from the transcript), and a total for the day.
