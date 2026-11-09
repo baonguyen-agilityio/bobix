@@ -32,6 +32,13 @@ jobs:
         run: node --test test/overlay.test.js
         env:
           OVERLAY_ONLY: ' 56 '
+          OVERLAY_DUMP: overlay-dump
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: overlay-dump-${{ matrix.os }}
+          path: overlay-dump/
+          if-no-files-found: ignore
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
