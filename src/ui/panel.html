@@ -898,9 +898,12 @@ const ZONES = { full: [0, 100], left: [0, 50], right: [50, 100], corner: [70, 10
 const WAITS = [[0, 'set.approveWait.off'], [20, 'set.approveWait.s20'], [60, 'set.approveWait.s60'], [120, 'set.approveWait.m2'], [300, 'set.approveWait.m5'], [-1, 'set.approveWait.until']];
 const waitOpts = cur => [...WAITS, ...(WAITS.some(w => w[0] === cur) ? [] : [[cur, null]])].sort((a, b) => (a[0] < 0 ? 1 : b[0] < 0 ? -1 : a[0] - b[0])).map(([v, k]) => [String(v), k ? T(k) : T('set.approveWait.custom', { n: v })]);
 const opts = (keys, prefix) => () => keys.map(v => [v, T(prefix + v)]);
+const dndLeft = s => Math.max(0, Math.ceil((s.dndUntil - Date.now()) / 60e3)); // minutes of "do not disturb" left
 const SECTIONS = [
   ['set.section.place', [
     { k: 'petsVisible', type: 'switch' },
+    { k: 'petMode', type: 'seg', opts: opts(['edge', 'ondemand'], 'set.petMode.'), wide: true },
+    { k: 'walkDir', type: 'seg', opts: opts(['ltr', 'rtl'], 'set.walkDir.'), dim: s => s.petMode !== 'edge' },
     { k: 'display', type: 'select', opts: () => [['primary', T('set.display.primary')], ...(state.displays || []).map(d => [String(d.id), d.label])] },
     { k: 'edge', type: 'seg', opts: opts(['bottom', 'top'], 'set.edge.') },
     { k: 'zone', type: 'zone', wide: true },
@@ -916,6 +919,8 @@ const SECTIONS = [
   ]],
   ['set.section.notify', [
     { k: 'paused', type: 'switch' },
+    // On until dndUntil; "30" or "60" sets it from now. The row says how long is left.
+    { k: 'dnd', type: 'seg', opts: opts(['0', '30', '60'], 'set.dnd.'), get: s => (dndLeft(s) ? s.dnd : '0'), set: v => ({ dnd: v, dndUntil: v === '0' ? 0 : Date.now() + v * 60e3 }) },
     { k: 'approveWait', type: 'select', opts: () => waitOpts(state.settings.approveWait), get: s => String(s.approveWait) },
     { k: 'notifyWaiting', type: 'switch', dim: s => s.paused },
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
@@ -974,7 +979,7 @@ function renderSettings() {
     </aside>
     <div>${SECTIONS.map(([title, rows]) => `<section class="sec"><h2>${T(title)}</h2>${rows.map(r => `
       <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}">
-        <div><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`)}</div>` : ''}</div>
+        <div><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`)}${r.k === 'dnd' && dndLeft(s) ? ' ' + T('set.dnd.left', { n: dndLeft(s) }) : ''}</div>` : ''}</div>
         <div class="ctl">${control(r, s)}</div>
       </div>`).join('')}</section>`).join('')}</div>`;
   renderPreview();

@@ -8,7 +8,7 @@ pub const UNTIL_ANSWER: f64 = -1.0; // approveWait: no countdown, the request wa
 
 pub fn defaults() -> Value {
     json!({
-        "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "walkDir": "ltr", "zoneStart": 0, "zoneEnd": 100,
+        "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "walkDir": "ltr", "petMode": "edge", "dnd": "0", "dndUntil": 0, "zoneStart": 0, "zoneEnd": 100,
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "sleepHide": 30,
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
@@ -21,6 +21,8 @@ fn enum_of(k: &str) -> Option<&'static [&'static str]> {
         "language" => &["auto", "en", "vi"],
         "edge" => &["bottom", "top"],
         "walkDir" => &["ltr", "rtl"], // the way the pets walk along the edge: left to right, or right to left
+        "petMode" => &["edge", "ondemand"], // every pet walks along the edge, or a pet shows only while its session needs you
+        "dnd" => &["0", "30", "60"], // "do not disturb": the minutes last chosen (0: off); it lasts until dndUntil
         "label" => &["title", "folder", "both"],
         "clickAction" => &["focus", "panel"],
         _ => return None,
@@ -36,6 +38,7 @@ fn range_of(k: &str) -> Option<(f64, f64)> {
         "opacity" => (0.2, 1.0),
         "sleepHide" => (0.0, 1440.0),
         "approveWait" => (0.0, 300.0),
+        "dndUntil" => (0.0, 1e14), // when "do not disturb" ends, in ms since 1970 (0: off)
         _ => return None,
     })
 }
@@ -311,6 +314,11 @@ mod tests {
         assert_eq!(o["edge"], "bottom");
         assert_eq!(s(json!({ "walkDir": "up" }))["walkDir"], "ltr");
         assert_eq!(s(json!({ "walkDir": "rtl" }))["walkDir"], "rtl");
+        assert_eq!(s(json!({ "petMode": "float" }))["petMode"], "edge");
+        assert_eq!(s(json!({ "petMode": "ondemand" }))["petMode"], "ondemand");
+        assert_eq!(s(json!({ "dnd": "45" }))["dnd"], "0");
+        assert_eq!(s(json!({ "dnd": "30", "dndUntil": 1.8e12 }))["dndUntil"], 1800000000000i64);
+        assert_eq!(s(json!({ "dndUntil": -5 }))["dndUntil"], 0);
         assert_eq!(o["opacity"], json!(0.2));
         assert_eq!(o["zoneEnd"], 95);
         assert!(o.get("evil").is_none());
