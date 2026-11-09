@@ -57,29 +57,30 @@ pub struct Bobix {
     pub app: std::sync::OnceLock<AppHandle>,
 }
 
+// What the pages get on /events: the same JSON as snapshot() in the 0.1 (Electron) app's main.js.
+fn snapshot_of(c: &Core) -> Value {
+    let (view, issue_of) = c.work.view(&c.settings, &c.sessions);
+    let by_host: std::collections::HashMap<&str, &str> = c.sessions.values()
+        .filter_map(|s| s.host_session.as_deref().map(|h| (h, s.id.as_str()))).collect();
+    let pics = &c.settings["petImages"];
+    let list: Vec<Value> = c.sessions.values().map(|s| {
+        let mut v = serde_json::to_value(s).unwrap_or_default();
+        let project = s.project.clone().unwrap_or_default();
+        let pic = &pics[&project];
+        v["parent"] = s.parent_host.as_deref().and_then(|p| by_host.get(p)).map(|id| json!(id)).unwrap_or(Value::Null);
+        v["project"] = json!(project);
+        v["image"] = json!(petstore::served(pic));
+        v["pixel"] = json!(pic.is_object());
+        v["whole"] = json!(pic["opts"]["whole"] == true);
+        v["issue"] = issue_of.get(&s.id).cloned().unwrap_or(Value::Null);
+        v
+    }).collect();
+    let waiting: Vec<Value> = c.work.new_for.iter().map(|(dir, n)| json!({ "dir": dir, "path": n["path"], "iid": n["iid"] })).collect();
+    json!({ "work": view, "waiting": waiting, "sessions": list })
+}
+
 impl Bobix {
-    // What the pages get on /events: the same JSON as snapshot() in the 0.1 (Electron) app's main.js.
-    pub fn snapshot(&self) -> String {
-        let c = self.core.lock().unwrap();
-        let (view, issue_of) = c.work.view(&c.settings, &c.sessions);
-        let by_host: std::collections::HashMap<&str, &str> = c.sessions.values()
-            .filter_map(|s| s.host_session.as_deref().map(|h| (h, s.id.as_str()))).collect();
-        let pics = &c.settings["petImages"];
-        let list: Vec<Value> = c.sessions.values().map(|s| {
-            let mut v = serde_json::to_value(s).unwrap_or_default();
-            let project = s.project.clone().unwrap_or_default();
-            let pic = &pics[&project];
-            v["parent"] = s.parent_host.as_deref().and_then(|p| by_host.get(p)).map(|id| json!(id)).unwrap_or(Value::Null);
-            v["project"] = json!(project);
-            v["image"] = json!(petstore::served(pic));
-            v["pixel"] = json!(pic.is_object());
-            v["whole"] = json!(pic["opts"]["whole"] == true);
-            v["issue"] = issue_of.get(&s.id).cloned().unwrap_or(Value::Null);
-            v
-        }).collect();
-        let waiting: Vec<Value> = c.work.new_for.iter().map(|(dir, n)| json!({ "dir": dir, "path": n["path"], "iid": n["iid"] })).collect();
-        json!({ "work": view, "waiting": waiting, "sessions": list }).to_string()
-    }
+    pub fn snapshot(&self) -> String { snapshot_of(&self.core.lock().unwrap()).to_string() }
 
     pub fn broadcast(self: &Arc<Self>) {
         let _ = self.tx.send(self.snapshot());
@@ -1012,3 +1013,62 @@ fn main() {
 }
 
 fn has_hooks() -> bool { hooks::status(&paths::home())["events"].as_array().is_some_and(|a| !a.is_empty()) }
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    use serde_json::json;
+
+    // Every way a session, an issue and a PR / MR link up, as the pages get it. The JSON the panel and the pets read is
+    // kept in test/fixtures/work-snapshot.json; BOBIX_WRITE_SNAPSHOT=1 writes it again.
+    pub fn fixture() -> Core {
+        let s = |id: &str, cwd: &str, git: Option<(&str, &str)>| state::Session {
+            id: id.into(), name: cwd.rsplit('/').next().unwrap().into(), cwd: cwd.into(), state: "working".into(), since: 1000, updated: 2000, lv: 1, pet: "auto".into(),
+            project: Some(git.map_or(cwd, |g| g.0).into()), git: git.map(|(top, b)| json!({ "branch": b, "top": top, "upstream": null, "ahead": 0, "behind": 0, "changed": 0 })),
+            host_session: Some(format!("local_{id}")), ..Default::default()
+        };
+        let mut sessions = Sessions::new();
+        let mut add = |x: state::Session| { sessions.insert(x.id.clone(), x); };
+        add(s("s1", "/src/shop", Some(("/src/shop", "29-login")))); // its branch names #29
+        add(state::Session { branches: vec!["30-cart".into()], ..s("s1b", "/src/shop", Some(("/src/shop", "main"))) }); // a branch it worked on names #30
+        add(state::Session { started: Some(json!({ "path": "acme/app", "iid": 54 })), ..s("s2", "/src/app", Some(("/src/app", "main"))) }); // New on #54
+        add(state::Session { state: "waiting".into(), ..s("p4", "/src/app", Some(("/src/app", "feat/52-board"))) });
+        add(state::Session { parent_host: Some("local_p4".into()), ..s("c3", "/src/app/sub", Some(("/src/app", "claude/otter"))) }); // side session: its parent's issue
+        add(state::Session { parent_host: Some("local_p4".into()), ..s("c5", "/tmp/scratch", None) }); // side session outside git
+        add(state::Session { parent_host: Some("local_gone".into()), ..s("o6", "/src/other", Some(("/src/other", "7-x"))) }); // remote on no signed-in host
+        add(state::Session { started: Some(json!({ "path": "acme/app", "iid": 99 })), state: "done".into(), ..s("s7", "/src/shop", Some(("/src/shop", "main"))) });
+        add(state::Session { host_session: None, state: "idle".into(), ..s("cli", "/src/app", Some(("/src/app", "55-cli"))) }); // a terminal session
+        let issue = |p: &str, iid: i64, due: Value| json!({ "iid": iid, "title": format!("t{iid}"), "url": format!("https://h/{p}/issues/{iid}"), "project": p, "labels": [], "due": due });
+        let mr = json!({ "iid": 5, "web_url": "https://gitlab.example.com/team/shop/-/merge_requests/5", "references": { "full": "Team/Shop!5" }, "source_branch": "30-cart", "description": "Closes #31" });
+        let pr: Value = serde_json::from_str(r#"{ "number": 60, "url": "https://github.com/Acme/App/pull/60", "headRefName": "feat/52-board", "body": "Fixes #53",
+            "repository": { "nameWithOwner": "Acme/App" }, "closingIssuesReferences": { "nodes": [{ "number": 55, "repository": { "nameWithOwner": "Acme/App" } }] } }"#).unwrap();
+        let closed = |p: &str, iid: i64, at: &str| json!({ "iid": iid, "title": format!("t{iid}"), "url": format!("https://h/{p}/issues/{iid}"), "project": p, "labels": [], "due": null, "closedAt": at });
+        let mut work = work::Work::default();
+        work.feeds[work::Forge::GitLab as usize].issues = json!({ "status": "ok", "hosts": ["gitlab.example.com"], "at": 100, "failed": [],
+            "list": [issue("team/shop", 29, json!("2026-11-20")), issue("team/shop", 30, Value::Null), issue("team/shop", 31, Value::Null), issue("team/shop", 32, json!("2026-11-01"))],
+            "reviews": work::gl_mr_links(&mr), "closed": [closed("team/shop", 28, "2026-11-09T02:00:00Z")] });
+        work.feeds[work::Forge::GitHub as usize].issues = json!({ "status": "ok", "hosts": ["github.com"], "at": 200, "failed": [{ "host": "ghe.example.com", "detail": "x" }],
+            "list": [issue("acme/app", 52, Value::Null), issue("acme/app", 53, Value::Null), issue("acme/app", 54, Value::Null), issue("acme/app", 55, Value::Null), issue("acme/away", 1, Value::Null)],
+            "reviews": work::gh_pr_links(&pr), "closed": [closed("acme/app", 50, "2026-11-09T01:00:00Z"), closed("acme/app", 50, "2026-11-09T03:00:00Z"), closed("acme/new", 9, "2026-11-08T03:00:00Z")] });
+        for (top, url) in [("/src/shop", "git@gitlab.example.com:Team/Shop.git"), ("/src/app", "https://github.com/Acme/App.git"), ("/src/other", "git@gitlab.other.org:x/y.git")] {
+            work.remotes_of.insert(top.into(), vec![url.into()]);
+        }
+        work.claude_list = vec![
+            links::ClaudeSession { id: "local_r1".into(), cwd: "/src/shop".into(), title: "[SHO-32] tidy".into(), at: 5.0 },
+            links::ClaudeSession { id: "local_r2".into(), cwd: "/src/shop".into(), title: "shop #31 old".into(), at: 3.0 },
+        ];
+        work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
+        Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0 }
+    }
+
+    const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");
+
+    #[test]
+    fn pages_get_the_same_json() {
+        let got = snapshot_of(&fixture());
+        if std::env::var_os("BOBIX_WRITE_SNAPSHOT").is_some() { std::fs::write(SNAPSHOT, serde_json::to_string_pretty(&got).unwrap() + "\n").unwrap(); }
+        let want: Value = serde_json::from_str(&std::fs::read_to_string(SNAPSHOT).unwrap()).unwrap();
+        assert_eq!(got, want);
+    }
+}
