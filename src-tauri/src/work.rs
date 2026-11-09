@@ -118,6 +118,65 @@ impl Forge {
             Forge::GitHub => read_issues(self, bin, &["api", "--hostname", host, "issues?filter=assigned&state=open&per_page=100"], GH_ENV, slim_gh_issue, "GitHub"),
         }
     }
+    fn env(self) -> &'static [(&'static str, &'static str)] { if self == Forge::GitHub { GH_ENV } else { &[] } }
+    // The issues your open pull requests (GitHub) / merge requests (GitLab) close: they wait for review. Read-only
+    // (GitHub's is a GraphQL query, no mutation); a failed read gives none, the issue list still shows.
+    pub fn reviews(self, bin: &str, host: &str) -> Vec<Value> {
+        let r = match self {
+            Forge::GitHub => procs::exec(bin, &["api", "--hostname", host, "graphql", "-f", &format!("query={GH_PRS}")], 30, GH_ENV),
+            Forge::GitLab => procs::exec(bin, &["api", "--hostname", host, "merge_requests?scope=created_by_me&state=opened&per_page=100"], 30, &[]),
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&r.out) else { return vec![] };
+        let list = if self == Forge::GitHub { &v["data"]["viewer"]["pullRequests"]["nodes"] } else { &v };
+        list.as_array().into_iter().flatten().flat_map(|x| if self == Forge::GitHub { gh_pr_links(x) } else { gl_mr_links(x) }).collect()
+    }
+    // Issues assigned to you that were closed since `since` (ISO time, UTC); the panel keeps the ones closed today.
+    pub fn closed(self, bin: &str, host: &str, since: &str) -> Vec<Value> {
+        let (path, slim): (String, fn(&Value) -> Option<Value>) = match self {
+            Forge::GitHub => (format!("issues?filter=assigned&state=closed&since={since}&per_page=100"), slim_gh_issue),
+            Forge::GitLab => (format!("issues?scope=assigned_to_me&state=closed&updated_after={since}&per_page=100"), |i| Some(slim_issue(i))),
+        };
+        let r = procs::exec(bin, &["api", "--hostname", host, &path], 30, self.env());
+        let Ok(Value::Array(a)) = serde_json::from_str::<Value>(&r.out) else { return vec![] };
+        a.iter().filter_map(|i| {
+            let at = i["closed_at"].as_str().filter(|t| *t >= since)?;
+            let mut x = slim(i)?;
+            x["closedAt"] = json!(at);
+            Some(x)
+        }).collect()
+    }
+}
+
+// Your open pull requests on a GitHub host, with the issues GitHub links to each (closing references).
+const GH_PRS: &str = "query{viewer{pullRequests(states:OPEN,first:100,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number url headRefName body repository{nameWithOwner} closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}}";
+
+// The issue numbers a description closes: "Closes #52", "fixes: #7", "Resolves #3" (GitHub's and GitLab's words).
+pub fn closes_in(text: &str) -> Vec<i64> {
+    static C: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|implement(?:s|ed)?)\s*:?\s+#(\d+)\b"));
+    C.captures_iter(text).flatten().filter_map(|m| m[1].parse().ok()).collect()
+}
+
+// { project, iid, url } per issue a review closes: the links the forge gives, "Closes #n" in its text, and a branch
+// named after the issue ("52-…", "feat/52-…") in the same project.
+fn review_links(project: &str, url: &Value, linked: Vec<(String, i64)>, text: &str, branch: &str) -> Vec<Value> {
+    let mut all = linked;
+    all.extend(closes_in(text).into_iter().chain(issue_of_branch(branch)).map(|n| (project.to_string(), n)));
+    let mut out: Vec<Value> = vec![];
+    for (p, n) in all {
+        let v = json!({ "project": p, "iid": n, "url": url });
+        if !p.is_empty() && !out.contains(&v) { out.push(v); }
+    }
+    out
+}
+pub fn gh_pr_links(pr: &Value) -> Vec<Value> {
+    let repo = |v: &Value| v["repository"]["nameWithOwner"].as_str().unwrap_or("").to_lowercase();
+    let linked = pr["closingIssuesReferences"]["nodes"].as_array().into_iter().flatten().filter_map(|n| Some((repo(n), n["number"].as_i64()?))).collect();
+    review_links(&repo(pr), &pr["url"], linked, pr["body"].as_str().unwrap_or(""), pr["headRefName"].as_str().unwrap_or(""))
+}
+pub fn gl_mr_links(mr: &Value) -> Vec<Value> {
+    static REF: LazyLock<Regex> = LazyLock::new(|| re(r"!\d+$"));
+    let project = REF.replace(mr["references"]["full"].as_str().unwrap_or(""), "").to_lowercase();
+    review_links(&project, &mr["web_url"], vec![], mr["description"].as_str().unwrap_or(""), mr["source_branch"].as_str().unwrap_or(""))
 }
 
 // gh never asks anything (no terminal) and does not look for a new version of itself.
@@ -325,7 +384,13 @@ impl Work {
         self.list(settings).into_iter().find(|i| i["project"] == path && i["iid"].as_i64() == Some(iid))
     }
 
-    pub fn open_issue_ok(&self, settings: &Value, url: &str) -> bool { self.list(settings).iter().any(|i| i["url"] == url) }
+    fn extra(&self, settings: &Value, key: &str) -> Vec<&Value> {
+        self.on(settings).into_iter().flat_map(|f| f.issues[key].as_array().into_iter().flatten()).collect()
+    }
+    // Only links Bobix read: an issue, a review that closes one, an issue closed lately.
+    pub fn open_issue_ok(&self, settings: &Value, url: &str) -> bool {
+        self.list(settings).into_iter().chain(self.extra(settings, "reviews")).chain(self.extra(settings, "closed")).any(|i| i["url"] == url)
+    }
 
     // The trackers that are on, as one: ok when one read, loading while one reads for the first time, else error.
     // problems: the missing / signed-out statuses, one per tracker; failed: the hosts whose read failed.
@@ -376,15 +441,20 @@ impl Work {
                 }
             }
         }
+        let reviews = self.extra(settings, "reviews");
         for g in local.iter_mut().chain(away.iter_mut()) {
             let p = g["path"].as_str().unwrap_or("").to_string();
             g["key"] = json!(key_of(settings, &p));
             g["autoKey"] = json!(key_for(&p));
+            for i in g["issues"].as_array_mut().into_iter().flatten() { // an open PR / MR closes it: waits for review
+                if let Some(r) = reviews.iter().find(|r| r["project"] == p.as_str() && r["iid"] == i["iid"]) { i["review"] = r["url"].clone(); }
+            }
         }
         let mut view = self.status(settings);
         view["hosts"] = json!(hosts);
         view["local"] = json!(local);
         view["away"] = json!(away);
+        view["closed"] = json!(self.extra(settings, "closed"));
         (view, issue_of)
     }
 }
@@ -507,6 +577,36 @@ mod tests {
         assert!(away[0].get("dir").is_none());
         assert_eq!(slim_issue(&json!({ "iid": 7, "title": "T", "web_url": "https://h/g/p/-/issues/7", "references": { "full": "G/P#7" }, "labels": ["Bug"], "due_date": "2026-11-20" })),
             json!({ "iid": 7, "title": "T", "url": "https://h/g/p/-/issues/7", "project": "g/p", "labels": ["Bug"], "due": "2026-11-20" }));
+    }
+
+    #[test]
+    fn reviews_name_the_issues_they_close() {
+        assert_eq!(closes_in("Closes #52\nCloses #60 and fixes: #61. Resolves #7, see #8; closed#9 prefix#10"), [52, 60, 61, 7]);
+        assert!(closes_in("Refs #4, mentions #5").is_empty());
+        let pr: Value = serde_json::from_str(r#"{ "number": 70, "url": "https://github.com/Acme/Shop/pull/70", "headRefName": "feat/52-board-day",
+            "body": "Closes #60\nCloses #52", "repository": { "nameWithOwner": "Acme/Shop" },
+            "closingIssuesReferences": { "nodes": [{ "number": 61, "repository": { "nameWithOwner": "Acme/Shop" } }, { "number": 3, "repository": { "nameWithOwner": "Acme/Other" } }] } }"#).unwrap();
+        let got: Vec<(String, i64)> = gh_pr_links(&pr).iter().map(|v| (v["project"].as_str().unwrap().into(), v["iid"].as_i64().unwrap())).collect();
+        assert_eq!(got, [("acme/shop".into(), 61), ("acme/other".into(), 3), ("acme/shop".into(), 60), ("acme/shop".into(), 52)], "no duplicate for #52 (body and branch)");
+        assert!(gh_pr_links(&pr).iter().all(|v| v["url"] == "https://github.com/Acme/Shop/pull/70"));
+        let mr = json!({ "iid": 12, "web_url": "https://gl.example.com/g/sub/app/-/merge_requests/12", "references": { "full": "G/Sub/App!12" },
+            "source_branch": "29-login-error", "description": null });
+        assert_eq!(gl_mr_links(&mr), [json!({ "project": "g/sub/app", "iid": 29, "url": "https://gl.example.com/g/sub/app/-/merge_requests/12" })]);
+        assert!(gl_mr_links(&json!({ "references": {}, "source_branch": "main" })).is_empty());
+        assert!(gh_pr_links(&json!({})).is_empty());
+        // in the view: the issue it closes carries the review's link, which may be opened; the closed list goes along
+        let mut w = Work::default();
+        w.feeds[Forge::GitHub as usize].issues = json!({ "status": "ok", "hosts": ["github.com"], "at": 1,
+            "list": [{ "iid": 52, "project": "acme/shop", "title": "t", "labels": [], "due": null, "url": "https://github.com/acme/shop/issues/52" },
+                     { "iid": 53, "project": "acme/shop", "title": "u", "labels": [], "due": null, "url": "https://github.com/acme/shop/issues/53" }],
+            "reviews": gh_pr_links(&pr), "closed": [{ "iid": 50, "project": "acme/shop", "title": "v", "url": "https://github.com/acme/shop/issues/50", "closedAt": "2026-11-08T03:00:00Z" }] });
+        let on = json!({ "github": true });
+        let (v, _) = w.view(&on, &Sessions::default());
+        let issue = |n: i64| v["away"][0]["issues"].as_array().unwrap().iter().find(|i| i["iid"] == n).unwrap().clone();
+        assert_eq!((&issue(52)["review"], issue(53).get("review")), (&json!("https://github.com/Acme/Shop/pull/70"), None));
+        assert_eq!(v["closed"][0]["iid"], 50);
+        assert!(w.open_issue_ok(&on, "https://github.com/Acme/Shop/pull/70") && w.open_issue_ok(&on, "https://github.com/acme/shop/issues/50"));
+        assert!(!w.open_issue_ok(&on, "https://evil.example/pull/1"));
     }
 
     #[test]

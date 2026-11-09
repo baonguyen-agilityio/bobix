@@ -396,7 +396,11 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
                     .map(|(r, host)| json!({ "host": host, "detail": r.get("detail").unwrap_or(&r["reason"]) })).collect();
                 if failed.len() == h.len() { json!({ "status": "error", "hosts": h, "at": at, "failed": failed }) } else {
                     let list: Vec<Value> = rs.iter().flat_map(|r| r["issues"].as_array().cloned().unwrap_or_default()).collect();
-                    json!({ "status": "ok", "hosts": h, "at": at, "failed": failed, "list": list })
+                    // what waits for review, and what was closed lately (the panel keeps today's: local midnight is its call)
+                    let since = hooks::iso(at.saturating_sub(36 * 3600 * 1000));
+                    let reviews: Vec<Value> = h.iter().flat_map(|x| f.reviews(g, x)).collect();
+                    let closed: Vec<Value> = h.iter().flat_map(|x| f.closed(g, x, &since)).collect();
+                    json!({ "status": "ok", "hosts": h, "at": at, "failed": failed, "list": list, "reviews": reviews, "closed": closed })
                 }
             }
             (None, Some(_)) => unreachable!(),
