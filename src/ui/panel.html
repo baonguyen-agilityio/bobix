@@ -46,6 +46,16 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .btn:disabled{opacity:.5;cursor:default}
 .btn.pri{background:var(--ink);color:var(--n-50);border-color:var(--ink)}
 .btn.sm{padding:4px 12px;font-size:var(--t-xs)}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}.btn.ghost:hover{border-color:var(--line-strong)}
+/* stuck work: neutral, not "needs you now" */
+.stk{display:flex;flex-direction:column;gap:var(--s2);margin:0 0 var(--s6);padding:var(--s3) var(--s4);background:var(--surface);border:1px solid var(--line);border-radius:22px}
+.stl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.stl li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 12px;padding:8px 10px 8px 14px;border:1px solid var(--line);border-radius:14px}
+.sk-tx{min-width:0;display:flex;flex-direction:column;gap:2px}
+.sk-tx .tt1{min-width:0;font-weight:600;font-size:var(--t-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sk-tx .id{font-weight:500;margin-right:6px}
+.sk-tx .why{font-size:var(--t-xs);color:var(--ink-3)}
+.stl .acts{margin:0;gap:6px;flex-wrap:nowrap}
+.sk-old summary{cursor:pointer;width:max-content;font-size:var(--t-xs);color:var(--ink-3)}.sk-old[open] summary{margin-bottom:var(--s2)}
 .icon-btn{flex:none;width:36px;height:36px;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);cursor:pointer;font-size:15px}
 .icon-btn:hover{border-color:var(--ink-3)}
 :focus-visible{outline:2px solid var(--ink);outline-offset:3px}
@@ -269,7 +279,7 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
   .step[aria-pressed=true]{border-color:var(--ink);box-shadow:var(--lift)}
   .d-hi h2{font-size:var(--t-xl)}
   .aq{padding:var(--s3);border-radius:18px}
-  .ap{grid-template-columns:36px minmax(0,1fr)}.ap .acts,.ap>.note{grid-column:1/-1;flex-wrap:wrap;max-width:none}
+  .ap{grid-template-columns:36px minmax(0,1fr)}.ap .acts,.ap>.note{grid-column:1/-1;flex-wrap:wrap;max-width:none}.stl li{grid-template-columns:minmax(0,1fr)}
   .ap-who{flex-wrap:wrap}.ap-who .pj{flex-basis:100%}.ap-who .pj::before{content:none}
   .vr{grid-template-columns:minmax(0,1fr)}.vr .acts{flex-wrap:wrap}
 }
@@ -693,6 +703,56 @@ function apRow(s) {
       : `<p class="note">${esc(T(approveWhere(s)))}</p>`}</li>`;
 }
 const waitingList = () => list.filter(s => look(s) === 'waiting').sort((a, b) => a.since - b.since);
+// Work that stands still (BOARD.stuck), minus what you skipped (kept in Bobix's settings; outside the app, in this
+// page only); nothing while Settings → "Nudge about stuck work" is off.
+const stuckCfg = () => ({ ...state?.settings, stuckSkipped: { ...state?.settings?.stuckSkipped, ...skippedHere } });
+const stuckList = () => BOARD.stuck(model, list, stuckCfg());
+const forgeOf = p => (model?.repos || []).find(r => r.path === p)?.forge;
+const prOf = x => ((x.review || (forgeOf(x.project) === 'gitlab' ? 'mr' : 'pr')) === 'mr' ? 'MR' : 'PR'); // GitLab says merge request
+const refOf = x => { const n = (String(x.url || '').match(/(\d+)\/?$/) || [])[1]; return n ? (x.review === 'mr' ? '!' : '#') + n : ''; };
+function stuckWhy(x) {
+  const v = { x: ago(Date.now() - x.ms), n: x.limit, pr: prOf(x), ref: refOf(x), c: x.commits };
+  return `${BOARD.short(x.project)} · ${T('why.' + x.kind, v)}`;
+}
+const nudgeLabel = x => (x.kind === 'noreview' ? T('nudge.ask') : x.branch && x.kind !== 'idle' ? T('nudge.newReview', { pr: prOf(x) }) : T('nudge.open'));
+const stuckRow = x => `<li><span class="sk-tx"><span class="tt1">${x.iid != null ? `<span class="id">#${x.iid}</span>` : ''}${esc(x.title)}</span><span class="why">${esc(stuckWhy(x))}</span></span>
+  <span class="acts">${bridge || x.kind === 'noreview' ? `<button class="btn sm" type="button" data-nudge="${esc(x.id)}" data-f="nudge:${esc(x.id)}">${esc(nudgeLabel(x))}</button>` : ''}<button class="btn sm ghost" type="button" data-skip="${esc(x.id)}" data-f="skip:${esc(x.id)}">${esc(T('day.skip'))}</button></span></li>`;
+// Today's stuck work as lines; what has been quiet for longer (old) folds into one quiet line at the end.
+function stuckHTML() {
+  const all = stuckList(), xs = all.filter(x => !x.old), old = all.filter(x => x.old);
+  if (!all.length) return '';
+  const shown = opened.has('stuck') ? xs : xs.slice(0, 3);
+  return `<section class="stk" id="d-stuck" aria-labelledby="h-stuck">${head('stuck', T('day.stuck'), xs.length, esc(T('day.stuck.tip')))}
+    ${xs.length ? `<ul class="stl">${shown.map(stuckRow).join('')}</ul>` : ''}
+    ${xs.length > 3 ? moreBtn('stuck', xs.length - 3) : ''}
+    ${old.length ? `<details class="sk-old"${opened.has('stuck-old') ? ' open' : ''}><summary data-flag="stuck-old" data-f="flag:stuck-old">${esc(T('day.stuckOld', { n: old.length, d: stuckCfg().stuckMaxAge ?? 14 }))}</summary><ul class="stl">${old.map(stuckRow).join('')}</ul></details>` : ''}</section>`;
+}
+// Skip: kept with the last activity it had, so it comes back only once it moves again. In the app it goes to Bobix's
+// own settings (the newest 300); elsewhere this page keeps it.
+async function skip(id) {
+  const x = BOARD.stuck(model, list, { ...state?.settings, stuckSkipped: {} }).find(y => y.id === id);
+  if (!x) return;
+  if (bridge && state) {
+    const next = Object.entries({ ...state.settings.stuckSkipped, [id]: x.at }).sort((a, b) => b[1] - a[1]).slice(0, 300);
+    if (!(await save({ stuckSkipped: Object.fromEntries(next) }, { rerender: false }))) return;
+  } else skippedHere[id] = x.at;
+  toast(T('day.skipped'));
+  render();
+}
+// The next step for one: ask for a review (its link copied), open the forge's new PR / MR page, or open the session.
+async function nudge(id) {
+  const x = stuckList().find(y => y.id === id);
+  if (!x) return;
+  if (x.kind === 'noreview') {
+    try { await navigator.clipboard.writeText(x.url); } catch { return toast(x.url); }
+    return toast(T('nudge.copied', { pr: prOf(x), ref: refOf(x) }));
+  }
+  if (!bridge) return;
+  if (x.branch && x.kind !== 'idle') return (await bridge.newReview(x.project, x.branch)) || toast(T('nudge.fail'));
+  const r = await bridge.openSession(x.session);
+  if (r && !r.ok) openFail(r);
+}
+
 function queueHTML() {
   const w = waitingList();
   if (!w.length) return '';
@@ -803,6 +863,7 @@ function dayHTML() {
   const idle = lz.length && lz.every(s => look(s) === 'idle');
   return `<div class="d-top"><div class="d-hi"><h2>${esc(date)}</h2><p>${esc(T('day.sub'))}</p></div><div class="d-acts"><button class="btn" type="button" data-standup data-f="standup">${T('su.title')}</button><button class="btn pri" type="button" data-report data-f="report">${T('day.report')}</button></div></div>
     ${queueHTML()}
+    ${stuckHTML()}
     <ol class="flow" aria-label="${esc(T('day.flow'))}">${['todo', 'doing', 'verify', 'done'].map(k => `<li><button class="step" type="button" data-step="${k}" data-f="step:${k}" aria-pressed="${k === cur}" aria-controls="d-${k}"><b>${count[k]}</b><span>${esc(T('day.' + k))}</span></button></li>`).join('')}</ol>
     <div class="dg">
       ${sec('doing', count.doing, count.doing ? grouped(st.doing, doingRow, 'trl') : `<p class="blank">${esc(T('day.doing.none') + (count.todo ? T('day.doing.pick') : ''))}</p>`)}
@@ -920,6 +981,7 @@ $('#pane').addEventListener('click', async e => {
 
 // ---------- work: GitLab / GitHub issues assigned to you ----------
 let work = { status: 'off' }, model = {}, lastProjects = '', waiting = []; // waiting: New pressed, no new session there yet
+const skippedHere = {}; // stuck items skipped outside the app (this page only); in the app: settings.stuckSkipped
 const today = () => BOARD.day(Date.now());
 // An egg in the pets' pixel style, for a project.
 function eggSVG(seed) {
@@ -1042,10 +1104,11 @@ $('#st-go').addEventListener('click', async () => {
   if (r?.mode === 'new' && r.ok) toast(T(copied ? 'start.done' : 'start.done.nocopy'));
   else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
 });
-// Stuck for the stand-up: requests waiting for you, and your PRs / MRs whose review asked for changes.
+// Stuck for the stand-up: requests waiting for you, the board's stuck work, and your PRs / MRs whose review asked for changes.
 function stuckLines() {
   const title = (p, iid) => (model.issues || []).find(x => x.project === p && x.iid === iid)?.title || '';
   return [...waitingList().map(s => { const t = ticketOf(s); return { text: t ? `[${BOARD.short(t[1].path)}] #${t[0].iid} ${t[0].title}` : s.title || s.name, why: T('su.waiting', { x: ago(s.since) }) }; }),
+    ...stuckList().filter(x => !x.old).map(x => ({ text: `[${BOARD.short(x.project)}] ${x.iid != null ? '#' + x.iid + ' ' : ''}${x.title}`, why: stuckWhy(x).split(' · ').slice(1).join(' · ') })),
     ...(model.reviews || []).filter(r => r.review === 'changes_requested').map(r => { const l = r.issues[0]; return { text: l ? `[${BOARD.short(l.project)}] #${l.iid} ${title(l.project, l.iid)}`.trim() : r.url, why: T('su.changes') }; })];
 }
 function openStandup() {
@@ -1092,6 +1155,8 @@ $('#day').addEventListener('click', async e => {
   if (d.jump) { $('#' + d.jump)?.scrollIntoView({ block: 'start' }); return $('#' + d.jump)?.querySelector('[data-choice]')?.focus({ preventScroll: true }); }
   if (d.report !== undefined) return openReport();
   if (d.standup !== undefined) return openStandup();
+  if (d.skip) return skip(d.skip);
+  if (d.nudge) return nudge(d.nudge);
   if (d.tabGo) return showTab(d.tabGo);
   if (!bridge) return;
   if (d.url) return bridge.openIssue(d.url);
@@ -1147,6 +1212,14 @@ const SECTIONS = [
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
     { k: 'checkUpdates', type: 'switch' },
+  ]],
+  ['set.section.stuck', [
+    { k: 'stuckOn', type: 'switch' },
+    { k: 'stuckNoPr', type: 'number', min: 1, max: 72, step: 1, unit: 'set.hours', dim: s => !s.stuckOn },
+    { k: 'stuckNoReview', type: 'number', min: 1, max: 168, step: 1, unit: 'set.hours', dim: s => !s.stuckOn },
+    { k: 'stuckBranch', type: 'number', min: 1, max: 72, step: 1, unit: 'set.hours', dim: s => !s.stuckOn },
+    { k: 'stuckIdle', type: 'number', min: 1, max: 72, step: 1, unit: 'set.hours', dim: s => !s.stuckOn },
+    { k: 'stuckMaxAge', type: 'number', min: 1, max: 365, step: 1, unit: 'set.days', dim: s => !s.stuckOn },
   ]],
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },

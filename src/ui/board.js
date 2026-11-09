@@ -45,6 +45,52 @@
   // "[x/y] title" → the project's short name.
   const short = p => String(p || '').split('/').pop();
 
+  // Work that stands still, one item each (thresholds in hours, Settings → Stuck work; defaults as in settings.rs):
+  // - nopr: an issue's sessions all stopped, one finished its turn, and no PR / MR closes the issue;
+  // - noreview: a PR / MR of yours nobody has reviewed since it was opened;
+  // - branch: a session's branch with commits of its own (not on the remote's default branch), no PR / MR from it,
+  //   no new commit for a while;
+  // - idle: an issue's sessions all resting (none finished a turn), no activity for a while.
+  // model: the snapshot's work model; sessions: the live list. Most stuck first within each kind. Each item has `at`,
+  // its last activity (ms): one quiet for longer than stuckMaxAge days is `old` (stuck long ago, not today's nudge);
+  // one you skipped (cfg.stuckSkipped: id → its `at` then) is left out until it moves again.
+  const STUCK = { stuckNoPr: 2, stuckNoReview: 24, stuckBranch: 4, stuckIdle: 4, stuckMaxAge: 14 };
+  function stuck(model, sessions, cfg, now = Date.now()) {
+    const out = [], H = 3600e3, byId = new Map(sessions.map(s => [s.id, s]));
+    if (!model || cfg?.stuckOn === false) return out;
+    const hours = k => cfg?.[k] ?? STUCK[k], over = (ms, k) => ms >= hours(k) * H;
+    const busy = s => s.state === 'working' || s.state === 'waiting', newest = (ss, k) => ss.reduce((a, b) => (b[k] > a[k] ? b : a));
+    const reviewed = new Set((model.reviews || []).map(r => r.project + '\n' + r.branch));
+    const items = { nopr: [], noreview: [], branch: [], idle: [] };
+    for (const i of model.issues || []) {
+      const ss = i.sessions.map(x => byId.get(x.id)).filter(Boolean);
+      if (i.reviews.length || !ss.length || ss.some(busy)) continue;
+      const done = ss.filter(s => s.state === 'done');
+      const kind = done.length ? 'nopr' : 'idle', s = done.length ? newest(done, 'since') : newest(ss, 'updated');
+      const ms = now - (done.length ? s.since : s.updated), k = done.length ? 'stuckNoPr' : 'stuckIdle';
+      if (over(ms, k)) items[kind].push({ id: `${kind}:${i.project}#${i.iid}`, kind, project: i.project, iid: i.iid, title: i.title, ms, limit: hours(k), session: s.id, branch: s.git?.branch || null, at: newest(ss, 'updated').updated });
+    }
+    for (const r of model.reviews || []) {
+      const ms = now - Date.parse(r.created);
+      if (r.reviewed || !(ms >= 0) || !over(ms, 'stuckNoReview')) continue;
+      const l = r.issues[0], i = l && (model.issues || []).find(x => x.project === l.project && x.iid === l.iid);
+      const at = Math.max(Date.parse(r.created), Date.parse(r.updated) || 0);
+      items.noreview.push({ id: 'noreview:' + r.url, kind: 'noreview', project: r.project, iid: i?.iid ?? null, title: i?.title || r.branch, ms, limit: hours('stuckNoReview'), url: r.url, review: r.kind, at });
+    }
+    for (const b of model.branches || []) {
+      const ss = b.sessions.map(id => byId.get(id)).filter(Boolean), g = ss.find(s => s.git?.branch === b.name)?.git;
+      if (!g || !(g.own > 0) || !g.last?.t || ss.some(busy) || reviewed.has(b.project + '\n' + b.name)) continue;
+      if ([...items.nopr, ...items.idle].some(x => x.project === b.project && x.branch === b.name)) continue; // already there with its issue
+      const ms = now - g.last.t;
+      if (over(ms, 'stuckBranch')) items.branch.push({ id: `branch:${b.project}:${b.name}`, kind: 'branch', project: b.project, iid: b.issue?.iid ?? null, title: b.name, ms, limit: hours('stuckBranch'), commits: g.own, branch: b.name, session: newest(ss, 'updated').id, at: Math.max(g.last.t, newest(ss, 'updated').updated || 0) });
+    }
+    const skipped = cfg?.stuckSkipped || {}, maxAge = hours('stuckMaxAge') * 24 * H;
+    for (const k of Object.keys(items)) {
+      out.push(...items[k].filter(x => !(skipped[x.id] >= x.at)).map(x => ({ ...x, old: now - x.at > maxAge })).sort((a, b) => b.ms - a.ms));
+    }
+    return out;
+  }
+
   // Plain text to paste for the team: per project, what was done today and what waits for review.
   function report(st, T, now = Date.now(), locale) {
     const by = new Map();
@@ -183,6 +229,6 @@
     return `${T('su.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${[sec('su.yesterday', done), sec('su.today', today), sec('su.stuck', stuck.map(x => `- ${x.text}: ${x.why}`))].join('\n\n')}\n`;
   }
 
-  const api = { PRI, STEPS, day, stages, loose, short, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill, suggest, installHint, TEAM };
+  const api = { PRI, STEPS, day, stages, loose, short, stuck, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill, suggest, installHint, TEAM };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);
