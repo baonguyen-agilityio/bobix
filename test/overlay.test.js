@@ -42,7 +42,8 @@ function png(buf) {
   return { w, h, data: out };
 }
 
-// A PNG writer, for OVERLAY_DUMP (a folder): each failing check saved, the effect over the rest, its overlap in magenta.
+// A PNG writer, for OVERLAY_DUMP (a folder): each failing check saved, the effect over the rest, its overlap in magenta;
+// with it the two screenshots as taken, the whole window, and every pet's boxes (state.json).
 function pngOut(w, h, rgba) {
   const crc = b => { let c = ~0; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1; } return ~c >>> 0; };
   const chunk = (t, d) => { const l = Buffer.alloc(4), c = Buffer.alloc(4), td = Buffer.concat([Buffer.from(t), d]); l.writeUInt32BE(d.length); c.writeUInt32BE(crc(td)); return Buffer.concat([l, td, c]); };
@@ -107,8 +108,15 @@ const PROBE = `(() => { const out = []; let k = 0; for (const e of document.quer
     const node = el.querySelector('.spr>.fxs') || el.querySelector('.spr>canvas.fxc');
     if (!node || getComputedStyle(node).visibility === 'hidden') continue;
     const r = node.getBoundingClientRect(); node.dataset.probe = el.dataset.probe = String(++k);
-    out.push({ k, id: el.dataset.id || '', x: r.left, y: r.top, w: r.width, h: r.height });
+    out.push({ k, id: [...pets.values()].find(q => q.el === el)?.s.id || '', x: r.left, y: r.top, w: r.width, h: r.height });
   } return out; })()`;
+
+// Every pet's state and boxes (left, right, top, bottom), for a failing check's dump.
+const STATE = `[...pets.values(), ...leaving].map(p => { const r = e => e ? (b => [b.left, b.right, b.top, b.bottom].map(v => Math.round(v * 10) / 10))(e.getBoundingClientRect()) : null, n = p.sheetShown ? p.sheetEl : p.cv;
+  return { id: p.s.id, state: p.s.state, parent: p.s.parent, cls: p.el.className, x: p.x, fade: p.el.style.opacity, probe: p.el.dataset.probe || null, kind: p.fx?.kind, total: p.fx && p.fx.total, queue: (p.queue || []).map(q => q[0]),
+    sheet: !!p.sheetShown, el: r(p.el), spr: r(p.el.querySelector('.spr')), effect: n?.isConnected ? r(n) : null, effectVisibility: n?.isConnected ? getComputedStyle(n).visibility : null, clip: n?.style.clipPath || '',
+    lay: p.lay && { L: p.lay.L, R: p.lay.R, T: p.lay.T, B: p.lay.B, crowded: p.lay.crowded }, tags: [...p.el.querySelectorAll('.tag')].map(e => ({ cls: e.className, text: e.textContent, box: r(e) })),
+    others: [...p.el.querySelectorAll('.bb, .say, .card')].map(e => ({ cls: e.className, box: r(e) })) }; })`;
 
 // A session as the app sends it.
 function ses(id, o = {}) {
@@ -121,7 +129,7 @@ async function run(b, url, settings, script, label) {
   await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
   const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   await ev(`__apply(${JSON.stringify(settings)})`);
-  const now = () => ev('__now()'), bad = [], glitches = []; let seen = 0;
+  const now = () => ev('__now()'), bad = []; let seen = 0;
   // Effects are off with reduced motion (pets.html, FX_ON): say so instead of "no effect was shown".
   if (!await ev('FX_ON')) return [`effects are off in the page (prefers-reduced-motion: reduce: ${await ev("matchMedia('(prefers-reduced-motion: reduce)').matches")})`];
   let t = 0;
@@ -149,41 +157,33 @@ async function run(b, url, settings, script, label) {
       const x = Math.max(0, Math.floor(p.x)), y = Math.max(0, Math.floor(p.y)), r = Math.min(W, Math.ceil(p.x + p.w)), bo = Math.min(H, Math.ceil(p.y + p.h));
       if (r <= x || bo <= y) continue;
       const clip = { x, y, width: r - x, height: bo - y, scale: 1 }, shot = async () => { const d = (await b.send('Page.captureScreenshot', { format: 'png', clip })).data; return { ...png(Buffer.from(d, 'base64')), d }; };
-      // (A loop's sheet can take its canvas's place between two calls: then this pet waits for the next look.)
-      const node = `document.querySelector('[data-probe="${p.k}"]:not(.pet)')`, spr = `document.querySelector('.pet[data-probe="${p.k}"] .spr')`;
-      const look = async () => {
-        if (!await ev(`(() => { const n = ${node}; if (!n) return false; document.body.classList.add('__only'); n.classList.add('__on'); return true; })()`)) return null;
-        const fx = await shot();
-        await ev(`document.body.classList.remove('__only'); ${node}?.classList.remove('__on'); ${spr}?.classList.add('__off')`);
-        const rest = await shot();
-        if (!await ev(`(() => { ${spr}?.classList.remove('__off'); return !!${node}; })()`)) return null;
-        let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
-        for (let j = 0; j < fx.w * fx.h; j++) if (fx.data[j * 4 + 3] > 8 && rest.data[j * 4 + 3] > 8) { n++; const px = j % fx.w, py = (j / fx.w) | 0; x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py); }
-        return { fx, rest, n, x0, y0, x1, y1, same: fx.d === rest.d };
-      };
-      let l = await look();
-      if (!l) continue;
-      // The clock stands still between two looks, so an effect really over something is over it again on a second look.
-      // One that is not came from a screenshot that missed the class change before it (seen once on CI's Linux and on its
-      // Windows Chrome): say so, naming the screenshot that came out different, and judge by the second look.
-      if (l.n) {
-        const again = await look();
-        if (again && !again.n) { glitches.push(`${label} t=${(t / 1000).toFixed(2)}s pet ${p.k}: ${l.n} px on the first look, 0 on a second; the screenshot that changed: ${[l.fx.d !== again.fx.d && 'effect alone', l.rest.d !== again.rest.d && 'the rest'].filter(Boolean).join(' and ') || 'none'}; the first look's two identical: ${l.same}`); l = again; }
-        else if (again) l = again;
-      }
-      const { fx, rest, n, x0, y0, x1, y1 } = l;
+      // A loop's sheet can take its canvas's place between two calls (its picture decodes in real time): then this pet
+      // waits for the next look. The marks are taken off the very elements they were put on (window.__look), never looked
+      // up again: a canvas swapped out mid-look would keep its mark, come back with its next effect, and show in every
+      // other pet's "effect alone" screenshot.
+      if (!await ev(`(() => { const n = document.querySelector('[data-probe="${p.k}"]:not(.pet)'); if (!n) return false; window.__look = [n, document.querySelector('.pet[data-probe="${p.k}"] .spr')];
+        document.body.classList.add('__only'); n.classList.add('__on'); return true; })()`)) continue;
+      const fx = await shot();
+      await ev(`document.body.classList.remove('__only'); __look[0].classList.remove('__on'); __look[1]?.classList.add('__off')`);
+      const rest = await shot();
+      if (!await ev(`(() => { __look[1]?.classList.remove('__off'); return __look[0].isConnected; })()`)) continue;
+      let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (let j = 0; j < fx.w * fx.h; j++) if (fx.data[j * 4 + 3] > 8 && rest.data[j * 4 + 3] > 8) { n++; const px = j % fx.w, py = (j / fx.w) | 0; x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py); }
       if (n && process.env.OVERLAY_DUMP) {
         const o = new Uint8Array(fx.w * fx.h * 4);
         for (let j = 0; j < fx.w * fx.h; j++) { const f = fx.data[j * 4 + 3] > 8, q = rest.data[j * 4 + 3] > 8, s = f && q ? [255, 0, 255, 255] : f ? [...fx.data.subarray(j * 4, j * 4 + 3), 255] : q ? [...rest.data.subarray(j * 4, j * 4 + 3), 120] : [0, 0, 0, 0]; o.set(s, j * 4); }
-        fs.mkdirSync(process.env.OVERLAY_DUMP, { recursive: true }); fs.writeFileSync(path.join(process.env.OVERLAY_DUMP, `${label}-${(t / 1000).toFixed(2)}-${p.k}.png`.replace(/[^\w.-]+/g, '_')), pngOut(fx.w, fx.h, o));
+        const base = path.join(process.env.OVERLAY_DUMP, `${label}-${(t / 1000).toFixed(2)}-${p.k}`.replace(/[^\w.-]+/g, '_'));
+        fs.mkdirSync(process.env.OVERLAY_DUMP, { recursive: true }); fs.writeFileSync(base + '.png', pngOut(fx.w, fx.h, o));
+        fs.writeFileSync(base + '-effect.png', Buffer.from(fx.d, 'base64')); fs.writeFileSync(base + '-rest.png', Buffer.from(rest.d, 'base64'));
+        fs.writeFileSync(base + '-window.png', Buffer.from((await b.send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+        fs.writeFileSync(base + '-state.json', JSON.stringify({ probe: p, clip, window: [W, H], dpr: await ev('devicePixelRatio'), fonts: await ev("[...document.fonts].map(f => f.family + ' ' + f.weight + ' ' + f.status)"), pets: await ev(STATE) }, null, 1));
       }
-      if (n) bad.push(`t=${(t / 1000).toFixed(2)}s pet ${p.k}: ${n} px at x ${x + x0}-${x + x1}, y ${y + y0}-${y + y1}`);
+      if (n) bad.push(`t=${(t / 1000).toFixed(2)}s pet ${p.k} (${p.id}): ${n} px at x ${x + x0}-${x + x1}, y ${y + y0}-${y + y1}`);
     }
   };
   const mouse = (type, x, y) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
   await script({ push, steps, ses, ev, mouse, fail: m => bad.push(`t=${(t / 1000).toFixed(2)}s ${m}`) });
   if (!seen) bad.push('no effect was shown');
-  for (const g of glitches) console.log(`# screenshot missed a change, looked again: ${g}`);
   bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
   return bad;
 }
