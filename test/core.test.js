@@ -872,9 +872,14 @@ test('board: the step a ticket is at and why, two sessions on one piece of work,
 test('tour: every step has its words in both languages, NEWS is this version, and the bubble stays on screen', () => {
   const TOUR = require('../src/ui/tour');
   const I18N = require('../src/ui/i18n');
-  assert.ok(TOUR.STEPS.length >= 6 && TOUR.STEPS.length <= 8, 'about 6 to 8 steps');
+  assert.ok(TOUR.STEPS.length >= 6 && TOUR.STEPS.length <= 12, 'a short tour');
+  assert.equal(new Set(TOUR.STEPS.map(s => s.key)).size, TOUR.STEPS.length, 'one key per step (settings.tourSeen)');
+  assert.deepEqual(TOUR.fresh(['pets', 'stuck', 'gone']).map(s => s.key), TOUR.STEPS.map(s => s.key).filter(k => k !== 'pets' && k !== 'stuck'), 'only the steps not seen yet');
+  assert.equal(TOUR.fresh(TOUR.STEPS.map(s => s.key)).length, 0);
+  assert.equal(TOUR.fresh(undefined).length, TOUR.STEPS.length);
   for (const s of TOUR.STEPS) {
-    assert.ok(['sessions', 'settings'].includes(s.tab) && s.at.length, s.key);
+    assert.ok(['sessions', 'settings'].includes(s.tab) && s.at.length && (!s.alt || (['sessions', 'settings'].includes(s.alt.tab) && s.alt.at.length)), s.key);
+    assert.match(s.key, /^[a-z]{1,24}$/, 'a key settings.rs keeps');
     for (const lang of ['en', 'vi']) for (const k of ['title', 'body']) assert.ok(I18N.STR[lang][`tour.${s.key}.${k}`], `${lang} tour.${s.key}.${k}`);
   }
   assert.equal(I18N.NEWS, require('../package.json').version.split('-')[0], 'the tour opens once for this version');

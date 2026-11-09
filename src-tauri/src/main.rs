@@ -655,7 +655,7 @@ async fn settings_set(patch: Value, b: B<'_>) -> Result<Value, ()> {
 async fn settings_reset(b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     let mut patch = settings::defaults();
-    { let c = b.core.lock().unwrap(); for k in ["language", "port", "autostart", "petImages", "guideSeen", "seenVersion"] { patch[k] = c.settings[k].clone(); } }
+    { let c = b.core.lock().unwrap(); for k in ["language", "port", "autostart", "petImages", "guideSeen", "seenVersion", "tourSeen"] { patch[k] = c.settings[k].clone(); } }
     tauri::async_runtime::spawn_blocking(move || update_settings(&b, patch)).await.map_err(|_| ())
 }
 
@@ -986,7 +986,7 @@ fn main() {
             let handle = app.handle().clone();
             let _ = b.app.set(handle.clone());
             let version = app.package_info().version.to_string();
-            let first = { let c = b.core.lock().unwrap(); settings::first_start(&c.settings, &version, has_hooks()) };
+            let first = { let c = b.core.lock().unwrap(); settings::first_start(&c.settings, &version, has_hooks(), &i18n::TOUR) };
             if let Some(f) = first {
                 { let mut c = b.core.lock().unwrap(); for (k, v) in f.as_object().unwrap() { c.settings[k] = v.clone(); } }
                 save_now(&b);
