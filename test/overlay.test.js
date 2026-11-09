@@ -55,6 +55,9 @@ function pngOut(w, h, rgba) {
 async function browser(exe) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-overlay-'));
   const proc = spawn(exe, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio',
+    // Frames on demand, not at 60 Hz: each screenshot is drawn right away instead of waiting for the next vsync (about 3x
+    // faster, and the runner's macOS Chrome is slow enough that this is what keeps the test in its time).
+    '--disable-frame-rate-limit', '--disable-gpu-vsync',
     '--remote-debugging-port=0', `--user-data-dir=${dir}`, `--window-size=${W},${H}`, '--force-device-scale-factor=1', 'about:blank'], { stdio: 'ignore' });
   let port;
   for (let k = 0; k < 200 && !port; k++) { try { port = fs.readFileSync(path.join(dir, 'DevToolsActivePort'), 'utf8').split('\n')[0]; } catch { await sleep(50); } }
