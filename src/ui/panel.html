@@ -175,8 +175,18 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .stbox dt{color:var(--ink-3)}.stbox dd{margin:0;min-width:0;overflow-wrap:anywhere}
 .stbox label{margin:0}
 .fb.stbox textarea{min-height:min(200px,32dvh)}
-.stbox select{width:100%;min-height:36px;padding:6px 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font:inherit}
-.stbox .sk-note{margin:4px 0 0;font-size:var(--t-xs);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.stbox .fl{display:block;margin:0 0 6px;font-size:var(--t-sm);font-weight:600}
+.stbox .sk{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.stbox .sk.all{max-height:min(320px,40dvh);overflow:auto;padding-right:4px}
+.stbox .sk label{display:grid;grid-template-columns:18px minmax(0,1fr);gap:2px 8px;align-items:start;margin:0;padding:7px 10px;border:1px solid var(--line);border-radius:12px;cursor:pointer;font-weight:400}
+.stbox .sk label:has(input:checked){border-color:var(--ink);box-shadow:var(--lift)}
+.stbox .sk input{width:auto;padding:0;border:0;min-height:0;margin:3px 0 0;accent-color:var(--ink)}
+.stbox .sk .nm{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;min-width:0}
+.stbox .sk code{font:600 var(--t-sm) var(--f-mono);overflow-wrap:anywhere}
+.stbox .sk .d{grid-column:2;font-size:var(--t-xs);color:var(--ink-3);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.stbox .sk .tag{font-size:11px;font-weight:700;padding:0 7px;border-radius:var(--pill);background:var(--ink);color:var(--n-50)}
+.stbox .sk .src{font-size:11px;color:var(--ink-3)}
+.stbox .more{margin-top:6px}
 .ir{display:flex;align-items:center;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;transition:border-color 120ms var(--ease),box-shadow 120ms var(--ease)}
 .ir:hover{border-color:var(--line-strong);box-shadow:var(--lift)}
 .ir-main{flex:1;min-width:0;display:flex;align-items:center;gap:var(--s2);min-height:40px;border:0;background:none;padding:6px 6px 6px 12px;border-radius:inherit;text-align:left;cursor:pointer;font-size:var(--t-sm)}
@@ -482,9 +492,7 @@ input[type=number]{width:104px}
   <p class="note" data-t="start.body"></p>
   <dl><dt data-t="start.repo"></dt><dd><code id="st-dir"></code></dd></dl>
   <p class="note err" id="st-err" hidden data-t="start.nobody"></p>
-  <label for="st-skill" data-t="start.skill"></label>
-  <select id="st-skill"></select>
-  <p class="note sk-note" id="st-skill-note"></p>
+  <div><span class="fl" id="st-skl" data-t="start.skill"></span><div role="radiogroup" aria-labelledby="st-skl" id="st-skills"></div></div>
   <label for="st-text" data-t="start.brief"></label>
   <textarea id="st-text" spellcheck="false"></textarea>
   <div class="acts"><button class="btn" value="close" data-t="pd.cancel"></button><button class="btn pri" type="button" id="st-go" data-t="start.go"></button></div>
@@ -892,29 +900,40 @@ async function openStart(b, [i, g]) {
   $('#st-err').hidden = !!r?.ok;
   // The skills Claude has for that folder; one suggested from the issue's labels and your role (Settings).
   const skills = r?.skills || [], pick = BOARD.skillFor(skills, r?.labels || i.labels || [], state?.settings?.role || '');
-  starting.url = i.url; starting.skills = skills; starting.pick = pick;
-  const groups = ['project', 'personal', 'plugin', 'managed', 'synced'].map(src => [src, skills.filter(s => s.source === src)]).filter(([, xs]) => xs.length);
-  $('#st-skill').innerHTML = `<option value="">${esc(T('start.noskill'))}</option>` + groups.map(([src, xs]) => `<optgroup label="${esc(T('skill.src.' + src))}">${xs.map(s =>
-    `<option value="${esc(s.name)}" title="${esc(s.description)}"${s.name === pick?.name ? ' selected' : ''}>/${esc(s.name)}</option>`).join('')}</optgroup>`).join('');
-  $('#st-skill').disabled = !skills.length;
-  $('#st-text').value = BOARD.withSkill(BOARD.brief(i, r?.ok ? r.body : ''), pick?.name || '', i.url);
-  skillNote();
+  Object.assign(starting, { url: i.url, skills, pick, cur: pick?.name || '', all: false });
+  $('#st-text').value = BOARD.withSkill(BOARD.brief(i, r?.ok ? r.body : ''), starting.cur, i.url);
+  renderSkills();
   $('#st-dialog').showModal();
   $('#st-text').scrollTop = 0;
   $('#st-go').focus({ preventScroll: true });
   $('#st-dialog').scrollTop = 0;
 }
-// Under the picker: what the chosen skill does, and why Bobix suggested it.
-function skillNote() {
-  const s = starting, name = $('#st-skill').value, k = s?.skills.find(x => x.name === name);
-  const why = !s?.skills.length ? T('start.noskills') : name && name === s.pick?.name ? (s.pick.why === 'label' ? T('start.why.label', { l: s.pick.label }) : T('start.why.role', { r: { ba: 'BA', qa: 'QA', dev: 'Dev' }[state?.settings?.role] || '' })) : '';
-  $('#st-skill-note').textContent = [why, k?.description].filter(Boolean).join(' · ');
-  $('#st-skill-note').title = k?.description || '';
+// The skills as a choice: the suggested one first ("Gợi ý", and what for), then the repo's, yours, plugins'...; three
+// until "See all N", and always "No skill". Nothing is hidden for not matching; the person picks.
+const SRC_ORDER = ['project', 'personal', 'plugin', 'managed', 'synced'];
+function renderSkills() {
+  const s = starting, p = s.pick, ROLE = { ba: 'BA', qa: 'QA', dev: 'Dev' };
+  const order = [...s.skills.filter(x => x.name === p?.name), ...SRC_ORDER.flatMap(src => s.skills.filter(x => x.source === src && x.name !== p?.name))];
+  const shown = s.all ? order : order.slice(0, 3);
+  if (s.cur && !shown.some(x => x.name === s.cur)) shown.push(order.find(x => x.name === s.cur));
+  const why = p && [p.label && T('start.why.label', { l: p.label }), p.role && T('start.why.role', { r: ROLE[p.role] })].filter(Boolean).join(' + ');
+  const item = (v, name, extra, d) => `<li><label><input type="radio" name="st-skill" value="${esc(v)}"${s.cur === v ? ' checked' : ''}><span class="nm">${name}${extra}</span>${d ? `<span class="d" title="${esc(d)}">${esc(d)}</span>` : ''}</label></li>`;
+  $('#st-skills').innerHTML = `<ul class="sk${s.all ? ' all' : ''}">${shown.map(k => item(k.name, `<code>/${esc(k.name)}</code>`,
+      k.name === p?.name ? `<span class="tag">${esc(T('start.suggested'))}</span><span class="src">${esc(T('start.why', { x: why }))}</span>` : `<span class="src">${esc(T('skill.src.' + k.source))}</span>`, k.description)).join('')}
+    ${item('', esc(T('start.noskill')), '', T(s.skills.length ? 'start.noskill.desc' : 'start.noskills'))}</ul>
+    ${!s.all && order.length > 3 ? `<button class="lnk more" type="button" id="st-all">${esc(T('start.all', { n: order.length }))}</button>` : ''}`;
 }
-$('#st-skill').addEventListener('change', () => {
+$('#st-skills').addEventListener('change', e => {
+  if (e.target.name !== 'st-skill' || !starting) return;
+  starting.cur = e.target.value;
   const t = $('#st-text');
-  t.value = BOARD.withSkill(t.value, $('#st-skill').value, starting?.url);
-  skillNote();
+  t.value = BOARD.withSkill(t.value, starting.cur, starting.url);
+});
+$('#st-skills').addEventListener('click', e => {
+  if (e.target.id !== 'st-all' || !starting) return;
+  starting.all = true;
+  renderSkills();
+  $(`#st-skills input[value="${CSS.escape(starting.cur)}"]`)?.focus();
 });
 // Copies the prompt (the sure way), then opens the new session with it in its prompt box.
 $('#st-go').addEventListener('click', async () => {

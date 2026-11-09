@@ -754,10 +754,10 @@ test('board: the skill to suggest for an issue, and the prompt with it', () => {
   const B = require('../src/ui/board');
   const sk = (name, source = 'personal') => ({ name, source, description: '' });
   const skills = [sk('ak:cook'), sk('ak:fix'), sk('fix-ticket', 'project'), sk('ba-qa-kit:write-stories', 'plugin'), sk('ba-qa-kit:write-test-cases', 'plugin'), sk('docx')];
-  assert.deepEqual(B.skillFor(skills, ['bug'], ''), { name: 'fix-ticket', why: 'label', label: 'bug' }, "a label's skill; the repo's own wins a tie");
-  assert.deepEqual(B.skillFor(skills, ['bug'], 'qa'), { name: 'fix-ticket', why: 'label', label: 'bug' });
-  assert.deepEqual(B.skillFor(skills, [], 'qa'), { name: 'ba-qa-kit:write-test-cases', why: 'role', label: undefined }, 'the role alone');
-  assert.deepEqual(B.skillFor(skills, ['enhancement'], 'ba'), { name: 'ba-qa-kit:write-stories', why: 'label', label: 'enhancement' }, 'label and role together score most');
+  assert.deepEqual(B.skillFor(skills, ['bug'], ''), { name: 'fix-ticket', label: 'bug', role: undefined }, "a label's skill; the repo's own wins a tie");
+  assert.deepEqual(B.skillFor(skills, ['bug'], 'dev'), { name: 'fix-ticket', label: 'bug', role: 'dev' }, 'label and role both');
+  assert.deepEqual(B.skillFor(skills, [], 'qa'), { name: 'ba-qa-kit:write-test-cases', label: undefined, role: 'qa' }, 'the role alone');
+  assert.deepEqual(B.skillFor(skills, ['enhancement'], 'ba'), { name: 'ba-qa-kit:write-stories', label: 'enhancement', role: 'ba' }, 'label and role together score most');
   assert.equal(B.skillFor(skills, ['design'], ''), null, 'a label with no matching words: no skill');
   assert.equal(B.skillFor(skills, [], ''), null);
   assert.equal(B.skillFor([sk('docx')], ['bug'], 'dev'), null, 'only words in the name count');
