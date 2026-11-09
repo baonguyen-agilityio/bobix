@@ -92,8 +92,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .free{position:absolute;left:0;top:0;transform-origin:0 0;image-rendering:pixelated;pointer-events:none}
 .pet.od:not(.hover) :is(.tag,.card),.pet.od.going :is(.tag,.card){display:none}
 .pet.od .tag{margin-top:2px;left:50%;translate:-50% 0;width:max-content;max-width:160px}
-.pet.od .card{top:var(--ct,-60px);bottom:auto;left:calc(100% + 10px);transform:none;cursor:default;text-align:left}
-.pet.od.side-l .card{left:auto;right:calc(100% + 10px)}
+.pet.od .card{top:var(--cy,0);bottom:auto;left:var(--cx,0);transform:none;cursor:default;text-align:left}
 .card .need{margin:0 0 var(--s2);padding:var(--s2) var(--s3);border-radius:var(--r-sm,8px);border:1px solid var(--line-strong);font-size:var(--t-xs)}
 .card .need b{display:block;font-size:var(--t-sm)}
 .card .need code{display:block;margin-top:2px;font:500 12px/1.4 var(--f-mono);color:var(--ink-2);overflow-wrap:anywhere}

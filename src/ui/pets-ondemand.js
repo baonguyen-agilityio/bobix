@@ -74,7 +74,7 @@ function odUntil(p) { p.until = p.need === 'ctx' || (!FX_ON && p.need === 'done'
 // It goes: answered, its balloon pops; dismissed, it lets go (done) or sinks (low context); with reduced motion it fades.
 function odLeave(p, need) {
   if (p.leaving) return;
-  p.leaving = true; p.el.classList.add('going'); p.el.style.pointerEvents = 'none';
+  p.leaving = true; p.card = p.open = null; p.el.classList.add('going'); p.el.style.pointerEvents = 'none';
   odSeen(p);
   if (FX_ON) p.R.leave(need); else { p.el.classList.add('gone'); p.goneAt = performance.now() + 320; } // removed by odFrame once faded
   wake();
@@ -95,14 +95,14 @@ function odPaint(p) {
   const need = k === 'waiting' ? `<div class="need waiting"><b>${esc(s.askTool ? T('pet.waiting', { tool: s.askTool }) : T('pet.waitingPlain'))}</b>${s.ask ? `<code>${esc(s.ask)}</code>` : ''}</div>${answerButtons(s, now)}`
     : k === 'done' ? `<div class="need done"><b>${T('od.done')}</b>${esc(s.summary)}</div>`
     : `<div class="need ctx"><b>${T('od.ctx')}</b>${T('od.ctxBody', { n: hp })}</div>`;
-  p.el.className = `pet od st-${st}${p.hover ? ' hover' : ''}${p.side ? ' side-l' : ''}${p.leaving ? ' going' : ''}`;
+  p.el.className = `pet od st-${st}${p.hover ? ' hover' : ''}${p.leaving ? ' going' : ''}`;
   p.el.innerHTML = `<div class="spr"></div><div class="tag"><span class="nm">${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>
     <div class="card"><h2>${esc(s.title || s.name)}</h2><p class="sub">${esc(s.cwd)}</p>${k === 'done' ? '' : `<p class="q">${esc(s.quest || T('line.noQuest'))}</p>`}${need}
       <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
       <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div><div class="meter ${hp != null && hp < OD_CTX ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
       <div class="hint"><span>${T('od.click')}</span>${k === 'waiting' ? '' : `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>`}</div></div>`;
   if (p.R) p.el.querySelector('.spr').append(p.R.el);
-  if (p.hover) odFit(p);
+  if (p.hover) odCardPlace(p);
 }
 function odPress(p, e) {
   if (e.button !== 0 || p.leaving) return;
@@ -142,20 +142,45 @@ function odPlace(p) { p.el.style.transform = `translate(${Math.round(p.x + (p.cr
 function odCross(p, t, dt) {
   if (t >= p.startAt && !p.hover) {
     const speed = (innerHeight + PetRide.above(cfg.size) + cfg.size + 20) / OD_CROSS, nb = odBox(p.x, p.y - speed * dt);
-    if (![...OD.pets.values()].some(o => o !== p && !o.leaving && o.box && o.box.t < p.box.t && odHit(nb, o.box, OD_GAP))) { p.y = nb.b - cfg.size; p.box = nb; p.swing += dt; }
+    const ahead = [...OD.pets.values()].some(o => o !== p && !o.leaving && o.box && o.box.t < p.box.t && odHit(nb, o.box, OD_GAP));
+    const card = [...OD.pets.values()].some(o => o !== p && o.open?.some(r => odHit(nb, r, OD_GAP) && !odHit(p.box, r, OD_GAP))); // an open card or name: wait below it
+    if (!ahead && !card) { p.y = nb.b - cfg.size; p.box = nb; p.swing += dt; }
   }
   odPlace(p);
   if (p.box.b < 0) { if (p.last || p.need === 'done') odRemove(p); else odLap(p, false); } // out past the top: again, unless its need is over (a finished task crosses once)
 }
 // Reduced motion: no flight; it stands near the bottom edge, not under the pointer, apart from the other pets.
 function odRest(p) { p.x = odPickLane(p); p.y = innerHeight - cfg.size - 20; p.box = odBox(p.x, p.y); odPlace(p); }
-// The card opens beside the pet, level with its balloon, moved up or down to stay on screen.
-function odFit(p) {
-  p.side = p.x + cfg.size + 290 > innerWidth; p.el.classList.toggle('side-l', p.side);
+// Its card: placed once as it opens (it never jumps while you reach for its buttons): beside the pet or above it, on screen,
+// clear of the pet itself, its balloon and its name tag, and of every other pet and the pill; the least covered spot if
+// none is clear. While it is open, pets rising towards it, or towards the pet's name tag, wait below them (odCross).
+const odArea = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+const odGrow = (r, g) => ({ l: r.l - g, t: r.t - g, r: r.r + g, b: r.b + g });
+const odRect = n => { const b = n.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; };
+function odCardPlace(p) {
   const c = p.el.querySelector('.card'); if (!c) return;
-  p.el.style.setProperty('--ct', '-60px');
-  const r = c.getBoundingClientRect(), up = Math.max(0, r.bottom - (innerHeight - 8)), down = Math.max(0, 8 - r.top);
-  p.el.style.setProperty('--ct', `${-60 - up + down}px`);
+  const o = p.el.getBoundingClientRect(), tag = p.el.querySelector('.tag'), cw = c.offsetWidth, ch = c.offsetHeight, W = innerWidth, H = innerHeight, M = 8;
+  const own = [p.box, ...(tag ? [odRect(tag)] : [])].map(r => odGrow(r, 6)), L = Math.min(...own.map(r => r.l)), R = Math.max(...own.map(r => r.r));
+  const others = [...OD.pets.values()].filter(q => q !== p && !q.leaving && q.box).map(q => odGrow(q.box, OD_GAP));
+  const pill = OD.ui && !OD.ui.corner.hidden ? [odGrow(odRect(OD.ui.corner), M)] : [];
+  const fits = r => r.l >= M && r.t >= M && r.r <= W - M && r.b <= H - M;
+  const tries = [];
+  for (let k = 0; k <= 12; k++) for (const s of k ? [1, -1] : [1]) { // beside it, level with the balloon first, then higher or lower
+    const t = p.box.t + s * k * 24;
+    tries.push({ l: R + 4, t, pref: k * 2 }, { l: L - 4 - cw, t, pref: k * 2 + 1 });
+  }
+  const cx = Math.min(Math.max(M, (p.box.l + p.box.r - cw) / 2), W - M - cw);
+  tries.push({ l: cx, t: p.box.t - 6 - ch, pref: 30 }, { l: cx, t: Math.max(...own.map(r => r.b)), pref: 31 }); // above it, or below its name
+  let best = null, bc = Infinity;
+  for (const x of tries) {
+    const r = { l: x.l, t: Math.min(Math.max(M, x.t), H - M - ch), r: 0, b: 0 }; r.r = r.l + cw; r.b = r.t + ch;
+    if (!fits(r) || own.some(q => odArea(q, r))) continue;
+    const cost = others.reduce((a, q) => a + odArea(q, r), 0) * 100 + pill.reduce((a, q) => a + odArea(q, r), 0) * 100 + x.pref;
+    if (cost < bc) { bc = cost; best = r; }
+  }
+  if (!best) best = { l: R + 4, t: Math.min(Math.max(M, p.box.t), H - M - ch) }, best.r = best.l + cw, best.b = best.t + ch; // a tiny screen: beside it anyway
+  p.card = best; p.open = [best, ...(tag ? [odRect(tag)] : [])]; // what pets rising towards it wait below
+  p.el.style.setProperty('--cx', `${Math.round(best.l - o.left)}px`); p.el.style.setProperty('--cy', `${Math.round(best.t - o.top)}px`);
 }
 
 // Every overlay frame: returns the rects that take the mouse and whether anything moves.
@@ -169,7 +194,7 @@ function odFrame(t, dt) {
       || [...p.el.querySelectorAll('.card,.tag')].some(n => inRect(n.getBoundingClientRect(), mouse.x, mouse.y));
     if (over) p.hoverAt = t;
     const hover = over || t - (p.hoverAt ?? -1e9) < 300; // a short grace while moving between the pet and its card
-    if (hover !== p.hover) { p.hover = hover; p.el.classList.toggle('hover', hover); if (hover) odFit(p); }
+    if (hover !== p.hover) { p.hover = hover; p.el.classList.toggle('hover', hover); if (hover) odCardPlace(p); else p.card = p.open = null; }
     if (p.hover && p.until !== Infinity) p.until = Math.max(p.until, now + 1500); // reading it: it stays
     if (p.need === 'ctx') p.R.setLevel(Math.min(4, Math.floor((now - p.t0) / OD_SHOW.ctx * 5))); // the balloon leaks
     if (now > p.until) p.last = true;

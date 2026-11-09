@@ -240,7 +240,7 @@ async function onDemand(b, url, rm) {
     const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
     await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, petMode: 'ondemand', dndUntil: 0, zoneStart: 0, zoneEnd: 100, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })}); bobix.answer = (id, c) => { window.__ans = [id, c]; }`);
     const n = await ev('__now()'), one = (id, o) => ses(id, { cwd: `/tmp/${id}`, state: 'working', tool: 'Bash', ctx: 60, since: n, ...o });
-    const list = [one('pa', { state: 'waiting', askTool: 'Bash', ask: 'npm test', answer: { id: 'a-pa', until: null } }), one('pb', { state: 'done' }), one('pc', { ctx: 18 }), one('pd'), one('pe')];
+    const list = [one('pa', { title: 'A session with a long title for its name tag', state: 'waiting', askTool: 'Bash', ask: 'npm test', answer: { id: 'a-pa', until: null } }), one('pb', { state: 'done' }), one('pc', { ctx: 18 }), one('pd'), one('pe')];
     await ev(`__push(${JSON.stringify(list)})`);
     const state = () => ev(`({ pets: [...OD.pets.values()].map(p => ({ id: p.s.id, y: p.y, box: p.box, hover: p.hover, leaving: !!p.leaving, card: p.el.querySelector('.card')?.offsetParent != null })), edge: document.querySelectorAll('.pet:not(.od)').length, pill: document.querySelector('#odPill span')?.textContent || '' })`);
     const lastY = new Map(); let t = 0;
@@ -271,7 +271,18 @@ async function onDemand(b, url, rm) {
       if (!rm && !(pa.box.b < 900 && pa.box.t > 0)) fail(`at 5 s the waiting pet is not on screen (${Math.round(pa.box.t)}-${Math.round(pa.box.b)})`);
       const mx = (pa.box.l + pa.box.r) / 2, my = pa.box.b - 20;
       await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: mx, y: my });
-      await steps(1, false);
+      // While its card is open (3 s, the other pets still rising): the card covers no other pet (its body and balloon)
+      // and none of the hovered pet itself (body, balloon, name tag); its name tag covers no other pet either.
+      const cardCheck = `(() => { const p = OD.pets.get('pa'), c = p?.el.querySelector('.card'), tag = p?.el.querySelector('.tag'); if (!p?.hover || !c?.offsetParent) return null;
+        const R = n => { const b = n.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; }, hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b, k = R(c);
+        return { others: [...OD.pets.values()].filter(q => q !== p && !q.leaving && (hit(k, q.box) || (tag && hit(R(tag), q.box)))).map(q => q.s.id), own: hit(k, p.box), tag: !!tag && hit(k, R(tag)), tagShown: !!tag?.offsetParent }; })()`;
+      for (let i = 0; i < 6; i++) {
+        await steps(.5, false);
+        const c = await ev(cardCheck), at = `${(t / 1000).toFixed(2)}s`;
+        if (!c) { fail(`${at} the hovered pet shows no card`); break; }
+        if (c.others.length) fail(`${at} the open card or its pet's name tag covers ${c.others.join(', ')}`);
+        if (c.own || c.tag || !c.tagShown) fail(`${at} the open card covers the hovered pet (${c.own ? 'its body or balloon' : ''}${c.tag ? ' its name tag' : ''}${c.tagShown ? '' : ' its name tag is not shown'})`);
+      }
       const a1 = (await state()).pets.find(p => p.id === 'pa'); await steps(1, false); const a2 = (await state()).pets.find(p => p.id === 'pa');
       if (!a1?.hover || !a1.card || a1.y !== a2?.y) fail(`pointed at, the waiting pet does not stop with its card open: ${JSON.stringify([a1, a2].map(p => p && [p.hover, p.card, Math.round(p.y)]))}`);
       const btn = await ev(`(() => { const k = OD.pets.get('pa')?.el.querySelector('[data-answer=allow]')?.getBoundingClientRect(); return k ? [k.left + k.width / 2, k.top + k.height / 2] : null; })()`);
