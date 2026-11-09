@@ -49,7 +49,15 @@ Installers have fixed names (`Bobix-mac-arm64.dmg`, `Bobix-mac-x64.dmg`, `Bobix-
 
 ## CI
 
-[The smoke workflow](../.github/workflows/smoke.yml) runs on every push: node and Rust tests, then the app on each OS with a pretend and a real session (`BOBIX_SMOKE`, see `src-tauri/src/smoke.rs`): pets on screen, a held permission request answered, the panel and its bridge, a pet picture imported, the tray, start at login. On Linux it takes the Wayland path (XWayland) and drags a pet with the real mouse (`xdotool`), then points at a pet: the line of pets must stop. [The release workflow](../.github/workflows/release.yml) builds the installers, installs each (over the last Electron-based release on Windows and Linux) and runs the same check on the installed app.
+[The smoke workflow](../.github/workflows/smoke.yml) runs on every push: node and Rust tests, then the app on each OS with a pretend and a real session (`BOBIX_SMOKE`, see `src-tauri/src/smoke.rs`): pets on screen, a held permission request answered, the panel and its bridge, a pet picture imported, the tray, start at login. On Linux it takes the Wayland path (XWayland) and drags a pet with the real mouse (`xdotool`), then points at a pet: the line of pets must stop. To run the same check on your machine before pushing (scratch folders, so it never touches your own settings or hooks):
+
+```bash
+cd src-tauri && cargo build && cd .. && T=$(mktemp -d) && BOBIX_SMOKE=$T/out BOBIX_PORT=4767 BOBIX_DATA_DIR=$T/data BOBIX_HOME=$T/home ./src-tauri/target/debug/bobix; cat $T/out/report.json
+```
+
+It exits by itself and `report.json` must say `"pass": true` with empty `pageErrors`. Started from inside a Claude Code session, unset the `CLAUDE*` variables first (`CLAUDE_PID`, `CLAUDE_CODE_HOST_SESSION_ID`): the pretend session would otherwise belong to that session and wait for its parent link, and the check counts one pet too few. The pages load only the files `src-tauri/src/server.rs` lists in `ASSETS` (a new file under `src/ui/` must be added there; `npm test` checks it).
+
+[The release workflow](../.github/workflows/release.yml) builds the installers, installs each (over the last Electron-based release on Windows and Linux) and runs the same check on the installed app.
 
 ## Demo and screenshots
 

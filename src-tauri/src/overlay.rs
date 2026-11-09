@@ -53,14 +53,16 @@ pub fn target_monitor(app: &AppHandle, display: &str) -> Option<Monitor> {
 }
 
 // Only a strip along the chosen edge, tall enough for a pet, its card and a few bubble lanes: the compositor redraws
-// this window while pets walk, so every pixel it does not cover is saved work. Physical pixels.
+// this window while pets walk, so every pixel it does not cover is saved work. "Show when needed": the whole work area,
+// since a pet that needs you floats up across the screen (and the window is hidden while none does). Physical pixels.
 pub fn bounds(app: &AppHandle, b: &Bobix) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
-    let (display, size, top) = {
+    let (display, size, top, whole) = {
         let c = b.core.lock().unwrap();
-        (c.settings["display"].as_str().unwrap_or("primary").to_string(), c.settings["size"].as_f64().unwrap_or(56.0), c.settings["edge"] == "top")
+        (c.settings["display"].as_str().unwrap_or("primary").to_string(), c.settings["size"].as_f64().unwrap_or(56.0), c.settings["edge"] == "top", c.settings["petMode"] == "ondemand")
     };
     let m = target_monitor(app, &display)?;
     let (wa, scale) = (m.work_area(), m.scale_factor());
+    if whole { return Some((wa.position, wa.size)); }
     let h = (((size * 1.5).round() + 320.0) * scale).round().min(wa.size.height as f64) as u32;
     let y = if top { wa.position.y } else { wa.position.y + wa.size.height as i32 - h as i32 };
     Some((PhysicalPosition::new(wa.position.x, y), PhysicalSize::new(wa.size.width, h)))

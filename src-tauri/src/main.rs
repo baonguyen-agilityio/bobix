@@ -159,7 +159,8 @@ impl Bobix {
             let c = self.core.lock().unwrap();
             let Some(s) = c.sessions.get(id) else { return };
             let st = &c.settings;
-            if st["paused"] == true || (kind == "waiting" && st["notifyWaiting"] != true) || (kind == "done" && st["notifyDone"] != true) { return; }
+            let dnd = st["dndUntil"].as_f64().unwrap_or(0.0) > state::now() as f64; // "do not disturb": no notification either
+            if st["paused"] == true || dnd || (kind == "waiting" && st["notifyWaiting"] != true) || (kind == "done" && st["notifyDone"] != true) { return; }
             let l = lang(st);
             let name = if s.title.is_empty() { &s.name } else { &s.title };
             let aid = if kind == "waiting" && cfg!(target_os = "macos") { s.answer.as_ref().and_then(|a| a["id"].as_str()).map(String::from) } else { None };
@@ -512,7 +513,7 @@ pub fn update_settings(b: &Arc<Bobix>, patch: Value) -> Value {
     thread::spawn(move || { thread::sleep(Duration::from_millis(300)); if sb.core.lock().unwrap().save_gen == gen { save_now(&sb); } });
     if changed("autostart") { if let Err(e) = autostart::set(next["autostart"] == true) { b.log_err(format!("autostart: {e}")); } }
     if let Some(app) = b.app.get() {
-        if ["display", "edge", "size"].iter().any(|k| changed(k)) { overlay::place(app, b); }
+        if ["display", "edge", "size", "petMode"].iter().any(|k| changed(k)) { overlay::place(app, b); }
         if changed("petsVisible") { overlay::show_or_hide(app, b); overlay::wake(app, b); }
         if ["petsVisible", "paused", "language", "seenVersion"].iter().any(|k| changed(k)) { tray::build(app, b); }
     }
@@ -556,7 +557,7 @@ fn diagnostics(b: &Arc<Bobix>) -> Value {
             .map(|s| (s.state.clone(), s.since, s.log.len(), !s.title.is_empty(), s.claude_pid, s.host_session.is_some(), s.diag.clone())).collect();
         (c.settings.clone(), c.rects.len(), c.page_errors.clone(), s, c.node_path.is_some())
     };
-    let pick: serde_json::Map<String, Value> = ["language", "edge", "walkDir", "size", "opacity", "showIdle", "sleepHide", "onlyAttention", "petsVisible", "zoneStart", "zoneEnd", "display", "clickAction"]
+    let pick: serde_json::Map<String, Value> = ["language", "edge", "walkDir", "petMode", "dndUntil", "size", "opacity", "showIdle", "sleepHide", "onlyAttention", "petsVisible", "zoneStart", "zoneEnd", "display", "clickAction"]
         .iter().map(|k| (k.to_string(), st[*k].clone())).collect();
     let h = hooks::status(&paths::home());
     let rect = |p: tauri::PhysicalPosition<i32>, z: tauri::PhysicalSize<u32>, f: f64| json!({ "x": (p.x as f64 / f).round(), "y": (p.y as f64 / f).round(), "width": (z.width as f64 / f).round(), "height": (z.height as f64 / f).round() });
