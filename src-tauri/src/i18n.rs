@@ -15,7 +15,7 @@ fn block(lang: &str) -> HashMap<&'static str, String> {
     }).collect()
 }
 
-// The release whose notes news.items describes (NEWS in i18n.js).
+// The release the tour of what is new describes (NEWS in i18n.js).
 pub static NEWS: LazyLock<String> = LazyLock::new(|| {
     let at = SOURCE.find("const NEWS = '").map(|i| i + 14).unwrap_or(0);
     SOURCE[at..].split('\'').next().unwrap_or("").to_string()

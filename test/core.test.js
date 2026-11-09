@@ -868,3 +868,26 @@ test('board: the step a ticket is at and why, two sessions on one piece of work,
     'Standup 9/11/2026\n\nHôm qua xong:\n- [app] #9 x\n\nHôm nay đang làm:\n- [app] #1 a (Chờ duyệt)\n- [app] #2 b\n- [web] #3 c (Chờ kiểm tra)\n\nĐang kẹt:\n- [app] #1 a: chờ bạn duyệt 5 phút\n');
   assert.match(B.standup({ doing: [], verify: [] }, [], [], T, mon, 'vi-VN'), /Hôm qua xong:\n- không có\n\nHôm nay đang làm:\n- không có\n\nĐang kẹt:\n- không có\n$/);
 });
+
+test('tour: every step has its words in both languages, NEWS is this version, and the bubble stays on screen', () => {
+  const TOUR = require('../src/ui/tour');
+  const I18N = require('../src/ui/i18n');
+  assert.ok(TOUR.STEPS.length >= 6 && TOUR.STEPS.length <= 8, 'about 6 to 8 steps');
+  for (const s of TOUR.STEPS) {
+    assert.ok(['sessions', 'settings'].includes(s.tab) && s.at.length, s.key);
+    for (const lang of ['en', 'vi']) for (const k of ['title', 'body']) assert.ok(I18N.STR[lang][`tour.${s.key}.${k}`], `${lang} tour.${s.key}.${k}`);
+  }
+  assert.equal(I18N.NEWS, require('../package.json').version.split('-')[0], 'the tour opens once for this version');
+  const on = (p, vw, vh, bh) => p.left >= 12 && p.top >= 12 && p.left + p.width <= vw - 12 && p.top + bh <= vh - 12;
+  // wide: below the element when it fits, else above
+  assert.deepEqual(TOUR.place({ left: 100, top: 100, width: 300, height: 40 }, 1440, 900, 380, 160), { left: 100, top: 152, width: 380 });
+  assert.deepEqual(TOUR.place({ left: 1300, top: 800, width: 120, height: 40 }, 1440, 900, 380, 160), { left: 1048, top: 628, width: 380 });
+  // a tall element: neither fits, it sits at the bottom
+  const tall = TOUR.place({ left: 0, top: 20, width: 800, height: 860 }, 1440, 900, 380, 160);
+  assert.ok(on(tall, 1440, 900, 160), JSON.stringify(tall));
+  // no element: centred
+  assert.deepEqual(TOUR.place(null, 1440, 900, 380, 160), { left: 530, top: 370, width: 380 });
+  // narrow: across the bottom, or the top when the element is low
+  assert.deepEqual(TOUR.place({ left: 10, top: 100, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 688, width: 396 });
+  assert.deepEqual(TOUR.place({ left: 10, top: 700, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 12, width: 396 });
+});
