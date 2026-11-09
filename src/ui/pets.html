@@ -61,7 +61,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .where{display:block;font-size:var(--t-xs);font-weight:500}
 .answer{display:inline-flex;align-items:center;gap:var(--s1);margin-left:var(--s2)}
 .answer button{font:600 var(--t-xs) var(--f-body);border-radius:var(--pill);padding:0 var(--s2);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);cursor:pointer}
-.answer button[data-answer="allow"],.answer button[data-answer="always"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.answer button[data-answer="allow"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
 .answer button:hover{filter:brightness(1.1)}
 .answer .left{font-weight:500;color:var(--ink-3)}
 .card .answer{display:flex;flex-wrap:wrap;margin:0 0 var(--s2)}
@@ -148,11 +148,11 @@ function sayText(p, st, now) {
 
 // Allow / Deny while a permission request waits for Bobix (seconds left, then the terminal asks; Infinity: no countdown).
 const left = (s, now) => (!s.answer ? 0 : s.answer.until == null ? Infinity : Math.max(0, Math.ceil((s.answer.until - now) / 1000)));
-function answerButtons(s, now, withAlways) {
+function answerButtons(s, now) {
   const n = left(s, now);
   if (!n || !bridge) return `<span class="where">${T(approveWhere(s))}</span>`; // Bobix can't answer it: say where it can be
   const sid = `data-sid="${esc(s.id)}"`;
-  return `<span class="answer">${withAlways && s.answer.always ? `<button type="button" ${sid} data-answer="always">${T('ask.always')}</button>` : ''}`
+  return `<span class="answer">`
     + `<button type="button" ${sid} data-answer="allow">${T('ask.allow')}</button><button type="button" ${sid} data-answer="deny">${T('ask.deny')}</button>`
     + (n === Infinity ? '' : `<span class="left" data-sid="${esc(s.id)}">${T('ask.left', { n })}</span>`) + '</span>';
 }
@@ -242,18 +242,18 @@ function paint(p, now) {
         <h2>${esc(s.title || s.name)}</h2>
         <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
         <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
-        ${st === 'waiting' ? answerButtons(s, now, true) : ''}
+        ${st === 'waiting' ? answerButtons(s, now) : ''}
         <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
-    ${say && say[2] ? `<div class="say ${say[0]}">${whoHTML(say[2], s)}${esc(say[2].text)}${say[0] === 'waiting' ? answerButtons(say[2].s, now, false) : ''}</div>` : ''}
+    ${say && say[2] ? `<div class="say ${say[0]}">${whoHTML(say[2], s)}${esc(say[2].text)}${say[0] === 'waiting' ? answerButtons(say[2].s, now) : ''}</div>` : ''}
     ${say && !say[2] && say[1] && reports.length > 1 && !useBalloons ? `<div class="say sum ${say[0]}" data-group>${esc(say[1])} ▸</div>` : ''}
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon)}</div>` : ''}
-    ${say && !say[2] && !(reports.length > 1 && !useBalloons) && say[1] ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now, false) : ''}</div>` : ''}
+    ${say && !say[2] && !(reports.length > 1 && !useBalloons) && say[1] ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${groupOpen ? `<div class="card group">${[s, ...kidsOf(s).filter(k => visible(k)).sort(byUrgency)].map(m => { const ms = look(m);
-      return `<div class="gr ${ms}"><span class="mini">${petArt(m.parent ? s : m, ms, petColor(m, lastList || []))}</span><span class="nm">${esc(shortName(m))}</span><span class="stx">${esc(statusText(m, ms))}</span>${ms === 'waiting' ? answerButtons(m, now, false) : ''}<button class="open" type="button" data-open="${esc(m.id)}">${T('fam.open')}</button></div>`; }).join('')}</div>` : ''}
+      return `<div class="gr ${ms}"><span class="mini">${petArt(m.parent ? s : m, ms, petColor(m, lastList || []))}</span><span class="nm">${esc(shortName(m))}</span><span class="stx">${esc(statusText(m, ms))}</span>${ms === 'waiting' ? answerButtons(m, now) : ''}<button class="open" type="button" data-open="${esc(m.id)}">${T('fam.open')}</button></div>`; }).join('')}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(parent || s, st, color)}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}${extra ? `<span class="more${extraHot ? ' hot' : ''}" data-group title="${esc(T('fam.more', { n: extra }))}">+${extra}${extraHot && !p.hover ? `<span class="bb ${extraHot}">${balloonSVG(extraHot)}</span>` : ''}</span>` : ''}</div>`}`;

@@ -72,7 +72,7 @@ pub fn claude_sessions(root: &Path) -> Vec<ClaudeSession> {
     out
 }
 
-// The newest of those sessions in folder `dir` whose name `named` accepts (an issue's, see work::names_issue).
+// The newest of those sessions in folder `dir` whose name `named` accepts (an issue's, see model::names_issue).
 pub fn issue_session(list: &[ClaudeSession], dir: &str, named: impl Fn(&str) -> bool) -> Option<String> {
     list.iter().filter(|s| s.cwd == dir && named(&s.title)).max_by(|a, b| a.at.total_cmp(&b.at)).map(|s| s.id.clone())
 }
@@ -111,7 +111,7 @@ mod tests {
         put("e", serde_json::json!({ "cwd": "/src/other", "title": "shop #23 other folder", "lastActivityAt": 990 }));
         put("f", serde_json::json!({ "cwd": "/src/shop", "title": "shop #24", "lastActivityAt": 10 }));
         fs::write(u.join("notes.json"), "{}").unwrap();
-        let named = |iid| move |t: &str| crate::work::names_issue(t, "SHO", "g/shop", iid);
+        let named = |iid| move |t: &str| crate::model::names_issue(t, "SHO", "g/shop", iid);
         let list = claude_sessions(&root);
         assert_eq!(list.len(), 5);
         assert_eq!(issue_session(&list, "/src/shop", named(23)).as_deref(), Some("local_b"));
