@@ -12,7 +12,7 @@ pub fn defaults() -> Value {
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false, "tourSeen": [],
-        "seenVersion": "", "gitlab": false, "github": false, "workProjects": [], "workKeys": {}, "petImages": {},
+        "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "petImages": {},
     })
 }
 
@@ -25,6 +25,7 @@ fn enum_of(k: &str) -> Option<&'static [&'static str]> {
         "dnd" => &["0", "30", "60"], // "do not disturb": the minutes last chosen (0: off); it lasts until dndUntil
         "label" => &["title", "folder", "both"],
         "clickAction" => &["focus", "panel"],
+        "role" => &["", "ba", "qa", "dev"], // what you do, to suggest a skill when you start an issue
         _ => return None,
     })
 }
@@ -143,6 +144,22 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
                 let m: Map<String, Value> = o.iter()
                     .filter(|(p, c)| project_path(p) && c.as_str().is_some_and(project_code))
                     .take(500).map(|(p, c)| (p.to_lowercase(), c.clone())).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "skillPins" { // your own skills to offer: name -> the roles it is for (none: any role)
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter().filter(|(n, _)| crate::process::skill_name(n)).filter_map(|(n, r)| {
+                    let roles: Vec<&str> = r.as_array()?.iter().filter_map(Value::as_str).filter(|x| ["ba", "qa", "dev"].contains(x)).collect();
+                    let mut uniq: Vec<&str> = vec![];
+                    for x in roles { if !uniq.contains(&x) { uniq.push(x); } }
+                    Some((n.clone(), json!(uniq)))
+                }).take(300).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "skillProcess" { // processes imported by hand, per project, checked again as process files are
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter().filter(|(p, _)| project_path(p))
+                    .filter_map(|(p, x)| Some((p.to_lowercase(), crate::process::parse(&x.to_string()).ok()?))).take(50).collect();
                 out.insert(k.into(), Value::Object(m));
             }
         } else if k == "workProjects" {
@@ -358,6 +375,16 @@ mod tests {
             json!({ "noreview:https://h/g/a/pull/9": 1762650000000_i64, "idle:g/a#3": 1762650000000_i64 }));
         assert_eq!(s(json!({ "stuckSkipped": [1] }))["stuckSkipped"], json!({}), "not a map: kept as it was");
         assert_eq!((s(json!({ "stuckNoReview": 500 }))["stuckNoReview"].clone(), s(json!({ "stuckIdle": "0" }))["stuckIdle"].clone(), s(json!({ "stuckOn": "no" }))["stuckOn"].clone()), (json!(168), json!(1), json!(true)));
+    }
+
+    #[test]
+    fn skill_pins_and_imported_processes_are_checked() {
+        let pins = s(json!({ "skillPins": { "ak:cook": ["dev", "qa", "dev", "admin"], "ak:fix": [], "bad name": ["dev"], "x;rm": [], "ok": "dev" } }));
+        assert_eq!(pins["skillPins"], json!({ "ak:cook": ["dev", "qa"], "ak:fix": [] }), "skill names and roles only");
+        let good = json!({ "version": 1, "rules": [{ "when": { "label": "bug" }, "skill": "fix-ticket" }] });
+        let p = s(json!({ "skillProcess": { "Acme/Shop": good, "acme/bad": { "version": 1, "rules": [{ "when": { "label": "bug" }, "skill": "x y" }] }, "not a path": good } }));
+        assert_eq!(p["skillProcess"].as_object().unwrap().keys().collect::<Vec<_>>(), ["acme/shop"], "only valid processes, for project paths");
+        assert_eq!(p["skillProcess"]["acme/shop"]["rules"][0]["when"]["label"], json!(["bug"]));
     }
 
     #[test]
