@@ -69,6 +69,30 @@
   // What Claude gets in the new session: the issue's title, its description and its link.
   const brief = (i, body) => [`#${i.iid} ${i.title}`, String(body || '').trim(), i.url ? String(i.url) : ''].filter(Boolean).join('\n\n');
 
-  const api = { PRI, day, stages, loose, short, report, next, brief };
+  // The skill to suggest for an issue, from its labels and your role (Settings: ba, qa, dev): words in a skill's name
+  // (its last part, after a plugin's "name:") score most, a label's over the role's; the repo's own skills win a tie.
+  // { name, why: 'label' | 'role', label } or null.
+  const BY_LABEL = [[/bug|defect|fix|regression|error|crash/i, ['fix', 'bug', 'debug']], [/enhancement|feature|story|epic|request/i, ['feature', 'plan', 'cook', 'implement', 'story', 'stories']],
+    [/doc/i, ['doc', 'release-note']], [/test|qa/i, ['test', 'verify', 'qa']], [/question|support/i, ['question', 'answer']], [/refactor|chore|debt/i, ['refactor', 'simplif', 'clean']]];
+  const BY_ROLE = { ba: ['stor', 'question', 'gap', 'requirement', 'spec', 'brainstorm', 'plan'], qa: ['test', 'verify', 'qa', 'bug', 'review', 'check'], dev: ['fix', 'cook', 'implement', 'feature', 'debug', 'ticket', 'code'] };
+  function skillFor(skills, labels = [], role = '') {
+    const words = labels.flatMap(l => (BY_LABEL.find(([re]) => re.test(l)) || [, []])[1].map(w => [w, l]));
+    let best = null;
+    for (const s of skills) {
+      const short = s.name.split(':').pop().toLowerCase();
+      const byLabel = words.find(([w]) => short.includes(w)), byRole = (BY_ROLE[role] || []).find(w => short.includes(w));
+      const score = (byLabel ? 4 : 0) + (byRole ? 2 : 0) + (byLabel || byRole ? (s.source === 'project' ? 1 : 0) : 0);
+      if (score && (!best || score > best.score)) best = { score, name: s.name, why: byLabel ? 'label' : 'role', label: byLabel?.[1] };
+    }
+    return best && { name: best.name, why: best.why, label: best.label };
+  }
+
+  // The prompt with a skill: "/<skill> <link>" on its first line (replacing one there), or without it ('').
+  function withSkill(text, skill, url) {
+    const rest = String(text || '').replace(/^\/\S+[^\n]*\n*/, '');
+    return skill ? `/${skill} ${url || ''}`.trimEnd() + '\n\n' + rest : rest;
+  }
+
+  const api = { PRI, day, stages, loose, short, report, next, brief, skillFor, withSkill };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);

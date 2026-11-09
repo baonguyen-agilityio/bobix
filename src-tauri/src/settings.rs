@@ -12,7 +12,7 @@ pub fn defaults() -> Value {
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "sleepHide": 30,
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
-        "seenVersion": "", "gitlab": false, "github": false, "workProjects": [], "workKeys": {}, "petImages": {},
+        "seenVersion": "", "gitlab": false, "github": false, "role": "", "workProjects": [], "workKeys": {}, "petImages": {},
     })
 }
 
@@ -25,6 +25,7 @@ fn enum_of(k: &str) -> Option<&'static [&'static str]> {
         "dnd" => &["0", "30", "60"], // "do not disturb": the minutes last chosen (0: off); it lasts until dndUntil
         "label" => &["title", "folder", "both"],
         "clickAction" => &["focus", "panel"],
+        "role" => &["", "ba", "qa", "dev"], // what you do, to suggest a skill when you start an issue
         _ => return None,
     })
 }

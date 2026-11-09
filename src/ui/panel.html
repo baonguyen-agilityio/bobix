@@ -174,7 +174,9 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .stbox dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px var(--s3);margin:0;font-size:var(--t-sm)}
 .stbox dt{color:var(--ink-3)}.stbox dd{margin:0;min-width:0;overflow-wrap:anywhere}
 .stbox label{margin:0}
-.fb.stbox textarea{min-height:min(240px,40dvh)}
+.fb.stbox textarea{min-height:min(200px,32dvh)}
+.stbox select{width:100%;min-height:36px;padding:6px 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font:inherit}
+.stbox .sk-note{margin:4px 0 0;font-size:var(--t-xs);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .ir{display:flex;align-items:center;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;transition:border-color 120ms var(--ease),box-shadow 120ms var(--ease)}
 .ir:hover{border-color:var(--line-strong);box-shadow:var(--lift)}
 .ir-main{flex:1;min-width:0;display:flex;align-items:center;gap:var(--s2);min-height:40px;border:0;background:none;padding:6px 6px 6px 12px;border-radius:inherit;text-align:left;cursor:pointer;font-size:var(--t-sm)}
@@ -480,6 +482,9 @@ input[type=number]{width:104px}
   <p class="note" data-t="start.body"></p>
   <dl><dt data-t="start.repo"></dt><dd><code id="st-dir"></code></dd></dl>
   <p class="note err" id="st-err" hidden data-t="start.nobody"></p>
+  <label for="st-skill" data-t="start.skill"></label>
+  <select id="st-skill"></select>
+  <p class="note sk-note" id="st-skill-note"></p>
   <label for="st-text" data-t="start.brief"></label>
   <textarea id="st-text" spellcheck="false"></textarea>
   <div class="acts"><button class="btn" value="close" data-t="pd.cancel"></button><button class="btn pri" type="button" id="st-go" data-t="start.go"></button></div>
@@ -885,11 +890,32 @@ async function openStart(b, [i, g]) {
   $('#st-dir').textContent = g.dir.replace(/^(\/Users|\/home|[A-Za-z]:\\Users)[\\/][^\\/]+/, '~'); // the folder, home as ~
   $('#st-dir').title = g.dir;
   $('#st-err').hidden = !!r?.ok;
-  $('#st-text').value = BOARD.brief(i, r?.ok ? r.body : '');
+  // The skills Claude has for that folder; one suggested from the issue's labels and your role (Settings).
+  const skills = r?.skills || [], pick = BOARD.skillFor(skills, r?.labels || i.labels || [], state?.settings?.role || '');
+  starting.url = i.url; starting.skills = skills; starting.pick = pick;
+  const groups = ['project', 'personal', 'plugin', 'managed', 'synced'].map(src => [src, skills.filter(s => s.source === src)]).filter(([, xs]) => xs.length);
+  $('#st-skill').innerHTML = `<option value="">${esc(T('start.noskill'))}</option>` + groups.map(([src, xs]) => `<optgroup label="${esc(T('skill.src.' + src))}">${xs.map(s =>
+    `<option value="${esc(s.name)}" title="${esc(s.description)}"${s.name === pick?.name ? ' selected' : ''}>/${esc(s.name)}</option>`).join('')}</optgroup>`).join('');
+  $('#st-skill').disabled = !skills.length;
+  $('#st-text').value = BOARD.withSkill(BOARD.brief(i, r?.ok ? r.body : ''), pick?.name || '', i.url);
+  skillNote();
   $('#st-dialog').showModal();
   $('#st-text').scrollTop = 0;
-  $('#st-go').focus();
+  $('#st-go').focus({ preventScroll: true });
+  $('#st-dialog').scrollTop = 0;
 }
+// Under the picker: what the chosen skill does, and why Bobix suggested it.
+function skillNote() {
+  const s = starting, name = $('#st-skill').value, k = s?.skills.find(x => x.name === name);
+  const why = !s?.skills.length ? T('start.noskills') : name && name === s.pick?.name ? (s.pick.why === 'label' ? T('start.why.label', { l: s.pick.label }) : T('start.why.role', { r: { ba: 'BA', qa: 'QA', dev: 'Dev' }[state?.settings?.role] || '' })) : '';
+  $('#st-skill-note').textContent = [why, k?.description].filter(Boolean).join(' · ');
+  $('#st-skill-note').title = k?.description || '';
+}
+$('#st-skill').addEventListener('change', () => {
+  const t = $('#st-text');
+  t.value = BOARD.withSkill(t.value, $('#st-skill').value, starting?.url);
+  skillNote();
+});
 // Copies the prompt (the sure way), then opens the new session with it in its prompt box.
 $('#st-go').addEventListener('click', async () => {
   const t = $('#st-text'), s = starting;
@@ -993,6 +1019,7 @@ const SECTIONS = [
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
     { k: 'github', type: 'switch' },
+    { k: 'role', type: 'seg', opts: () => [['', T('set.role.none')], ['ba', 'BA'], ['qa', 'QA'], ['dev', 'Dev']] },
     { k: 'workKeys', type: 'keys', wide: true },
   ]],
   ['set.section.app', [

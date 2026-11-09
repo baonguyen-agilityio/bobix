@@ -19,6 +19,7 @@ mod procs;
 mod project;
 mod server;
 mod settings;
+mod skills;
 mod smoke;
 mod state;
 mod tray;
@@ -725,18 +726,28 @@ async fn work_start(path: String, iid: i64, prompt: Option<String>, b: B<'_>) ->
     tauri::async_runtime::spawn_blocking(move || start_issue(&b, &path, iid, prompt.as_deref().unwrap_or(""))).await.map_err(|_| ())
 }
 
-// For the Start box: an issue Bobix listed, with its description read now (one GET through glab / gh, not kept).
-// { ok, title, url, body } or { ok: false, title, url, reason } (the box still opens, without the description).
+// For the Start box: an issue Bobix listed, with its description read now (one GET through glab / gh, not kept), its
+// labels, and the skills Claude Code has for the project's folder (names and descriptions, read-only, see skills.rs).
+// { ok, title, url, body, labels, skills } or { ok: false, title, url, labels, skills, reason } (the box still opens,
+// without the description).
 #[tauri::command]
 async fn work_brief(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let src = { let c = b.core.lock().unwrap(); c.work.source_of(&c.settings, &path, iid) };
+        let (src, dir) = {
+            let c = b.core.lock().unwrap();
+            let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
+            let dir = view["local"].as_array().and_then(|l| l.iter().find(|g| g["path"] == path.as_str())).and_then(|g| g["dir"].as_str().map(String::from));
+            (c.work.source_of(&c.settings, &path, iid), dir)
+        };
         let Some((f, bin, host, i)) = src else { return json!({ "ok": false, "reason": "gone" }) };
-        match work::fetch_body(f, &bin, &host, &path, iid) {
-            Ok(body) => json!({ "ok": true, "title": i["title"], "url": i["url"], "body": body }),
-            Err(e) => json!({ "ok": false, "title": i["title"], "url": i["url"], "reason": e["reason"] }),
-        }
+        let skills = dir.map(|d| skills::list(&paths::home(), std::path::Path::new(&d))).unwrap_or_default();
+        let mut r = match work::fetch_body(f, &bin, &host, &path, iid) {
+            Ok(body) => json!({ "ok": true, "body": body }),
+            Err(e) => json!({ "ok": false, "reason": e["reason"] }),
+        };
+        for (k, v) in [("title", i["title"].clone()), ("url", i["url"].clone()), ("labels", i["labels"].clone()), ("skills", json!(skills))] { r[k] = v; }
+        r
     }).await.map_err(|_| ())
 }
 
