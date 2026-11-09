@@ -440,7 +440,19 @@ input[type=number]{width:104px}
 .guide{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s3) var(--s6)}
 .guide li{display:grid;grid-template-columns:40px minmax(0,1fr);gap:var(--s3);align-items:center;font-size:var(--t-sm)}
 .guide .sprite{width:40px;height:40px}.guide .st-waiting .sprite{background:var(--coral-soft);box-shadow:inset 0 0 0 1px var(--coral)}.guide .st-done .sprite{background:var(--mint-soft)}.guide .st-idle .sprite svg{opacity:.6}.guide-more{margin:var(--s4) 0 0;padding-left:1.2em;font-size:var(--t-sm);display:grid;gap:var(--s2)}
-.news{margin:0;padding-left:1.2em;display:grid;gap:var(--s2);font-size:var(--t-sm)}
+/* the tour of what is new: the element a step points at stays lit, the rest dims; one bubble beside it */
+.tour{position:fixed;inset:0;z-index:50}
+.tour-hole{position:fixed;border-radius:14px;box-shadow:0 0 0 2px var(--ink),0 0 0 100vmax oklch(20% .02 266 / .55);pointer-events:none;transition:all 200ms var(--ease)}
+.tour-hole.none{left:50%!important;top:50%!important;width:0!important;height:0!important;box-shadow:0 0 0 100vmax oklch(20% .02 266 / .55)}
+.tour-pop{position:fixed;display:flex;flex-direction:column;gap:var(--s2);max-height:calc(100dvh - 24px);overflow:auto;padding:var(--s4) var(--s4) var(--s3);background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);border-radius:18px;box-shadow:var(--lift)}
+.tour-pop h2{font-size:var(--t-lg)}
+.tour-pop p{margin:0;font-size:var(--t-sm);color:var(--ink-2)}
+.tour-pop .n{font-size:var(--t-xs);font-weight:600;color:var(--ink-3)}
+.tour-pop .acts{margin:var(--s1) 0 0;justify-content:flex-end;gap:var(--s2)}
+.tour-pop .acts .skip{margin-right:auto}
+.tour-art{display:flex;gap:var(--s2)}
+.tour-art .sprite{width:36px;height:36px;border-radius:10px}
+.tour-art .st-waiting .sprite{background:var(--coral-soft);box-shadow:inset 0 0 0 1px var(--coral)}
 .steps{list-style:none;margin:0;padding:0}
 .steps li{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:var(--s4);align-items:center;padding:var(--s4) 0;border-top:1px solid var(--line)}
 .steps .num{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:var(--t-sm);background:var(--n-200)}
@@ -524,12 +536,14 @@ input[type=number]{width:104px}
 <section id="tab-settings" hidden><div class="set-wrap" id="settings"></div></section>
 <section id="tab-setup" hidden><div class="setup-wrap" id="setup"></div></section>
 <div class="toasts" id="toasts"></div>
+<div class="tour" id="tour" role="dialog" aria-modal="true" aria-labelledby="tour-h" hidden><div class="tour-hole" id="tour-hole"></div><div class="tour-pop" id="tour-pop"></div></div>
 
 <script src="/ui/i18n.js"></script>
 <script src="/ui/creature.js"></script>
 <script src="/ui/markdown.js"></script>
 <script src="/ui/log.js"></script>
 <script src="/ui/board.js"></script>
+<script src="/ui/tour.js"></script>
 <script>
 // The panel shows after 1 s at the latest. Set first, so an error further down cannot leave it hidden (body.boot).
 setTimeout(() => document.body.classList.remove('boot'), 1000);
@@ -1047,6 +1061,7 @@ const SECTIONS = [
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
     { k: 'autostart', type: 'switch' },
+    { k: 'tour', type: 'tour' },
   ]],
   ['set.section.advanced', [{ k: 'port', type: 'port' }, { k: 'reset', type: 'reset' }]],
 ];
@@ -1074,6 +1089,7 @@ function control(r, s) {
     if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
     return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
   }
+  if (r.type === 'tour') return `<button class="btn" type="button" data-act="tour">${T('set.tour.open')}</button>`;
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
 }
@@ -1090,7 +1106,7 @@ function renderSettings() {
       <span class="saved" id="saved" role="status">${T('set.saved')}</span>
     </aside>
     <div>${SECTIONS.map(([title, rows]) => `<section class="sec"><h2>${T(title)}</h2>${rows.map(r => `
-      <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}">
+      <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}" data-row="${r.k}">
         <div><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`)}${r.k === 'dnd' && dndLeft(s) ? ' ' + T('set.dnd.left', { n: dndLeft(s) }) : ''}</div>` : ''}</div>
         <div class="ctl">${control(r, s)}</div>
       </div>`).join('')}</section>`).join('')}</div>`;
@@ -1162,6 +1178,7 @@ $('#settings').addEventListener('click', async e => {
   if (!t) return;
   if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
   if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
+  if (t.dataset.act === 'tour') return tourStart(false);
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
     if (v === state.settings.port) return;
@@ -1358,7 +1375,7 @@ $('#pd-dialog').addEventListener('close', e => { // Esc, Cancel, Save or an erro
   if (!pd.saved) bridge.petImage(pd.id, 'cancel');
 });
 
-// ---------- first-run guide and "What's new" (shown once each; see news_for in src-tauri/src/settings.rs) ----------
+// ---------- first-run guide, and the tour of what is new (shown once each; see news_for in src-tauri/src/settings.rs) ----------
 function guideHTML() {
   const art = st => `<span class="sprite">${creature('bobix', st)}</span>`;
   return `<ul class="guide">${['working', 'waiting', 'done', 'idle'].map(st => `<li class="st-${st}">${art(st)}<span>${esc(T('guide.' + st))}</span></li>`).join('')}</ul>
@@ -1367,26 +1384,77 @@ function guideHTML() {
 let guideOut = false;
 function renderIntro() {
   const box = $('#intro');
-  const showNews = !!state?.news;
   // The guide waits for a first pet, then stays until Got it, even when that session ends.
   guideOut ||= !!state && !state.settings.guideSeen && list.length > 0;
   const showGuide = guideOut && !state.settings.guideSeen;
-  const key = JSON.stringify([showNews && state.news, showGuide, lang]);
+  const key = JSON.stringify([showGuide, lang]);
   if (box.dataset.key === key) return;
   box.dataset.key = key;
-  box.innerHTML = (showNews ? `<section class="card" aria-labelledby="news-h"><h2 id="news-h">${esc(T('news.title', { v: state.news }))}</h2>
-      <ul class="news">${[...T('news.items').split('\n'), ...(state.platform === 'linux' ? [T('news.items.linux')] : [])].map(x => `<li>${esc(x)}</li>`).join('')}</ul>
-      <div class="acts"><button class="btn" type="button" data-intro="news">${T('news.ok')}</button></div></section>` : '')
-    + (showGuide ? `<section class="card" aria-labelledby="guide-h"><h2 id="guide-h">${esc(T('guide.title'))}</h2>${guideHTML()}
+  box.innerHTML = (showGuide ? `<section class="card" aria-labelledby="guide-h"><h2 id="guide-h">${esc(T('guide.title'))}</h2>${guideHTML()}
       <div class="acts"><button class="btn pri" type="button" data-intro="guide">${T('guide.ok')}</button></div></section>` : '');
 }
 $('#intro').addEventListener('click', async e => {
   const which = e.target.closest('[data-intro]')?.dataset.intro;
   if (!which || !bridge) return;
-  if (which === 'news') { state.settings = await bridge.setSettings({ seenVersion: state.news }); state.news = null; }
-  else state.settings = await bridge.setSettings({ guideSeen: true });
+  state.settings = await bridge.setSettings({ guideSeen: true });
   renderIntro();
 });
+
+// The tour: a few steps, each lighting up the real element it talks about (TOUR.STEPS in tour.js). It opens by itself
+// once for a version with news (state.news), and from Settings → Tour; Skip and Done both mark that version seen.
+let tourAt = -1, tourNews = false;
+function tourStart(news) {
+  tourNews = news; tourAt = 0;
+  select(null);
+  document.querySelector('dialog[open]')?.close();
+  $('#tour').hidden = false;
+  tourShow();
+}
+async function tourEnd() {
+  tourAt = -1; tab = null; // the board picks its section again
+  $('#tour').hidden = true;
+  showTab(tourNews ? 'sessions' : 'settings'); // back where it was opened from
+  if (tourNews && bridge && state?.news) { state.settings = await bridge.setSettings({ seenVersion: state.news }); state.news = null; }
+}
+function tourShow() {
+  const st = TOUR.STEPS[tourAt], n = TOUR.STEPS.length, last = tourAt === n - 1;
+  if ($('#tab-' + st.tab).hidden) showTab(st.tab);
+  if (st.section && narrow() && tab !== st.section) { tab = st.section; render(); }
+  if (st.open === 'ticket' && !document.querySelector('#d-doing .stg')) {
+    const ts = [...document.querySelectorAll('#d-doing .tr-main')];
+    (ts.find(b => b.querySelector('.dup')) || ts[0])?.click();
+  }
+  const target = st.at.map(q => document.querySelector(q)).find(e => e && e.getClientRects().length);
+  const art = st.art ? `<div class="tour-art" aria-hidden="true">${['working', 'waiting', 'done', 'idle'].map(k => `<span class="st-${k}"><span class="sprite">${creature('bobix', k)}</span></span>`).join('')}</div>` : '';
+  $('#tour-pop').innerHTML = `<span class="n">${tourAt + 1} / ${n}</span><h2 id="tour-h">${esc(T(`tour.${st.key}.title`))}</h2>${art}<p>${esc(T(`tour.${st.key}.body`))}</p>
+    <div class="acts">${last ? '' : `<button class="btn ghost skip" type="button" data-tour="skip">${T('tour.skip')}</button>`}${tourAt ? `<button class="btn" type="button" data-tour="back">${T('tour.back')}</button>` : ''}<button class="btn pri" type="button" data-tour="next">${T(last ? 'tour.done' : 'tour.next')}</button></div>`;
+  target?.scrollIntoView({ block: 'center', behavior: 'instant' });
+  tourPlace(target);
+  $('#tour-pop [data-tour="next"]').focus();
+}
+function tourPlace(target = TOUR.STEPS[tourAt] && TOUR.STEPS[tourAt].at.map(q => document.querySelector(q)).find(e => e && e.getClientRects().length)) {
+  if (tourAt < 0) return;
+  const r = target?.getBoundingClientRect(), hole = $('#tour-hole'), pop = $('#tour-pop'), pad = 6;
+  hole.classList.toggle('none', !r);
+  if (r) Object.assign(hole.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + 2 * pad + 'px', height: r.height + 2 * pad + 'px' });
+  pop.style.width = Math.min(380, innerWidth - 24) + 'px';
+  const p = TOUR.place(r ? { left: r.left - pad, top: r.top - pad, width: r.width + 2 * pad, height: r.height + 2 * pad } : null, innerWidth, innerHeight, 380, pop.offsetHeight);
+  Object.assign(pop.style, { left: p.left + 'px', top: p.top + 'px', width: p.width + 'px' });
+}
+$('#tour').addEventListener('click', e => {
+  const b = e.target.closest('[data-tour]')?.dataset.tour;
+  if (b === 'skip' || (b === 'next' && tourAt === TOUR.STEPS.length - 1)) return tourEnd();
+  if (b === 'next' || b === 'back') { tourAt += b === 'next' ? 1 : -1; tourShow(); }
+});
+$('#tour').addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); tourEnd(); }
+  if (e.key === 'Tab') { // focus stays in the bubble
+    const bs = [...$('#tour-pop').querySelectorAll('button')], i = bs.indexOf(document.activeElement);
+    e.preventDefault(); bs[(i + (e.shiftKey ? bs.length - 1 : 1)) % bs.length].focus();
+  }
+});
+addEventListener('resize', () => tourPlace());
+addEventListener('scroll', () => tourPlace(), true);
 
 // ---------- setup ----------
 async function renderSetup(note) {
@@ -1450,7 +1518,7 @@ function applyLang() {
 $('#logo').innerHTML = creature('bobix', 'done');
 // Shown once its language and the first sessions are in, so the bar doesn't jump as they arrive (fallback: top of this script).
 const pending = new Set(['state', 'list']);
-const arrived = k => pending.delete(k) && !pending.size && document.body.classList.remove('boot');
+const arrived = k => { if (pending.delete(k) && !pending.size) { document.body.classList.remove('boot'); if (state?.news) tourStart(true); } };
 const es = new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || ''));
 es.onopen = () => { $('#conn').textContent = T('conn.ok'); $('#conn').className = 'conn'; };
 es.onerror = () => { $('#conn').textContent = T('conn.lost'); $('#conn').className = 'conn lost'; };
