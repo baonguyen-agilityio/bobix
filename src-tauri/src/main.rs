@@ -418,7 +418,7 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
                 if failed.len() == h.len() { (json!({ "status": "error", "hosts": h, "at": at, "failed": failed }), vec![]) } else {
                     let list: Vec<Value> = rs.iter().flat_map(|r| r["issues"].as_array().cloned().unwrap_or_default()).collect();
                     // what waits for review, and what was closed lately (the panel keeps today's: local midnight is its call)
-                    let since = hooks::iso(at.saturating_sub(36 * 3600 * 1000));
+                    let since = hooks::iso(at.saturating_sub(4 * 24 * 3600 * 1000)); // today, and the last working day for the stand-up
                     let reviews: Vec<model::Review> = h.iter().flat_map(|x| f.reviews(g, x)).collect();
                     let closed: Vec<Value> = h.iter().flat_map(|x| f.closed(g, x, &since)).collect();
                     (json!({ "status": "ok", "hosts": h, "at": at, "failed": failed, "list": list, "closed": closed }), reviews)
@@ -1113,8 +1113,10 @@ mod snapshot_tests {
         let mut stages = vec![];
         for side in ["local", "away"] {
             for i in got["work"][side].as_array_mut().unwrap().iter_mut().flat_map(|g| g["issues"].as_array_mut().unwrap()) {
-                // the rule the board had in src/ui/board.js: i.review ? verify : i.sessions.length ? doing : todo
+                // the rule the board had in src/ui/board.js: i.review ? verify : i.sessions.length ? doing : todo; doing now
+                // splits off "ask" (a session on it waits for approval), which the board still lists as in progress
                 let was = if i.get("review").is_some_and(|r| r.as_str().is_some_and(|r| !r.is_empty())) { "verify" } else if i["sessions"].as_array().is_some_and(|a| !a.is_empty()) { "doing" } else { "todo" };
+                let was = if was == "doing" && i["stage"] == "ask" { "ask" } else { was };
                 assert_eq!(i["stage"], was, "#{}", i["iid"]); stages.push((i["iid"].as_i64().unwrap(), i.as_object_mut().unwrap().shift_remove("stage").unwrap())); }
         }
         if std::env::var_os("BOBIX_WRITE_SNAPSHOT").is_some() { std::fs::write(SNAPSHOT, serde_json::to_string_pretty(&got).unwrap() + "\n").unwrap(); }

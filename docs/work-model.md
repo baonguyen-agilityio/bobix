@@ -50,7 +50,7 @@ A PR / MR names each issue once, for its first reason in that order: `forgeLink`
 
 ## Stage of an issue
 
-`verify` when an open PR / MR closes it, else `doing` while a live session works on it, else `todo`. "Done" on the board and in the report are the issues assigned to you that were closed since local midnight; the panel decides the day by its own clock.
+`verify` when an open PR / MR closes it, else `ask` while a live session on it waits for your approval, else `doing` while a live session works on it, else `todo` (`stage_of`). The board lists `ask` with the tickets in progress, and shows the five steps To do → In progress → Needs approval → Waiting for review → Done on an opened ticket, with why it is where it is. "Done" on the board and in the report are the issues assigned to you that were closed since local midnight; the panel decides the day by its own clock.
 
 ## What the pages get
 
