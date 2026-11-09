@@ -9,7 +9,7 @@ pub const UNTIL_ANSWER: f64 = -1.0; // approveWait: no countdown, the request wa
 pub fn defaults() -> Value {
     json!({
         "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "walkDir": "ltr", "petMode": "edge", "dnd": "0", "dndUntil": 0, "zoneStart": 0, "zoneEnd": 100,
-        "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
+        "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "longWait": 10, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
         "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "petImages": {},
@@ -39,6 +39,7 @@ fn range_of(k: &str) -> Option<(f64, f64)> {
         "opacity" => (0.2, 1.0),
         "sleepHide" => (0.0, 1440.0),
         "approveWait" => (0.0, 300.0),
+        "longWait" => (1.0, 120.0), // minutes after which a request waiting for your answer shows as a long wait
         // stuck work, in hours: a finished session with no PR / MR, a PR / MR nobody reviewed, a branch with commits and
         // no PR / MR, an issue's sessions all resting
         "stuckNoPr" => (1.0, 72.0),
@@ -358,6 +359,7 @@ mod tests {
         assert_eq!(o["sound"], true);
         assert_eq!(s(json!({ "sleepHide": "60" }))["sleepHide"], 60);
         assert_eq!(s(json!({ "sleepHide": -5 }))["sleepHide"], 0);
+        assert_eq!((defaults()["longWait"].clone(), s(json!({ "longWait": "25" }))["longWait"].clone(), s(json!({ "longWait": 0 }))["longWait"].clone(), s(json!({ "longWait": 999 }))["longWait"].clone()), (json!(10), json!(25), json!(1), json!(120)));
         assert_eq!([("stuckOn", json!(true)), ("stuckNoPr", json!(2)), ("stuckNoReview", json!(24)), ("stuckBranch", json!(4)), ("stuckIdle", json!(4))].map(|(k, v)| defaults()[k] == v), [true; 5]);
         assert_eq!((defaults()["stuckMaxAge"].clone(), s(json!({ "stuckMaxAge": 0 }))["stuckMaxAge"].clone(), defaults()["stuckSkipped"].clone()), (json!(14), json!(1), json!({})));
         assert_eq!(s(json!({ "stuckSkipped": { "noreview:https://h/g/a/pull/9": 1762650000000_i64, "bad": "x", "": 5, "branch:g/a:x": -1, "idle:g/a#3": "1762650000000" } }))["stuckSkipped"],

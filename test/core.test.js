@@ -712,6 +712,23 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('board: minutes Claude waited for you today, per project, in the report', () => {
+  const B = require('../src/ui/board');
+  const now = new Date(2026, 10, 8, 17, 0).getTime(), min = 60e3, midnight = new Date(2026, 10, 8).getTime();
+  const waits = [{ from: now - 30 * min, to: now - 18 * min, project: 'shop' }, { from: midnight - 10 * min, to: midnight + 5 * min, project: 'bobix' },
+    { from: midnight - 60 * min, to: midnight - 30 * min, project: 'api' }, { from: now - 20 * 1e3, to: now - 10 * 1e3, project: 'api' }];
+  const ss = [{ id: 'a', state: 'waiting', since: now - 3 * min, project: '/src/shop' }, { id: 'b', state: 'working', since: now - 50 * min, cwd: 'C:\\src\\bobix' },
+    { id: 'c', state: 'waiting', since: now - 9 * min, cwd: '/src/bobix/sub', project: '/src/bobix' }];
+  assert.deepEqual(B.waited(waits, ss, now), [{ project: 'shop', mins: 15 }, { project: 'bobix', mins: 14 }],
+    'ended waits plus the ones going on; only since midnight; under half a minute left out');
+  assert.deepEqual(B.waited([], [], now), []);
+  const I18N = require('../src/ui/i18n');
+  const T = (k, v) => I18N.t('vi', k, v), none = { done: [], verify: [] };
+  assert.equal(B.report(none, T, now, 'vi-VN', B.waited(waits, ss, now)), 'Báo cáo ngày 8/11/2026\n\nHôm nay chưa có việc xong hay chờ kiểm tra.\n\nClaude đã chờ bạn tổng cộng 29 phút hôm nay:\n- shop: 15 phút\n- bobix: 14 phút\n');
+  assert.equal(B.report(none, T, now, 'vi-VN', []), 'Báo cáo ngày 8/11/2026\n\nHôm nay chưa có việc xong hay chờ kiểm tra.\n\nHôm nay Claude chưa phải chờ bạn.\n');
+  assert.equal(B.folder({ cwd: 'C:\\src\\bobix' }), 'bobix');
+});
+
 test('board: stuck work, one item each, past the limits in Settings', () => {
   const B = require('../src/ui/board');
   const now = Date.UTC(2026, 10, 9, 10), H = 3600e3, iso = t => new Date(t).toISOString();
