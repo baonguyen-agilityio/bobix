@@ -45,8 +45,23 @@
   // "[x/y] title" → the project's short name.
   const short = p => String(p || '').split('/').pop();
 
-  // Plain text to paste for the team: per project, what was done today and what waits for review.
-  function report(st, T, now = Date.now(), locale) {
+  // A session's project as the wait log names it: its folder's name (src-tauri/src/state.rs, keep_waits).
+  const folder = s => String(s.project || s.cwd || s.name || '').split(/[\\/]/).filter(Boolean).pop() || '';
+
+  // Minutes Claude waited for your answer today (since local midnight), per project, most first: the waits that
+  // ended (the app's log) and the ones going on now (sessions waiting since). [{ project, mins }]
+  function waited(waits, sessions, now = Date.now()) {
+    const d = new Date(now), midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), by = new Map();
+    const add = (p, from, to) => { const ms = Math.min(to, now) - Math.max(from, midnight); if (ms > 0) by.set(p, (by.get(p) || 0) + ms); };
+    for (const w of waits || []) add(w.project, w.from, w.to);
+    for (const s of sessions) if (s.state === 'waiting') add(folder(s), s.since, now);
+    return [...by].map(([project, ms]) => ({ project, mins: Math.round(ms / 60e3) })).filter(x => x.mins > 0)
+      .sort((a, b) => b.mins - a.mins || (a.project < b.project ? -1 : 1));
+  }
+
+  // Plain text to paste for the team: per project, what was done today and what waits for review; then how long
+  // Claude waited for you today (waits: from waited(); left out when not given).
+  function report(st, T, now = Date.now(), locale, waits) {
     const by = new Map();
     const add = (k, [i, g]) => { const p = g.path; if (!by.has(p)) by.set(p, { done: [], verify: [] }); by.get(p)[k].push(i); };
     st.done.forEach(x => add('done', x));
@@ -54,9 +69,11 @@
     const list = (title, items) => items.length ? `${title}:\n` + items.map(i => `- #${i.iid} ${i.title}`).join('\n') : '';
     const parts = [...by].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([p, x]) => `[${short(p)}]\n` + [list(T('report.done'), x.done), list(T('report.verify'), x.verify)].filter(Boolean).join('\n'));
-    return `${T('report.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${parts.join('\n\n') || T('report.none')}\n`;
+    const total = (waits || []).reduce((a, w) => a + w.mins, 0);
+    const wait = !waits ? '' : total ? `\n${T('wait.total', { n: total })}\n${waits.map(w => `- ${w.project}: ${T('wait.mins', { n: w.mins })}`).join('\n')}\n` : `\n${T('wait.none')}\n`;
+    return `${T('report.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${parts.join('\n\n') || T('report.none')}\n${wait}`;
   }
 
-  const api = { PRI, day, stages, loose, short, report };
+  const api = { PRI, day, stages, loose, short, folder, waited, report };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);

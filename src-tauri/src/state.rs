@@ -34,9 +34,27 @@ pub struct Session {
     #[serde(skip)] pub pid_checked: Option<u32>,
     #[serde(skip)] pub pid_is_claude: Option<u32>,
     #[serde(skip)] pub branches: Vec<String>,
+    #[serde(skip)] pub waited: Vec<(u64, u64)>, // waits for your answer that ended, not yet in the day's log (keep_waits)
 }
 
 pub type Sessions = indexmap::IndexMap<String, Session>;
+
+// A time Claude waited for your answer (ms), in which project (its folder's name). The pages add today's up.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Wait { pub from: u64, pub to: u64, pub project: String }
+// Kept this long: enough for "today" in any time zone.
+pub const WAITS_KEEP: u64 = 36 * 3600 * 1000;
+
+// The wait going on ends now (an answer, a new prompt, an interrupted turn, the session gone).
+pub fn leave_wait(s: &mut Session, now: u64) { if s.state == "waiting" { s.waited.push((s.since, now)); } }
+
+// Moves the session's ended waits into the log, and forgets the ones older than WAITS_KEEP.
+pub fn keep_waits(waits: &mut Vec<Wait>, s: &mut Session, now: u64) {
+    let dir = s.project.as_deref().filter(|p| !p.is_empty()).unwrap_or(&s.cwd);
+    let project = Path::new(dir).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| s.name.clone());
+    waits.extend(s.waited.drain(..).filter(|(from, to)| to > from).map(|(from, to)| Wait { from, to, project: project.clone() }));
+    waits.retain(|w| now.saturating_sub(w.to) <= WAITS_KEEP);
+}
 
 // Each finished task (Stop) is 1 XP; this many make a level (the pets overlay draws the XP bar from it: XP_PER_LV in pets.html).
 pub const XP_PER_LV: u64 = 3;
@@ -167,13 +185,13 @@ fn system_prompt(prompt: &str) -> Option<String> {
 }
 
 pub struct Notice { pub kind: &'static str, pub id: String }
-pub enum Applied { Updated { id: String, notice: Option<Notice> }, Removed }
+pub enum Applied { Updated { id: String, notice: Option<Notice> }, Removed(Box<Session>) }
 
 // Returns the session touched (with a notice for things the user should hear about), a removal, or None.
 pub fn apply(sessions: &mut Sessions, e: &Value, now: u64) -> Option<Applied> {
     let id = e.get("session_id")?.as_str().filter(|id| valid_id(id))?.to_string();
     let ev = e.get("hook_event_name").and_then(|v| v.as_str()).unwrap_or("");
-    if ev == "SessionEnd" { return sessions.shift_remove(&id).map(|_| Applied::Removed); }
+    if ev == "SessionEnd" { return sessions.shift_remove(&id).map(|mut s| { leave_wait(&mut s, now); Applied::Removed(Box::new(s)) }); }
 
     let s = sessions.entry(id.clone()).or_insert_with(|| new_session(&id, now));
     s.updated = now;
@@ -194,7 +212,7 @@ pub fn apply(sessions: &mut Sessions, e: &Value, now: u64) -> Option<Applied> {
         s.log.push(LogLine { t: now, kind: kind.into(), text, tool });
         if s.log.len() > 40 { s.log.remove(0); }
     }
-    fn set(s: &mut Session, now: u64, st: &str) { if s.state != st { s.state = st.into(); s.since = now; } }
+    fn set(s: &mut Session, now: u64, st: &str) { if s.state != st { leave_wait(s, now); s.state = st.into(); s.since = now; } }
     fn ask_for(s: &mut Session, now: u64, tool: String, text: &str) -> Option<Notice> {
         let first = s.state != "waiting";
         if !tool.is_empty() { s.ask_tool = tool; }
@@ -355,6 +373,7 @@ pub fn refresh(s: &mut Session, with_summary: bool, now: u64) -> bool {
     }
     if with_summary { if let Some(t) = &r.text { s.summary = short(&plain(t), 600); s.report = clip(t, TEXT_MAX); } }
     if r.interrupted && (s.state == "working" || s.state == "waiting") {
+        leave_wait(s, now);
         s.ask.clear(); s.ask_tool.clear(); s.state = "idle".into(); s.since = now;
         return true;
     }
@@ -461,7 +480,7 @@ mod tests {
         assert_eq!((m["abc"].lv, m["abc"].xp), (2, 0), "XP_PER_LV tasks make a level");
         assert_eq!(notice(ap(&mut m, base("Notification", json!({ "message": "Claude is waiting for your input" })))), None);
         assert_eq!(m["abc"].state, "done");
-        assert!(matches!(ap(&mut m, base("SessionEnd", json!({}))), Some(Applied::Removed)));
+        assert!(matches!(ap(&mut m, base("SessionEnd", json!({}))), Some(Applied::Removed(_))));
         assert!(m.is_empty());
         assert!(ap(&mut m, json!({ "hook_event_name": "Stop" })).is_none());
         assert!(ap(&mut m, json!({ "session_id": "../etc", "hook_event_name": "Stop" })).is_none());
@@ -525,6 +544,7 @@ mod tests {
         assert_eq!(m["i1"].state, "waiting");
         assert!(refresh(m.get_mut("i1").unwrap(), false, now()));
         assert_eq!(m["i1"].state, "idle");
+        assert_eq!(m["i1"].waited.len(), 1, "an interrupted turn ends the wait");
         m.get_mut("i1").unwrap().state = "working".into();
         assert!(!refresh(m.get_mut("i1").unwrap(), false, now() + 6000), "an unchanged transcript is not read again");
         fs::remove_file(&f).unwrap();
@@ -580,5 +600,30 @@ mod tests {
         assert!(!set_pet(&mut m, "h1", "bogus"));
         ap(&mut m, json!({ "session_id": "h1", "hook_event_name": "PermissionRequest", "tool_name": "Bash" }));
         assert_eq!(m["h1"].pet, "auto");
+    }
+
+    #[test]
+    fn waits_for_an_answer_are_logged() {
+        let mut m = Sessions::new();
+        let at = |m: &mut Sessions, ev: &str, t: u64, extra: Value| { let mut e = json!({ "session_id": "w1", "cwd": "/src/shop/sub", "hook_event_name": ev }); for (k, v) in extra.as_object().unwrap() { e[k] = v.clone(); } apply(m, &e, t) };
+        at(&mut m, "UserPromptSubmit", 1_000, json!({ "prompt": "go" }));
+        m.get_mut("w1").unwrap().project = Some("/src/shop".into());
+        at(&mut m, "PermissionRequest", 2_000, json!({ "tool_name": "Bash" }));
+        at(&mut m, "Notification", 2_500, json!({ "message": "Claude needs your permission to use Bash" }));
+        at(&mut m, "PostToolUse", 3_000, json!({ "tool_name": "Read" })); // another tool: still waiting
+        at(&mut m, "PostToolUse", 62_000, json!({ "tool_name": "Bash" })); // answered
+        at(&mut m, "Notification", 70_000, json!({ "message": "Claude needs your permission to use Edit" }));
+        at(&mut m, "UserPromptSubmit", 90_000, json!({ "prompt": "no, do this" })); // a new prompt ends it too
+        let mut log = vec![];
+        keep_waits(&mut log, m.get_mut("w1").unwrap(), 90_000);
+        assert_eq!(log, [Wait { from: 2_000, to: 62_000, project: "shop".into() }, Wait { from: 70_000, to: 90_000, project: "shop".into() }]);
+        assert!(m["w1"].waited.is_empty(), "moved, not copied");
+        at(&mut m, "PermissionRequest", 100_000, json!({ "tool_name": "Bash" }));
+        let Some(Applied::Removed(mut gone)) = at(&mut m, "SessionEnd", 130_000, json!({})) else { panic!("removed") };
+        keep_waits(&mut log, &mut gone, 130_000);
+        assert_eq!(log.last(), Some(&Wait { from: 100_000, to: 130_000, project: "shop".into() }), "the session ended while it waited");
+        keep_waits(&mut log, &mut Session::default(), 90_000 + WAITS_KEEP + 1);
+        assert_eq!(log.iter().map(|w| w.from).collect::<Vec<_>>(), [100_000], "older ones are forgotten");
+        assert!(serde_json::to_value(Session { waited: vec![(1, 2)], ..Default::default() }).unwrap().get("waited").is_none(), "never sent to the pages");
     }
 }

@@ -113,6 +113,8 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .ap-who:hover .tt{text-decoration:underline;text-underline-offset:2px}
 .ap-who .pj{flex:none;white-space:nowrap}
 .ap-who .pj::before{content:"· "}
+.ap-who .wt::before{content:" · "}
+.ap-who .wt.long{color:var(--coral-ink);font-weight:700}
 .ap-what{display:flex;align-items:flex-start;gap:8px;min-width:0}
 .ap-what .vb{flex:none;padding-top:2px;font-size:var(--t-xs);font-weight:600;color:var(--ink-2)}
 .ap-what code{flex:1;min-width:0;padding:2px 8px;border:0;background:var(--sunk);border-radius:8px;font:500 var(--t-xs)/1.6 var(--f-mono);overflow-wrap:anywhere;white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
@@ -600,15 +602,21 @@ function apRow(s) {
   const t = ticketOf(s), a = s.answer, held = !!(secsLeft(s) && bridge), text = a?.full || s.ask, long = text.length > 90 || text.includes('\n');
   const who = t ? `<span class="id">#${t[0].iid}</span><span class="tt" title="${esc(t[0].title)}">${esc(t[0].title)}</span>` : `<span class="tt">${esc(s.title || s.name)}</span>`;
   const left = held && secsLeft(s) !== Infinity ? T('ask.left', { n: secsLeft(s) }) : '';
-  const where = [t ? BOARD.short(t[1].path) : s.name, ago(s.since), left].filter(Boolean).join(' · ');
+  const where = [t ? BOARD.short(t[1].path) : s.name, left].filter(Boolean).join(' · ');
   const note = (a?.risky ? `<span class="risk">${esc(T('day.risky'))}</span>` : '') + (long ? moreBtn('c:' + s.id, 0, T('day.cmdAll')) : '');
   return `<li class="ap st-waiting">${pet(s)}
-    <div class="ap-tx"><button class="ap-who" type="button" data-sel="${esc(s.id)}">${who}<span class="pj">${esc(where)}</span></button>
+    <div class="ap-tx"><button class="ap-who" type="button" data-sel="${esc(s.id)}">${who}<span class="pj">${esc(where)}${waitedHTML(s)}</span></button>
       <div class="ap-what"><span class="vb">${esc(s.askTool ? I18N.toolLabel(lang, s.askTool) : T('status.waiting'))}</span><code class="${opened.has('c:' + s.id) ? 'full' : ''}">${esc(text)}</code></div>
       ${note ? `<div class="ap-note">${note}</div>` : ''}</div>
     ${held ? `<div class="acts"><button class="btn sm pri" type="button" data-choice="allow" data-s="${esc(s.id)}" data-f="allow:${esc(s.id)}">${T('ask.allow')}</button><button class="btn sm" type="button" data-choice="deny" data-s="${esc(s.id)}">${T('ask.deny')}</button></div>`
       : `<p class="note">${esc(T(approveWhere(s)))}</p>`}</li>`;
 }
+// How long Claude has waited for this answer; past Settings → "A request waits long after" it stands out in coral.
+function waitedHTML(s) {
+  const ms = Date.now() - s.since, long = ms >= (state?.settings?.longWait || 10) * 60e3;
+  return `<span class="wt${long ? ' long' : ''}">${esc(ms < 60e3 ? T('day.waitedNow') : T('day.waited', { x: ago(s.since) }))}</span>`;
+}
+// The requests waiting for you, the one that has waited longest first.
 const waitingList = () => list.filter(s => look(s) === 'waiting').sort((a, b) => a.since - b.since);
 function queueHTML() {
   const w = waitingList();
@@ -816,7 +824,7 @@ $('#pane').addEventListener('click', async e => {
 });
 
 // ---------- work: GitLab / GitHub issues assigned to you ----------
-let work = { status: 'off' }, lastProjects = '', waiting = []; // waiting: New pressed, no new session there yet
+let work = { status: 'off' }, lastProjects = '', waiting = [], waits = []; // waiting: New pressed, no new session there yet; waits: times Claude waited for you (the app's log)
 const today = () => BOARD.day(Date.now());
 // An egg in the pets' pixel style, for a project.
 function eggSVG(seed) {
@@ -840,7 +848,7 @@ async function startIssue(b) {
   else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
 }
 function openReport() {
-  $('#rp-text').value = BOARD.report(st, T, Date.now(), I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB');
+  $('#rp-text').value = BOARD.report(st, T, Date.now(), I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB', BOARD.waited(waits, list));
   $('#rp-dialog').showModal();
   $('#rp-text').focus();
 }
@@ -922,6 +930,7 @@ const SECTIONS = [
     // On until dndUntil; "30" or "60" sets it from now. The row says how long is left.
     { k: 'dnd', type: 'seg', opts: opts(['0', '30', '60'], 'set.dnd.'), get: s => (dndLeft(s) ? s.dnd : '0'), set: v => ({ dnd: v, dndUntil: v === '0' ? 0 : Date.now() + v * 60e3 }) },
     { k: 'approveWait', type: 'select', opts: () => waitOpts(state.settings.approveWait), get: s => String(s.approveWait) },
+    { k: 'longWait', type: 'number', min: 1, max: 120, step: 1, unit: 'set.minutes' },
     { k: 'notifyWaiting', type: 'switch', dim: s => s.paused },
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
@@ -1344,6 +1353,7 @@ es.onmessage = m => {
   list = (d.sessions || []).filter(s => !s.linking); // a new side session waits for its parent link (state.rs), as on the pets
   work = d.work || { status: 'off' };
   waiting = d.waiting || [];
+  waits = d.waits || [];
   const projects = [...(work.local || []), ...(work.away || [])].map(g => g.path + ':' + g.autoKey).join();
   if (projects !== lastProjects) { lastProjects = projects; if (!$('#tab-settings').hidden && !document.activeElement?.dataset?.keyOf) renderSettings(); } // the codes list
   if (selected && !list.some(s => s.id === selected)) selected = null;

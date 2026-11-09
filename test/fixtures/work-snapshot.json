@@ -580,5 +580,6 @@
         "url": "https://h/acme/app/issues/55"
       }
     }
-  ]
+  ],
+  "waits": []
 }

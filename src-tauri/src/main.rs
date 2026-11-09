@@ -48,6 +48,7 @@ pub struct Core {
     pub update_told: Option<String>,       // the version a notification was shown for
     pub main_errors: Vec<String>,          // last errors of the app itself, for feedback
     pub save_gen: u64,                     // settings saves are debounced: only the newest one writes
+    pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
 }
 
 pub struct Bobix {
@@ -81,7 +82,7 @@ fn snapshot_of(c: &Core) -> Value {
         v
     }).collect();
     let waiting: Vec<Value> = c.work.new_for.iter().map(|(dir, n)| json!({ "dir": dir, "path": n["path"], "iid": n["iid"] })).collect();
-    json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json() })
+    json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json(), "waits": c.waits })
 }
 
 impl Bobix {
@@ -102,14 +103,15 @@ impl Bobix {
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, settings, work, .. } = &mut *c;
+            let Core { sessions, pending, settings, work, waits, .. } = &mut *c;
             let gitlab = work::any_on(settings);
             match state::apply(sessions, &e, now) {
                 None => return None,
-                Some(Applied::Removed) => (None, None, 0, None, None, gitlab),
+                Some(Applied::Removed(mut s)) => { state::keep_waits(waits, &mut s, now); (None, None, 0, None, None, gitlab) }
                 Some(Applied::Updated { id, notice }) => {
                     let s = sessions.get_mut(&id).unwrap();
                     state::pin_project(s);
+                    state::keep_waits(waits, s, now);
                     find_parent(s, now);
                     let git_dir = git_due(work, s, ev == "Stop" || start, now);
                     let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e) }
@@ -132,11 +134,12 @@ impl Bobix {
         let finish = move || {
             let stale = {
                 let mut c = b.core.lock().unwrap();
-                match id.as_ref().and_then(|id| c.sessions.get_mut(id)) {
+                let Core { sessions, waits, .. } = &mut *c;
+                match id.as_ref().and_then(|id| sessions.get_mut(id)) {
                     Some(s) => {
                         // A new prompt may land inside the Stop delay: then this Stop is stale (no old answer, no "finished" ping).
                         let stale = is_stop && (s.state != "done" || s.since != since);
-                        if !stale { state::refresh(s, is_stop, state::now()); }
+                        if !stale { let now = state::now(); state::refresh(s, is_stop, now); state::keep_waits(waits, s, now); }
                         stale
                     }
                     None => is_stop,
@@ -317,11 +320,16 @@ fn tick(b: &Arc<Bobix>) {
     let mut to_check = Vec::new();
     {
         let mut c = b.core.lock().unwrap();
-        for id in state::gone(&c.sessions, procs::is_alive) { c.sessions.shift_remove(&id); changed = true; }
-        c.sessions.retain(|_, s| { let keep = now.saturating_sub(s.updated) <= STALE_MS; changed |= !keep; keep });
-        for s in c.sessions.values_mut() {
+        let Core { sessions, waits, .. } = &mut *c;
+        let gone = state::gone(sessions, procs::is_alive);
+        sessions.retain(|id, s| {
+            let keep = !gone.contains(id) && now.saturating_sub(s.updated) <= STALE_MS;
+            if !keep { state::leave_wait(s, now); state::keep_waits(waits, s, now); changed = true; }
+            keep
+        });
+        for s in sessions.values_mut() {
             if let Some(pid) = s.claude_pid { if s.pid_checked != Some(pid) { s.pid_checked = Some(pid); to_check.push((s.id.clone(), pid)); } }
-            if (s.state == "working" || s.state == "waiting") && state::refresh(s, false, now) { changed = true; }
+            if (s.state == "working" || s.state == "waiting") && state::refresh(s, false, now) { state::keep_waits(waits, s, now); changed = true; }
             if find_parent(s, now) { changed = true; }
         }
     }
@@ -948,7 +956,7 @@ fn main() {
     let (tx, _) = broadcast::channel(64);
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
-            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0 }),
+            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![] }),
         tx, token: token.clone(), port, app: Default::default(),
     });
 
@@ -1084,7 +1092,7 @@ mod snapshot_tests {
         ];
         work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0 }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![] }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");
