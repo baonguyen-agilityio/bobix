@@ -42,7 +42,12 @@
     cancelNew: dir => invoke('work_cancel', { dir }), // stop waiting for a new session in that folder
     newReview: (project, branch) => invoke('work_new_review', { project, branch }), // the forge's new PR / MR page for that branch
     // prompt: prefilled in the new session's prompt box (claude://code/new?q=…)
-    startIssue: (path, iid, prompt) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_start', { path, iid, prompt: typeof prompt === 'string' ? prompt : null }) : Promise.resolve(null)),
+    // dir: a folder the habit log names, for a project no session has open here now (Bobix checks its git remote)
+    startIssue: (path, iid, prompt, dir) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_start', { path, iid, prompt: typeof prompt === 'string' ? prompt : null, dir: typeof dir === 'string' ? dir : null }) : Promise.resolve(null)),
+    habitsRead: () => invoke('habits_read'), // what Bobix remembers of your work (only while Settings → habits is on)
+    habitsClear: () => invoke('habits_clear'), // "Xoá hết"
+    habitsNote: what => invoke('habits_note', { what }), // standup | report opened
+    showBoard: () => invoke('show_board'),
     mySkills: () => invoke('skills_mine'), // your own skills, for Settings → My skills
     processStatus: () => invoke('process_status'), // per project: the repository's .bobix/skills.json and the imported process
     // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one

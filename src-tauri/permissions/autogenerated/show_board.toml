@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-show-board"
+description = "Enables the show_board command without any pre-configured scope."
+commands.allow = ["show_board"]
+
+[[permission]]
+identifier = "deny-show-board"
+description = "Denies the show_board command without any pre-configured scope."
+commands.deny = ["show_board"]

@@ -9,6 +9,7 @@ mod feedback;
 mod hooks;
 mod i18n;
 mod js;
+mod habits;
 mod links;
 mod model;
 mod notify;
@@ -51,6 +52,7 @@ pub struct Core {
     pub update_told: Option<String>,       // the version a notification was shown for
     pub main_errors: Vec<String>,          // last errors of the app itself, for feedback
     pub save_gen: u64,                     // settings saves are debounced: only the newest one writes
+    pub habits: habits::Mem,               // the permission requests waiting, for the habit log (memory only)
     pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
 }
 
@@ -103,18 +105,32 @@ impl Bobix {
         let start = ev == "SessionStart";
         let untitled = !e["session_title"].as_str().is_some_and(|t| !t.is_empty());
         let source = e["source"].as_str().unwrap_or("");
+        let mut habit_lines = vec![];
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, settings, work, waits, .. } = &mut *c;
+            let Core { sessions, pending, settings, work, waits, habits: mem, .. } = &mut *c;
             let gitlab = work::any_on(settings);
+            let remember = habits::on(settings);
+            let before = if remember { habits::before(sessions, &e) } else { None };
             match state::apply(sessions, &e, now) {
                 None => return None,
-                Some(Applied::Removed(mut s)) => { state::keep_waits(waits, &mut s, now); (None, None, 0, None, None, gitlab) }
+                Some(Applied::Removed(mut s)) => {
+                    state::keep_waits(waits, &mut s, now);
+                    if remember { habit_lines = habits::events(mem, before.as_ref(), &e, None, now); }
+                    (None, None, 0, None, None, gitlab)
+                }
                 Some(Applied::Updated { id, notice }) => {
                     let s = sessions.get_mut(&id).unwrap();
                     state::pin_project(s);
                     state::keep_waits(waits, s, now);
+                    if remember {
+                        if !mem.projects.contains_key(&id) { // its tracker project, once its git remote is known
+                            let hosts = work.hosts(settings);
+                            if let Some(p) = s.git.as_ref().and_then(|g| work.remotes_of.get(g["top"].as_str()?)).and_then(|r| model::path_in(r, &hosts)) { mem.projects.insert(id.clone(), p); }
+                        }
+                        habit_lines = habits::events(mem, before.as_ref(), &e, Some(s), now);
+                    }
                     find_parent(s, now);
                     let git_dir = git_due(work, s, ev == "Stop" || start, now);
                     let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e) }
@@ -128,6 +144,7 @@ impl Bobix {
             }
         };
         if let Some(d) = git_dir { refresh_git(self, d); }
+        remember(habit_lines, now);
         if (start || ev == "SessionEnd") && gitlab {
             let b = self.clone(); // Claude writes the session's name a moment after
             thread::spawn(move || { thread::sleep(Duration::from_secs(3)); read_claude_list(&b); b.broadcast(); });
@@ -321,21 +338,29 @@ fn tick(b: &Arc<Bobix>) {
     let now = state::now();
     let mut changed = false;
     let mut to_check = Vec::new();
+    let mut lines = vec![];
     {
         let mut c = b.core.lock().unwrap();
-        let Core { sessions, waits, .. } = &mut *c;
+        let Core { sessions, settings, waits, habits: mem, .. } = &mut *c;
+        let remember = habits::on(settings);
         let gone = state::gone(sessions, procs::is_alive);
         sessions.retain(|id, s| {
             let keep = !gone.contains(id) && now.saturating_sub(s.updated) <= STALE_MS;
-            if !keep { state::leave_wait(s, now); state::keep_waits(waits, s, now); changed = true; }
+            if !keep { state::leave_wait(s, now); state::keep_waits(waits, s, now); changed = true; if remember { lines.extend(habits::ended(mem, s, now)); } }
             keep
         });
         for s in sessions.values_mut() {
             if let Some(pid) = s.claude_pid { if s.pid_checked != Some(pid) { s.pid_checked = Some(pid); to_check.push((s.id.clone(), pid)); } }
-            if (s.state == "working" || s.state == "waiting") && state::refresh(s, false, now) { state::keep_waits(waits, s, now); changed = true; }
+            let (was, since) = (s.state.clone(), s.since);
+            if (s.state == "working" || s.state == "waiting") && state::refresh(s, false, now) {
+                state::keep_waits(waits, s, now);
+                changed = true;
+                if remember && was == "waiting" { lines.extend(habits::interrupted(mem, s, since, now)); }
+            }
             if find_parent(s, now) { changed = true; }
         }
     }
+    remember(lines, now);
     for (id, pid) in to_check { check_pid(b, id, pid); }
     if changed { b.broadcast(); }
 }
@@ -453,14 +478,29 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
 
 // The panel's button on an issue: Resume opens the session working on it, exactly like a click on its pet; New opens a
 // new Claude desktop session in the project's folder (the link Claude documents, no prompt sent).
-fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64, prompt: &str) -> Value {
-    let (g, i, id) = {
+// `dir`: for a project no session has open here now (the habits' morning suggestion), the folder the habit log names;
+// used only once its own git remote says it is that project.
+fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64, prompt: &str, dir: Option<&str>) -> Value {
+    let gone = || json!({ "ok": false, "reason": "gone" });
+    let (g, i, id, hosts) = {
         let c = b.core.lock().unwrap();
         let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
-        let Some(g) = view["local"].as_array().and_then(|l| l.iter().find(|g| g["path"] == path)).cloned() else { return json!({ "ok": false, "reason": "gone" }) };
-        let Some(i) = g["issues"].as_array().and_then(|l| l.iter().find(|i| i["iid"].as_i64() == Some(iid))).cloned() else { return json!({ "ok": false, "reason": "gone" }) };
+        let g = view["local"].as_array().and_then(|l| l.iter().find(|g| g["path"] == path)).cloned();
+        let i = match &g {
+            Some(g) => g["issues"].as_array().and_then(|l| l.iter().find(|i| i["iid"].as_i64() == Some(iid))).cloned(),
+            None => c.work.find_issue(&c.settings, path, iid).cloned(),
+        };
+        let Some(i) = i else { return gone() };
         let id = i["sessions"].as_array().into_iter().flatten().filter_map(|x| c.sessions.get(x.as_str()?)).max_by_key(|s| s.updated).map(|s| s.id.clone());
-        (g, i, id)
+        (g, i, id, c.work.hosts(&c.settings))
+    };
+    let g = match g {
+        Some(g) => g,
+        None => {
+            let Some(d) = dir.filter(|d| std::path::Path::new(d).is_absolute()) else { return gone() };
+            if !work::git_status(d).is_some_and(|(_, remotes)| model::path_in(&remotes, &hosts).as_deref() == Some(path)) { return gone(); }
+            json!({ "path": path, "dir": d })
+        }
     };
     if let Some(id) = id {
         let mut r = b.open_session(&id, true, false);
@@ -723,6 +763,41 @@ fn work_open(url: String, b: B) -> bool {
     ok && tauri_plugin_opener::open_url(url, None::<&str>).is_ok()
 }
 
+// Habit lines go to Bobix's own data folder, off the hook's way.
+fn remember(lines: Vec<Value>, now: u64) {
+    if lines.is_empty() { return; }
+    thread::spawn(move || { if let Err(e) = habits::write(&habits::dir(), &lines, now) { eprintln!("[bobix] habits: {e}"); } });
+}
+
+// "Bobix nhớ gì về bạn": everything kept (read only while it is on; the list and the size in Settings).
+#[tauri::command]
+async fn habits_read(b: B<'_>) -> Result<Value, ()> {
+    let on = habits::on(&b.core.lock().unwrap().settings);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut v = if on { habits::read(&habits::dir(), state::now()) } else { json!({ "events": [], "bytes": 0, "days": 0, "dir": habits::dir().to_string_lossy() }) };
+        v["on"] = json!(on);
+        v
+    }).await.map_err(|_| ())
+}
+
+// "Xoá hết": every day Bobix kept. Returns how many days went.
+#[tauri::command]
+async fn habits_clear() -> Result<usize, ()> {
+    tauri::async_runtime::spawn_blocking(|| habits::clear(&habits::dir())).await.map_err(|_| ())
+}
+
+// Something done in the panel that habits look for (the stand-up, the report), while habits are on.
+#[tauri::command]
+fn habits_note(what: String, b: B) {
+    if !habits::on(&b.core.lock().unwrap().settings) { return; }
+    let now = state::now();
+    remember(habits::ui(&what, now).into_iter().collect(), now);
+}
+
+// The pet's morning suggestion opens the board.
+#[tauri::command]
+fn show_board(b: B, app: AppHandle) { panel::show(&app, &b, None, Some("sessions".into()), None); }
+
 // Stuck work: the page for a new pull / merge request from that branch, in the browser.
 #[tauri::command]
 fn work_new_review(project: String, branch: String, b: B) -> bool {
@@ -738,9 +813,9 @@ fn work_cancel(dir: String, b: B) {
 }
 
 #[tauri::command]
-async fn work_start(path: String, iid: i64, prompt: Option<String>, b: B<'_>) -> Result<Value, ()> {
+async fn work_start(path: String, iid: i64, prompt: Option<String>, dir: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || start_issue(&b, &path, iid, prompt.as_deref().unwrap_or(""))).await.map_err(|_| ())
+    tauri::async_runtime::spawn_blocking(move || start_issue(&b, &path, iid, prompt.as_deref().unwrap_or(""), dir.as_deref())).await.map_err(|_| ())
 }
 
 // Settings → My skills: your own skills (names and descriptions, read-only), to pin the ones to offer.
@@ -960,7 +1035,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_new_review", "skills_mine", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset"];
+    "work_brief", "work_new_review", "skills_mine", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1047,7 +1122,7 @@ fn main() {
     let (tx, _) = broadcast::channel(64);
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
-            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![] }),
+            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default() }),
         tx, token: token.clone(), port, app: Default::default(),
     });
 
@@ -1055,7 +1130,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, process_status, process_import,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, process_status, process_import, habits_read, habits_clear, habits_note, show_board,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -1183,7 +1258,7 @@ mod snapshot_tests {
         ];
         work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![] }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default() }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");

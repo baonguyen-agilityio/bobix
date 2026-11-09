@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-habits-read"
+description = "Enables the habits_read command without any pre-configured scope."
+commands.allow = ["habits_read"]
+
+[[permission]]
+identifier = "deny-habits-read"
+description = "Denies the habits_read command without any pre-configured scope."
+commands.deny = ["habits_read"]

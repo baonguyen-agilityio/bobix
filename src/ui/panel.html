@@ -46,6 +46,28 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .btn:disabled{opacity:.5;cursor:default}
 .btn.pri{background:var(--ink);color:var(--n-50);border-color:var(--ink)}
 .btn.sm{padding:4px 12px;font-size:var(--t-xs)}
+/* habits (#80): optional, so quiet: no colour, no count on the tab */
+.sug{display:flex;flex-direction:column;gap:var(--s2);margin:0 0 var(--s6);padding:var(--s3) var(--s4);border:1px dashed var(--line-strong);border-radius:22px;background:color-mix(in oklch,var(--surface) 60%,var(--bg))}
+.sug .dh h2{color:var(--ink-2)}
+.sc{display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.sc .kd{font-size:var(--t-xs);color:var(--ink-3)}.sc .tt{font-weight:600}.sc .why{font-size:var(--t-xs);color:var(--ink-3)}
+.sc .acts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0}
+.sc code,.hb code{font:500 var(--t-xs)/1.5 var(--f-mono);background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:0 4px}
+.sc .out{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:12px;background:var(--sunk);font-size:var(--t-xs)}
+.sc .out pre{margin:0;font:500 var(--t-xs)/1.5 var(--f-mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.sug .undo{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:var(--t-xs);color:var(--ink-2);padding:2px 4px}
+.sug .dots{display:flex;gap:4px}.sug .dots i{width:22px;height:6px;border-radius:3px;background:var(--line)}.sug .dots i.on{background:var(--ink-3)}
+.lnk{border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.hb .two{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:var(--t-xs)}.hb .two b{display:block;margin-bottom:2px}.hb .two ul{margin:0;padding-left:16px;color:var(--ink-2)}
+.hb .days{display:flex;flex-direction:column;gap:10px}.hb .day h3{font:600 var(--t-xs) var(--f-body);color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px}
+.hb .day ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.hb .day li{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;font-size:var(--t-xs)}
+.hb .day li .t{font-variant-numeric:tabular-nums;color:var(--ink-2)}.hb .day li .w{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hb .day li .w b{font-weight:600;font-size:var(--t-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hb .foot{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;margin-top:var(--s3)}
+.hb .confirm{display:flex;flex-direction:column;gap:8px;margin-top:var(--s3);padding:10px 12px;border:1px solid var(--coral);border-radius:14px;background:var(--coral-soft)}
+.hb .confirm p{margin:0;font-weight:600;color:var(--coral-ink)}.hb .confirm div{display:flex;gap:6px}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}.btn.danger{color:var(--coral-ink)}
 .btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}.btn.ghost:hover{border-color:var(--line-strong)}
 /* stuck work: neutral, not "needs you now" */
 .stk{display:flex;flex-direction:column;gap:var(--s2);margin:0 0 var(--s6);padding:var(--s3) var(--s4);background:var(--surface);border:1px solid var(--line);border-radius:22px}
@@ -597,6 +619,7 @@ input[type=number]{width:104px}
 <script src="/ui/markdown.js"></script>
 <script src="/ui/log.js"></script>
 <script src="/ui/board.js"></script>
+<script src="/ui/habits.js"></script>
 <script src="/ui/tour.js"></script>
 <script>
 // The panel shows after 1 s at the latest. Set first, so an error further down cannot leave it hidden (body.boot).
@@ -727,6 +750,77 @@ function waitedHTML(s) {
 }
 // The requests waiting for you, the one that has waited longest first.
 const waitingList = () => list.filter(s => look(s) === 'waiting').sort((a, b) => a.since - b.since);
+// ---------- habits (#80): what Bobix remembers of your work, and a few suggestions from it ----------
+// habitData: { on, events, bytes, days, dir } from the app (only while Settings → habits is on); read again every
+// 5 minutes and after a change. habOpen: the suggestion whose details show; habUndo: the last "Không cần".
+let habitData = null, habOpen = null, habUndo = null, habConfirm = false;
+async function loadHabits() {
+  habitData = bridge && state?.settings?.habitsOn ? await bridge.habitsRead().catch(() => null) : null;
+  render();
+  if (!$('#tab-settings').hidden) renderSettings();
+}
+setInterval(() => state?.settings?.habitsOn && loadHabits(), 5 * 60e3);
+const habitCtx = () => ({ model, sessions: list });
+const habitSug = () => HABITS.suggest(habitData?.events || [], habitCtx(), state?.settings);
+const WEEKDAY = d => new Date(2026, 10, 1 + d).toLocaleDateString(LOCALE(), { weekday: 'long' }); // 1 Nov 2026 is a Sunday
+const dayName = t => (HABITS.dayOf(t) === HABITS.dayOf(Date.now() - 864e5) ? T('hab.yesterday') : WEEKDAY(new Date(t).getDay()));
+const timeOf = t => new Date(t).toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+function habCard(c) {
+  const code = x => `<code>${esc(x)}</code>`;
+  const map = {
+    morning: [T('hab.morning.t', { n: c.iid, d: dayName(c.at) }), T('hab.morning.why', { p: HABITS.base(c.dir), t: timeOf(c.at), d: dayName(c.at) }), T('hab.morning.go')],
+    allow: [T('hab.allow.t', { x: code(c.what), n: c.count }), T('hab.allow.why', { p: HABITS.base(c.dir) }), T('hab.allow.go')],
+    recurring: [T('hab.rec.t.' + c.what, { d: WEEKDAY(c.weekday), t: HABITS.hhmm(c.at) }), T('hab.rec.why', { n: c.count, a: HABITS.hhmm(c.from), b: HABITS.hhmm(c.to), d: WEEKDAY(c.weekday), w: T('hab.rec.w.' + c.what) }), T('hab.rec.go.' + c.what)],
+    skill: [T('hab.skill.t', { p: esc(HABITS.base(c.dir)), x: code('/' + c.skill) }), T('hab.skill.why', { n: c.count, m: c.of, p: HABITS.base(c.dir), x: '/' + c.skill }), T('hab.skill.go')],
+  }[c.kind];
+  const t = c.kind === 'morning' ? esc(map[0]) : map[0]; // allow and skill carry <code>: their parts are escaped above
+  return `<div class="sc"><span class="kd">${esc(T('hab.kind.' + c.kind))}</span><span class="tt">${t}</span><span class="why">${esc(map[1])}</span>
+    <div class="acts"><button class="btn sm pri" type="button" data-hab-go="${esc(c.id)}" data-f="hab:${esc(c.id)}"${['allow', 'skill'].includes(c.kind) ? ` aria-expanded="${habOpen === c.id}"` : ''}>${esc(map[2])}</button><button class="btn sm ghost" type="button" data-hab-no="${esc(c.id)}">${esc(T('hab.no'))}</button></div>
+    ${habOpen === c.id ? habOut(c) : ''}</div>`;
+}
+function habOut(c) {
+  if (c.kind === 'allow') return `<div class="out"><span>${T('hab.allow.out', { f: `<code>${esc(HABITS.base(c.dir))}/.claude/settings.json</code>` })}</span><pre>${esc(JSON.stringify(c.rule))}</pre>
+    <div class="acts"><button class="btn sm pri" type="button" data-hab-copy="${esc(c.id)}">${esc(T('hab.allow.copy'))}</button></div></div>`;
+  if (c.kind === 'skill') return `<div class="out"><span>${esc(T('hab.skill.out', { p: HABITS.base(c.dir), x: '/' + c.skill }))}</span>
+    <div class="acts"><button class="btn sm pri" type="button" data-hab-skill="${esc(c.id)}">${esc(T('hab.skill.use', { x: '/' + c.skill }))}</button></div></div>`;
+  return '';
+}
+// Below the approvals: the first days say how many more are needed; then up to 3 suggestions; nothing when none.
+function habitsHTML() {
+  if (!bridge || !state?.settings?.habitsOn || !habitData) return '';
+  const sg = habitSug(), head = `<div class="dh"><h2 id="h-hab">${esc(T('hab.title'))}</h2><span class="tools">${esc(T('hab.local'))}</span></div>`;
+  if (!sg.ready) return `<section class="sug" aria-labelledby="h-hab">${head}<div class="sc"><span class="tt">${esc(T('hab.first.t'))}</span>
+    <span class="why">${esc(T('hab.first.why', { n: sg.logged, m: sg.need }))}</span>
+    <div class="dots" role="img" aria-label="${esc(T('hab.first.dots', { n: sg.logged, m: sg.need }))}">${Array.from({ length: sg.need }, (_, k) => `<i class="${k < sg.logged ? 'on' : ''}"></i>`).join('')}</div>
+    <div class="acts"><button class="lnk" type="button" data-tab-go="settings">${esc(T('hab.first.see'))}</button></div></div></section>`;
+  if (!sg.cards.length && !habUndo) return '';
+  return `<section class="sug" aria-labelledby="h-hab">${head}${sg.cards.map(habCard).join('') || `<p class="note">${esc(T('hab.none'))}</p>`}
+    ${habUndo ? `<div class="undo" role="status"><span>${esc(T('hab.hidden', { k: T('hab.kind.' + habUndo.kind) }))}</span><button class="lnk" type="button" data-hab-undo data-f="hab-undo">${esc(T('hab.undo'))}</button></div>` : ''}</section>`;
+}
+async function habGo(id, b) {
+  const c = habitSug().cards.find(x => x.id === id);
+  if (!c) return;
+  if (c.kind === 'allow' || c.kind === 'skill') { habOpen = habOpen === id ? null : id; nextFocus = 'hab:' + id; return render(); }
+  if (c.kind === 'recurring') return c.what === 'standup' ? openStandup() : openReport();
+  // morning: the issue's Start box (#54), in the folder it was worked in
+  const g = [...(work.local || []), ...(work.away || [])].find(x => x.path === c.project);
+  const i = g?.issues?.find(x => x.iid === c.iid) || (model.issues || []).find(x => x.project === c.project && x.iid === c.iid);
+  if (!i) return toast(T('work.new.fail'));
+  if (i.resume) { const r = await bridge.startIssue(c.project, c.iid); return r && !r.ok && openFail(r); }
+  return openStart(b, [i, { path: c.project, dir: g?.dir || c.dir }]);
+}
+async function habNo(id) {
+  const c = habitSug().cards.find(x => x.id === id);
+  if (!c) return;
+  const s = state.settings, before = { habitsNo: { ...s.habitsNo }, habitsHidden: { ...s.habitsHidden } };
+  habUndo = { kind: c.kind, id, before };
+  habOpen = null;
+  const hidden = Object.entries({ ...s.habitsHidden, [id]: Date.now() }).sort((a, b) => b[1] - a[1]).slice(0, 300);
+  await save({ habitsNo: { ...s.habitsNo, [c.kind]: (s.habitsNo?.[c.kind] || 0) + 1 }, habitsHidden: Object.fromEntries(hidden) }, { rerender: false });
+  nextFocus = 'hab-undo';
+  render();
+}
+
 // Work that stands still (BOARD.stuck), minus what you skipped (kept in Bobix's settings; outside the app, in this
 // page only); nothing while Settings → "Nudge about stuck work" is off.
 const stuckCfg = () => ({ ...state?.settings, stuckSkipped: { ...state?.settings?.stuckSkipped, ...skippedHere } });
@@ -888,6 +982,7 @@ function dayHTML() {
   return `<div class="d-top"><div class="d-hi"><h2>${esc(date)}</h2><p>${esc(T('day.sub'))}</p></div><div class="d-acts"><button class="btn" type="button" data-standup data-f="standup">${T('su.title')}</button><button class="btn pri" type="button" data-report data-f="report">${T('day.report')}</button></div></div>
     ${queueHTML()}
     ${stuckHTML()}
+    ${habitsHTML()}
     <ol class="flow" aria-label="${esc(T('day.flow'))}">${['todo', 'doing', 'verify', 'done'].map(k => `<li><button class="step" type="button" data-step="${k}" data-f="step:${k}" aria-pressed="${k === cur}" aria-controls="d-${k}"><b>${count[k]}</b><span>${esc(T('day.' + k))}</span></button></li>`).join('')}</ol>
     <div class="dg">
       ${sec('doing', count.doing, count.doing ? grouped(st.doing, doingRow, 'trl') : `<p class="blank">${esc(T('day.doing.none') + (count.todo ? T('day.doing.pick') : ''))}</p>`)}
@@ -1038,7 +1133,7 @@ async function openStart(b, [i, g]) {
   b.disabled = true;
   const r = await bridge.issueBrief(g.path, i.iid).catch(() => null);
   b.disabled = false;
-  starting = { path: g.path, iid: i.iid };
+  starting = { path: g.path, iid: i.iid, dir: g.dir };
   $('#st-heading').textContent = T('start.title', { n: i.iid });
   $('#st-dir').textContent = g.dir.replace(/^(\/Users|\/home|[A-Za-z]:\\Users)[\\/][^\\/]+/, '~'); // the folder, home as ~
   $('#st-dir').title = g.dir;
@@ -1046,7 +1141,8 @@ async function openStart(b, [i, g]) {
   // The skills Claude has for that folder; one suggested from the issue's labels and your role (Settings).
   const skills = r?.skills || [], proc = r?.process || null;
   const { pick, missing } = BOARD.suggest(skills, { labels: r?.labels || i.labels || [], role: state?.settings?.role || '', stage: 'todo', process: proc?.process, pins: state?.settings?.skillPins || {} });
-  Object.assign(starting, { url: i.url, skills, pick, missing, proc, cur: pick?.name || '', all: false, q: '' });
+  const habit = state?.settings?.habitsOn && state.settings.habitsSkill?.[g.dir]; // the skill you chose for this folder (habits)
+  Object.assign(starting, { url: i.url, skills, pick, missing, proc, cur: habit || pick?.name || '', all: false, q: '' });
   $('#st-perr').hidden = !r?.processError;
   $('#st-perr').textContent = r?.processError ? T('start.perr', { e: r.processError }) : '';
   $('#st-text').value = BOARD.withSkill(BOARD.brief(i, r?.ok ? r.body : ''), starting.cur, i.url);
@@ -1124,7 +1220,7 @@ $('#st-go').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(t.value); } catch { t.select(); copied = document.execCommand('copy'); }
   $('#st-dialog').close();
   starting = null;
-  const r = await bridge.startIssue(s.path, s.iid, t.value);
+  const r = await bridge.startIssue(s.path, s.iid, t.value, s.dir);
   if (r?.mode === 'new' && r.ok) toast(T(copied ? 'start.done' : 'start.done.nocopy'));
   else if (r && !r.ok) r.mode === 'resume' ? openFail(r) : toast(T('work.new.fail'));
 });
@@ -1136,6 +1232,7 @@ function stuckLines() {
     ...(model.reviews || []).filter(r => r.review === 'changes_requested').map(r => { const l = r.issues[0]; return { text: l ? `[${BOARD.short(l.project)}] #${l.iid} ${title(l.project, l.iid)}`.trim() : r.url, why: T('su.changes') }; })];
 }
 function openStandup() {
+  bridge?.habitsNote('standup');
   $('#su-text').value = BOARD.standup(st, work.closed || [], stuckLines(), T, Date.now(), LOCALE());
   $('#su-dialog').showModal();
   $('#su-text').focus();
@@ -1147,6 +1244,7 @@ $('#su-copy').addEventListener('click', async () => {
   toast(T('su.copied'));
 });
 function openReport() {
+  bridge?.habitsNote('report');
   $('#rp-text').value = BOARD.report(st, T, Date.now(), I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB', BOARD.waited(waits, list));
   $('#rp-dialog').showModal();
   $('#rp-text').focus();
@@ -1178,6 +1276,23 @@ $('#day').addEventListener('click', async e => {
   }
   if (d.jump) { $('#' + d.jump)?.scrollIntoView({ block: 'start' }); return $('#' + d.jump)?.querySelector('[data-choice]')?.focus({ preventScroll: true }); }
   if (d.report !== undefined) return openReport();
+  if (d.habGo) return habGo(d.habGo, b);
+  if (d.habNo) return habNo(d.habNo);
+  if (d.habUndo !== undefined && habUndo) { const u = habUndo; habUndo = null; await save(u.before, { rerender: false }); nextFocus = 'hab:' + u.id; return render(); }
+  if (d.habCopy) {
+    const c = habitSug().cards.find(x => x.id === d.habCopy);
+    if (!c) return;
+    try { await navigator.clipboard.writeText(JSON.stringify(c.rule)); toast(T('hab.allow.copied')); } catch { toast(JSON.stringify(c.rule)); }
+    return;
+  }
+  if (d.habSkill) {
+    const c = habitSug().cards.find(x => x.id === d.habSkill);
+    if (!c) return;
+    await save({ habitsSkill: { ...state.settings.habitsSkill, [c.dir]: c.skill } }, { rerender: false });
+    habOpen = null;
+    toast(T('hab.skill.done', { p: HABITS.base(c.dir), x: '/' + c.skill }));
+    return render();
+  }
   if (d.standup !== undefined) return openStandup();
   if (d.skip) return skip(d.skip);
   if (d.nudge) return nudge(d.nudge);
@@ -1307,12 +1422,34 @@ function renderSettings() {
       <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}" data-row="${r.k}">
         <div><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`)}${r.k === 'dnd' && dndLeft(s) ? ' ' + T('set.dnd.left', { n: dndLeft(s) }) : ''}</div>` : ''}</div>
         <div class="ctl">${control(r, s)}</div>
-      </div>`).join('')}</section>`).join('')}</div>`;
+      </div>`).join('')}</section>`).join('')}${habitsSettingsHTML(s)}</div>`;
   renderPreview();
   paintMine();
   paintProcess();
 }
 
+// Settings → "Bobix nhớ gì về bạn": the switch, what is and is never kept, and while on everything kept, by day.
+function habitsSettingsHTML(s) {
+  const on = !!s.habitsOn, d = habitData, li = k => `<li>${esc(T(k))}</li>`;
+  const ev = d?.events || [], days = HABITS.days(ev), shown = days.slice(0, 7), more = days.length - shown.length;
+  const issueName = x => { const i = x.iid != null && (model.issues || []).find(y => y.iid === x.iid && (model.repos || []).some(r => r.path === y.project && r.dirs.some(z => z.path === x.dir))); return x.iid != null ? `#${x.iid}${i ? ' ' + i.title : ''}` : x.branch || HABITS.base(x.dir); };
+  // "phiên đã kết thúc": the session ended; "issue đã đóng" only for an issue the tracker says is closed (closed lately)
+  const closed = x => x.iid != null && (work.closed || []).some(c => c.iid === x.iid && c.project === (x.project || HABITS.projectOf(model, x.dir)));
+  const detail = x => [HABITS.base(x.dir), x.asks ? T('hab.set.asks', { n: x.asks, m: Math.round(x.waitMs / 60e3) }) : '', x.skills.map(k => '/' + k).join(', '), x.ended ? T('hab.set.ended') : '', closed(x) ? T('hab.set.closed') : ''].filter(Boolean).join(' · ');
+  const span = x => `${timeOf(x.from)}–${x.ended ? timeOf(x.to) : ''}`;
+  const stored = !d ? '' : `<div class="opt wide"><div style="width:100%">
+      <div class="lbl">${esc(T('hab.set.stored'))} <span class="note">${esc(T('hab.set.size', { s: Math.max(0, Math.round(d.bytes / 1024)), n: d.days }))}</span></div>
+      ${ev.length ? `<div class="days">${shown.map(x => `<section class="day"><h3>${esc(new Date(x.day + 'T12:00').toLocaleDateString(LOCALE(), { weekday: 'long', day: 'numeric', month: 'numeric' }))}</h3><ul>${x.items.map(y => `<li><span class="t">${esc(span(y))}</span><span class="w"><b title="${esc(issueName(y))}">${esc(issueName(y))}</b><span class="note">${esc(detail(y))}</span></span></li>`).join('')}</ul></section>`).join('')}
+        ${more > 0 ? `<p class="note">${esc(T('hab.set.more', { n: more }))}</p>` : ''}</div>` : `<p class="note">${esc(T('hab.set.empty'))}</p>`}
+      <div class="foot"><span class="note">${esc(T('hab.set.where'))} <code>${esc(String(d.dir || '').replace(/^(\/Users|\/home|[A-Za-z]:\\Users)[\\/][^\\/]+/, '~'))}</code></span>${ev.length ? `<button class="btn sm danger" type="button" data-act="habits-ask">${esc(T('hab.set.wipe'))}</button>` : ''}</div>
+      ${habConfirm ? `<div class="confirm" role="alertdialog" aria-labelledby="hab-cf"><p id="hab-cf">${esc(T('hab.set.sure', { n: d.days }))}</p><div><button class="btn sm danger" type="button" data-act="habits-wipe">${esc(T('hab.set.wipe'))}</button><button class="btn sm" type="button" data-act="habits-keep">${esc(T('hab.set.keep'))}</button></div></div>` : ''}
+    </div></div>`;
+  return `<section class="sec hb" id="sec-habits"><h2>${esc(T('hab.set.title'))}</h2>
+    <div class="opt"><div><div class="lbl" id="l-habitsOn">${esc(T('hab.set.switch'))}</div><div class="desc">${esc(T('hab.set.promise'))}</div></div><div class="ctl">${control({ k: 'habitsOn', type: 'switch' }, s)}</div></div>
+    <div class="opt wide"><div class="two"><div><b>${esc(T('hab.set.keeps'))}</b><ul>${['hab.set.k1', 'hab.set.k2', 'hab.set.k3', 'hab.set.k4'].map(li).join('')}</ul></div>
+      <div><b>${esc(T('hab.set.never'))}</b><ul>${['hab.set.n1', 'hab.set.n2', 'hab.set.n3'].map(li).join('')}</ul></div></div></div>
+    ${on ? stored : `<div class="opt wide"><p class="note">${esc(T('hab.set.off'))}</p></div>`}</section>`;
+}
 // ---------- Settings → My skills, Skill process ----------
 let mySkills = null, mineQ = '', procs = null; // read when Settings opens
 async function loadSkillLists() {
@@ -1455,6 +1592,7 @@ $('#settings').addEventListener('change', e => {
   }
   const k = e.target.dataset.k;
   if (!k || e.target.type === 'range') return;
+  if (k === 'habitsOn') { habConfirm = false; return save({ habitsOn: e.target.checked }).then(ok => { if (ok) { $('#f-habitsOn')?.focus(); loadHabits(); } }); }
   save({ [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
 });
 $('#settings').addEventListener('click', async e => {
@@ -1462,6 +1600,15 @@ $('#settings').addEventListener('click', async e => {
   if (!t) return;
   if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
   if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
+  if (t.dataset.act === 'habits-ask') { habConfirm = true; renderSettings(); return $('[data-act="habits-keep"]')?.focus(); }
+  if (t.dataset.act === 'habits-keep') { habConfirm = false; renderSettings(); return $('[data-act="habits-ask"]')?.focus(); }
+  if (t.dataset.act === 'habits-wipe') {
+    habConfirm = false;
+    await bridge.habitsClear();
+    await loadHabits();
+    toast(T('hab.set.wiped'));
+    return $('#f-habitsOn')?.focus();
+  }
   if (t.dataset.act === 'tour') return tourStart(false);
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
@@ -1851,14 +1998,17 @@ $('#conn').textContent = T('conn.wait');
   if (bridge) {
     state = await bridge.getState();
     $('#ver').textContent = 'v' + state.version; $('#ver').hidden = false;
+    loadHabits();
     bridge.onSelect(id => { showTab('sessions'); select(id); });
     bridge.onShowTab(showTab);
     bridge.onOpenFail(showHint);
     bridge.onSettings(s => {
       if (JSON.stringify(s) === JSON.stringify(state.settings)) return; // our own save echoing back: keep the form as is (slider drag)
       const langChanged = s.language !== state.settings.language;
+      const habits = s.habitsOn !== state.settings.habitsOn;
       state.settings = s;
       langChanged ? applyLang() : renderSettings(); // e.g. toggled from the tray
+      if (habits) loadHabits();
       renderIntro();
     });
   }
