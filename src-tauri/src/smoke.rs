@@ -208,11 +208,19 @@ fn drag(app: &AppHandle, sid: &str) -> Value {
         "moved": dropped.map(|a| ((a - px) * dir as f64).round()) })
 }
 
-// Moves the mouse onto a pet in full sight. Screen coordinates come from the window's position (WebKitGTK may not know
+// Moves the mouse onto a pet in full sight, once the line has stopped sliding from the drag before (a sliding pet
+// would leave the point before the mouse gets there; walking it stays under it). Screen coordinates come from the window's position (WebKitGTK may not know
 // screenX without a window manager); the page counts the pointer events it gets, so a failure says whether the mouse
 // reached it.
 fn hover(app: &AppHandle) -> Value {
     let Some(win) = app.get_webview_window(overlay::LABEL) else { return json!({ "error": "no window" }) };
+    let until = Instant::now() + Duration::from_secs(4);
+    let settled = loop {
+        let sliding = ask(app, overlay::LABEL, "LINEUP.vis.some(e => Math.abs(e.slide || 0) > .5) || !!LINEUP.held");
+        if sliding == false { break true; }
+        if Instant::now() > until { break false; }
+        thread::sleep(Duration::from_millis(100));
+    };
     let at = ask(app, overlay::LABEL, "(() => { window.__ev = {}; for (const t of ['pointerover', 'pointermove']) addEventListener(t, () => { __ev[t] = (__ev[t] || 0) + 1; }, true); \
         const p = [...pets.values()].find(q => !q.el.classList.contains('line-off') && (q.edgeFade ?? 1) > .9); if (!p) return null; \
         const b = p.el.querySelector('.spr').getBoundingClientRect(); return { id: p.s.id, x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()");
@@ -227,7 +235,7 @@ fn hover(app: &AppHandle) -> Value {
     let b = ask(app, overlay::LABEL, &format!("pets.get({id:?})?.x"));
     let stopped = a["x"].as_f64().zip(b.as_f64()).is_some_and(|(p, q)| (p - q).abs() < 0.5);
     crate::procs::exec("xdotool", &["mousemove", "0", "0"], 5, &[]);
-    json!({ "at": [x, y], "hover": a["hover"], "stopped": stopped, "events": a["events"] })
+    json!({ "at": [x, y], "settled": settled, "hover": a["hover"], "stopped": stopped, "events": a["events"] })
 }
 
 // The hook's stdout: what Claude Code would read.
