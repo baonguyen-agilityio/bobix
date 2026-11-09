@@ -11,7 +11,7 @@ pub fn defaults() -> Value {
         "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "walkDir": "ltr", "petMode": "edge", "dnd": "0", "dndUntil": 0, "zoneStart": 0, "zoneEnd": 100,
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "longWait": 10, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
-        "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false,
+        "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false, "tourSeen": [],
         "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "petImages": {},
         "habitsOn": false, "habitsNo": {}, "habitsHidden": {}, "habitsSkill": {}, "habitsPetDay": "",
     })
@@ -137,6 +137,16 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
             }
         } else if k == "habitsPetDay" {
             if let Some(d) = v.as_str().filter(|d| d.len() == 10 && d.bytes().enumerate().all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() })) { out.insert(k.into(), json!(d)); }
+        } else if k == "tourSeen" {
+            // the tour's steps already shown: their keys (tour.js)
+            if let Some(a) = v.as_array() {
+                let mut seen: Vec<&str> = vec![];
+                for x in a.iter().filter_map(|x| x.as_str()).filter(|x| (1..=24).contains(&x.len()) && x.bytes().all(|b| b.is_ascii_lowercase())) {
+                    if !seen.contains(&x) { seen.push(x); }
+                }
+                seen.truncate(64);
+                out.insert(k.into(), json!(seen));
+            }
         } else if k == "stuckSkipped" {
             // stuck items you skipped: their id → the time of the last activity they had then (ms); one that moves again comes back
             if let Some(o) = v.as_object() {
@@ -224,10 +234,11 @@ pub fn save(file: &Path, settings: &Value) -> std::io::Result<()> {
 pub fn base(v: &str) -> &str { v.split('-').next().unwrap_or(v) }
 
 // Once, the first time this version starts with these settings. `existing`: hooks were already installed, so this
-// person used an older Bobix: skip the guide, keep the notes. A new install sees the guide, not the notes.
-pub fn first_start(settings: &Value, version: &str, existing: bool) -> Option<Value> {
+// person used an older Bobix: skip the guide, keep the tour of what is new. A new install sees the guide; the tour's
+// steps of today (`tour`, its step keys) count as seen, and only steps added later show.
+pub fn first_start(settings: &Value, version: &str, existing: bool, tour: &[String]) -> Option<Value> {
     if settings["seenVersion"].as_str().is_some_and(|v| !v.is_empty()) { return None; }
-    Some(if existing { json!({ "guideSeen": true }) } else { json!({ "seenVersion": base(version) }) })
+    Some(if existing { json!({ "guideSeen": true }) } else { json!({ "seenVersion": base(version), "tourSeen": tour }) })
 }
 
 // The version whose notes the panel shows, or None.
@@ -500,9 +511,14 @@ mod tests {
     #[test]
     fn whats_new_and_the_guide() {
         let s = |v: &str| serde_json::json!({ "seenVersion": v });
-        assert_eq!(super::first_start(&s(""), "0.1.4-rc.3", false), Some(serde_json::json!({ "seenVersion": "0.1.4" })));
-        assert_eq!(super::first_start(&s(""), "0.1.4", true), Some(serde_json::json!({ "guideSeen": true })));
-        assert_eq!(super::first_start(&s("0.1.3"), "0.1.4", true), None);
+        let tour = ["pets".to_string(), "board".to_string()];
+        assert_eq!(super::first_start(&s(""), "0.1.4-rc.3", false, &tour), Some(serde_json::json!({ "seenVersion": "0.1.4", "tourSeen": ["pets", "board"] })), "a new install: today's steps count as seen");
+        assert_eq!(super::first_start(&s(""), "0.1.4", true, &tour), Some(serde_json::json!({ "guideSeen": true })));
+        assert_eq!(super::first_start(&s("0.1.3"), "0.1.4", true, &tour), None);
+        let t = |v: serde_json::Value| super::sanitize(&serde_json::json!({ "tourSeen": v }), &super::defaults())["tourSeen"].clone();
+        assert_eq!(t(serde_json::json!(["pets", "board", "pets", "Bad", "", 3, "stuck"])), serde_json::json!(["pets", "board", "stuck"]));
+        assert_eq!(t(serde_json::json!("x")), serde_json::json!([]));
+        assert!(crate::i18n::TOUR.len() >= 8 && crate::i18n::TOUR[0] == "pets", "{:?}", *crate::i18n::TOUR);
         assert_eq!(super::news_for(&s("0.1.3"), "0.1.4-rc.1", "0.1.4").as_deref(), Some("0.1.4"));
         assert_eq!(super::news_for(&s("0.1.4"), "0.1.4", "0.1.4"), None);
         assert_eq!(super::news_for(&s("0.1.3"), "0.1.5", "0.1.4"), None);

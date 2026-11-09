@@ -21,6 +21,12 @@ pub static NEWS: LazyLock<String> = LazyLock::new(|| {
     SOURCE[at..].split('\'').next().unwrap_or("").to_string()
 });
 
+// The tour's step keys (STEPS in tour.js), in order: a new install marks them seen (settings::first_start).
+pub static TOUR: LazyLock<Vec<String>> = LazyLock::new(|| {
+    static KEY: LazyLock<fancy_regex::Regex> = LazyLock::new(|| fancy_regex::Regex::new(r"\{ key: '([a-z]+)'").unwrap());
+    KEY.captures_iter(include_str!("../../src/ui/tour.js")).flatten().map(|c| c[1].to_string()).collect()
+});
+
 static EN: LazyLock<HashMap<&'static str, String>> = LazyLock::new(|| block("en"));
 static VI: LazyLock<HashMap<&'static str, String>> = LazyLock::new(|| block("vi"));
 
