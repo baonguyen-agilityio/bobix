@@ -222,6 +222,7 @@
         "changed": 0
       },
       "parent": null,
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,
@@ -266,6 +267,7 @@
         "changed": 0
       },
       "parent": null,
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,
@@ -314,6 +316,7 @@
         "iid": 54
       },
       "parent": null,
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,
@@ -358,6 +361,7 @@
         "changed": 0
       },
       "parent": null,
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,
@@ -402,6 +406,7 @@
         "changed": 0
       },
       "parent": "p4",
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,
@@ -438,6 +443,7 @@
       "pet": "auto",
       "project": "/tmp/scratch",
       "parent": "p4",
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,
@@ -478,6 +484,7 @@
         "changed": 0
       },
       "parent": null,
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,
@@ -522,6 +529,7 @@
         "iid": 99
       },
       "parent": null,
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,
@@ -562,6 +570,7 @@
         "changed": 0
       },
       "parent": null,
+      "linking": false,
       "image": null,
       "pixel": false,
       "whole": false,

@@ -11,7 +11,7 @@ html{--size:56px}
 html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 var(--t-sm)/1.45 var(--f-body);color:var(--ink);font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none}
 .pet{position:absolute;left:0;bottom:var(--s1);width:var(--size);cursor:pointer;touch-action:none;transform-origin:50% 100%;transition:opacity 150ms var(--ease),scale 250ms var(--ease),translate 250ms var(--ease),filter 250ms var(--ease)}
 .pet.dragging{cursor:grabbing}
-.pet.hover,.pet.open{z-index:3}
+.pet.hover{z-index:3}
 .pet:not(.parent):not(.side){z-index:1} /* a pet on its own stays above a family it walks past, name tag included */
 .edge-top .pet{bottom:auto;top:var(--s1)}
 .spr{position:relative;width:var(--size);height:var(--size);display:grid;place-items:center}
@@ -23,33 +23,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .tag{max-width:none;transform:none;overflow:visible;display:flex;justify-content:center;align-items:center;gap:var(--s1);box-sizing:border-box}
 .tag .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center}
 .tag .iss{flex:none;color:var(--ink-2)}
-.tag .more{position:relative;flex:none;color:var(--ink-3);cursor:pointer}
-.tag.kl .more{order:-1}
-.tag .more .bb{bottom:calc(100% + 2px);left:auto;right:calc(var(--size) * -.3);translate:none;width:calc(var(--size) * .36)}
-.tag.kl .more .bb{right:auto;left:calc(var(--size) * -.3)}
-.say.sum{cursor:pointer}
 .bb{position:absolute;left:50%;bottom:calc(100% - var(--size) * .08);width:calc(var(--size) * .5);translate:-50% 0;cursor:pointer;animation:bob 2.6s var(--ease) infinite;transform-origin:50% 100%}
 .pet.side .bb{width:calc(var(--size) * .42)}
 /* Top edge: the balloon floats below the pet's name tag, its string up (balloonSVG draws it upside down there). */
 .edge-top .bb{bottom:auto;top:calc(100% + 2px)}
-.edge-top .tag .more .bb{bottom:auto;top:calc(100% + 2px)}
 .bb svg{display:block;width:100%;height:auto;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .2))}
-.tag .more.hot{color:var(--coral-ink)}
 @keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-4px) rotate(2deg)}}
-.say .who{font-weight:700}
-.card.group{width:340px;max-height:260px;overflow:auto}
-/* One bubble lane further out than the summary bubble, so that bubble stays visible and closes the card again. */
-.say~.card.group{bottom:calc(100% + var(--s2) + (var(--lane, 0) + 1) * 36px)}
-.edge-top .say~.card.group{bottom:auto;top:calc(100% + var(--s2) + (var(--lane, 0) + 1) * 36px)}
-.card.group .gr{display:flex;align-items:center;gap:var(--s2);padding:var(--s1) 0;border-top:1px solid var(--line);font-size:var(--t-xs)}
-.card.group .gr:first-of-type{border-top:0}
-.card.group .gr .mini{flex:none;width:22px;height:22px}
-.card.group .gr .mini svg{width:100%;height:100%}
-.card.group .gr .nm{font-weight:700;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card.group .gr .stx{flex:1;min-width:0;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card.group .gr .answer{margin:0}
-.card.group .gr.waiting .stx{color:var(--coral-ink);font-weight:600}
-.card.group .open{flex:none;font:600 var(--t-xs) var(--f-body);border-radius:var(--pill);padding:0 var(--s2);border:1px solid var(--line-strong);background:var(--surface);cursor:pointer}
 .st-idle .spr{opacity:.75}
 .say,.card{position:absolute;bottom:calc(100% + var(--s2) + var(--lane, 0) * 36px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--lift)}
 .edge-top .say,.edge-top .card{bottom:auto;top:calc(100% + var(--s2) + var(--lane, 0) * 36px)}
@@ -85,8 +64,15 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
    over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and a pet saying goodbye keeps
    nothing but itself. */
 .pet.fx .spr>svg,.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
+/* Two pets too close: the effect waits, the pet shows as it is (one waiting for you with a thin orange outline); one
+   saying goodbye goes. A pet out of sight round the line's far end is hidden. */
+.pet.wait-ring .spr>svg{filter:drop-shadow(1px 0 0 #ff7a4d) drop-shadow(-1px 0 0 #ff7a4d) drop-shadow(0 1px 0 #ff7a4d) drop-shadow(0 -1px 0 #ff7a4d)}
+.pet.line-off{visibility:hidden!important}
+.pet.fx.fx-hide:not(.leaving) .spr>svg{visibility:visible}.pet.fx-hide .fxc,.pet.fx-hide .fxs,.pet.leaving.fx-hide{visibility:hidden}
 .pet.leaving>:not(.spr){opacity:0;transition:opacity 600ms var(--ease)}
-.fxc,.fxs{position:absolute;pointer-events:none;image-rendering:pixelated}
+.fxc,.fxs{position:absolute;pointer-events:none;image-rendering:pixelated;z-index:0}
+/* A pet's balloon, bubble, card and name tag stay above its own effect; other pets' are cut out of it (fxClip). */
+.pet>.bb,.pet>.say,.pet>.card,.pet>.tag{z-index:1}
 .fxs{overflow:hidden}.fxs img{display:block;image-rendering:pixelated;will-change:transform}
 .spr svg.faced{position:absolute;left:-5%;bottom:0;width:110%;height:110%}
 .edge-top .spr svg.faced{bottom:auto;top:0}
@@ -108,12 +94,15 @@ const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 const bridge = window.bobix; // present inside the app (src-tauri/bridge.js); absent in a plain browser tab
+// A new side session whose parent link is not known yet (linking, state.rs) is left out until it is, so it never shows
+// on its own first, nor shifts the other pets' colours, places or "+N" count meanwhile.
+const forShow = list => (list || []).filter(s => !s.linking);
 
-let cfg = { size: 56, edge: 'bottom', zoneStart: 0, zoneEnd: 100, opacity: 1, fadeNearCursor: true, showIdle: true, sleepHide: 30, onlyAttention: false, label: 'title', clickAction: 'focus', language: 'auto' };
+let cfg = { size: 56, edge: 'bottom', walkDir: 'ltr', zoneStart: 0, zoneEnd: 100, opacity: 1, fadeNearCursor: true, showIdle: true, sleepHide: 30, onlyAttention: false, label: 'title', clickAction: 'focus', language: 'auto' };
 let lang = navigator.language;
 const T = (k, v) => I18N.t(lang, k, v);
 
-const pets = new Map(); // id -> { el, s, x, dir, walking, next, actAt, hover, key, goal, lane }
+const pets = new Map(); // id -> { el, s, x, actAt, hover, key, lane, fx ... }
 let mouse = { x: -1, y: -1 };
 
 // A pet asleep for longer than sleepHide minutes leaves the screen; the next prompt brings it back.
@@ -146,22 +135,12 @@ const left = (s, now) => (!s.answer ? 0 : s.answer.until == null ? Infinity : Ma
 function answerButtons(s, now) {
   const n = left(s, now);
   if (!n || !bridge) return `<span class="where">${T(approveWhere(s))}</span>`; // Bobix can't answer it: say where it can be
-  const sid = `data-sid="${esc(s.id)}"`;
   return `<span class="answer">`
-    + `<button type="button" ${sid} data-answer="allow">${T('ask.allow')}</button><button type="button" ${sid} data-answer="deny">${T('ask.deny')}</button>`
+    + `<button type="button" data-answer="allow">${T('ask.allow')}</button><button type="button" data-answer="deny">${T('ask.deny')}</button>`
     + (n === Infinity ? '' : `<span class="left" data-sid="${esc(s.id)}">${T('ask.left', { n })}</span>`) + '</span>';
 }
-// Side sessions: a side session's pet is smaller and names the session it came from; the parent counts its side sessions.
-// How a family (a parent and its side sessions) tells you things: while at most two of its pets need you, each holds
-// a pixel balloon; from three, one bubble sums them up and opens the family card.
-const BALLOONS_UP_TO = 2;
-const KID_MAX = 10, URGENT = { waiting: 0, done: 1, working: 2, idle: 3 };
-const byUrgency = (a, b) => (URGENT[look(a)] - URGENT[look(b)]) || (b.since - a.since) || (a.id < b.id ? -1 : 1);
-const attached = s => !!(s.parent && pets.has(s.parent)); // stands next to its parent pet
-// A pet walks while its session works; a parent also while any side session beside it works (the family walks together).
-const walks = p => look(p.s) === 'working' || kidsOf(p.s).some(k => pets.has(k.id) && look(k) === 'working');
-const rootOf = s => (attached(s) ? byId(s.parent) || s : s);
-const balloonsFor = (root, now) => familyReports(root, now).filter(r => r.kind).length <= BALLOONS_UP_TO;
+// Side sessions: a side session's pet is smaller, walks right behind its parent and names the session it came from.
+const attached = s => !!(s.parent && pets.has(s.parent)); // walks with its parent pet
 // A party balloon in the pets' pixel style: orange with "!" waits for you, green with a tick is done. Its string hangs to the pet.
 // On the top edge it floats below the pet: balloon and string are flipped, the "!" / tick and the shine are not.
 function balloonSVG(kind) {
@@ -179,23 +158,12 @@ function balloonSVG(kind) {
   const marks = shine.map(([x, y]) => px(x, y + (down ? 11 : 0), 'oklch(98% 0.01 90 / .85)')).join('') + icon.map(([x, y]) => px(x, y + (down ? 11 : 0), 'var(--n-900)')).join('');
   return `<svg viewBox="0 0 ${W} 22" shape-rendering="crispEdges" aria-hidden="true">${down ? `<g transform="matrix(1 0 0 -1 0 22)">${out}</g>` : out}${marks}</svg>`;
 }
-const shortName = s => { const n = s.title || s.name || ''; return n.length > 18 ? n.slice(0, 17) + '…' : n; };
-// Everyone in a family that has something to say to you: waiting and done for all, tool activity for the parent only.
-function familyReports(parent, now) {
-  const members = [parent, ...(lastList || []).filter(x => x.parent === parent.id && visible(x)).sort(byUrgency)];
-  return members.map(m => {
-    const st = look(m);
-    if (st === 'waiting') return { s: m, kind: 'waiting', text: m.askTool ? T('pet.waiting', { tool: m.askTool }) : T('pet.waitingPlain') };
-    if (st === 'done' && now - m.since < DONE_BUBBLE) return { s: m, kind: 'done', text: T('pet.done') };
-    const p = pets.get(m.id);
-    if (m === parent && st === 'working' && m.tool && p && now - p.actAt < ACT_BUBBLE) return { s: m, kind: '', text: I18N.toolLabel(lang, m.tool) };
-    return null;
-  }).filter(Boolean).sort((a, b) => (URGENT[a.kind || 'working'] - URGENT[b.kind || 'working']));
-}
-const whoHTML = (r, parent) => (r.s !== parent ? `<span class="who">${esc(shortName(r.s))}</span> · ` : '');
-function summaryText(reports) {
-  const w = reports.filter(r => r.kind === 'waiting').length, d = reports.filter(r => r.kind === 'done').length;
-  return [w && T('fam.waiting', { n: w }), d && T('fam.done', { n: d })].filter(Boolean).join(' · ') || T('fam.busy', { n: reports.length });
+// What a pet has to tell you: it waits for you, or it is done (for DONE_BUBBLE). Every pet speaks for itself.
+function reportOf(s, now) {
+  const st = look(s);
+  if (st === 'waiting') return { kind: 'waiting', text: s.askTool ? T('pet.waiting', { tool: s.askTool }) : T('pet.waitingPlain') };
+  if (st === 'done' && now - s.since < DONE_BUBBLE) return { kind: 'done', text: T('pet.done') };
+  return null;
 }
 const byId = id => (lastList || []).find(x => x.id === id);
 const kidsOf = s => (lastList || []).filter(x => x.parent === s.id);
@@ -206,88 +174,67 @@ function kidsText(s) {
   return [w > 0, w ? T('pet.kidsWaiting', { n: k.length, w }) : T('pet.kids', { n: k.length })];
 }
 function paint(p, now) {
-  const s = p.s, st = look(s), kid = attached(s), root = rootOf(s), useBalloons = balloonsFor(root, now), color = petColor(s, lastList || []);
+  const s = p.s, st = look(s), kid = attached(s), color = petColor(s, lastList || []);
   p.art = [(s.parent && byId(s.parent)) || s, color]; // what the pet looks like, for its effects
-  const reports = !kid ? familyReports(s, now) : [], fam = !kid && kidsOf(s).some(k => visible(k));
-  const mine = familyReports(root, now).find(r => r.s.id === s.id && r.kind);
-  // A pet asking for permission shows its request and buttons when hovered, not the card, which would cover them.
+  const fam = !kid && kidsOf(s).some(k => visible(k)), mine = reportOf(s, now);
+  // Hovered: its own card, or its request and buttons while it waits for you (the card would cover them).
   const card = p.hover && st !== 'waiting';
-  const balloon = useBalloons && mine && !p.hover ? mine.kind : '';
-  let say = null; // [kind, text or null, one report or null]
-  if (!card && !kid) {
-    if (p.hover) { const t = sayText(p, st, now); say = t && [t[0], t[1], null]; }
-    else if (!useBalloons && reports.length > 1) say = [reports.some(r => r.kind === 'waiting') ? 'waiting' : 'done', summaryText(reports), null];
-    else if (!fam && !useBalloons) { const t = sayText(p, st, now); say = t && [t[0], t[1], null]; }
-    else if (useBalloons && st === 'working' && !fam) { const t = sayText(p, st, now); say = t && t[0] === '' ? [t[0], t[1], null] : null; } // tool activity, only on its own
-  }
-  const hidden = kid ? [] : kidsOf(s).filter(k => visible(k) && !pets.has(k.id)), extra = hidden.length;
-  // Same rule as the side sessions' own balloons: "done" shows for DONE_BUBBLE, not until the pet falls asleep.
-  const extraHot = hidden.some(k => look(k) === 'waiting') ? 'waiting' : hidden.some(k => look(k) === 'done' && now - k.since < DONE_BUBBLE) ? 'done' : '';
-  if (p.groupOpen && !(reports.length > 1 || extra > 0)) p.groupOpen = false; // nothing left to list: closed, not reopened later
-  const groupOpen = !!p.groupOpen;
-  const famKey = JSON.stringify(familyReports(root, now).map(r => [r.s.id, r.kind, r.text, left(r.s, now) > 0, petColor(r.s, lastList || [])]));
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), famKey, extra, extraHot, groupOpen, kid, cfg.label, cfg.clickAction, lang]);
+  // Its balloon only while no effect plays (reduced motion): the aura and the XP bar say the same.
+  const balloon = mine && !p.hover ? statusBalloon(FX_ON, mine.kind) : '';
+  // A bubble: its request when hovered; the tool it just picked up, for a pet on its own.
+  const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
+  const say = t && (p.hover || t[0] === '') ? t : null;
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, lang]);
   if (p.key === key) return;
   p.key = key;
   const hp = s.ctx;
-  p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${groupOpen ? ' open' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''} ${p.edge}`;
+  const keep = ['line-off', 'fx-hide', 'wait-ring', 'leaving'].filter(c => p.el.classList.contains(c)).map(c => ' ' + c).join(''); // set by the line and the effects
+  p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''}${keep} ${p.edge}`;
   const kids = kidsText(s), parent = s.parent && byId(s.parent);
   p.el.innerHTML = `
     ${card ? `<div class="card">
         <h2>${esc(s.title || s.name)}</h2>
         <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
         <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
-        ${st === 'waiting' ? answerButtons(s, now) : ''}
         <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
-    ${say && say[2] ? `<div class="say ${say[0]}">${whoHTML(say[2], s)}${esc(say[2].text)}${say[0] === 'waiting' ? answerButtons(say[2].s, now) : ''}</div>` : ''}
-    ${say && !say[2] && say[1] && reports.length > 1 && !useBalloons ? `<div class="say sum ${say[0]}" data-group>${esc(say[1])} ▸</div>` : ''}
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon)}</div>` : ''}
-    ${say && !say[2] && !(reports.length > 1 && !useBalloons) && say[1] ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
-    ${groupOpen ? `<div class="card group">${[s, ...kidsOf(s).filter(k => visible(k)).sort(byUrgency)].map(m => { const ms = look(m);
-      return `<div class="gr ${ms}"><span class="mini">${petArt(m.parent ? s : m, ms, petColor(m, lastList || []))}</span><span class="nm">${esc(shortName(m))}</span><span class="stx">${esc(statusText(m, ms))}</span>${ms === 'waiting' ? answerButtons(m, now) : ''}<button class="open" type="button" data-open="${esc(m.id)}">${T('fam.open')}</button></div>`; }).join('')}</div>` : ''}
+    ${say && say[1] ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(parent || s, st, color)}</div>
-    ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}${extra ? `<span class="more${extraHot ? ' hot' : ''}" data-group title="${esc(T('fam.more', { n: extra }))}">+${extra}${extraHot && !p.hover ? `<span class="bb ${extraHot}">${balloonSVG(extraHot)}</span>` : ''}</span>` : ''}</div>`}`;
+    ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>`}`;
   if (p.fx) p.el.querySelector('.spr').append(p.sheetShown ? p.sheetEl : p.cv);
 }
 
 function sync(list) {
-  const seen = new Set(), shownParents = new Set(list.filter(s => visible(s)).map(s => s.id)), keep = new Set(), born = [];
-  for (const id of shownParents) list.filter(k => k.parent === id && visible(k)).sort(byUrgency).slice(0, KID_MAX).forEach(k => keep.add(k.id));
+  const seen = new Set();
   for (const s of list) {
-    const isNew = booted && !known.has(s.id);
-    known.add(s.id);
     if (!visible(s)) continue;
-    if (s.parent && shownParents.has(s.parent) && !keep.has(s.id)) continue; // counted in its parent's +N
     seen.add(s.id);
     let p = pets.get(s.id);
     if (!p) {
       const el = document.createElement('div');
       document.body.appendChild(el);
-      const { min, max } = zone(), near = s.parent && pets.get(s.parent); // a side session starts next to its parent
-      const x = near ? Math.min(max, Math.max(min, near.x - (near.face ?? near.dir) * sideFirst())) : min + (hashStr(s.id) % 1000) / 1000 * (max - min);
-      p = { el, x, dir: hashStr(s.id) & 1 ? 1 : -1, walking: true, next: 0, actAt: 0, edge: '' };
+      el.className = 'pet line-off';
+      p = { el, x: zone().min, actAt: 0, edge: '', edgeFade: 0 }; // out of sight until the line takes it in
       draggable(p, s.id);
       pets.set(s.id, p);
     }
     if (p.s && s.tool !== p.s.tool && s.hits !== p.s.hits) p.actAt = Date.now();
-    if (FX_ON) for (const [kind, o] of fxEvents(p.s || null, s, isNew)) kind === 'child' ? born.push(s) : (p.queue ||= []).push([kind, o]);
+    if (FX_ON) for (const [kind, o] of fxEvents(p.s || null, s)) p.queue = fxQueue(p.queue || [], p.fx?.kind, kind, o);
     p.s = s;
   }
-  for (const k of born) { const par = pets.get(k.parent); if (par) (par.queue ||= []).push(['child', { kidId: k.id }]); }
   const ended = new Set(pets.keys());
   for (const s of list) ended.delete(s.id);
   for (const [id, p] of pets) if (!seen.has(id)) {
     pets.delete(id);
     // A session that ended (gone from the list, not just off screen) waves goodbye before its pet goes.
-    if (FX_ON && ended.has(id) && fxStart(p, 'end')) { p.leaving = true; p.queue = []; p.el.style.pointerEvents = 'none'; p.el.classList.add('leaving'); leaving.add(p); }
-    else p.el.remove();
+    if (FX_ON && ended.has(id) && !p.el.classList.contains('line-off') && fxStart(p, 'end')) { p.leaving = true; p.queue = []; p.el.style.pointerEvents = 'none'; p.el.classList.add('leaving'); leaving.add(p); }
+    else { if (p.fx) p.fx.done = true; p.el.remove(); }
   }
-  booted = true;
 }
 
 // ---------- pixel effects (pet-fx.js) ----------
@@ -295,37 +242,94 @@ function sync(list) {
 // other; between them the state's loop plays (the aura while waiting, the tool's prop while working). Nothing runs or
 // draws while no effect plays.
 const FX_ON = !matchMedia('(prefers-reduced-motion: reduce)').matches;
-const known = new Set(), leaving = new Set(); // every session id seen; pets of ended sessions playing their goodbye
-let booted = false;
+const leaving = new Set(); // pets of ended sessions playing their goodbye
 const fxCell = () => cfg.size / 18; // CSS px per effect cell: half a pixel of the 9×9 creature (its box is the pet's)
 function fxStart(p, kind, o = {}) {
   const [art, color] = p.art || [p.s, undefined], pet = st => fxSprite(art, st, color, wake);
   if (!pet('done')) return false; // its picture is still loading
-  if (kind === 'child') {
-    const kp = pets.get(o.kidId);
-    if (!kp) return true; // gone already: nothing to play
-    const kid = st => fxSprite(art, st, petColor(kp.s, lastList || []), wake);
-    if (!kid('done')) return false;
-    const spot = sideSpot(kp, [...pets.values()]) ?? kp.x;
-    o = { ...o, kid, dir: spot >= p.x ? 1 : -1, dist: Math.abs(spot - p.x) / fxCell() };
-  }
   if (!p.cv) {
     p.cv = Object.assign(document.createElement('canvas'), { width: GW * 2, height: GH * 2, className: 'fxc' });
     p.cg = p.cv.getContext('2d'); p.img = p.cg.createImageData(GW * 2, GH * 2); p.buf = new Buf();
   }
   if (p.fx) { p.fx.done = true; sheetOff(p); }
-  const run = fxRun(kind, { pet, ...o }), c = fxCell(), size = cfg.size;
-  Object.assign(p.cv.style, { width: GW * c + 'px', height: GH * c + 'px', left: size / 2 - run.ox * c + 'px', top: size - FEET * c + 'px', translate: '' });
-  if (kind === 'child') pets.get(o.kidId).veil = run; // the side session's pet shows once it has landed
-  p.fx = run; p.fxSeg = o.seg; p.sheet = run.loop ? sheetFor(kind, o, art, color, pet) : null;
+  // On the top edge the effect is mirrored down (the screen's edge is its ground); a tool's prop is held in its hands.
+  p.lay = fxRoom(p, fxScene([...pets.values()])); // drawn for its room from the first frame
+  o = { ...o, flipX: false, mini: kind === 'tool', flipY: cfg.edge === 'top' && kind !== 'tool' };
+  const run = fxRun(kind, { pet, ...o }), at = fxPlace(cfg.size, run.ox, o.flipX, o.flipY);
+  Object.assign(p.cv.style, { width: at.width + 'px', height: at.height + 'px', left: at.left + 'px', top: at.top + 'px', translate: '', clipPath: '' }); p.clip = '';
+  p.fx = run; p.fxSeg = o.seg; p.fxO = o; p.fxArt = [art, color, pet]; p.sheet = null; p.sheetRoom = '';
   p.el.classList.add('fx'); p.el.classList.toggle('fx-over', kind === 'xp' || kind === 'ctx'); p.el.querySelector('.spr')?.append(p.cv);
   return true;
 }
-function fxStop(p) { sheetOff(p); p.fx = p.sheet = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
+// ---- each effect stays in its pet's own room ----
+// A pet's room: the screen around it up to halfway to the next pet's box on each side, and up to the nearest name
+// tag, balloon, bubble or card above or below its own box. The effect is drawn for that room (an aura hugs the pet
+// where it is tight, a bar or a badge only when it fits whole: pet-fx.js) and clipped to it, and to every such thing in
+// it. Pets standing closer than GAP (one walking past another) show without their effects until they are apart.
+const GAP = 2;
+const rectOf = n => { const b = n.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+const meets = (a, b) => a[2] > b[0] && a[0] < b[2] && a[3] > b[1] && a[1] < b[3];
+// Every pet's box and every thing an effect must keep off, as on screen now.
+function fxScene(all) {
+  const boxes = new Map(), own = new Map(), things = [], tags = new Map(); // own: every pet's box; boxes: the ones in the way of others
+  for (const q of [...all, ...leaving]) {
+    if (q.el.classList.contains('line-off')) continue; // out of sight round the line's far end
+    const spr = q.el.querySelector('.spr'); if (!spr) continue; // not drawn yet
+    own.set(q, rectOf(spr));
+    if (!q.leaving || (q.fx && q.fx.total < 1.4)) boxes.set(q, own.get(q)); // goodbye: melted by 1.4 s
+    if (q.leaving) continue;
+    for (const n of q.el.querySelectorAll('.tag:not(.ghost),.bb,.say,.card')) if (getComputedStyle(n).visibility !== 'hidden') {
+      const r = rectOf(n), t = [r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1]; // a pixel round it: edges fall between pixels
+      things.push(t); if (n.classList.contains('tag')) tags.set(q, t);
+    }
+  }
+  return { boxes, own, things, tags };
+}
+function fxRoom(p, sc) {
+  const b = sc.own.get(p); if (!b) return null;
+  const c = (b[0] + b[2]) / 2, mid = (b[1] + b[3]) / 2;
+  let L = -Infinity, R = Infinity, T = -Infinity, B = Infinity;
+  // Up to halfway to the next pet's box on each side, so two effects never meet in between.
+  for (const [q, o] of sc.boxes) if (q !== p) { if ((o[0] + o[2]) / 2 < c) L = Math.max(L, Math.max(o[2], (o[2] + b[0]) / 2) + GAP / 2); else R = Math.min(R, Math.min(o[0], (o[0] + b[2]) / 2) - GAP / 2); }
+  // Its own name tag (a side pet's: its family's) does not end the room: a bar drawn past it on the top edge shows, the
+  // tag itself is cut out of the effect like everything else.
+  const tag = sc.tags.get(attached(p.s) ? pets.get(p.s.parent) : p);
+  for (const t of sc.things) if (t !== tag && t[2] > b[0] && t[0] < b[2]) { if ((t[1] + t[3]) / 2 < mid) T = Math.max(T, t[3]); else B = Math.min(B, t[1]); }
+  return { L, R, T: Math.max(T, 0), B: Math.min(B, innerHeight), box: b, cell: (b[2] - b[0]) / 18, crowded: L > b[0] + .5 || R < b[2] - .5 };
+}
+// That room in the effect's own cells: [x0, y0, x1, y1] around its pet's column ox and feet (mirrored as it is).
+function fxRoomCells(lay, ox, flipX, flipY) {
+  const { L, R, T, B, box, cell } = lay, cx = (box[0] + box[2]) / 2, feet = flipY ? box[1] : box[3], cap = v => Math.min(GW, Math.max(0, Math.floor(v / cell)));
+  const left = cap(cx - L), right = cap(R - cx), above = cap(feet - T), below = cap(B - feet);
+  const [l, r] = flipX ? [right, left] : [left, right], [u, d] = flipY ? [below, above] : [above, below];
+  return [ox - l, FEET - u, ox + r, FEET + d];
+}
+// Every frame: each pet's room and the clip of each effect to it.
+function fxClip(all) {
+  const everyone = [...all, ...leaving];
+  if (!everyone.some(p => p.fx)) return;
+  const sc = fxScene(all);
+  for (const p of everyone) {
+    p.lay = fxRoom(p, sc);
+    if (!p.fx || !p.lay) continue;
+    if (p.el.classList.contains('fx-hide') !== p.lay.crowded) p.el.classList.toggle('fx-hide', p.lay.crowded);
+    const ring = p.lay.crowded && look(p.s) === 'waiting'; if (p.el.classList.contains('wait-ring') !== ring) p.el.classList.toggle('wait-ring', ring);
+    clipTo(p, sc);
+  }
+}
+// Cuts a pet's effect (its canvas, or the sheet shown instead) to its room and around every thing in it.
+function clipTo(p, sc) {
+  const node = p.sheetShown ? p.sheetEl : p.cv, box = rectOf(node), { L, R } = p.lay, avoid = [...sc.things];
+  if (L > box[0]) avoid.push([box[0], box[1], L, box[3]]);
+  if (R < box[2]) avoid.push([R, box[1], box[2], box[3]]);
+  const clip = fxClipPath(box, fxHoles(box, [0, 0, 0, 0], avoid), node.offsetWidth, node.offsetHeight);
+  if (clip !== (node === p.cv ? p.clip : p.sheetClip)) { node.style.clipPath = clip; if (node === p.cv) p.clip = clip; else p.sheetClip = clip; }
+}
+function fxStop(p) { if (p.fx) p.fx.done = true; sheetOff(p); p.fx = p.sheet = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
 // Loops play from a sheet of frames drawn once (fxSheet) as soon as it is ready: a CSS animation, nothing drawn per frame.
 const SHEETS = new Map(); // kind|prop|look -> fxSheet, the 6 latest
 function sheetFor(kind, o, art, color, pet) {
-  const key = [kind, o.seg, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
+  const key = [kind, o.seg, o.flipX, o.flipY, o.badge, o.plain, o.mini, o.room, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
   let sh = SHEETS.get(key);
   if (sh) SHEETS.delete(key); else sh = fxSheet(kind, { pet, ...o });
   SHEETS.set(key, sh);
@@ -340,20 +344,18 @@ function sheetOn(p) {
   Object.assign(wrap.style, { left: parseFloat(p.cv.style.left) + s.x * q + 'px', top: parseFloat(p.cv.style.top) + s.y * q + 'px', width: s.fw * q + 'px', height: s.fh * q + 'px' });
   Object.assign(im.style, { width: s.cols * s.fw * q + 'px', height: Math.ceil(s.n / s.cols) * s.fh * q + 'px' });
   const at = i => `translate(${(-(i % s.cols) * s.fw + s.shakes[i][0] * 2) * q}px, ${(-Math.floor(i / s.cols) * s.fh + s.shakes[i][1] * 2) * q}px)`;
-  p.sheetEl = wrap; // claimed now; shown once the picture is decoded (the live canvas plays until then)
+  p.sheetClip = ''; p.sheetEl = wrap; // claimed now; shown once the picture is decoded (the live canvas plays until then)
   im.src = s.url;
   im.decode().then(() => {
     if (p.sheetEl !== wrap || p.fx !== run) return;
     const t0 = performance.now() - ((run.total - s.lead) * 1000) % s.ms;
     p.sheetDraw = () => { const i = Math.floor(((performance.now() - t0) % s.ms) / s.ms * s.n); if (i !== p.sheetI) { p.sheetI = i; im.style.transform = at(i); } };
     p.sheetDraw(); wrap.append(im); p.cv.replaceWith(wrap); p.sheetShown = true;
+    if (p.lay) clipTo(p, fxScene([...pets.values()])); // cut before it is ever drawn, not a frame later
   }, () => { if (p.sheetEl === wrap) p.sheetEl = null; });
 }
 function sheetOff(p) { p.sheetDraw = null; p.sheetI = -1; if (p.sheetEl) { if (p.sheetShown) p.sheetEl.replaceWith(p.cv); p.sheetEl = null; p.sheetShown = false; } }
 function fxTick(p, dt) {
-  if (p.veil?.done) p.veil = null;
-  const hide = p.veil ? 'hidden' : '';
-  if (p.el.style.visibility !== hide) p.el.style.visibility = hide;
   if (p.fx?.done) fxStop(p);
   if (!p.fx || p.fx.loop) { // one-shots first; a loop gives way to them
     const next = p.queue?.[0];
@@ -364,50 +366,50 @@ function fxTick(p, dt) {
       else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1]) fxStart(p, want[0], { seg: want[1], first: true });
     }
   }
+  if (!p.fx) return;
+  // Its room in its cells; a loop plays from a sheet drawn for that room once the room has held for half a second.
+  const room = p.lay ? String(fxRoomCells(p.lay, p.fx.ox, p.fxO.flipX, p.fxO.flipY)) : '', now = performance.now();
+  if (room !== p.sheetRoom) { p.sheetRoom = room; p.roomAt = now; if (p.sheet) { sheetOff(p); p.sheet = null; } }
+  if (p.fx.loop && !p.sheet && room && now - p.roomAt > 500) p.sheet = sheetFor(p.fx.kind, { ...p.fxO, room: room.split(',').map(Number) }, ...p.fxArt);
   if (p.sheetShown && p.sheetDraw) p.sheetDraw();
-  if (!p.fx || p.sheetShown) return;
+  if (p.sheetShown) return;
   p.fx.step(dt);
   if (p.sheet && !p.sheetEl) { if (!p.sheet.ready) p.sheet.step(3); else if (p.fx.total >= p.sheet.ready.lead) sheetOn(p); }
-  p.fx.draw(p.buf); const [x, y, w, h] = p.buf.toImage(p.img);
+  p.fx.draw(p.buf, room ? room.split(',').map(Number) : null); const [x, y, w, h] = p.buf.toImage(p.img);
   if (w) p.cg.putImageData(p.img, 0, 0, x, y, w, h); // only the part that holds something now or did last frame
   const [sx, sy] = p.buf.shake, c = fxCell(), tr = sx || sy ? `${sx * c}px ${sy * c}px` : '';
   if (p.cv.style.translate !== tr) p.cv.style.translate = tr;
 }
 
-// Press and slide sideways to move a pet along the edge; a press that barely moves is a click.
-let drag = null; // { p, dx, x0, moved }
+// A click on a pet opens its session; on its card's Hide button, hides it; on Allow / Deny, answers its request; on its
+// balloon, shows its card (and its request) for a few seconds. Press and slide sideways to take a pet (with its family)
+// out of the line and move it; let go and it slides into the line at the nearest free place.
+let drag = null; // { p: the family's lead pet, id: the pet pressed, dx, x0, moved }
 function draggable(p, id) {
   const el = p.el;
   el.onpointerdown = e => {
     if (e.button !== 0) return;
-    if (e.target.closest('[data-hide]')) { drag = null; bridge.setPet(id, 'hidden'); return; }
+    if (e.target.closest('[data-hide]')) { bridge?.setPet(id, 'hidden'); return; }
     const a = e.target.closest('[data-answer]');
-    if (a) { drag = null; const t = a.dataset.sid ? byId(a.dataset.sid) : p.s; if (t?.answer) bridge.answer(t.answer.id, a.dataset.answer); return; }
-    if (e.target.closest('[data-bb]')) { drag = null; p.pinUntil = Date.now() + 8000; p.hoverUntil = p.pinUntil; p.key = null; wake(); return; }
-    if (e.target.closest('[data-group]')) { drag = null; p.groupOpen = !p.groupOpen; p.key = null; wake(); return; }
-    if (e.target.closest('.card.group')) { drag = null; return; } // scrolling or reading the family card is not a drag
-    const o = e.target.closest('[data-open]');
-    if (o) { drag = null; bridge ? bridge.petClick(o.dataset.open) : open('/?s=' + encodeURIComponent(o.dataset.open)); return; }
+    if (a) { if (p.s.answer) bridge?.answer(p.s.answer.id, a.dataset.answer); return; }
+    if (e.target.closest('[data-bb]')) { p.hoverUntil = Date.now() + 8000; p.key = null; wake(); return; }
     const lead = attached(p.s) ? pets.get(p.s.parent) : p; // a side session's family moves as one: drag its parent
-    drag = { p: lead, dx: e.clientX - lead.x, x0: e.clientX, moved: false };
+    drag = { p: lead, id, dx: e.clientX - lead.x, x0: e.clientX, moved: false };
     el.setPointerCapture(e.pointerId);
   };
   el.onpointermove = e => {
-    if (!drag || (drag.p !== p && drag.p !== pets.get(p.s.parent))) return;
-    const lead = drag.p; // this pet, or the parent of this side session
+    if (drag?.id !== id) return;
     if (!drag.moved && Math.abs(e.clientX - drag.x0) < 5) return;
-    if (!drag.moved) { drag.moved = true; lead.dragging = true; rectAt = 0; }
+    if (!drag.moved) { drag.moved = true; drag.p.dragging = true; lineHold(drag.p); rectAt = 0; }
     const { min, max } = zone();
-    lead.x = Math.min(max, Math.max(min, e.clientX - drag.dx));
-    lead.goal = null;
+    drag.p.x = Math.min(max, Math.max(min, e.clientX - drag.dx));
     wake();
   };
   el.onpointerup = el.onpointercancel = e => {
     const d = drag;
-    if (!d || (d.p !== p && d.p !== pets.get(p.s.parent))) return;
+    if (d?.id !== id) return;
     drag = null;
-    if (d.p !== p) { const lead = d.p; if (d.moved) { lead.dragging = false; lead.walking = false; lead.droppedAt = lead.next = Date.now(); lead.next += 4000; rectAt = 0; wake(); } else if (e.type === 'pointerup') bridge ? bridge.petClick(id) : open('/?s=' + encodeURIComponent(id)); return; }
-    if (d.moved) { p.dragging = false; p.walking = false; p.droppedAt = p.next = Date.now(); p.next += 4000; rectAt = 0; wake(); } // stand where dropped for a moment
+    if (d.moved) lineDrop(d.p);
     else if (e.type === 'pointerup') bridge ? bridge.petClick(id) : open('/?s=' + encodeURIComponent(id));
   };
 }
@@ -417,58 +419,109 @@ addEventListener('pointerup', endStaleDrag);
 addEventListener('pointercancel', endStaleDrag);
 function endStaleDrag() {
   if (!drag) return;
-  const lead = drag.p;
+  const d = drag;
   drag = null;
-  lead.dragging = false; lead.walking = false; lead.droppedAt = lead.next = Date.now(); lead.next += 4000;
-  rectAt = 0; wake();
+  if (d.moved) lineDrop(d.p);
 }
 const zone = () => ({ min: innerWidth * cfg.zoneStart / 100, max: Math.max(innerWidth * cfg.zoneStart / 100, innerWidth * cfg.zoneEnd / 100 - cfg.size) });
-const spacing = () => Math.max(88, cfg.size * 1.6);
-const rank = p => p.droppedAt ? -p.droppedAt : hashStr(p.s.id); // a pet just dropped keeps its spot; the others make room
-
-// Nearest spot at least `spacing` away from every other standing pet. Of two crowded pets only the later-ranked one moves.
-function freeSpot(p, all) {
-  const gap = spacing(), { min, max } = zone();
-  // Another family's side sessions count even while they work: they stand by their parent and never make room.
-  const still = all.filter(q => q !== p && q.s.parent !== p.s.id && (!walks(q) || attached(q.s)))
-    .map(q => ({ x: q.goal ?? q.x, r: attached(q.s) ? -Infinity : rank(q) }));
-  if (!still.some(q => Math.abs(q.x - p.x) < gap && q.r < rank(p))) return null;
-  for (let k = 1; k * gap <= innerWidth; k++) for (const x of [p.x + k * gap, p.x - k * gap]) {
-    if (x >= min && x <= max && still.every(q => Math.abs(q.x - x) >= gap)) return x;
-  }
-  return null;
+// A family in a row: measured on the pets (a side session is drawn at 80%), with room between them for their effects.
+const FX_GAP = () => Math.max(8, cfg.size * 0.3);
+const sideFirst = () => cfg.size * 0.9 + FX_GAP(), sideStep = () => cfg.size * 0.8 + FX_GAP();
+// ---- the line: every pet walks one way, round and round ----
+// Units (a pet on its own, or a parent leading its side pets) walk one way only (walkDir: left to right or right to
+// left) at one speed. A unit that has walked out at the far end (all of it) waits out of sight and comes in again at
+// the near end as soon as the unit before it is far enough in, so units come in evenly spaced (spread over the zone
+// when they fit in it, a gap apart when not: then they take turns). A family stays one block: its parent leads it out
+// and back in. Near the zone's ends a pet fades out (going) or in (coming): no part of a pet is ever cut at an end.
+// Hovering any pet stops the whole line. A new pet waits to come in at the near end.
+const LINEUP = { vis: [], wait: [], v: 0, moving: false, booted: false, held: null }; // held: the lead pet being dragged
+const SLIDE = 0.8; // seconds a dropped family and the line take to settle in their new places
+// The gap between units: spread over the zone when they all fit in it (Z wide), the least gap when not.
+const lineGap = (widths, Z) => { const sum = widths.reduce((a, w) => a + w, 0), G = unitGap(); return sum + widths.length * G <= Z ? (Z - sum) / widths.length : G; };
+const unitGap = () => Math.max(18, cfg.size * 0.45), FADE = () => cfg.size * 0.8, rtl = () => cfg.walkDir === 'rtl';
+function unitOf(p, all) { // [root, ...its side pets in arrival order]
+  const ids = (lastList || []).map(s => s.id), kids = all.filter(q => q.s.parent === p.s.id && attached(q.s)).sort((a, b) => ids.indexOf(a.s.id) - ids.indexOf(b.s.id));
+  return [p, ...kids];
 }
-
-// Measured on the pets (a side session is drawn at 80%), not on their labels: half the parent + half a kid + 4 px.
-const sideFirst = () => cfg.size * 0.9 + 4, sideStep = () => cfg.size * 0.8 + 4;
-// Where a side session stands: in a row right behind its parent.
-function sideSpot(p, all) {
-  const par = p.s.parent && pets.get(p.s.parent);
-  if (!par) return null;
-  const kids = all.filter(q => q.s.parent === p.s.parent).sort((a, b) => (a.s.id < b.s.id ? -1 : 1));
-  const { min, max } = zone(), i = kids.indexOf(p);
-  // Trails behind the parent: opposite to the way it last moved (kids are never ahead of it).
-  let side = -(par.face ?? par.dir);
-  const far = sideFirst() + (kids.length - 1) * sideStep();
-  if (par.x + side * far < min || par.x + side * far > max) side = -side; // no room behind it: the other side
-  return Math.min(max, Math.max(min, par.x + side * (sideFirst() + i * sideStep())));
+// A unit's width: its pets, and its name tag reaching TAG past them on each side (groundTags), so tags never touch.
+const TAG = 8;
+function unitWidth(u) {
+  const n = u.length - 1;
+  return (n ? sideFirst() + (n - 1) * sideStep() + cfg.size : cfg.size) + 2 * TAG;
+}
+// Moves the line on by dt and returns where each pet stands now (pets out of sight have none).
+function lineStep(all, dt) {
+  const { min, max } = zone(), Z = max + cfg.size - min, right = min + Z, roots = [...all, ...leaving].filter(p => !attached(p.s) && p !== LINEUP.held);
+  const units = new Map(roots.map(p => [p, unitOf(p, all)])), W = p => unitWidth(units.get(p));
+  LINEUP.vis = LINEUP.vis.filter(e => units.has(e.p)); LINEUP.wait = LINEUP.wait.filter(p => units.has(p));
+  const fresh = roots.filter(p => !LINEUP.vis.some(e => e.p === p) && !LINEUP.wait.includes(p));
+  const gapT = lineGap(roots.map(W), Z);
+  if (!LINEUP.booted && fresh.length) { // the overlay opening: everyone already spread over the zone, evenly
+    LINEUP.booted = true; let f = right - gapT / 2;
+    for (const p of fresh) { if (f - W(p) >= min) { LINEUP.vis.push({ p, f }); f -= W(p) + gapT; } else LINEUP.wait.push(p); }
+  } else LINEUP.wait.push(...fresh);
+  LINEUP.v = cfg.size * 0.4; LINEUP.moving = !all.some(p => p.hover || p.dragging);
+  if (LINEUP.moving) for (const e of LINEUP.vis) e.f += LINEUP.v * dt; // f: the unit's front (its right end, left to right)
+  for (const e of LINEUP.vis) if (e.slide) { const d = Math.sign(e.slide) * Math.min(Math.abs(e.slide), e.slideV * dt); e.f += d; e.slide -= d; } // after a drop: there in SLIDE s
+  for (const e of [...LINEUP.vis]) if (e.f - W(e.p) + TAG >= right - cfg.size) { LINEUP.vis.splice(LINEUP.vis.indexOf(e), 1); LINEUP.wait.push(e.p); } // its last pet has faded out
+  if (LINEUP.wait.length && LINEUP.moving) { // the next one comes in once the last one in is gapT in
+    const rear = LINEUP.vis.reduce((r, e) => (!r || e.f - W(e.p) < r.f - W(r.p) ? e : r), null);
+    if (!rear || rear.f - W(rear.p) - (min + cfg.size) >= gapT) LINEUP.vis.push({ p: LINEUP.wait.shift(), f: min + cfg.size }); // its leader starts fading in at the zone's start
+  }
+  const at = new Map(), fade = FADE();
+  for (const e of LINEUP.vis) {
+    const u = units.get(e.p), lead = e.f - TAG - cfg.size;
+    [[u[0], lead], ...u.slice(1).map((k, j) => [k, lead - (sideFirst() + j * sideStep())])].forEach(([q, x]) => at.set(q, x));
+  }
+  for (const p of LINEUP.wait) for (const q of units.get(p)) at.set(q, null);
+  const out = new Map();
+  for (const [q, x] of at) {
+    const k = x == null ? 0 : Math.max(0, Math.min(1, (x - min) / fade, (right - x - cfg.size) / fade)); // fading at the ends
+    q.edgeFade = k; q.el.classList.toggle('line-off', k <= 0);
+    if (x != null) out.set(q, rtl() ? min + right - x - cfg.size : x);
+  }
+  const h = LINEUP.held; // the family being dragged: where the pointer has it, side pets behind it
+  if (h) unitOf(h, all).forEach((q, j) => { q.edgeFade = 1; q.el.classList.remove('line-off'); out.set(q, j ? h.x + (rtl() ? 1 : -1) * (sideFirst() + (j - 1) * sideStep()) : h.x); });
+  return out;
+}
+function lineHold(p) { LINEUP.held = p; LINEUP.vis = LINEUP.vis.filter(e => e.p !== p); LINEUP.wait = LINEUP.wait.filter(q => q !== p); }
+// Let go: the family goes back into the line where it was dropped. While every unit fits in the zone, the line spreads
+// out evenly again at once, the dropped one in its new place (all sliding there); when not, it takes the free place
+// nearest to where it was dropped (the least gap on both sides), and with no free place it comes in next.
+function lineDrop(p) {
+  p.dragging = false; LINEUP.held = null; rectAt = 0; wake();
+  if (!pets.has(p.s.id)) return;
+  const { min, max } = zone(), right = max + cfg.size, all = [...pets.values()], W = q => unitWidth(unitOf(q, all)), G = unitGap(), w = W(p);
+  const f0 = (rtl() ? min + right - p.x - cfg.size : p.x) + cfg.size + TAG; // its front, left to right
+  const roots = [...all, ...leaving].filter(q => !attached(q.s)), gap = lineGap(roots.map(W), right - min);
+  if (gap > G) {
+    const line = [...LINEUP.vis, { p, f: f0 }].sort((a, b) => b.f - a.f); // front first
+    let off = 0; const offs = line.map(e => { const o = off; off += W(e.p) + gap; return o; });
+    const F = line.reduce((a, e, i) => a + e.f + offs[i], 0) / line.length; // the even spacing nearest to where they are
+    line.forEach((e, i) => { e.slide = F - offs[i] - e.f; e.slideV = Math.abs(e.slide) / SLIDE; });
+    LINEUP.vis = line; return;
+  }
+  const spans = []; let hi = right;
+  for (const e of [...LINEUP.vis].sort((a, b) => b.f - a.f)) { spans.push([e.f + G + w, hi]); hi = e.f - W(e.p) - G; }
+  spans.push([min + cfg.size, hi]);
+  let best = null;
+  for (const [lo, up] of spans) if (lo <= up) { const t = Math.min(up, Math.max(lo, f0)); if (!best || Math.abs(t - f0) < Math.abs(best - f0)) best = t; }
+  if (best == null) LINEUP.wait.unshift(p); else LINEUP.vis.push({ p, f: f0, slide: best - f0, slideV: Math.abs(best - f0) / SLIDE });
 }
 // A pet's name tag is the ground it stands on: as wide as the pet, or as the whole family (a parent and the side
-// sessions beside it), and the "+N" of the side sessions not shown sits at the end where they stand.
+// sessions walking right behind it; not one that has already come round again).
 function groundTags(all) {
   for (const p of all) {
     const tg = p.el.querySelector('.tag:not(.ghost)');
     if (!tg) continue;
-    const reach = sideFirst() + KID_MAX * sideStep() + 8;
-    const kids = all.filter(q => q.s.parent === p.s.id && Math.abs(q.x - p.x) <= reach), xs = [p.x, ...kids.map(q => q.x)];
-    const kl = kids.some(q => q.x < p.x);
-    const l = Math.max(0, Math.min(...xs) - 8), r = Math.min(innerWidth, Math.max(...xs) + cfg.size + 8); // never past the screen's ends
-    const g = `${Math.round(l - p.x)}|${Math.round(r - l)}|${kl}`;
+    const fam = all.filter(q => q.s.parent === p.s.id), reach = sideFirst() + fam.length * sideStep() + 8, back = rtl() ? 1 : -1;
+    const kids = fam.filter(q => (q.x - p.x) * back > 0 && Math.abs(q.x - p.x) <= reach), xs = [p.x, ...kids.map(q => q.x)];
+    const l = Math.max(0, Math.min(...xs) - TAG), r = Math.min(innerWidth, Math.max(...xs) + cfg.size + TAG); // never past the screen's ends
+    const g = `${Math.round(l - p.x)}|${Math.round(r - l)}`;
     if (tg.dataset.g === g) continue;
     tg.dataset.g = g;
     const [left, width] = g.split('|');
     Object.assign(tg.style, { left: left + 'px', width: width + 'px' });
-    tg.classList.toggle('kl', kl);
   }
 }
 // Bubbles that touch are lifted one lane: they never overlap, even when pets cross.
@@ -495,77 +548,42 @@ function wake() {
 function frame(t) {
   raf = 0; timer = 0;
   if (t - last < 32) { raf = requestAnimationFrame(frame); return; } // ~30 fps is smooth enough for a pixel pet
-  const dt = Math.min(0.05, (t - last) / 1000), now = Date.now(), speed = cfg.size * 0.75;
+  const dt = Math.min(0.05, (t - last) / 1000), now = Date.now();
   last = t;
-  const all = [...pets.values()], { min, max } = zone();
+  const all = [...pets.values()], lineAt = lineStep(all, dt);
   for (const p of all) {
-    const x0 = p.x, st = look(p.s), r = p.el.getBoundingClientRect(), card = p.el.querySelector('.card, .say.waiting'), home = sideSpot(p, all);
+    const off = p.el.classList.contains('line-off'), r = p.el.getBoundingClientRect(), card = p.el.querySelector('.card, .say.waiting');
     // A short grace period lets the cursor cross the gap between the pet and its card (or the request it shows instead).
-    if (inRect(r, mouse.x, mouse.y) || (card && inRect(card.getBoundingClientRect(), mouse.x, mouse.y))) p.hoverUntil = now + 250;
-    p.hover = now < (p.hoverUntil || 0);
-    p.stepping = false;
-    if (p.dragging) { p.hover = false; p.stepping = true; } // follows the cursor (pointermove)
-    else if (p.x < min || p.x > max) { p.goal = Math.min(max, Math.max(min, p.x)); }
-    if (p.dragging) {
-      // moved by the pointer
-    } else if (p.hover) {
-      // stand still while being read
-    } else if (home != null) {
-      p.goal = null;
-      const d = home - p.x, step = Math.max(speed * 4, Math.abs(d) * 1.5) * dt; // far away it sprints: there in a few seconds on any screen
-      // Keeping up with a walking parent moves it a little every frame: that is walking too, not gliding.
-      if (Math.abs(d) <= step) { p.stepping = Math.abs(d) > 0.2; p.x = home; } else { p.x += Math.sign(d) * step; p.stepping = true; }
-    } else if (walks(p) && p.goal == null) {
-      // A parent keeps room on both sides for its side sessions and turns round only at the ends of that range
-      // (never at random): they trail behind it and cross over to the other side just once per turn.
-      const n = kidsOf(p.s).filter(k => pets.has(k.id)).length, room = n ? sideFirst() + (n - 1) * sideStep() : 0;
-      const lo = Math.min(min + room, (min + max) / 2), hi = Math.max(max - room, (min + max) / 2);
-      if (now > p.next) { p.walking = Math.random() < 0.7; if (!n && Math.random() < 0.3) p.dir *= -1; p.next = now + 1500 + Math.random() * 3500; }
-      if (p.walking) {
-        p.x += p.dir * speed * dt;
-        if (p.x < min) p.x = min;
-        if (p.x > max) p.x = max;
-        if (p.x <= (n ? lo : min)) p.dir = 1;
-        if (p.x >= (n ? hi : max)) p.dir = -1;
-        p.stepping = true;
-      }
-    } else {
-      if (!walks(p)) p.goal ??= freeSpot(p, all);
-      if (p.goal != null) {
-        const d = p.goal - p.x, step = speed * 1.5 * dt;
-        if (Math.abs(d) <= step) { p.x = p.goal; p.goal = null; } else { p.x += Math.sign(d) * step; p.stepping = true; }
-      }
-    }
-    if (Math.abs(p.x - x0) > 0.2) p.face = Math.sign(p.x - x0); // the way it last moved
+    if (!off && (inRect(r, mouse.x, mouse.y) || (card && inRect(card.getBoundingClientRect(), mouse.x, mouse.y)))) p.hoverUntil = now + 250;
+    p.hover = !p.dragging && now < (p.hoverUntil || 0);
+    const x = lineAt.get(p); if (x != null) p.x = x;
+    p.stepping = (LINEUP.moving || !!p.dragging) && !off;
     p.edge = p.x < 140 ? 'edge-l' : p.x > innerWidth - 200 ? 'edge-r' : '';
     p.el.style.transform = `translateX(${p.x}px)`;
-    // A side session crossing over to its parent's other side walks behind it: further back (smaller, higher, darker).
-    const pp = p.s.parent && pets.get(p.s.parent);
-    const behind = !!pp && !p.dragging && home != null && (Math.sign(p.x - pp.x) !== Math.sign(home - pp.x) || Math.abs(p.x - pp.x) < sideFirst() * 0.6);
-    if (behind !== !!p.behind) {
-      p.behind = behind;
-      Object.assign(p.el.style, { zIndex: behind ? -1 : '', scale: behind ? '.82' : '', translate: behind ? '0 -10px' : '', filter: behind ? 'brightness(.88)' : '' });
-    }
-    // Fade when the cursor is near (but not on) the pet, so it never hides what you are pointing at.
+    // Fade when the cursor is near (but not on) the pet, so it never hides what you are pointing at; and at the line's ends.
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2, near = Math.hypot(mouse.x - cx, mouse.y - cy) < cfg.size * 2.2;
-    p.el.style.opacity = cfg.fadeNearCursor && near && !p.hover ? cfg.opacity * 0.25 : cfg.opacity;
+    p.el.style.opacity = (p.edgeFade ?? 1) * (cfg.fadeNearCursor && near && !p.hover ? cfg.opacity * 0.25 : cfg.opacity);
     paint(p, now);
     if (FX_ON) fxTick(p, dt);
   }
-  for (const p of leaving) { fxTick(p, dt); if (!p.fx) { p.el.remove(); leaving.delete(p); } }
+  for (const p of leaving) { // a pet saying goodbye keeps its place in the line until it is gone
+    const x = lineAt.get(p); if (x != null && x !== p.x) { p.x = x; p.el.style.transform = `translateX(${x}px)`; }
+    fxTick(p, dt); if (!p.fx) { p.el.remove(); leaving.delete(p); }
+  }
   stackBubbles(all);
   for (const el of document.querySelectorAll('.answer .left[data-sid]')) { // seconds left, without redrawing the card
     const t = byId(el.dataset.sid), txt = T('ask.left', { n: t ? left(t, now) : 0 });
     if (el.textContent !== txt) el.textContent = txt;
   }
   groundTags(all);
+  if (FX_ON) fxClip(all);
   if (bridge && t - rectAt > 100) {
     rectAt = t;
     const rects = [];
     // While dragging, the whole window takes the mouse, or the drag would end as soon as the cursor leaves the pet.
     if (drag?.moved) rects.push([0, 0, innerWidth, innerHeight]);
-    // Every card, bubble and balloon a pet shows (its family card, the "+N" balloon), not just the first of each.
-    else for (const { el } of [...pets.values(), ...leaving]) for (const n of [el, el.querySelector('.tag'), ...el.querySelectorAll('.card,.say,.bb')]) {
+    // Every card, bubble and balloon a pet in sight shows, not just the first of each.
+    else for (const { el } of [...pets.values(), ...leaving]) if (!el.classList.contains('line-off')) for (const n of [el, el.querySelector('.tag'), ...el.querySelectorAll('.card,.say,.bb')]) {
       if (!n) continue;
       const b = n.getBoundingClientRect();
       rects.push([b.left, b.top, b.width, b.height].map(Math.round));
@@ -573,7 +591,7 @@ function frame(t) {
     const j = JSON.stringify(rects);
     if (j !== lastRects) { lastRects = j; bridge.setRects(rects); }
   }
-  const busy = mouseMoved || !!drag || leaving.size > 0 || all.some(p => p.stepping || p.goal != null || p.hover || p.fx);
+  const busy = mouseMoved || !!drag || leaving.size > 0 || all.some(p => p.stepping || p.hover || p.fx);
   mouseMoved = false;
   if (busy && !document.hidden) raf = requestAnimationFrame(frame);
   else timer = setTimeout(() => frame(performance.now()), all.length ? 400 : 1000);
@@ -584,7 +602,7 @@ function applySettings(s) {
   lang = cfg.language === 'auto' ? navigator.language : cfg.language;
   document.body.classList.toggle('edge-top', cfg.edge === 'top');
   document.documentElement.style.setProperty('--size', cfg.size + 'px');
-  for (const p of pets.values()) p.key = null;
+  for (const p of pets.values()) { p.key = null; if (p.fx) fxStop(p); } // effects start again for the new edge and size
   if (lastList) sync(lastList);
   wake();
 }
@@ -599,7 +617,7 @@ if (bridge) {
   bridge.onSettings(applySettings);
   bridge.getState().then(st => applySettings(st.settings));
 }
-new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || '')).onmessage = m => { lastList = JSON.parse(m.data).sessions || []; sync(lastList); wake(); };
+new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || '')).onmessage = m => { lastList = forShow(JSON.parse(m.data).sessions); sync(lastList); wake(); };
 setInterval(() => lastList && sync(lastList), 15e3); // "done" turns into "resting" by time alone
 frame(performance.now());
 </script>

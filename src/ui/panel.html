@@ -1336,7 +1336,7 @@ es.onerror = () => { $('#conn').textContent = T('conn.lost'); $('#conn').classNa
 es.onmessage = m => {
   const d = JSON.parse(m.data);
   const firstIds = list.slice(0, 4).map(x => x.id).join();
-  list = d.sessions || [];
+  list = (d.sessions || []).filter(s => !s.linking); // a new side session waits for its parent link (state.rs), as on the pets
   work = d.work || { status: 'off' };
   waiting = d.waiting || [];
   const projects = [...(work.local || []), ...(work.away || [])].map(g => g.path + ':' + g.autoKey).join();

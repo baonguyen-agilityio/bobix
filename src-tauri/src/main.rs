@@ -69,6 +69,7 @@ fn snapshot_of(c: &Core) -> Value {
         let project = s.project.clone().unwrap_or_default();
         let pic = &pics[&project];
         v["parent"] = x.parent.as_ref().map(|p| json!(p.to.id)).unwrap_or(Value::Null);
+        v["linking"] = json!(state::linking(s, state::now())); // held back until its parent link is known
         v["project"] = json!(project);
         v["image"] = json!(petstore::served(pic));
         v["pixel"] = json!(pic.is_object());
@@ -271,15 +272,29 @@ fn sys_locale() -> Option<String> {
         .or_else(|| if cfg!(target_os = "macos") { std::process::Command::new("defaults").args(["read", "-g", "AppleLocale"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()) } else { None })
 }
 
-// Side session of another Claude desktop session? That app writes the link into its session file some time after the
-// session starts, so look again every 5 s, for up to 10 minutes.
+// Side session of another Claude desktop session? See state::find_parent for when it looks.
 fn find_parent(s: &mut state::Session, now: u64) -> bool {
-    let Some(host) = s.host_session.clone() else { return false };
-    if s.parent_host.is_some() || s.link_tries >= 120 || now.saturating_sub(s.link_at) < 5000 { return false; }
-    s.link_at = now;
-    s.link_tries += 1;
-    s.parent_host = links::parent_of(&host, &links::sessions_dir());
-    s.parent_host.is_some()
+    let found = state::find_parent(s, now, |h| links::parent_of(h, &links::sessions_dir()));
+    // The real gap between a side session's first event and its parent link (no ids: the timing is what matters).
+    if found && s.parent_host.is_some() { eprintln!("[bobix] side session linked {} ms after its first event ({} tries)", now.saturating_sub(s.seen_at), s.link_tries); }
+    found
+}
+
+// Every 400 ms while a new Claude desktop session is held back (state::linking): look for its parent, and broadcast as
+// soon as it is found or the hold ends, so its pet shows once, in the right place.
+fn link_tick(b: &Arc<Bobix>) {
+    let now = state::now();
+    let mut changed = false;
+    {
+        let mut c = b.core.lock().unwrap();
+        for s in c.sessions.values_mut() {
+            if !s.held && !state::linking(s, now) { continue; }
+            if state::linking(s, now) && find_parent(s, now) { changed = true; }
+            let held = state::linking(s, now);
+            if held != s.held { s.held = held; changed = true; }
+        }
+    }
+    if changed { b.broadcast(); }
 }
 
 // Look once at what each new claudePid is (see state::gone).
@@ -541,7 +556,7 @@ fn diagnostics(b: &Arc<Bobix>) -> Value {
             .map(|s| (s.state.clone(), s.since, s.log.len(), !s.title.is_empty(), s.claude_pid, s.host_session.is_some(), s.diag.clone())).collect();
         (c.settings.clone(), c.rects.len(), c.page_errors.clone(), s, c.node_path.is_some())
     };
-    let pick: serde_json::Map<String, Value> = ["language", "edge", "size", "opacity", "showIdle", "sleepHide", "onlyAttention", "petsVisible", "zoneStart", "zoneEnd", "display", "clickAction"]
+    let pick: serde_json::Map<String, Value> = ["language", "edge", "walkDir", "size", "opacity", "showIdle", "sleepHide", "onlyAttention", "petsVisible", "zoneStart", "zoneEnd", "display", "clickAction"]
         .iter().map(|k| (k.to_string(), st[*k].clone())).collect();
     let h = hooks::status(&paths::home());
     let rect = |p: tauri::PhysicalPosition<i32>, z: tauri::PhysicalSize<u32>, f: f64| json!({ "x": (p.x as f64 / f).round(), "y": (p.y as f64 / f).round(), "width": (z.width as f64 / f).round(), "height": (z.height as f64 / f).round() });
@@ -982,6 +997,8 @@ fn main() {
             overlay::track_mouse(handle.clone(), b.clone());
             let tb = b.clone();
             thread::spawn(move || loop { thread::sleep(Duration::from_secs(5)); tick(&tb); });
+            let lb = b.clone();
+            thread::spawn(move || loop { thread::sleep(Duration::from_millis(400)); link_tick(&lb); });
             // Screens change (plugged, resolution): no event for it, so look every 5 s.
             let (pb, ph) = (b.clone(), handle.clone());
             thread::spawn(move || {

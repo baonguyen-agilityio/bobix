@@ -166,7 +166,8 @@ function petArt(s, st, color) {
 // A session's colour. Its project gives the shape; the colour tells sessions apart: sessions of one project take the
 // project's colour and the next ones in turn, and a side session never has its parent's colour or its neighbour's.
 function petColor(s, list) {
-  const n = BODY.length, proj = x => x.project || x.id, ids = xs => xs.map(x => x.id).sort();
+  // In the order sessions came (the list keeps it), so one that arrives later never shifts the colour of one already out.
+  const n = BODY.length, proj = x => x.project || x.id, ids = xs => xs.map(x => x.id);
   const top = x => !(x.parent && list.some(y => y.id === x.parent)); // stands on its own (no parent on screen)
   const par = s.parent && list.find(x => x.id === s.parent);
   if (par) { // side sessions avoid the colours of their project's own sessions, so a kid never looks like one of them

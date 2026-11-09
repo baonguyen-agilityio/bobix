@@ -28,6 +28,9 @@ pub struct Session {
     #[serde(skip)] pub parent_host: Option<String>,
     #[serde(skip)] pub link_tries: u32,
     #[serde(skip)] pub link_at: u64,
+    #[serde(skip)] pub seen_at: u64, // when Bobix first heard of it
+    #[serde(skip)] pub held: bool,   // linking() as last broadcast
+    #[serde(skip)] pub link_known: bool, // its Claude app session file was read: the parent link, if any, is known
     #[serde(skip)] pub pid_checked: Option<u32>,
     #[serde(skip)] pub pid_is_claude: Option<u32>,
     #[serde(skip)] pub branches: Vec<String>,
@@ -39,7 +42,30 @@ pub type Sessions = indexmap::IndexMap<String, Session>;
 pub const XP_PER_LV: u64 = 3;
 
 fn new_session(id: &str, now: u64) -> Session {
-    Session { id: id.into(), name: "?".into(), state: "idle".into(), since: now, updated: now, lv: 1, pet: "auto".into(), ..Default::default() }
+    Session { id: id.into(), name: "?".into(), state: "idle".into(), since: now, updated: now, seen_at: now, lv: 1, pet: "auto".into(), ..Default::default() }
+}
+
+// A side session (started from another Claude desktop session) learns its parent from that app's session file, which
+// shows up a moment after the session's first hook events (measured on 9 real side sessions: up to 4.6 s), with the
+// link already in it. Until the file is there it is held back, for up to LINK_HOLD_MS, and looked up every
+// LINK_FAST_MS, so its pet shows once, already by its parent, instead of on its own first and then jumping over
+// (another colour and size). A file with no link ends the hold at once. No file after the hold: looked up every 5 s,
+// for about 12 minutes.
+pub const LINK_HOLD_MS: u64 = 8000;
+const LINK_FAST_MS: u64 = 400;
+pub fn linking(s: &Session, now: u64) -> bool {
+    s.host_session.is_some() && s.parent_host.is_none() && !s.link_known && now.saturating_sub(s.seen_at) < LINK_HOLD_MS
+}
+pub fn find_parent(s: &mut Session, now: u64, lookup: impl Fn(&str) -> Option<Option<String>>) -> bool {
+    let Some(host) = s.host_session.clone() else { return false };
+    let every = if linking(s, now) { LINK_FAST_MS } else { 5000 };
+    if s.link_known || s.link_tries >= 150 || (s.link_tries > 0 && now.saturating_sub(s.link_at) < every) { return false; }
+    s.link_at = now;
+    s.link_tries += 1;
+    let Some(parent) = lookup(&host) else { return false };
+    s.link_known = true;
+    s.parent_host = parent;
+    true
 }
 
 pub fn valid_id(id: &str) -> bool {
@@ -369,6 +395,44 @@ mod tests {
     fn tmp(name: &str) -> String { std::env::temp_dir().join(format!("bobix-{name}-{}.jsonl", std::process::id())).to_string_lossy().into_owned() }
     fn ap(m: &mut Sessions, e: Value) -> Option<Applied> { apply(m, &e, now()) }
     fn notice(r: Option<Applied>) -> Option<&'static str> { match r { Some(Applied::Updated { notice, .. }) => notice.map(|n| n.kind), _ => None } }
+
+    // The timing side sessions really have (9 measured): the first hook events come up to 4.6 s before the Claude
+    // app writes the session file, and the file carries the link from the start.
+    #[test]
+    fn side_session_held_until_linked_then_shown_once() {
+        let t0 = 1_000_000;
+        let ev = |name: &str| json!({ "session_id": "kid", "cwd": "/x/app", "hook_event_name": name, "bobix_host_session": "local_kid" });
+        for file_at in [0, 900, 4600, 7000] {
+            let mut m = Sessions::new();
+            let lookup = |now: u64| move |_: &str| (now >= t0 + file_at).then(|| Some("local_par".to_string()));
+            let mut seen = vec![];
+            for (dt, name) in [(0, "SessionStart"), (150, "UserPromptSubmit"), (300, "PreToolUse")] {
+                apply(&mut m, &ev(name), t0 + dt);
+                let s = m.get_mut("kid").unwrap();
+                find_parent(s, t0 + dt, lookup(t0 + dt));
+                seen.push((linking(s, t0 + dt), s.parent_host.is_some()));
+            }
+            for t in (t0 + 400..t0 + 10_000).step_by(400) { let s = m.get_mut("kid").unwrap(); find_parent(s, t, lookup(t)); seen.push((linking(s, t), s.parent_host.is_some())); }
+            // Shown standalone (not held, no parent) never; held until linked; linked once and for good.
+            assert!(seen.iter().all(|&(held, linked)| held || linked), "file at {file_at}: {seen:?}");
+            let first = seen.iter().position(|x| x.1).unwrap();
+            assert!(seen[first..].iter().all(|x| x.1 && !x.0) && seen[..first].iter().all(|x| x.0 && !x.1));
+        }
+        // A session of the app with no parent: shown as soon as its file is read, once.
+        let shown = |file_at: u64| -> Vec<bool> {
+            let mut top = new_session("top", t0);
+            top.host_session = Some("local_top".into());
+            (0..30).map(|i| { let t = t0 + i * 400; find_parent(&mut top, t, |_| (t >= t0 + file_at).then_some(None)); !linking(&top, t) }).collect()
+        };
+        let s = shown(1200);
+        assert_eq!(s.iter().position(|x| *x), Some(3), "shown the tick its file is read");
+        assert!(s[3..].iter().all(|x| *x), "and for good");
+        // No file at all: shown after the hold, for good.
+        let s = shown(u64::MAX / 2);
+        assert_eq!(s.iter().position(|x| *x), Some((LINK_HOLD_MS / 400) as usize));
+        assert!(s[(LINK_HOLD_MS / 400) as usize..].iter().all(|x| *x));
+        assert!(!linking(&new_session("cli", t0), t0), "a terminal session is never held");
+    }
 
     #[test]
     fn session_lifecycle() {

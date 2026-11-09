@@ -130,9 +130,9 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   const ctx = {};
   require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
   const run = (code) => require('vm').runInContext(code, ctx);
-  ctx.EV = (prev, s, born) => JSON.parse(JSON.stringify(ctx.fxEvents(prev, s, born)));
+  ctx.EV = (prev, s) => JSON.parse(JSON.stringify(ctx.fxEvents(prev, s)));
   const s = (o) => ({ id: 'a', state: 'working', lv: 1, xp: 0, ctx: 80, parent: null, tool: '', ...o });
-  const kinds = (prev, now, born = false) => ctx.EV(prev, now, born).map(e => e[0]);
+  const kinds = (prev, now) => ctx.EV(prev, now).map(e => e[0]);
   strict.deepEqual(kinds(s(), s()), [], 'no change, no effect');
   strict.deepEqual(kinds(s(), s({ state: 'waiting' })), [], 'waiting is a loop, not a one-shot');
   strict.deepEqual(ctx.EV(s({ xp: 1 }), s({ state: 'done', xp: 2 })), [['xp', { f0: 1 / 3, f1: 2 / 3, lv: 1 }]], 'a finished task: +1 XP');
@@ -142,9 +142,7 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   strict.deepEqual(kinds(s({ ctx: 20 }), s({ ctx: 10 })), [], 'already low: once');
   strict.deepEqual(kinds(s({ ctx: null }), s({ ctx: null })), [], 'unknown context is not low');
   strict.deepEqual(kinds(null, s({ ctx: 12 })), ['ctx'], 'a pet that shows up low');
-  strict.deepEqual(kinds(s(), s({ parent: 'p' })), ['child'], 'linked to its parent: the parent plays it');
-  strict.deepEqual(kinds(null, s({ parent: 'p' }), true), ['child'], 'a new side session');
-  strict.deepEqual(kinds(null, s({ parent: 'p' }), false), [], 'already there when the overlay started');
+  strict.deepEqual(kinds(null, s({ parent: 'p' })), [], 'a new side session just walks in behind its parent');
   const loop = (st, tool) => JSON.parse(JSON.stringify(ctx.fxLoop(s({ tool }), st)));
   strict.deepEqual(loop('waiting'), ['aura']);
   strict.deepEqual([loop('working', 'Edit'), loop('working', 'Bash'), loop('working', 'Read'), loop('working', 'Grep')], [['tool', 0], ['tool', 1], ['tool', 2], ['tool', 3]]);
@@ -152,12 +150,13 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   strict.equal(loop('done'), null); strict.equal(loop('idle'), null);
   // Every effect runs and draws: one-shots end on time, loops keep going; the pet is drawn from its fine pixels.
   run(`globalThis.out = Object.keys(FX).map(kind => {
-    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, kid: pet, f0: 2 / 3, f1: 1, lv: 7, seg: 2, dir: 1, dist: 20 }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
+    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, f0: 2 / 3, f1: 1, lv: 7, seg: 2 }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
     let painted = 0;
     for (let i = 0; i < 400 && !r.done; i++) { r.step(1 / 60); r.draw(b); b.toImage(img); painted = Math.max(painted, new Uint32Array(img.data.buffer).filter(Boolean).length); }
     return [kind, r.done, painted > 0];
   })`);
-  strict.deepEqual(JSON.parse(JSON.stringify(ctx.out)), [['aura', false, true], ['xp', true, true], ['tool', false, true], ['ctx', true, true], ['child', true, true], ['end', true, true]]);  // From its second loop on, a loop repeats exactly every cycle, so the overlay draws one cycle once and replays it.
+  strict.deepEqual(JSON.parse(JSON.stringify(ctx.out)), [['aura', false, true], ['xp', true, true], ['tool', false, true], ['ctx', true, true], ['end', true, true]]);
+  // From its second loop on, a loop repeats exactly every cycle, so the overlay draws one cycle once and replays it.
   run(`globalThis.rep = [['aura', {}], ...[0, 1, 2, 3].map(seg => ['tool', { seg, first: true }])].map(([kind, o]) => {
     const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, ...o }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
     const lead = FX[kind].D, n = Math.round(FX[kind].cycle * 30), shots = [];
@@ -165,6 +164,55 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
     return shots.slice(0, n).every((x, i) => x === shots[i + n]);
   })`);
   strict.deepEqual([...ctx.rep], [true, true, true, true, true]);
+  // One of each kind waits: a second XP keeps the first one's starting bar.
+  const Q = (q, playing, kind, o) => JSON.parse(JSON.stringify(ctx.fxQueue(q, playing, kind, o)));
+  strict.deepEqual(Q([['xp', { f0: 0, f1: 1 / 3, lv: 1 }]], null, 'xp', { f0: 1 / 3, f1: 2 / 3, lv: 1 }), [['xp', { f0: 0, f1: 2 / 3, lv: 1 }]]);
+  strict.deepEqual(Q([['ctx']], null, 'xp', { f0: 0, f1: 1 / 3, lv: 1 }).map(e => e[0]), ['ctx', 'xp']);
+  // Mirrored for the top edge (or a prop on the other side): the pet and the text come out upright, not upside down.
+  run(`globalThis.flip = (() => {
+    const spr = { ...fineSprite('/p', 'working', 0), k: 1 }, W2 = GW * 2, H2 = GH * 2;
+    const draw = (fx, fy) => { const b = new Buf(); b.fx = fx; b.fy = fy; b.clear(); blit(b, spr, CX, FEET); text(b, 'LV 2', CX, 10, WARM[3]); const im = { data: new Uint8ClampedArray(W2 * H2 * 4) }; b.toImage(im); return new Uint32Array(im.data.buffer); };
+    const a = draw(false, false), m = draw(false, true), h = draw(true, false);
+    const rows = (img, r0, n, x0 = 0, x1 = W2) => { const o = []; for (let j = 0; j < n; j++) o.push(img.slice((r0 + j) * W2 + x0, (r0 + j) * W2 + x1).join()); return o.join('|'); };
+    return [rows(a, 2 * (FEET - 18), 36) === rows(m, H2 - 2 * FEET, 36), rows(a, 18, 14) === rows(m, H2 - 32, 14),
+      rows(a, 2 * (FEET - 18), 36, 2 * CX - 18, 2 * CX + 18) === rows(h, 2 * (FEET - 18), 36, W2 - 2 * CX - 18, W2 - 2 * CX + 18), rows(a, 2 * (FEET - 18), 36) !== rows(a, H2 - 2 * FEET, 36)];
+  })()`);
+  strict.deepEqual([...ctx.flip], [true, true, true, true], 'pet upright top-down, text upright top-down, pet upright left-right');
+});
+
+// The overlay itself is checked pixel by pixel in a browser (overlay.test.js); here the drawing side: an effect drawn for
+// a room never draws outside it, and a tight room shrinks it instead of cutting it.
+test('an effect drawn for its room stays inside it; the aura hugs the pet and the prop stays in its hands', () => {
+  const ctx = {};
+  require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
+  const out = require('vm').runInContext(`(() => {
+    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), res = {};
+    // A packed row: 10 cells either side of the pet's column, 20 above its feet (the top edge's name tag), 3 below.
+    for (const [kind, o] of [['aura', {}], ['xp', { f0: 2 / 3, f1: 1, lv: 9 }], ['ctx', {}], ['end', {}], ['tool', { seg: 1, mini: true }], ['tool', { seg: 1, plain: true }]]) {
+      const r = fxRun(kind, { pet, ...o }), room = [r.ox - 10, FEET - 20, r.ox + 10, FEET + 3], b = new Buf();
+      let outside = 0, drawn = 0;
+      for (let f = 0; f < 140 && !r.done; f++) {
+        r.step(1 / 30); r.draw(b, room);
+        for (let y = 0, i = 0; y < GH; y++) for (let x = 0; x < GW; x++, i++) if (b.c[i] || b.l[i] > .08) { drawn++; if (x < room[0] || x >= room[2] || y < room[1] || y >= room[3]) outside++; }
+      }
+      res[kind + (o.plain ? '-plain' : '')] = { outside, drawn };
+    }
+    // With all the room it wants, the aura and the held prop still stay within 3 cells of the pet (18 cells wide).
+    const span = (kind, o) => { const r = fxRun(kind, { pet, ...o }), b = new Buf(); let x0 = GW, x1 = -1; for (let f = 0; f < 80; f++) { r.step(1 / 30); r.draw(b, null); for (let y = 0, i = 0; y < GH; y++) for (let x = 0; x < GW; x++, i++) if (b.c[i]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); } } return [r.ox - x0, x1 + 1 - r.ox]; };
+    res.span = [span('aura', {}), ...[0, 1, 2, 3].map(seg => span('tool', { seg, mini: true }))];
+    return JSON.stringify(res);
+  })()`, ctx);
+  const r = JSON.parse(out);
+  for (const k of ['aura', 'xp', 'ctx', 'end', 'tool', 'tool-plain']) { assert.equal(r[k].outside, 0, `${k} drew outside its room`); assert.ok(r[k].drawn > 0, `${k} drew nothing`); }
+  for (const [l, rr] of r.span) assert.ok(l <= 12 && rr <= 12, `drawn within 3 cells of the pet: ${JSON.stringify(r.span)}`);
+  // With effects on, pets show no status balloon (the effect tells the state); without them, as before.
+  assert.equal(require('vm').runInContext("[statusBalloon(true, 'waiting'), statusBalloon(true, 'done'), statusBalloon(false, 'waiting')]", ctx).join(), ',,waiting');
+  // The rect maths the clip is made of.
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.rectMinus([0, 0, 10, 10], [3, 3, 6, 6]))), [[0, 0, 10, 3], [0, 6, 10, 10], [0, 3, 3, 6], [6, 3, 10, 6]]);
+  const hs = JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [[30, 50, 70, 70], [50, 60, 90, 80], [200, 0, 300, 10]])));
+  const area = rs => rs.reduce((a, r) => a + (r[2] - r[0]) * (r[3] - r[1]), 0);
+  assert.equal(area(hs), 20 * 10 + 10 * 20 + 30 * 20 - 10 * 10, 'the union of both minus the own pet, nothing counted twice, nothing outside the box');
+  assert.equal(area(JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [], [[30, 50, 70, 70]])))), 40 * 20, 'a pet in front is cut out over its own pet too');
 });
 
 test('sessions of one project share a shape; colours tell them apart', () => {
@@ -183,6 +231,9 @@ test('sessions of one project share a shape; colours tell them apart', () => {
   assert.notEqual(fill(K1), fill(K2), 'neighbours differ');
   assert.notEqual(fill(K1), fill(B), 'a side session never looks like another session of the project');
   assert.equal(ctx.petColor(list[2], list), ctx.petColor({ id: 'c', project: '/q' }, [{ id: 'c', project: '/q' }]), 'alone in its project: the project\'s colour');
+  // A side session that arrives later (whatever its id) leaves the others' colours be (a burst of them never recolours).
+  const later = [...list, { id: '0-new', project: '/p', parent: 'a' }];
+  for (const x of list) assert.equal(ctx.petColor(x, later), ctx.petColor(x, list), `${x.id} keeps its colour`);
 });
 
 

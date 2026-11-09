@@ -28,6 +28,17 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb xdotool > /dev/null
       - name: Node tests
         run: npm test
+      - name: Pets overlay in Chrome (no effect over another pet, no pets overlapping)
+        run: node --test test/overlay.test.js
+        env:
+          OVERLAY_ONLY: ' 56 '
+          OVERLAY_DUMP: overlay-dump
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: overlay-dump-${{ matrix.os }}
+          path: overlay-dump/
+          if-no-files-found: ignore
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
