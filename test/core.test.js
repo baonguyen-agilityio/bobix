@@ -666,14 +666,14 @@ test('board: each issue in one stage of the day, and the end-of-day report', () 
   const now = new Date(2026, 10, 8, 17, 0).getTime(), yesterday = new Date(2026, 10, 7, 23, 0).toISOString();
   const mk = (iid, extra = {}) => ({ iid, title: 't' + iid, url: 'u' + iid, sessions: [], labels: [], ...extra });
   const work = { status: 'ok',
-    local: [{ path: 'g/app', dir: '/src/app', issues: [mk(1, { sessions: ['a', 'gone'] }), mk(2, { review: 'https://h/g/app/-/merge_requests/9', sessions: ['b'] }), mk(3), mk(4, { sessions: ['c'] })] }],
-    away: [{ path: 'g/web', issues: [mk(5)] }],
+    local: [{ path: 'g/app', dir: '/src/app', issues: [mk(1, { sessions: ['a', 'gone'], stage: 'doing' }), mk(2, { review: 'https://h/g/app/-/merge_requests/9', sessions: ['b'], stage: 'verify' }), mk(3, { stage: 'todo' }), mk(4, { sessions: ['c'], stage: 'doing' })] }],
+    away: [{ path: 'g/web', issues: [mk(5, { stage: 'todo' })] }],
     closed: [{ iid: 7, title: 't7', project: 'g/app', closedAt: new Date(now - 3600e3).toISOString() }, { iid: 8, title: 't8', project: 'g/web', closedAt: yesterday },
       { iid: 7, title: 't7', project: 'g/app', closedAt: new Date(now - 60e3).toISOString() }, { iid: 9, title: 't9', project: 'g/new', closedAt: new Date(now).toISOString() }] };
   const ss = [{ id: 'a', st: 'working', since: 5 }, { id: 'b', st: 'done', since: 6 }, { id: 'c', st: 'waiting', since: 1 }, { id: 'z', st: 'idle', since: 1 }];
   const st = B.stages(work, ss, now);
   const ids = k => st[k].map(([i]) => i.iid);
-  assert.deepEqual([ids('todo'), ids('doing'), ids('verify'), ids('done')], [[3, 5], [4, 1], [2], [7, 9]], 'an open PR/MR wins over a live session; most urgent first; closed today only, once');
+  assert.deepEqual([ids('todo'), ids('doing'), ids('verify'), ids('done')], [[3, 5], [4, 1], [2], [7, 9]], 'each in the stage the work model gave it; most urgent first; closed today only, once');
   assert.deepEqual(st.doing[1][2].map(s => s.id), ['a'], 'a session that is gone does not count');
   assert.equal(st.done[1][1].path, 'g/new', 'a project with no open issue still names its group');
   assert.deepEqual(B.loose(st, ss).map(s => s.id), ['z']);

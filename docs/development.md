@@ -25,7 +25,7 @@ app, give it its own: `BOBIX_PORT=4767 BOBIX_DATA_DIR=/tmp/bobix-data BOBIX_HOME
 
 | Path | What it is |
 |---|---|
-| `src-tauri/src/` | The app (Rust): local server and hook events (`server.rs`, `state.rs`), settings, hooks installer, pets overlay, control panel, tray, notifications, Work tab, pet picture store, smoke check |
+| `src-tauri/src/` | The app (Rust): local server and hook events (`server.rs`, `state.rs`), settings, hooks installer, pets overlay, control panel, tray, notifications, Work tab, the [work model](work-model.md) (`model.rs`), pet picture store, smoke check |
 | `src-tauri/bridge.js` | `window.bobix` for the pages: the only way they reach the app |
 | `src/ui/` | Pages: `pets.html` (overlay), `panel.html` (control panel), strings in `i18n.js` (the app reads them too), pet pictures as pixel art (`pixelate.js`, run in a Web Worker) |
 | `src/ui/gif/` | GIF code copied unchanged from gifenc and gifuct-js (MIT, licenses next to it) |

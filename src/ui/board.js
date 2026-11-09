@@ -11,9 +11,10 @@
   }
 
   // work: the panel's work view (local / away groups, closed); sessions: the live list, each with its look (st).
-  // An open issue waits for review when an open PR / MR closes it, is in progress while a live session works on it,
-  // else it is to do. Done today: assigned issues closed since local midnight. Each list holds [issue, group] pairs,
-  // groups in the work view's order; doing is most urgent first.
+  // An open issue's stage comes from the work model (src-tauri/src/model.rs): verify when an open PR / MR closes it,
+  // doing while a live session works on it, else todo. Done today: assigned issues closed since local midnight (the
+  // panel's clock decides the day). Each list holds [issue, group] pairs, groups in the work view's order; doing is
+  // most urgent first.
   function stages(work, sessions, now = Date.now()) {
     const out = { todo: [], doing: [], verify: [], done: [] };
     if (!work || work.status === 'off') return out;
@@ -21,7 +22,7 @@
     const groups = [...work.local || [], ...work.away || []];
     for (const g of groups) for (const i of g.issues || []) {
       const live = (i.sessions || []).map(id => byId.get(id)).filter(Boolean);
-      (i.review ? out.verify : live.length ? out.doing : out.todo).push([i, g, live]);
+      (out[i.stage] || out.todo).push([i, g, live]);
     }
     const lead = x => Math.min(...x[2].map(s => PRI[s.st] ?? 3));
     const last = x => Math.max(0, ...x[2].map(s => s.since || 0));
