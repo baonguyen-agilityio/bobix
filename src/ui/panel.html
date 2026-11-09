@@ -16,7 +16,7 @@
   --bg:oklch(19% .02 266);--surface:oklch(24% .022 266);--sunk:oklch(21% .02 266);--line:oklch(30% .02 266);--line-strong:oklch(38% .024 266);
   color-scheme:dark}}
 /* the creatures draw eyes and outlines with --n-900: keep them dark on any theme */
-.sprite,.mini,.pd-pet,.logo,.egg{--n-900:oklch(24% .035 266)}
+.sprite,.mini,.pd-pet,.logo,.egg,.preview .ride{--n-900:oklch(24% .035 266)}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 [hidden]{display:none!important}
@@ -316,6 +316,12 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--sunk);border:1px so
 .preview .mini{position:absolute;bottom:6px;width:var(--ps);height:var(--ps);opacity:var(--op);transition:left 200ms var(--ease)}
 .preview.top .mini{bottom:auto;top:6px}
 .preview .mini svg{width:100%;height:100%}
+/* Show when needed: no band; a pet rises under its balloon from below the screen to past the top, again and again. */
+.preview .ride{position:absolute;bottom:-45%;left:calc(var(--rx) - var(--ps) / 2);width:var(--ps);opacity:var(--op);animation:pv-rise 5s linear infinite}
+.preview .ride .bln{display:block;width:50%;margin:0 auto}
+.preview .ride svg{display:block;width:100%;height:auto}
+@keyframes pv-rise{to{bottom:105%}}
+@media (prefers-reduced-motion:reduce){.preview .ride{animation:none;bottom:6px}}
 .preview .hidden{position:absolute;inset:0;display:grid;place-items:center;font-weight:600;color:var(--ink-2);background:color-mix(in oklch,var(--bg) 70%,transparent)}
 .saved{align-self:flex-start;font-size:var(--t-sm);font-weight:600;color:var(--ink-2);padding:2px var(--s3);border-radius:var(--pill);background:var(--mint-soft);opacity:0;transition:opacity 200ms var(--ease)}
 .saved.on{opacity:1}
@@ -1043,7 +1049,11 @@ function renderPreview() {
   }).join('');
   box.className = 'preview' + (s.edge === 'top' ? ' top' : '');
   box.style.cssText = `--zs:${s.zoneStart}%;--ze:${s.zoneEnd}%;--ps:${ps}px;--op:${s.opacity}`;
-  box.innerHTML = `<div class="pv-bar"></div><div class="pv-work"><div class="band"></div>${s.petsVisible ? pets : ''}</div><div class="pv-dock"></div>${s.petsVisible ? '' : `<div class="hidden">${T('set.preview.hidden')}</div>`}`;
+  // Show when needed: one pet under its balloon, rising (still near the bottom with reduced motion).
+  const ride = `<span class="ride" style="--rx:62%"><span class="bln">${balloonSVG('waiting')}</span><span class="mini-r">${creature(ids[0], 'waiting')}</span></span>`;
+  const od = s.petMode === 'ondemand';
+  box.classList.toggle('od', od);
+  box.innerHTML = `<div class="pv-bar"></div><div class="pv-work">${od ? '' : '<div class="band"></div>'}${s.petsVisible ? (od ? ride : pets) : ''}</div><div class="pv-dock"></div>${s.petsVisible ? '' : `<div class="hidden">${T('set.preview.hidden')}</div>`}`;
 }
 
 let savedTimer;

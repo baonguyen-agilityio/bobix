@@ -176,23 +176,6 @@ function answerButtons(s, now) {
 }
 // Side sessions: a side session's pet is smaller, walks right behind its parent and names the session it came from.
 const attached = s => !!(s.parent && pets.has(s.parent)); // walks with its parent pet
-// A party balloon in the pets' pixel style: orange with "!" waits for you, green with a tick is done. Its string hangs to the pet.
-// On the top edge it floats below the pet: balloon and string are flipped, the "!" / tick and the shine are not.
-function balloonSVG(kind) {
-  const down = cfg.edge === 'top';
-  const W = 11, rows = ['...xxxxx...', '..xxxxxxx..', '.xxxxxxxxx.', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx',
-    '.xxxxxxxxx.', '.xxxxxxxxx.', '..xxxxxxx..', '...xxxxx...', '....xxx....', '.....x.....'];
-  const on = new Set(); rows.forEach((r, y) => [...r].forEach((c, x) => c === 'x' && on.add(`${x},${y}`)));
-  const fill = kind === 'waiting' ? 'var(--coral)' : 'var(--mint)', line = `color-mix(in oklch, ${fill} 45%, var(--n-900))`;
-  const icon = kind === 'waiting' ? [[5, 3], [5, 4], [5, 5], [5, 6], [5, 8]] : [[3, 5], [4, 6], [5, 7], [6, 6], [7, 5], [8, 4]];
-  const shine = [[3, 2], [2, 3], [2, 4]], px = (x, y, f) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${f}"/>`;
-  let out = '';
-  for (const k of on) { const [x, y] = k.split(',').map(Number); const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => !on.has(`${x + a},${y + b}`)); out += px(x, y, edge ? line : fill); }
-  out += [5, 5, 6, 6, 5, 5, 4, 4, 5].map((x, i) => px(x, 13 + i, 'var(--ink-3)')).join(''); // the string
-  // Flipped, body row y shows at 21 - y; the upright marks shift by 11 so they land on the same part of the body.
-  const marks = shine.map(([x, y]) => px(x, y + (down ? 11 : 0), 'oklch(98% 0.01 90 / .85)')).join('') + icon.map(([x, y]) => px(x, y + (down ? 11 : 0), 'var(--n-900)')).join('');
-  return `<svg viewBox="0 0 ${W} 22" shape-rendering="crispEdges" aria-hidden="true">${down ? `<g transform="matrix(1 0 0 -1 0 22)">${out}</g>` : out}${marks}</svg>`;
-}
 // What a pet has to tell you: it waits for you, or it is done (for DONE_BUBBLE). Every pet speaks for itself.
 function reportOf(s, now) {
   const st = look(s);
@@ -236,7 +219,7 @@ function paint(p, now) {
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
-    ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon)}</div>` : ''}
+    ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon, cfg.edge === 'top')}</div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}">${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(parent || s, st, color)}</div>
@@ -530,8 +513,17 @@ function lineDrop(p) {
   const { min, max } = zone(), right = max + cfg.size, all = [...pets.values()], W = q => unitWidth(unitOf(q, all)), G = unitGap(), w = W(p);
   const f0 = (rtl() ? min + right - p.x - cfg.size : p.x) + cfg.size + TAG; // its front, left to right
   const roots = [...all, ...leaving].filter(q => !attached(q.s)), gap = lineGap(roots.map(W), right - min);
+  // It lands where it overlaps no other pet or name tag: the nearest point to the drop with 1 px clear on both sides
+  // (between two units, or past either end of the line), never on top of a neighbour.
+  const free = []; let ahead = Infinity;
+  for (const e of [...LINEUP.vis].sort((a, b) => b.f - a.f)) { free.push([e.f + w + 1, ahead]); ahead = e.f - W(e.p) - 1; }
+  free.push([-Infinity, ahead]);
+  let land = null;
+  for (const [lo, up] of free) if (lo <= up) { const t = Math.min(up, Math.max(lo, f0)); if (land == null || Math.abs(t - f0) < Math.abs(land - f0)) land = t; }
   if (gap > G) {
-    const line = [...LINEUP.vis, { p, f: f0 }].sort((a, b) => b.f - a.f); // front first
+    // Then the whole line spreads out evenly, every unit sliding SLIDE s: the gaps between neighbours change linearly
+    // from where they are to the even gap, so nothing that is apart at the drop ever touches on the way.
+    const line = [...LINEUP.vis, { p, f: land ?? f0 }].sort((a, b) => b.f - a.f); // front first
     let off = 0; const offs = line.map(e => { const o = off; off += W(e.p) + gap; return o; });
     const F = line.reduce((a, e, i) => a + e.f + offs[i], 0) / line.length; // the even spacing nearest to where they are
     line.forEach((e, i) => { e.slide = F - offs[i] - e.f; e.slideV = Math.abs(e.slide) / SLIDE; });
@@ -542,7 +534,7 @@ function lineDrop(p) {
   spans.push([min + cfg.size, hi]);
   let best = null;
   for (const [lo, up] of spans) if (lo <= up) { const t = Math.min(up, Math.max(lo, f0)); if (!best || Math.abs(t - f0) < Math.abs(best - f0)) best = t; }
-  if (best == null) LINEUP.wait.unshift(p); else LINEUP.vis.push({ p, f: f0, slide: best - f0, slideV: Math.abs(best - f0) / SLIDE });
+  if (best == null) LINEUP.wait.unshift(p); else LINEUP.vis.push({ p, f: best }); // in a free place: it lands there, it never slides over another
 }
 // A pet's name tag is the ground it stands on: as wide as the pet, or as the whole family (a parent and the side
 // sessions walking right behind it; not one that has already come round again).
@@ -581,6 +573,18 @@ function wake() {
   clearTimeout(timer); timer = 0;
   raf = requestAnimationFrame(frame);
 }
+// The pet the pointer is on: on its card (or the request it shows instead) first, else the one whose middle is nearest
+// of those under it (side pets overlap a little). Only that one shows its card.
+function pointedPet(all) {
+  let near = null, nd = Infinity;
+  for (const p of all) {
+    if (p.el.classList.contains('line-off')) continue;
+    const r = p.el.getBoundingClientRect(), card = p.el.querySelector('.card, .say.waiting');
+    const d = card && inRect(card.getBoundingClientRect(), mouse.x, mouse.y) ? -1 : inRect(r, mouse.x, mouse.y) ? Math.hypot(mouse.x - (r.left + r.width / 2), mouse.y - (r.top + r.height / 2)) : Infinity;
+    if (d < nd) { nd = d; near = p; }
+  }
+  return near;
+}
 function frame(t) {
   raf = 0; timer = 0;
   if (t - last < 32) { raf = requestAnimationFrame(frame); return; } // ~30 fps is smooth enough for a pixel pet
@@ -593,11 +597,12 @@ function frame(t) {
     if (more && !document.hidden) raf = requestAnimationFrame(frame); else timer = setTimeout(() => frame(performance.now()), 1000);
     return;
   }
-  const all = [...pets.values()], lineAt = lineStep(all, dt);
+  const all = [...pets.values()], lineAt = lineStep(all, dt), pointed = pointedPet(all);
   for (const p of all) {
-    const off = p.el.classList.contains('line-off'), r = p.el.getBoundingClientRect(), card = p.el.querySelector('.card, .say.waiting');
-    // A short grace period lets the cursor cross the gap between the pet and its card (or the request it shows instead).
-    if (!off && (inRect(r, mouse.x, mouse.y) || (card && inRect(card.getBoundingClientRect(), mouse.x, mouse.y)))) p.hoverUntil = now + 250;
+    const off = p.el.classList.contains('line-off'), r = p.el.getBoundingClientRect();
+    // One card at a time: the pointed pet's. A short grace period lets the cursor cross the gap between the pet and its
+    // card (or the request it shows instead); pointing at another pet ends it at once.
+    if (p === pointed) p.hoverUntil = now + 250; else if (pointed) p.hoverUntil = 0;
     p.hover = !p.dragging && now < (p.hoverUntil || 0);
     const x = lineAt.get(p); if (x != null) p.x = x;
     p.stepping = (LINEUP.moving || !!p.dragging) && !off;
