@@ -310,8 +310,45 @@ async function onDemand(b, url, rm) {
   return out;
 }
 
+// One card at a time (edge mode): a family of 3 stands close (side pets overlap their neighbours' boxes a little). The
+// pointer on the overlap of two pets, then moved straight from one pet to the next: every frame shows one card, the
+// nearest pet's.
+async function oneCard(b, url) {
+  const out = [];
+  await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+  const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
+  await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, zoneStart: 30, zoneEnd: 70, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })})`);
+  const n = await ev('__now()'), host = { hostSession: 'local_p0' };
+  await ev(`__push(${JSON.stringify([ses('p0', { ...host, state: 'working', tool: 'Bash', since: n }), ...['k1', 'k2'].map(k => ses(k, { parent: 'p0', hostSession: 'local_' + k, state: 'working', tool: 'Read', since: n }))])})`);
+  const step = async k => { for (let i = 0; i < k; i++) await ev('__step(33.4)'); };
+  await step(60);
+  const at = await ev(`Object.fromEntries(['p0', 'k1', 'k2'].map(id => { const r = pets.get(id).el.getBoundingClientRect(); return [id, [r.left, r.right, r.top, r.bottom]]; }))`);
+  const cards = () => ev(`[...pets.values()].filter(p => p.el.querySelector('.card')?.offsetParent).map(p => p.s.id)`);
+  const move = (x, y) => b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  const [a, c] = [at.p0, at.k1].sort((u, v) => u[0] - v[0]), y = (a[2] + a[3]) / 2; // the left one and the right one
+  const ids = Object.keys(at), idOf = r => ids.find(k => at[k] === r);
+  // On the overlap (or the seam) of the two, nearer the right one, then nearer the left one.
+  for (const [x, want] of [[Math.max(c[0], a[1] - 4) + 2, idOf(c)], [Math.min(a[1], c[0] + 4) - 2 - 6, idOf(a)]]) {
+    await move(x, y);
+    for (let i = 0; i < 6; i++) { await step(1); const k = await cards(); if (k.length !== 1 || k[0] !== want) out.push(`pointer at x ${Math.round(x)} (pets ${at.p0.map(Math.round).slice(0, 2).join('-')}, ${at.k1.map(Math.round).slice(0, 2).join('-')}), frame ${i + 1}: cards ${JSON.stringify(k)}, want only ${want}`); }
+  }
+  // Straight from one pet to the next: the first card goes as the next opens (no 250 ms of both).
+  await move((at.k2[0] + at.k2[1]) / 2, y); await step(10);
+  await move((at.k1[0] + at.k1[1]) / 2, y);
+  for (let i = 0; i < 6; i++) { await step(1); const k = await cards(); if (k.length > 1) out.push(`moved from k2 to k1, frame ${i + 1}: cards ${JSON.stringify(k)}`); }
+  await move(1, 1);
+  return out.map(o => 'one card at a time: ' + o);
+}
+
 // A pet dragged onto its neighbour and let go: no overlap after it, and 1.5 s after the drop the line is evenly spaced
 // again (every gap the line's own gap, nothing still sliding).
+// Every frame right after a drop: no two pets in sight overlap and no two name tags touch, sliding or not.
+const NO_TOUCH = `(() => { const out = [], shown = e => +e.closest('.pet').style.opacity > .05;
+  const b = [...document.querySelectorAll('.pet:not(.line-off) .spr')].filter(shown).map(e => { const r = e.getBoundingClientRect(), w = e.closest('.pet').classList.contains('side') ? r.width * .1 : 0; return [r.left + w, r.right - w]; });
+  for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) if (b[i][1] > b[j][0] + .5 && b[j][1] > b[i][0] + .5) out.push('pets overlap: ' + [b[i], b[j]].map(r => r.map(Math.round).join('-')).join(' / '));
+  const t = [...document.querySelectorAll('.pet:not(.line-off) .tag:not(.ghost)')].filter(shown).map(e => e.getBoundingClientRect());
+  for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) if (t[i].right + 1 > t[j].left && t[j].right + 1 > t[i].left) out.push('tags touch: ' + [t[i], t[j]].map(r => Math.round(r.left) + '-' + Math.round(r.right)).join(' / '));
+  return out; })()`;
 const dragged = async ({ push, steps, ses, ev, mouse, fail }) => {
   const one = (id, tool) => ses(id, { cwd: `/tmp/${id}`, state: 'working', tool });
   await push([one('pa', 'Bash'), one('pb', 'Edit'), one('pc', 'Read'), one('pd', 'Grep')]);
@@ -321,7 +358,8 @@ const dragged = async ({ push, steps, ses, ev, mouse, fail }) => {
   await mouse('mousePressed', ...from);
   for (let i = 1; i <= 10; i++) { await mouse('mouseMoved', from[0] + (to[0] - from[0]) * i / 10, from[1]); await steps(1 / 30); }
   await mouse('mouseReleased', ...to); await mouse('mouseMoved', 1, 1); // and away, so the line is not held by a hover
-  await steps(1.5, 6);
+  for (let i = 1; i <= 30; i++) { await steps(1 / 30); for (const o of await ev(NO_TOUCH)) fail(`frame ${i} after the drop: ${o}`); } // every frame drawn since the drop
+  await steps(.5, 6);
   const line = await ev(`(() => { const all = [...pets.values()], W = q => unitWidth(unitOf(q, all)), L = [...LINEUP.vis].sort((a, b) => b.f - a.f), { min, max } = zone();
     return { gaps: L.slice(1).map((e, i) => (L[i].f - W(L[i].p)) - e.f), want: lineGap([...all, ...leaving].filter(q => !attached(q.s)).map(W), max + cfg.size - min), sliding: L.filter(e => Math.abs(e.slide || 0) > .5).length, held: !!LINEUP.held }; })()`);
   if (line.held || line.sliding || line.gaps.some(g => Math.abs(g - line.want) > 2)) fail(`1.5 s after the drop the line is not evenly spaced: ${JSON.stringify(line)}`);
@@ -345,6 +383,7 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     console.log(`# with reduced motion: ${JSON.stringify(r)}`);
     if (r.fxOn || r.effects || r.balloons.join() !== 'bb done,bb waiting') bad.push(`reduced motion: want no effect and a balloon on the waiting and the done pet, got ${JSON.stringify(r)}`);
     await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+    if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 one card')) bad.push(...await oneCard(b, url), ...b.errors.splice(0).map(e => `one card: page error: ${e}`));
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 show when needed')) for (const rm of [false, true]) bad.push(...await onDemand(b, url, rm), ...b.errors.splice(0).map(e => `show when needed: page error: ${e}`));
     const cases = [];
     for (const edge of ['bottom', 'top']) for (const size of [32, 56, 128]) {

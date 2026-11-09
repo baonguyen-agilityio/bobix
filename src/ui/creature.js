@@ -179,3 +179,20 @@ function petColor(s, list) {
   const mates = ids(list.filter(x => top(x) && proj(x) === proj(s)));
   return (hashStr(proj(s) + 'c') % n + Math.max(0, mates.indexOf(s.id))) % n;
 }
+
+// A party balloon in the pets' pixel style: orange with "!" waits for you, green with a tick is done. Its string hangs to the pet.
+// On the top edge it floats below the pet: balloon and string are flipped, the "!" / tick and the shine are not.
+function balloonSVG(kind, down = false) {
+  const W = 11, rows = ['...xxxxx...', '..xxxxxxx..', '.xxxxxxxxx.', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx',
+    '.xxxxxxxxx.', '.xxxxxxxxx.', '..xxxxxxx..', '...xxxxx...', '....xxx....', '.....x.....'];
+  const on = new Set(); rows.forEach((r, y) => [...r].forEach((c, x) => c === 'x' && on.add(`${x},${y}`)));
+  const fill = kind === 'waiting' ? 'var(--coral)' : 'var(--mint)', line = `color-mix(in oklch, ${fill} 45%, var(--n-900))`;
+  const icon = kind === 'waiting' ? [[5, 3], [5, 4], [5, 5], [5, 6], [5, 8]] : [[3, 5], [4, 6], [5, 7], [6, 6], [7, 5], [8, 4]];
+  const shine = [[3, 2], [2, 3], [2, 4]], px = (x, y, f) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${f}"/>`;
+  let out = '';
+  for (const k of on) { const [x, y] = k.split(',').map(Number); const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => !on.has(`${x + a},${y + b}`)); out += px(x, y, edge ? line : fill); }
+  out += [5, 5, 6, 6, 5, 5, 4, 4, 5].map((x, i) => px(x, 13 + i, 'var(--ink-3)')).join(''); // the string
+  // Flipped, body row y shows at 21 - y; the upright marks shift by 11 so they land on the same part of the body.
+  const marks = shine.map(([x, y]) => px(x, y + (down ? 11 : 0), 'oklch(98% 0.01 90 / .85)')).join('') + icon.map(([x, y]) => px(x, y + (down ? 11 : 0), 'var(--n-900)')).join('');
+  return `<svg viewBox="0 0 ${W} 22" shape-rendering="crispEdges" aria-hidden="true">${down ? `<g transform="matrix(1 0 0 -1 0 22)">${out}</g>` : out}${marks}</svg>`;
+}

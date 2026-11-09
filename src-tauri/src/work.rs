@@ -260,6 +260,27 @@ fn read_issues(f: Forge, bin: &str, args: &[&str], env: &[(&str, &str)], slim: f
     }
 }
 
+// A new Claude desktop session in `dir`, its prompt box filled with `prompt` (q, Claude's documented link: nothing is
+// sent until you press Enter there). Claude cuts q at about 14 000 characters; Bobix stops a bit earlier.
+pub fn new_session_link(dir: &str, prompt: &str) -> String {
+    let prompt = head16(prompt.trim(), 12_000);
+    let q = if prompt.is_empty() { String::new() } else { format!("&q={}", enc(prompt)) };
+    format!("claude://code/new?folder={}{q}", enc(dir))
+}
+
+// An issue's description, read once (GET) when you press Start, for the prompt Claude gets; Bobix does not keep it.
+// ponytail: cut at 3000 characters; the prompt box lets you add the rest.
+pub fn fetch_body(f: Forge, bin: &str, host: &str, path: &str, iid: i64) -> Result<String, Value> {
+    let (api, field) = match f {
+        Forge::GitHub => (format!("repos/{path}/issues/{iid}"), "body"),
+        Forge::GitLab => (format!("projects/{}/issues/{iid}", enc(path)), "description"),
+    };
+    let r = procs::exec(bin, &["api", "--hostname", host, &api], 30, f.env());
+    if !r.ok { return Err(failed(&format!("{} {}", r.err, r.out))); }
+    let v: Value = serde_json::from_str(&r.out).map_err(|_| json!({ "ok": false, "reason": "error", "detail": "unexpected answer" }))?;
+    Ok(head16(v[field].as_str().unwrap_or("").trim(), 3000).to_string())
+}
+
 // A failed read: signed out (401, bad or missing token), else the CLI's own words, on one line.
 fn failed(text: &str) -> Value {
     static AUTH: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\b401\b|unauthori[sz]ed|not logged|no token|authenticat|bad credentials"));
@@ -317,6 +338,17 @@ impl Work {
         self.list(settings).into_iter().find(|i| i["project"] == path && i["iid"].as_i64() == Some(iid))
     }
 
+    // Where to read an issue Bobix listed again: its tracker, that tracker's CLI, the signed-in host of its link.
+    pub fn source_of(&self, settings: &Value, path: &str, iid: i64) -> Option<(Forge, String, String, Value)> {
+        FORGES.into_iter().filter(|f| f.on(settings)).find_map(|f| {
+            let feed = &self.feeds[f as usize];
+            let i = feed.issues["list"].as_array()?.iter().find(|i| i["project"] == path && i["iid"].as_i64() == Some(iid))?;
+            let url_host = i["url"].as_str().and_then(|u| tauri::Url::parse(u).ok())?.host_str()?.to_lowercase();
+            let host = feed.issues["hosts"].as_array()?.iter().filter_map(|h| h.as_str()).find(|h| h.split(':').next() == Some(url_host.as_str()))?;
+            Some((f, feed.bin.clone()?, host.to_string(), i.clone()))
+        })
+    }
+
     fn extra(&self, settings: &Value, key: &str) -> Vec<&Value> {
         self.on(settings).into_iter().flat_map(|f| f.issues[key].as_array().into_iter().flatten()).collect()
     }
@@ -371,6 +403,22 @@ mod tests {
     use crate::state::Sessions;
 
     fn view(w: &Work, settings: &Value, sessions: &Sessions) -> Value { w.view(settings, &Model::build(settings, sessions, w)) }
+
+    #[test]
+    fn start_link_and_where_an_issue_is_read_again() {
+        assert_eq!(new_session_link("/src/a b", ""), "claude://code/new?folder=%2Fsrc%2Fa%20b");
+        assert_eq!(new_session_link("/src/app", " #54 Pick & go\n\nhttps://h/i/54?x=1 "), "claude://code/new?folder=%2Fsrc%2Fapp&q=%2354%20Pick%20%26%20go%0A%0Ahttps%3A%2F%2Fh%2Fi%2F54%3Fx%3D1");
+        assert!(new_session_link("/d", &"é".repeat(20_000)).len() < 12_000 * 6 + 40, "cut before Claude's own limit");
+        let mut w = Work::default();
+        w.feeds[Forge::GitHub as usize] = Feed { bin: Some("/bin/gh".into()), busy: false, reviews: vec![], issues: json!({ "status": "ok", "hosts": ["github.com", "ghe.example.com:8443"],
+            "list": [{ "iid": 54, "project": "acme/app", "title": "t", "url": "https://github.com/acme/app/issues/54" }, { "iid": 7, "project": "t/a", "title": "x", "url": "https://ghe.example.com:8443/t/a/issues/7" }] }) };
+        let on = json!({ "github": true });
+        let got = w.source_of(&on, "acme/app", 54).map(|(f, bin, host, i)| (f, bin, host, i["title"].clone()));
+        assert_eq!(got, Some((Forge::GitHub, "/bin/gh".into(), "github.com".into(), json!("t"))));
+        assert_eq!(w.source_of(&on, "t/a", 7).map(|x| x.2), Some("ghe.example.com:8443".into()), "the signed-in host, port and all");
+        assert!(w.source_of(&on, "acme/app", 55).is_none(), "only issues Bobix listed");
+        assert!(w.source_of(&json!({ "github": false }), "acme/app", 54).is_none(), "GitHub off");
+    }
 
     #[test]
     fn glab_status_gives_signed_in_hosts() {

@@ -442,7 +442,7 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
 
 // The panel's button on an issue: Resume opens the session working on it, exactly like a click on its pet; New opens a
 // new Claude desktop session in the project's folder (the link Claude documents, no prompt sent).
-fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64) -> Value {
+fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64, prompt: &str) -> Value {
     let (g, i, id) = {
         let c = b.core.lock().unwrap();
         let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
@@ -463,7 +463,7 @@ fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64) -> Value {
     let dir = g["dir"].as_str().unwrap_or("").to_string();
     b.core.lock().unwrap().work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": i["title"] }));
     b.broadcast();
-    match tauri_plugin_opener::open_url(format!("claude://code/new?folder={}", work::enc(&dir)), None::<&str>) {
+    match tauri_plugin_opener::open_url(work::new_session_link(&dir, prompt), None::<&str>) {
         Ok(_) => json!({ "ok": true, "mode": "new", "dir": dir }),
         Err(e) => json!({ "ok": false, "mode": "new", "reason": e.to_string() }),
     }
@@ -727,9 +727,24 @@ fn work_cancel(dir: String, b: B) {
 }
 
 #[tauri::command]
-async fn work_start(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
+async fn work_start(path: String, iid: i64, prompt: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || start_issue(&b, &path, iid)).await.map_err(|_| ())
+    tauri::async_runtime::spawn_blocking(move || start_issue(&b, &path, iid, prompt.as_deref().unwrap_or(""))).await.map_err(|_| ())
+}
+
+// For the Start box: an issue Bobix listed, with its description read now (one GET through glab / gh, not kept).
+// { ok, title, url, body } or { ok: false, title, url, reason } (the box still opens, without the description).
+#[tauri::command]
+async fn work_brief(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let src = { let c = b.core.lock().unwrap(); c.work.source_of(&c.settings, &path, iid) };
+        let Some((f, bin, host, i)) = src else { return json!({ "ok": false, "reason": "gone" }) };
+        match work::fetch_body(f, &bin, &host, &path, iid) {
+            Ok(body) => json!({ "ok": true, "title": i["title"], "url": i["url"], "body": body }),
+            Err(e) => json!({ "ok": false, "title": i["title"], "url": i["url"], "reason": e["reason"] }),
+        }
+    }).await.map_err(|_| ())
 }
 
 #[tauri::command]
@@ -867,8 +882,8 @@ fn pet_reset(id: String, b: B) -> Value {
 }
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
-    "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start", "work_new_review",
-    "pet_choose", "pet_original", "pet_save", "pet_reset"];
+    "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
+    "work_brief", "work_new_review", "pet_choose", "pet_original", "pet_save", "pet_reset"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -963,7 +978,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_new_review,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
