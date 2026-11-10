@@ -43,8 +43,12 @@ show) curl -s -X POST -H "x-bobix: $(cat "$W/home/.claude/bobix/token")" -H 'con
 stop) [ -f "$W/app.pid" ] && kill "$(cat "$W/app.pid")" 2>/dev/null; rm -f "$W/app.pid"; sleep 1 ;;
 term) # NAME PROMPT [args]: a real interactive Claude Code session in a new Terminal window, in that clone
   n=$2; p=$3; shift 3
-  cmd="cd $CODE/$n && clear && claude --setting-sources project,local --settings $W/claude-hooks.json --model haiku $* $(printf %q "$p")"
+  [ "$p" = "@big" ] && p='"$(cat '"$W"'/big-prompt.txt)"' || p=$(printf %q "$p")
+  cmd="cd $CODE/$n && clear && claude --setting-sources project,local --settings $W/claude-hooks.json --model haiku $* $p"
   osascript -e 'on run a' -e 'tell application "Terminal"' -e 'set t to do script (item 1 of a)' -e 'return id of (first window whose tabs contains t)' -e 'end tell' -e 'end run' "$cmd" > "$W/term-$n" && echo "term $n window $(cat "$W/term-$n")" ;;
 type) # NAME TEXT: type into that session's Terminal tab (TEXT + Return), as a person would
-  osascript -e 'on run a' -e 'tell application "Terminal" to do script (item 2 of a) in tab 1 of window id ((item 1 of a) as integer)' -e 'end run' "$(cat "$W/term-$2")" "$3" >/dev/null ;;
+  osascript -e 'on run a' -e 'tell application "Terminal" to do script (item 2 of a) in tab 1 of window id ((item 1 of a) as integer)' -e 'end run' "$(cat "$W/term-$2")" "$3" >/dev/null
+  # a long text arrives as a paste and waits in the prompt box: press Return only when it is still there
+  sleep 1; osascript -e "tell application \"Terminal\" to get contents of tab 1 of window id $(cat "$W/term-$2")" | python3 "$CAP/boxed.py" \
+    && osascript -e "tell application \"Terminal\" to do script \"\" in tab 1 of window id $(cat "$W/term-$2")" >/dev/null; true ;;
 esac
