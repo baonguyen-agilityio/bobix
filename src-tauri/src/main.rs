@@ -400,7 +400,11 @@ fn refresh_git(b: &Arc<Bobix>, dir: String) {
             }
             changed
         };
-        if changed { b.broadcast(); }
+        if !changed { return; }
+        b.broadcast();
+        // a session here now names an issue the board has not read: read the issues now, not at the next round
+        let unread = { let c = b.core.lock().unwrap(); c.work.unread_link(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work)) };
+        if unread { refresh_issues(&b); }
     });
 }
 
@@ -442,6 +446,8 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
             if feed.issues["status"] == "off" { feed.issues = json!({ "status": "loading" }); drop(c); b.broadcast(); }
         }
         let bin = { let g = b.core.lock().unwrap().work.feed(f).bin.clone(); g.or_else(|| find_bin(f.bin())) };
+        // the issues sessions here work on: one not in your list is read on its own below
+        let linked = { let c = b.core.lock().unwrap(); model::Model::build(&c.settings, &c.sessions, &c.work).linked() };
         let hosts = bin.as_deref().and_then(|x| f.hosts(x));
         let at = state::now();
         let (next, reviews) = match (&bin, hosts) {
@@ -452,7 +458,14 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
                 let failed: Vec<Value> = rs.iter().zip(&h).filter(|(r, _)| r["ok"] != true)
                     .map(|(r, host)| json!({ "host": host, "detail": r.get("detail").unwrap_or(&r["reason"]) })).collect();
                 if failed.len() == h.len() { (json!({ "status": "error", "hosts": h, "at": at, "failed": failed }), vec![]) } else {
-                    let list: Vec<Value> = rs.iter().flat_map(|r| r["issues"].as_array().cloned().unwrap_or_default()).collect();
+                    let mut list: Vec<Value> = rs.iter().flat_map(|r| r["issues"].as_array().cloned().unwrap_or_default()).collect();
+                    // ponytail: 10 at most per read; more sessions on issues not assigned to you wait for the next read
+                    let extra: Vec<&(String, String, i64)> = linked.iter().filter(|(host, p, iid)| h.contains(host)
+                        && !list.iter().any(|i| i["project"] == p.as_str() && i["iid"].as_i64() == Some(*iid))).take(10).collect();
+                    for (host, p, iid) in extra {
+                        b.core.lock().unwrap().work.asked.insert(format!("{p}#{iid}"));
+                        if let Some(i) = f.issue(g, host, p, *iid) { list.push(i); }
+                    }
                     // what waits for review, and what was closed lately (the panel keeps today's: local midnight is its call)
                     let since = hooks::iso(at.saturating_sub(4 * 24 * 3600 * 1000)); // today, and the last working day for the stand-up
                     let reviews: Vec<model::Review> = h.iter().flat_map(|x| f.reviews(g, x)).collect();
