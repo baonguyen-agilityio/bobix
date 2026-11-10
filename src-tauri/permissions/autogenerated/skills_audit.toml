@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-skills-audit"
+description = "Enables the skills_audit command without any pre-configured scope."
+commands.allow = ["skills_audit"]
+
+[[permission]]
+identifier = "deny-skills-audit"
+description = "Denies the skills_audit command without any pre-configured scope."
+commands.deny = ["skills_audit"]

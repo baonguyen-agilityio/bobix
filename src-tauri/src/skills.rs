@@ -1,6 +1,7 @@
 // The Claude Code skills a session started in a folder can call, so the Start box can offer one: names and descriptions
 // only, read from where Claude Code keeps them (https://code.claude.com/docs/en/skills, /plugins-reference, /settings).
-// Read-only: Bobix never copies, imports or changes a skill, a plugin or a settings file.
+// Read-only here. The skills audit's changes, each on the person's click and undoable, are in skill_audit.rs; no plugin or
+// settings file is ever changed.
 //   managed   <system dir>/.claude/skills/<skill>/SKILL.md (macOS /Library/Application Support/ClaudeCode, Linux /etc/claude-code,
 //             Windows C:\Program Files\ClaudeCode)
 //   personal  ~/.claude/skills/<skill>/SKILL.md
@@ -14,8 +15,20 @@ use serde::Serialize;
 use serde_json::Value;
 use std::{fs, io::Read, path::{Path, PathBuf}};
 
-#[derive(Serialize, Clone, PartialEq, Debug)]
-pub struct Skill { pub name: String, pub description: String, pub source: &'static str }
+#[derive(Serialize, Clone, PartialEq, Debug, Default)]
+pub struct Skill {
+    pub name: String, pub description: String, pub source: &'static str,
+    // For the audit (skill_audit.rs) only, never sent with the lists above: the skill's folder, the size of its whole
+    // description, the plugin's key in installed_plugins.json, and whether only Claude may call it.
+    #[serde(skip)] pub dir: PathBuf, #[serde(skip)] pub size: usize, #[serde(skip)] pub plugin: Option<String>, #[serde(skip)] pub hidden: bool,
+}
+
+// What to read: `all` keeps the skills only Claude may call and those another place shadows (the audit wants every
+// skill Claude loads, duplicates included).
+#[derive(Clone, Copy)]
+struct Mode { all: bool }
+
+fn push(out: &mut Vec<Skill>, s: Skill, m: Mode) { if m.all || !out.iter().any(|x| x.name == s.name) { out.push(s); } }
 
 // `key: value` lines of a SKILL.md's front matter (between the first two "---" lines). A value may be quoted, or a
 // YAML block (">" / "|") on the indented lines after it.
@@ -45,26 +58,28 @@ fn front_matter(text: &str) -> Vec<(String, String)> {
 
 // One skill folder → its command (front matter `name`, else the folder's name) and description; None when it has no
 // SKILL.md or only Claude may call it (user-invocable: false). Only the first 16 KB are read.
-fn read_skill(dir: &Path, prefix: Option<&str>, source: &'static str) -> Option<Skill> {
+fn read_skill(dir: &Path, prefix: Option<&str>, source: &'static str, m: Mode) -> Option<Skill> {
     let mut buf = Vec::new();
     fs::File::open(dir.join("SKILL.md")).ok()?.take(16 * 1024).read_to_end(&mut buf).ok()?;
     let fm = front_matter(&String::from_utf8_lossy(&buf));
     let get = |k: &str| fm.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
-    if get("user-invocable").as_deref() == Some("false") { return None; }
+    let hidden = get("user-invocable").as_deref() == Some("false");
+    if hidden && !m.all { return None; }
     let name = get("name").filter(|n| !n.is_empty()).or_else(|| dir.file_name().map(|n| n.to_string_lossy().into_owned()))?;
     let name = match prefix { Some(p) => format!("{p}:{name}"), None => name };
     if name.chars().any(|c| c.is_whitespace() || c == '/') { return None; }
-    let description: String = get("description").unwrap_or_default().chars().take(300).collect();
-    Some(Skill { name, description, source })
+    let full = get("description").unwrap_or_default();
+    let description: String = full.chars().take(300).collect();
+    Some(Skill { name, description, source, dir: dir.to_path_buf(), size: full.chars().count(), plugin: None, hidden })
 }
 
 // Every skill folder in `root` (each `<skill>/SKILL.md`), by name.
-fn read_dir(root: &Path, prefix: Option<&str>, source: &'static str, out: &mut Vec<Skill>) {
+fn read_dir(root: &Path, prefix: Option<&str>, source: &'static str, out: &mut Vec<Skill>, m: Mode) {
     let Ok(rd) = fs::read_dir(root) else { return };
     let mut dirs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
     dirs.sort();
     for d in dirs {
-        if let Some(s) = read_skill(&d, prefix, source) { if !out.iter().any(|x| x.name == s.name) { out.push(s); } }
+        if let Some(s) = read_skill(&d, prefix, source, m) { push(out, s, m); }
     }
 }
 
@@ -87,7 +102,7 @@ fn up_to_repo_root(dir: &Path) -> Vec<PathBuf> {
 }
 
 // The skills of the plugins installed for you, or for this folder, that are enabled.
-fn plugin_skills(claude: &Path, dir: &Path, out: &mut Vec<Skill>) {
+fn plugin_skills(claude: &Path, dir: &Path, out: &mut Vec<Skill>, m: Mode) {
     let installed = json(&claude.join("plugins/installed_plugins.json"));
     let shared = json(&dir.join(".claude/settings.json"));
     let mut enabled = serde_json::Map::new();
@@ -108,35 +123,45 @@ fn plugin_skills(claude: &Path, dir: &Path, out: &mut Vec<Skill>) {
         let extra: Vec<String> = match &manifest["skills"] { Value::String(s) => vec![s.clone()], Value::Array(a) => a.iter().filter_map(|x| x.as_str().map(String::from)).collect(), _ => vec![] };
         let has_dir = root.join("skills").is_dir();
         let src = if entry["scope"] != "user" || shared["enabledPlugins"].get(key.as_str()).is_some() { "team" } else { "plugin" };
-        read_dir(&root.join("skills"), Some(&name), src, out);
+        let first = out.len();
+        read_dir(&root.join("skills"), Some(&name), src, out, m);
         for x in &extra {
             let p = root.join(x.trim_start_matches("./"));
             if !p.starts_with(&root) || x.contains("..") { continue; } // only inside the plugin, as Claude Code allows
-            if p.join("SKILL.md").is_file() { if let Some(s) = read_skill(&p, Some(&name), src) { if !out.iter().any(|y| y.name == s.name) { out.push(s); } } }
-            else { read_dir(&p, Some(&name), src, out); }
+            if p.join("SKILL.md").is_file() { if let Some(s) = read_skill(&p, Some(&name), src, m) { push(out, s, m); } }
+            else { read_dir(&p, Some(&name), src, out, m); }
         }
         if !has_dir && extra.is_empty() && root.join("SKILL.md").is_file() {
-            if let Some(mut s) = read_skill(&root, None, src) { s.name = format!("{name}:{}", s.name); out.push(s); }
+            if let Some(mut s) = read_skill(&root, None, src, m) { s.name = format!("{name}:{}", s.name); out.push(s); }
         }
+        for s in &mut out[first..] { s.plugin = Some(key.clone()); }
     }
 }
 
 // The skills a Claude Code session started in `dir` can call with "/<name>", for `home` (the person's home folder).
 // Precedence as Claude Code's: managed over personal over project for the same name; plugin skills are prefixed.
-pub fn list(home: &Path, dir: &Path) -> Vec<Skill> {
+pub fn list(home: &Path, dir: &Path) -> Vec<Skill> { collect(home, dir, Mode { all: false }) }
+
+// Every skill Claude loads in `dir`, with the ones only Claude may call and the shadowed duplicates (for the audit).
+pub fn all(home: &Path, dir: &Path) -> Vec<Skill> { collect(home, dir, Mode { all: true }) }
+
+fn collect(home: &Path, dir: &Path, m: Mode) -> Vec<Skill> {
     let claude = home.join(".claude");
     let mut out = vec![];
-    read_dir(&managed_dir().join(".claude/skills"), None, "managed", &mut out);
-    read_dir(&claude.join("skills"), None, "personal", &mut out); // skills/synced has no SKILL.md of its own
-    for d in up_to_repo_root(dir) { read_dir(&d.join(".claude/skills"), None, "project", &mut out); }
-    plugin_skills(&claude, dir, &mut out);
+    read_dir(&managed_dir().join(".claude/skills"), None, "managed", &mut out, m);
+    read_dir(&claude.join("skills"), None, "personal", &mut out, m); // skills/synced has no SKILL.md of its own
+    for d in up_to_repo_root(dir) { read_dir(&d.join(".claude/skills"), None, "project", &mut out, m); }
+    plugin_skills(&claude, dir, &mut out, m);
     if let Ok(rd) = fs::read_dir(claude.join("skills/synced")) {
         let mut ids: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
         ids.sort();
-        for id in ids { read_dir(&id, Some("anthropic-skills"), "synced", &mut out); }
+        for id in ids { read_dir(&id, Some("anthropic-skills"), "synced", &mut out, m); }
     }
     out
 }
+
+// The repository root of `dir` (the nearest folder up holding .git), else `dir`.
+pub fn repo_root(dir: &Path) -> PathBuf { up_to_repo_root(dir).pop().unwrap_or_else(|| dir.to_path_buf()) }
 
 // Your own skills, wherever you start Claude: personal, synced from claude.ai, and plugins installed for you (for
 // Settings → My skills, where you pin the ones to offer).
