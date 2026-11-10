@@ -89,7 +89,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 - Writing Claude settings for any other purpose.
 
 **Open questions**
-- Can a model be preset when opening a new Claude desktop session?
+- Can a model be preset when opening a new Claude desktop session? Not through its documented link (`claude://code/new` takes only `q`, `prompt`, `folder` and `file`), checked for [#112](https://github.com/baonguyen-agilityio/bobix/issues/112): the ticket flow says which model to pick there and offers the terminal command, which presets it.
 
 ## 3. Ticket flow: pick, plan, run, log
 
@@ -183,7 +183,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 
 ## Open questions in one list
 
-1. Can a model be preset for a new Claude desktop session? (step 2)
+1. Can a model be preset for a new Claude desktop session? (step 2) Not through the documented link; see step 2.
 2. ~~Can a headless `claude -p` publish an artifact?~~ No; the room copies the record for Claude instead. (step 5)
 3. The exact usage thresholds for "too long". (step 1)
 4. Where Jira and Trello credentials are stored. (step 3)

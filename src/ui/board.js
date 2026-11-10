@@ -193,6 +193,13 @@
     return skill ? `/${skill} ${url || ''}`.trimEnd() + '\n\n' + rest : rest;
   }
 
+  // The ticket flow (#112): its four steps, the one a flow's status is at, the Start prompt (the issue, the model
+  // proposal, how to work: both last parts come from the app, tickets.rs) and sizes for the disk line.
+  const FLOW = ['plan', 'approve', 'run', 'done'];
+  const flowStep = st => ({ starting: 'plan', planning: 'plan', approve: 'approve', running: 'run', done: 'done', blocked: 'done' })[st] || 'plan';
+  const flowPrompt = (i, body, models, rules) => [brief(i, body), models, rules].map(x => String(x || '').trim()).filter(Boolean).join('\n\n');
+  const gb = b => (b == null ? '?' : (b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0));
+
   // The five steps a ticket goes through; the model gives the first four, a close today the last.
   const STEPS = ['todo', 'doing', 'ask', 'verify', 'done'];
   const stepOf = i => (i.closedAt ? 'done' : STEPS.includes(i.stage) ? i.stage : 'todo');
@@ -246,6 +253,6 @@
     return `${T('su.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${[sec('su.yesterday', done), sec('su.today', today), sec('su.stuck', stuck.map(x => `- ${x.text}: ${x.why}`))].join('\n\n')}\n`;
   }
 
-  const api = { PRI, STEPS, day, stages, loose, short, folder, waited, stuck, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill, suggest, installHint, TEAM };
+  const api = { FLOW, flowStep, flowPrompt, gb, PRI, STEPS, day, stages, loose, short, folder, waited, stuck, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill, suggest, installHint, TEAM };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);

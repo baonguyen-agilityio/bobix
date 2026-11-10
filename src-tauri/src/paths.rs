@@ -44,7 +44,7 @@ pub fn ensure_token_in(home: &std::path::Path) -> std::io::Result<String> {
 }
 
 // A file only this user can read (0600 on Unix).
-fn write_private(file: &std::path::Path, text: &str) -> std::io::Result<()> {
+pub fn write_private(file: &std::path::Path, text: &str) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};

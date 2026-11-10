@@ -67,6 +67,15 @@
     // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one
     importProcess: (project, v) => (typeof project === 'string' ? invoke('process_import', { project, text: v?.text ?? null, url: v?.url ?? null, remove: v?.remove ?? null }) : Promise.resolve(null)),
     issueBrief: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_brief', { path, iid }) : Promise.resolve(null)), // title, description (read now), link
+    // The ticket flow (#112): where a ticket would run, Start (a worktree, then Claude desktop or a terminal line),
+    // Haiku's split (only on click), the plan's one approval, the log's assumptions seen, a Haiku summary, cleanup.
+    ticketPrep: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_prep', { path, iid }) : Promise.resolve(null)),
+    ticketStart: (path, iid, prompt, models, how) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_start', { path, iid, prompt: String(prompt || ''), models: models || null, how: how === 'cli' ? 'cli' : 'desktop' }) : Promise.resolve(null)),
+    ticketClassify: (title, body) => invoke('ticket_classify', { title: String(title || ''), body: String(body || '') }),
+    ticketAnswer: (key, approve, change) => invoke('ticket_answer', { key: String(key), approve: !!approve, change: typeof change === 'string' ? change : null }),
+    ticketSeen: key => invoke('ticket_seen', { key: String(key) }),
+    ticketSummary: key => invoke('ticket_summary', { key: String(key) }),
+    ticketClean: key => invoke('ticket_clean', { key: String(key) }),
     onSettings: on('settings'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),
     // overlay only
     petClick: id => invoke('pet_click', { id }),
