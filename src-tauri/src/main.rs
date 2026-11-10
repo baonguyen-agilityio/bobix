@@ -23,6 +23,7 @@ mod project;
 mod server;
 mod settings;
 mod skill_audit;
+mod habit_skills;
 mod skills;
 mod smoke;
 mod state;
@@ -388,6 +389,42 @@ fn usage_tick(b: &Arc<Bobix>) {
         changed
     };
     if changed { b.broadcast(); }
+    if habit_skills::due(&settings, &paths::data_dir(), state::now()) { thread::spawn(|| { habit_scan(); }); }
+}
+
+// Habits become skills (habit_skills.rs): your own `claude -p`, found the way your shell finds it.
+fn habit_run(model: &str, tools: &str, prompt: &str) -> Result<String, String> {
+    static BIN: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let bin = BIN.get_or_init(|| find_bin("claude")).clone().ok_or("claude is not installed (no `claude` on your PATH)")?;
+    let secs = if model == "haiku" { 180 } else { 420 };
+    habit_skills::claude(&bin, &paths::data_dir().join("habit-skills/work"), model, tools, prompt, secs)
+}
+fn habit_scan() -> Value { habit_skills::scan(&paths::home(), &paths::data_dir(), skill_audit::now_ms(), &habit_run) }
+
+// The Skills screen's "From your habits". act: view | scan | draft | approve | dismiss | restore | undo | remove; each
+// change only on the person's click. Answers the view after it (and { ok: false, error } when the act failed).
+#[tauri::command]
+async fn habit_skills(act: String, id: Option<String>, text: Option<String>, v: Option<u64>, b: B<'_>) -> Result<Value, ()> {
+    let st = b.core.lock().unwrap().settings.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (home, data, now, id) = (paths::home(), paths::data_dir(), skill_audit::now_ms(), id.unwrap_or_default());
+        let r = match act.as_str() {
+            "view" => json!({ "ok": true }),
+            "scan" if !habit_skills::on(&st) => json!({ "ok": false, "error": "turn on the weekly scan first" }),
+            "scan" => habit_scan(),
+            "draft" if !habit_skills::on(&st) => json!({ "ok": false, "error": "turn on the weekly scan first" }),
+            "draft" => habit_skills::draft(&home, &data, &id, now, &habit_run),
+            "approve" => habit_skills::approve(&home, &data, &id, text.as_deref().unwrap_or(""), now),
+            "dismiss" => habit_skills::dismiss(&data, &id),
+            "restore" => habit_skills::restore(&home, &data, &id, v.unwrap_or(u64::MAX), now),
+            "undo" => habit_skills::undo(&home, &data, &id, now),
+            "remove" => habit_skills::remove(&home, &data, &id),
+            _ => json!({ "ok": false, "error": "unknown" }),
+        };
+        let mut view = habit_skills::view(&home, &data, &st, now);
+        view["result"] = r;
+        view
+    }).await.map_err(|_| ())
 }
 
 // The price table, opened in the person's editor (written from the built-in one first if it isn't there).
@@ -1242,7 +1279,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

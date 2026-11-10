@@ -314,6 +314,10 @@ input[type=number]{width:104px}
 .badges{display:flex;flex-wrap:wrap;gap:6px}
 .fb .b-code{max-height:min(320px,40dvh)}
 
+/* from your habits */
+.hs-draft{width:100%;min-height:min(320px,42dvh);padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface-2);color:var(--ink);font:13px/1.5 var(--f-mono);resize:vertical}
+.hs-ev{display:flex;flex-wrap:wrap;gap:6px}
+.rows .row .mt{font-size:var(--t-xs);color:var(--ink-3)}
 /* setup */
 .sprite{display:grid;place-items:center;width:44px;height:44px;border-radius:var(--r-lg);background:var(--surface-2)}
 .sprite svg{width:100%;height:100%}
@@ -1698,7 +1702,7 @@ function skillItems() {
   const role = state.settings.role || '', pins = Object.keys(state.settings.skillPins || {}), picked = Object.entries(state.settings.habitsSkill || {});
   const it = [{ id: 'role', grp: 'you', kind: 'skills', lead: ico('user'), label: T('set.role'), sub: role ? ROLE_NAME[role] : T('set.role.none') },
     { id: 'mine', grp: 'you', kind: 'skills', lead: ico('pin'), label: T('set.skillPins'), sub: mySkills ? T('b.pinned', { n: pins.length, m: mySkills.length }) : T('work.loading') }];
-  const [top, skills] = audItems(); // the audit first, its long skill list after your role, skills and projects
+  const [top0, skills] = audItems(), top = [...hsItems(), ...top0]; // from your habits and the audit first, the long skill list last
   if (!procs || !procs.length) return [...top, ...it, { id: 'proc:', grp: 'projects', kind: 'skills', lead: ico('layers'), label: T('sk.projects'), sub: T(procs ? 'set.skillProcess.noProjects' : 'work.loading') }, ...skills];
   it.unshift(...top);
   for (const p of procs) {
@@ -1749,7 +1753,7 @@ function paintProcess() {
 }
 async function loadSkillLists() {
   if (!bridge) return;
-  loadAudit();
+  loadAudit(); loadHabits();
   [mySkills, procs] = await Promise.all([bridge.mySkills().catch(() => []), bridge.processStatus().catch(() => [])]);
   render();
   paintMine(); paintProcess();
@@ -1920,6 +1924,135 @@ async function skAct(d) {
     const x = await bridge.undoSkill(r.undo); if (!x?.ok) return skFail(at, x);
     toast(T(x.exact === false ? 'sk.rules.removedEdit' : 'sk.rules.removed')); }));
 }
+
+// ---------- From your habits (src-tauri/src/habit_skills.rs): a request you make every week becomes a skill of
+// your own. Off until Settings → Usage → "Read my prompts" and the weekly scan here are both on. Each draft, install,
+// version and removal is your click; Undo goes back one version. ----------
+// hs: { v: the view, busy: the item an act runs for, err: { id, text } }; hsText: your edits of each draft.
+let hs = { v: null, busy: '', err: null }, hsText = {}, hsPoll = 0;
+Object.assign(GRP, { habits: 'hs.grp' });
+async function loadHabits() {
+  if (!bridge?.habitSkills) return;
+  try { hs.v = await bridge.habitSkills('view'); } catch (e) { hs.err = { id: 'hs', text: T('sk.err', { e: String(e?.message || e) }) }; }
+  render();
+  clearTimeout(hsPoll);
+  if (hs.v?.scan?.busy && scope === 'skills') hsPoll = setTimeout(loadHabits, 3000); // a weekly scan runs: show it when done
+}
+const hsErr = id => (hs.err?.id === id ? `<p class="note err" role="alert">${esc(hs.err.text)}</p>` : '');
+const hsBusy = id => hs.busy === id;
+const hsWhy = w => T('hs.why.' + w);
+const per = (n, u) => (u ? (n / u).toFixed(1) : '0');
+function hsItems() {
+  if (!bridge?.habitSkills || !state) return [];
+  const v = hs.v, it = [], sc = v?.scan || {};
+  const sub = !v ? T('work.loading') : !v.content ? T('hs.sub.needContent') : !v.on ? T('hs.sub.off') : sc.busy ? T('hs.scanning')
+    : sc.error ? T('sk.err', { e: sc.error }) : sc.at ? T('hs.sub.on', { t: ago(sc.at), n: v.suggestions.length }) : T('hs.sub.first');
+  it.push({ id: 'hs', grp: 'habits', kind: 'board', lead: ico('bulb', v?.on ? 'ok' : ''), label: T('hs.label'), sub, cls: sc.error ? 'hot' : '', detail: hsHTML,
+    acts: !v ? [] : !v.content ? [[T('hs.goContent'), ['↵'], 'data-tab-go="settings" data-set="set:usage"']]
+      : v.on ? [[T('hs.scanNow'), ['↵'], `data-hs="scan"${sc.busy || hsBusy('hs') ? ' disabled' : ''}`], [T('hs.turnOff'), [CMD, '⌫'], 'data-hs="off"']] : [[T('hs.turnOn'), ['↵'], 'data-hs="on"']] });
+  if (!v) return it;
+  for (const x of v.suggestions) {
+    const id = 'hs:k:' + x.id;
+    it.push({ id, grp: 'habits', kind: 'board', lead: ico('bulb'), label: x.label, sub: `${T('hs.weeks', { a: x.weeks[0], b: x.weeks[1] })} · ${T('hs.act.' + x.action, { n: x.similar?.name || '' })}`,
+      detail: () => hsSuggHTML(x), acts: x.action === 'use' ? [[T('hs.dismiss'), ['↵'], `data-hs="dismiss" data-id="${esc(x.id)}"`]]
+        : x.draft ? [[T('hs.approve'), ['↵'], `data-hs="approve" data-id="${esc(x.id)}"`], [T('hs.dismiss'), [CMD, '⌫'], `data-hs="dismiss" data-id="${esc(x.id)}"`]]
+        : [[T('hs.draft'), ['↵'], `data-hs="draft" data-id="${esc(x.id)}"${hsBusy(id) ? ' disabled' : ''}`], [T('hs.dismiss'), [CMD, '⌫'], `data-hs="dismiss" data-id="${esc(x.id)}"`]] });
+  }
+  for (const m of v.made) {
+    const id = 'hs:m:' + m.name, prev = m.versions.some(x => x.v < m.cur), acts = [];
+    if (m.draft) acts.push([T('hs.approve'), ['↵'], `data-hs="approve" data-id="m:${esc(m.name)}"`]);
+    else if (m.improve) acts.push([T('hs.improve'), ['↵'], `data-hs="draft" data-id="m:${esc(m.name)}"${hsBusy(id) ? ' disabled' : ''}`]);
+    if (m.remove) acts.push([T('hs.remove'), [CMD, '⌫'], `data-hs="remove" data-id="${esc(m.name)}"`]);
+    if (m.onDisk && (prev || m.made)) acts.push([T('sk.undo'), [CMD, 'Z'], `data-hs="undo" data-id="${esc(m.name)}"`]);
+    it.push({ id, grp: 'habits', kind: 'board', lead: ico('skills', m.improve || m.remove ? 'hot' : 'ok'), label: m.name, mono: true,
+      sub: !m.onDisk ? T('hs.gone') : [T('hs.v', { v: m.cur }), T('sk.uses.n', { n: m.uses }), m.improve ? T('hs.improveDue') : m.remove ? T('hs.removeDue', { n: v.rules.unusedDays }) : ''].filter(Boolean).join(' · '),
+      detail: () => hsMadeHTML(m), acts });
+  }
+  return it;
+}
+function hsHTML() {
+  const v = hs.v, sc = v?.scan || {};
+  if (!v) return `${head(ico('bulb', 'lg'), T('hs.t'))}${hsErr('hs')}<p class="note">${esc(T('work.loading'))}</p>`;
+  const state1 = !v.content ? `<p class="note">${esc(T('hs.needContent'))}</p><div class="acts" style="margin:0"><button class="btn pri" type="button" data-tab-go="settings" data-set="set:usage">${esc(T('hs.goContent'))}</button></div>`
+    : !v.on ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="on">${esc(T('hs.turnOn'))}</button></div>`
+    : `<dl class="kv"><dt>${esc(T('hs.last'))}</dt><dd>${sc.busy ? esc(T('hs.scanning')) : sc.at ? esc(ago(sc.at)) + (sc.prompts != null ? ` · ${esc(T('hs.prompts', { n: sc.prompts }))}` : '') : esc(T('hs.never'))}</dd>
+        <dt>${esc(T('hs.next'))}</dt><dd>${sc.next ? esc(new Date(sc.next).toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' })) : esc(T('hs.soon'))}</dd>
+        <dt>${esc(T('hs.found'))}</dt><dd>${esc(T('hs.found.n', { n: v.suggestions.length, m: v.made.length }))}</dd></dl>
+      ${sc.error ? `<p class="note err" role="alert">${esc(T('sk.err', { e: sc.error }))}</p>` : ''}
+      <div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="scan"${sc.busy || hsBusy('hs') ? ' disabled' : ''}>${ic('refresh')}${esc(T(sc.busy || hsBusy('hs') ? 'hs.scanning' : 'hs.scanNow'))}</button><button class="btn" type="button" data-hs="off">${esc(T('hs.turnOff'))}</button></div>
+      ${!v.suggestions.length && sc.at && !sc.busy ? `<p class="blank">${esc(T('hs.none'))}</p>` : ''}`;
+  return `${head(ico('bulb', 'lg'), T('hs.t'), T('hs.note'))}${hsErr('hs')}${state1}
+    <section class="b-sec"><h3>${esc(T('hs.how'))}</h3><ul class="guide-more" style="margin:0">${['hs.how.1', 'hs.how.2', 'hs.how.3', 'hs.how.4'].map(k => `<li>${esc(T(k, { n: v.rules.unusedDays }))}</li>`).join('')}</ul></section>
+    <p class="note">${esc(T('hs.privacy'))}</p>`;
+}
+// The draft, editable before you approve it; what you approve is what goes to ~/.claude/skills.
+function hsDraftHTML(key, d, where) {
+  const text = hsText[key] ?? d.text;
+  return `<section class="b-sec"><h3>${esc(T('hs.draftT', { n: d.name }))}</h3><p class="note">${esc(where)}</p>
+    <textarea class="hs-draft" data-hs-text="${esc(key)}" data-f="hs-text:${esc(key)}" spellcheck="false" aria-label="${esc(T('hs.draftT', { n: d.name }))}">${esc(text)}</textarea>
+    <div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="approve" data-id="${esc(key)}">${ic('check')}${esc(T('hs.approve'))}</button>
+      <button class="btn" type="button" data-hs="draft" data-id="${esc(key)}">${ic('refresh')}${esc(T('hs.redraft'))}</button>
+      <button class="btn" type="button" data-hs="dismiss" data-id="${esc(key)}">${esc(T(key.startsWith('m:') ? 'hs.discard' : 'hs.dismiss'))}</button></div></section>`;
+}
+function hsSuggHTML(x) {
+  const id = 'hs:k:' + x.id, sim = x.similar;
+  const simHTML = sim ? `<p class="note">${esc(T('hs.sim.' + x.action, { n: sim.name, s: T('skill.src.' + sim.source) }))}</p>${sim.description ? `<p class="note"><code>/${esc(sim.name)}</code> · ${esc(sim.description)}</p>` : ''}` : '';
+  const body = x.action === 'use' ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-hs="dismiss" data-id="${esc(x.id)}">${esc(T('hs.dismiss'))}</button></div>`
+    : x.draft ? hsDraftHTML(x.id, x.draft, x.action === 'improve' ? T('hs.whereImprove', { p: '~/.claude/skills/' + x.draft.name }) : T('hs.whereNew', { p: '~/.claude/skills/' + x.draft.name }))
+    : `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="draft" data-id="${esc(x.id)}"${hsBusy(id) ? ' disabled' : ''}>${esc(T(hsBusy(id) ? 'hs.drafting' : x.action === 'improve' ? 'hs.draftImprove' : 'hs.draft'))}</button>
+        <button class="btn" type="button" data-hs="dismiss" data-id="${esc(x.id)}">${esc(T('hs.dismiss'))}</button></div><p class="note">${esc(T('hs.draftNote'))}</p>`;
+  return `${head(ico('bulb', 'lg'), x.label, x.summary)}${hsErr(id)}
+    <div class="b-stats four"><div class="b-stat"><b>${x.weeks[0]}</b><span>${esc(T('hs.wk.prev'))}</span></div><div class="b-stat"><b>${x.weeks[1]}</b><span>${esc(T('hs.wk.last'))}</span></div>
+      <div class="b-stat"><b>${x.sessions}</b><span>${esc(T('hs.sessions'))}</span></div><div class="b-stat"><b>${esc(T('hs.act.short.' + x.action))}</b><span>${esc(T('hs.proposal'))}</span></div></div>
+    <p class="note">${esc(T('hs.evidence.habit'))}</p>${simHTML}${body}`;
+}
+function hsMadeHTML(m) {
+  const id = 'hs:m:' + m.name, e = m.evidence || {}, u = m.fresh ? e.uses || 0 : 0, r = hs.v.rules;
+  const ev = e.at && !m.fresh ? `<p class="note">${esc(T('hs.ev.old', { t: ago(e.at) }))}</p>` : e.at ? `<div class="hs-ev"><span class="badge">${esc(T('hs.ev.uses', { n: u }))}</span><span class="badge${u >= r.minUses && e.edits / u >= r.editsPerUse ? ' warn' : ''}">${esc(T('hs.ev.edits', { n: per(e.edits, u) }))}</span>
+      <span class="badge${u >= r.minUses && e.fixes / u >= r.fixesPerUse ? ' warn' : ''}">${esc(T('hs.ev.fixes', { n: per(e.fixes, u) }))}</span><span class="badge">${esc(T('hs.ev.tokens', { n: kTok(u ? e.tokens / u : 0) }))}</span></div>
+      <p class="note">${esc(T(m.improve ? 'hs.ev.due' : 'hs.ev.notYet', { u: r.minUses, e: r.editsPerUse, f: r.fixesPerUse, t: ago(e.at) }))}</p>` : `<p class="note">${esc(T('hs.ev.none'))}</p>`;
+  const vers = [...m.versions].sort((a, b) => b.v - a.v);
+  return `<div class="b-dh">${ico('skills', 'lg')}<div><h2 style="font-family:var(--f-mono);font-size:15px">${esc(m.name)}</h2><p class="note">${esc(m.made ? T('hs.madeBy', { k: m.kind || '' }) : T('hs.changedBy'))}</p></div></div>${hsErr(id)}
+    <div class="badges">${m.onDisk ? `<span class="badge ok">${esc(T('hs.v', { v: m.cur }))}</span>` : `<span class="badge warn">${esc(T('hs.gone'))}</span>`}${m.improve ? `<span class="badge warn">${esc(T('hs.improveDue'))}</span>` : ''}${m.remove ? `<span class="badge warn">${esc(T('hs.removeDue', { n: r.unusedDays }))}</span>` : ''}</div>
+    <dl class="kv"><dt>${esc(T('sk.folder'))}</dt><dd><code>${esc(home(m.path))}</code></dd><dt>${esc(T('sk.uses'))}</dt><dd>${m.uses}</dd><dt>${esc(T('sk.lastUsed'))}</dt><dd>${esc(m.lastUsed ? ago(m.lastUsed) : T('sk.never'))}</dd></dl>
+    <section class="b-sec"><h3>${esc(T('hs.evidence'))}</h3>${ev}</section>
+    ${m.draft ? hsDraftHTML('m:' + m.name, m.draft, T('hs.whereImprove', { p: home(m.path) })) : m.improve ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="draft" data-id="m:${esc(m.name)}"${hsBusy(id) ? ' disabled' : ''}>${esc(T(hsBusy(id) ? 'hs.drafting' : 'hs.improve'))}</button></div>` : ''}
+    ${m.remove ? `<p class="note">${esc(T('hs.removeNote', { n: r.unusedDays }))}</p><div class="acts" style="margin:0"><button class="btn danger" type="button" data-hs="remove" data-id="${esc(m.name)}">${esc(T('hs.remove'))}…</button></div>` : ''}
+    <section class="b-sec"><h3>${esc(T('hs.history'))}</h3><ul class="rows">${vers.map(x => `<li><div class="row">${ico(x.why === 'original' ? 'user' : x.why === 'edit' ? 'file' : 'clock', x.v === m.cur ? 'ok' : '')}<span class="b-tx"><span class="lb">${esc(T('hs.v', { v: x.v }))} · ${esc(hsWhy(x.why))}</span><span class="sb">${esc(ago(x.at))}${x.evidence?.uses ? ' · ' + esc(T('hs.ev.uses', { n: x.evidence.uses })) : ''}</span></span>
+      <span class="acts">${x.v === m.cur ? `<span class="badge accent">${esc(T('hs.current'))}</span>` : m.onDisk ? `<button class="btn sm" type="button" data-hs="restore" data-id="${esc(m.name)}" data-v="${x.v}">${esc(T('hs.restore'))}</button>` : ''}</span></div></li>`).join('')}</ul>
+      ${m.onDisk ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-hs="undo" data-id="${esc(m.name)}">${esc(T('sk.undo'))}</button></div><p class="note">${esc(T(m.versions.some(x => x.v < m.cur) ? 'hs.undoNote' : 'hs.undoFirst'))}</p>` : `<p class="note">${esc(T('hs.goneNote'))}</p>`}</section>`;
+}
+async function hsDo(itemId, act, id, text, v) {
+  hs.busy = itemId; hs.err = null; render();
+  try {
+    const r = await bridge.habitSkills(act, id, text, v);
+    if (r?.suggestions) hs.v = r;
+    const x = r?.result;
+    if (x && x.ok === false) hs.err = { id: itemId, text: T('sk.err', { e: x.error || '?' }) };
+    else if (act === 'approve') { delete hsText[id]; toast(T('hs.installed', { n: x.name, v: x.v })); bsel.skills = 'hs:m:' + x.name; nextFocus = 'it:hs:m:' + x.name; }
+    else if (act === 'undo' || act === 'restore') toast(x.removed ? T('hs.removedUndo') : T('hs.restored', { v: x.v }));
+    else if (act === 'remove') toast(T('hs.removedUndo'));
+    else if (act === 'dismiss') delete hsText[id];
+  } catch (e) { hs.err = { id: itemId, text: T('sk.err', { e: String(e?.message || e) }) }; }
+  hs.busy = '';
+  render();
+  if (act === 'remove' || (act === 'undo' && hs.v)) loadAudit(); // the removal's backup shows in Backups
+}
+async function hsAct(d) {
+  if (!bridge?.habitSkills) return;
+  const at = cur?.id || 'hs';
+  if (d.hs === 'on' || d.hs === 'off') { await bridge.setSettings({ habitScan: d.hs === 'on' }); state.settings.habitScan = d.hs === 'on'; return loadHabits(); }
+  if (d.hs === 'scan') { hs.v && (hs.v.scan.busy = true); await hsDo('hs', 'scan'); return loadHabits(); }
+  if (d.hs === 'draft') return hsDo(at, 'draft', d.id);
+  if (d.hs === 'approve') { const sug = hs.v?.suggestions.find(x => x.id === d.id), m = hs.v?.made.find(x => 'm:' + x.name === d.id), dr = sug?.draft || m?.draft; if (!dr) return;
+    return hsDo(at, 'approve', d.id, hsText[d.id] ?? dr.text); }
+  if (d.hs === 'dismiss') return hsDo(at, 'dismiss', d.id);
+  if (d.hs === 'undo') return hsDo(at, 'undo', d.id);
+  if (d.hs === 'restore') return hsDo(at, 'restore', d.id, null, Number(d.v));
+  if (d.hs === 'remove') return skAsk(T('hs.removeQ', { n: d.id }), T('hs.removeBody', { p: '~/.claude/skills/' + d.id }), '', T('hs.remove'), () => hsDo(at, 'remove', d.id));
+}
+for (const el of [$('#b-dyn'), $('#b-bar')]) el.addEventListener('click', e => { const b = e.target.closest('button[data-hs]'); if (b && !b.disabled) hsAct(b.dataset); });
+$('#b-dyn').addEventListener('input', e => { const k = e.target.dataset?.hsText; if (k !== undefined) hsText[k] = e.target.value; });
 
 // ---------- Settings: one item per section, then habits, Setup (connect Claude Code) and feedback ----------
 const SET_ICON = { place: 'paw', look: 'eye', notify: 'bell', stuck: 'clock', usage: 'gauge', work: 'work', app: 'app', advanced: 'cpu' };

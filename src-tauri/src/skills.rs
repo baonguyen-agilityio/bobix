@@ -32,7 +32,7 @@ fn push(out: &mut Vec<Skill>, s: Skill, m: Mode) { if m.all || !out.iter().any(|
 
 // `key: value` lines of a SKILL.md's front matter (between the first two "---" lines). A value may be quoted, or a
 // YAML block (">" / "|") on the indented lines after it.
-fn front_matter(text: &str) -> Vec<(String, String)> {
+pub fn front_matter(text: &str) -> Vec<(String, String)> {
     let mut lines = text.lines();
     if lines.next().map(str::trim) != Some("---") { return vec![]; }
     let body: Vec<&str> = lines.take_while(|l| l.trim() != "---").collect();

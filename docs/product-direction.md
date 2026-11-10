@@ -133,7 +133,9 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 - Scanning without the opt-in.
 
 **Open questions**
-- None recorded yet. The scan waits for the step 1 opt-in.
+- Built in [#113](https://github.com/baonguyen-agilityio/bobix/issues/113). The weekly scan has a switch of its own besides the step 1 opt-in, because it sends prompts to Haiku rather than only counting them.
+- "Similar skill" is a word-overlap test (the skills audit's), not a judgement by a model; it may miss a skill worded differently.
+- The thresholds for "improve on evidence" (3 uses, then 3 follow-up prompts or 1 fix request per use) are first guesses.
 
 ## 5. War room over Tailscale
 

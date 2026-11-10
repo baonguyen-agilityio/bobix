@@ -39,7 +39,7 @@ pub fn now_ms() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.
 type Hits = Vec<(String, u64)>;
 static SEEN: Mutex<Option<HashMap<PathBuf, (u64, SystemTime, bool, Hits)>>> = Mutex::new(None);
 
-fn transcripts(projects: &Path, since: SystemTime) -> Vec<(PathBuf, fs::Metadata)> {
+pub fn transcripts(projects: &Path, since: SystemTime) -> Vec<(PathBuf, fs::Metadata)> {
     let mut out = vec![];
     let mut add = |p: PathBuf| if let Ok(m) = fs::metadata(&p) {
         if m.is_file() && m.modified().is_ok_and(|t| t >= since) { out.push((p, m)); }
@@ -109,7 +109,7 @@ pub fn uses(projects: &Path, now: u64, slash: bool) -> HashMap<String, (u32, u64
 
 fn base(name: &str) -> String { name.rsplit(':').next().unwrap_or(name).to_lowercase() }
 
-fn words(s: &str) -> HashSet<String> {
+pub fn words(s: &str) -> HashSet<String> {
     s.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() > 2).map(String::from).collect()
 }
 

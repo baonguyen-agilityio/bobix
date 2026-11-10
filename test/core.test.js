@@ -1063,3 +1063,16 @@ test('skills audit: every string of the Skills screen in both languages, with th
   for (const k of keys) assert.equal(vars(I18N.STR.vi[k] || ''), vars(I18N.STR.en[k]), `vi ${k}`);
   for (const k of keys) assert.ok(I18N.STR.vi[k], `vi ${k}`);
 });
+
+test('habits become skills: every string in both languages, and every one the panel uses exists', () => {
+  const I18N = require('../src/ui/i18n');
+  const vars = s => (s.match(/\{\w+\}/g) || []).sort().join();
+  const keys = Object.keys(I18N.STR.en).filter(k => k.startsWith('hs.'));
+  for (const k of keys) assert.equal(vars(I18N.STR.vi[k] || '-'), vars(I18N.STR.en[k]), `vi ${k}`);
+  for (const k of Object.keys(I18N.STR.vi).filter(k => k.startsWith('hs.'))) assert.ok(I18N.STR.en[k], `en ${k}`);
+  const html = require('fs').readFileSync(require('path').join(__dirname, '../src/ui/panel.html'), 'utf8');
+  const used = new Set([...html.matchAll(/T\('(hs\.[\w.]*\w)'/g)].map(m => m[1]));
+  for (const pre of ['hs.why.', 'hs.act.', 'hs.act.short.', 'hs.how.']) for (const w of ['new', 'improve', 'edit', 'original', 'create', 'use', '1', '2', '3', '4']) if (I18N.STR.en[pre + w]) used.add(pre + w);
+  assert.ok(used.size > 50, `${used.size}`);
+  for (const k of used) assert.ok(I18N.STR.en[k], `missing ${k}`);
+});

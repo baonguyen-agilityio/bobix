@@ -255,14 +255,17 @@ impl Tally {
 }
 
 // A prompt's kind, or None for what isn't one (tool results, Claude Code's own tagged messages).
-fn prompt_kind(c: &Value) -> Option<&'static str> {
+fn prompt_kind(c: &Value) -> Option<&'static str> { prompt_text(c).map(|t| task_kind(&t)) }
+
+// A user line's text when it is a prompt you typed (not a tool result or Claude Code's own tagged message).
+pub fn prompt_text(c: &Value) -> Option<String> {
     let text = match c {
         Value::String(s) => s.clone(),
         Value::Array(a) if a.iter().all(|x| x["type"] == "text") => a.iter().filter_map(|x| x["text"].as_str()).collect::<Vec<_>>().join("\n"),
         _ => return None,
     };
     let t = text.trim_start();
-    (!t.is_empty() && !t.starts_with('<') && !t.starts_with("[Request interrupted")).then(|| task_kind(t))
+    (!t.is_empty() && !t.starts_with('<') && !t.starts_with("[Request interrupted")).then(|| t.to_string())
 }
 
 // <dir>/<session>.jsonl → <dir>/<session>/subagents/*.jsonl
