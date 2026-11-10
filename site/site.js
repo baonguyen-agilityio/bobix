@@ -1,4 +1,4 @@
-// Bobix site: OS tabs in the install section, copy buttons for the terminal lines, and the demo video playing only while on screen.
+// Bobix site: OS tabs in the install section, and copy buttons for the terminal lines.
 (() => {
   const me = document.currentScript.dataset, $$ = s => [...document.querySelectorAll(s)];
   const tabs = $$('.ostabs [role=tab]');
@@ -23,10 +23,4 @@
     catch { b.textContent = me.fail; }
     setTimeout(() => { b.textContent = me.copy; }, 1500);
   }));
-
-  // Muted, looping demo: it plays while at least a quarter is visible, unless the visitor prefers reduced motion.
-  const v = document.querySelector('.screen video');
-  if (v && 'IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    new IntersectionObserver(([e]) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); }, { threshold: 0.25 }).observe(v);
-  }
 })();
