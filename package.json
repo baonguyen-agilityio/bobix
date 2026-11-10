@@ -1,7 +1,7 @@
 {
   "name": "bobix",
   "version": "0.2.0-rc.4",
-  "description": "Your Claude Code sessions as pets on your desktop, with a control panel and notifications.",
+  "description": "A personal assistant for working well with Claude Code: a pet per session, approvals, usage per session and a skills audit.",
   "license": "MIT",
   "private": true,
   "scripts": {

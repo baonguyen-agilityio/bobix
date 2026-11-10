@@ -356,26 +356,19 @@ input[type=number]{width:104px}
 .fb .b-code{max-height:min(320px,40dvh)}
 
 /* setup */
-.hero{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s4);align-items:center}
-.hero .sprite{width:72px;height:72px;border-radius:var(--r-lg)}
-.hero h2{font-size:var(--t-xl);margin-bottom:var(--s1)}
-.hero .note{margin:0 0 var(--s3)}
 .sprite{display:grid;place-items:center;width:44px;height:44px;border-radius:var(--r-lg);background:var(--surface-2)}
 .sprite svg{width:100%;height:100%}
-.state{display:inline-flex;align-items:center;gap:var(--s2);padding:2px var(--s3);border-radius:999px;font-weight:600;font-size:var(--t-xs)}
-.state.ok{background:var(--ok-bg);color:var(--ok)}.state.bad{background:var(--accent-bg);color:var(--accent-ink)}
-#setup{display:flex;flex-direction:column;gap:var(--s4)}
+/* Settings → Connect Claude Code: the same header, sections and rows as the other settings panes */
+#setup .b-dh .badge{margin-top:6px}
+#setup .sec{padding-bottom:var(--s3)}
+#setup .sec>h2+.opt{border-top:0}
+#setup .sec>.note,#setup .sec>.acts{margin:var(--s3) 0 0}
+#setup .opt .lbl .badge{margin-right:var(--s2)}
 #setup .kv{grid-template-columns:minmax(0,160px) minmax(0,1fr)}
 .guide{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--s3) var(--s6)}
 .guide li{display:grid;grid-template-columns:40px minmax(0,1fr);gap:var(--s3);align-items:center;font-size:var(--t-sm)}
 .guide .sprite{width:40px;height:40px}.guide .st-waiting .sprite{background:var(--accent-bg);box-shadow:inset 0 0 0 1px var(--accent)}.guide .st-done .sprite{background:var(--ok-bg)}.guide .st-idle .sprite svg{opacity:.6}
 .guide-more{margin:var(--s4) 0 0;padding-left:1.2em;font-size:var(--t-sm);display:grid;gap:var(--s2)}
-.steps{list-style:none;margin:0;padding:0}
-.steps li{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:var(--s3);align-items:center;padding:var(--s3) 0;border-top:1px solid var(--line)}
-.steps .num{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:var(--t-xs);background:var(--surface-3)}
-.steps li.done .num{background:var(--ink);color:var(--surface)}
-.steps .lbl{font-weight:500}
-.steps .desc{font-size:var(--t-xs);color:var(--ink-3)}
 
 /* dialogs: the Start box, stand-up, report, feedback, the pet picture */
 .fb{width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:var(--s5,20px);border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);box-shadow:var(--pop)}
@@ -663,6 +656,7 @@ function statusText(s, st) {
 }
 const line2 = (s, st) => st === 'done' && s.summary ? T('line.report') + s.summary : s.quest || T('line.noQuest');
 function logHTML(l, open) {
+  if (l.kind === 'start' && I18N.STR.en[`log.start.${l.text}`]) return esc(T(`log.start.${l.text}`)); // the hook's source (startup, resume…) in words
   if (l.kind !== 'tool') return esc(T(`log.${l.kind}`, { x: l.text }));
   const tool = esc(LOG.cap(I18N.toolLabel(lang, l.tool), I18N.pick(lang))), n = l.n > 1 ? `<span class="n">×${l.n}</span>` : '';
   return (l.text ? T('log.tool', { tool, x: `<span class="arg" title="${esc(l.text)}">${esc(open ? l.text : LOG.mid(l.text)).replace(/\//g, '/<wbr>')}</span>` }) : tool) + n;
@@ -1468,17 +1462,13 @@ async function renderSetup(note) {
     ['setup.step3', false, ''],
   ];
   const linuxNote = state.platform === 'linux' ? `<p class="note">${esc(T('setup.focusNote.linux'))}</p>` : '';
-  box.innerHTML = `
-    <div class="card hero">
-      <span class="sprite">${creature('bobix', ok ? 'done' : 'idle')}</span>
-      <div><h2>${T('setup.title')}</h2><p class="note">${T('setup.body')}</p><span class="state ${ok ? 'ok' : 'bad'}" role="status">${esc(stateText)}</span></div>
-    </div>
-    <div class="card"><h2>${T('setup.steps')}</h2><ol class="steps">${steps.map(([k, done, act], i) => `
-      <li class="${done ? 'done' : ''}"><span class="num" aria-hidden="true">${i + 1}</span>
-        <div><div class="lbl">${T(k)}</div><div class="desc">${T(k + '.desc')}</div></div><div>${act}</div></li>`).join('')}</ol>
+  box.innerHTML = `<div class="b-dh">${ico('plug', 'lg')}<div><h2>${T('setup.title')}</h2><p class="note">${T('setup.body')}</p>
+      <span class="badge ${ok ? 'ok' : 'accent'}" role="status">${esc(stateText)}</span></div></div>
+    <section class="sec"><h2>${T('setup.steps')}</h2>${steps.map(([k, done, act], i) => `
+      <div class="opt"><div><div class="lbl"><span class="badge ${done ? 'ok' : ''}" aria-hidden="true">${i + 1}</span>${T(k)}</div><div class="desc">${T(k + '.desc')}</div></div>${act ? `<div class="ctl">${act}</div>` : ''}</div>`).join('')}
       ${note ? `<p class="note ${note.err ? 'err' : ''}">${esc(note.text)}</p>` : ''}
-    </div>
-    <div class="card"><h2>${T('setup.details')}</h2>
+    </section>
+    <section class="sec"><h2>${T('setup.details')}</h2>
       <dl class="kv">
         <dt>${T('setup.mode')}</dt><dd>${h.mode ? T('setup.mode.' + h.mode) : '–'}</dd>
         <dt>${T('setup.port')}</dt><dd>${h.port ?? '–'}</dd>
@@ -1488,11 +1478,11 @@ async function renderSetup(note) {
       <div class="acts"><button class="btn" type="button" data-act="diag">${T('setup.diag')}</button></div>
       ${!state.nodePath ? `<p class="note">${T('setup.noNode', { mode: state.platform === 'win32' ? 'PowerShell' : 'curl' })}</p>` : ''}
       ${linuxNote}
-    </div>
-    <div class="card" id="guide"><h2>${esc(T('guide.title'))}</h2>${guideHTML()}
-      <div class="acts"><button class="btn" type="button" data-act="tour">${T('set.tour.open')}</button></div></div>
-    ${h.events.length ? `<div class="card"><h2>${T('setup.remove.title')}</h2><p class="note">${T('setup.remove.body')}</p>
-      <div class="acts"><button class="btn danger" type="button" data-act="uninstall">${T('setup.uninstall')}</button></div></div>` : ''}`;
+    </section>
+    <section class="sec" id="guide"><h2>${esc(T('guide.title'))}</h2>${guideHTML()}
+      <div class="acts"><button class="btn" type="button" data-act="tour">${T('set.tour.open')}</button></div></section>
+    ${h.events.length ? `<section class="sec"><h2>${T('setup.remove.title')}</h2><p class="note">${T('setup.remove.body')}</p>
+      <div class="acts"><button class="btn danger" type="button" data-act="uninstall">${T('setup.uninstall')}</button></div></section>` : ''}`;
 }
 $('#setup').addEventListener('click', async e => {
   const act = e.target.closest('button')?.dataset.act;
@@ -2309,7 +2299,7 @@ async function tourShow() {
   if (step.alt && !tourTarget(step.at)) tourGo(step.alt.tab, step.alt.item);
   const target = tourTarget(step.at) || (step.alt && tourTarget(step.alt.at));
   const art = step.art ? `<div class="tour-art" aria-hidden="true">${['working', 'waiting', 'done', 'idle'].map(k => `<span class="st-${k}"><span class="sprite">${creature('bobix', k)}</span></span>`).join('')}</div>` : '';
-  $('#tour-pop').innerHTML = `<span class="n">${tourAt + 1} / ${n}</span><h2 id="tour-h">${esc(T(`tour.${step.key}.title`))}</h2>${art}<p>${esc(T(`tour.${step.key}.body`))}</p>
+  $('#tour-pop').innerHTML = `<span class="n">${tourAt + 1} / ${n}</span><h2 id="tour-h">${esc(T(`tour.${step.key}.title`))}</h2>${art}<p>${esc(T(`tour.${step.key}.body`, { key: CMD === '⌘' ? '⌘K' : 'Ctrl+K' }))}</p>
     <div class="acts">${last ? '' : `<button class="btn ghost skip" type="button" data-tour="skip">${T('tour.skip')}</button>`}${tourAt ? `<button class="btn" type="button" data-tour="back">${T('tour.back')}</button>` : ''}<button class="btn pri" type="button" data-tour="next">${T(last ? 'tour.done' : 'tour.next')}</button></div>`;
   target?.scrollIntoView({ block: 'center', behavior: 'instant' });
   tourPlace(target);

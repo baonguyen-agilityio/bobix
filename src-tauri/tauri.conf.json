@@ -36,8 +36,8 @@
     },
     "publisher": "Bobix contributors",
     "category": "DeveloperTool",
-    "shortDescription": "Your Claude Code sessions as pets on your desktop.",
-    "longDescription": "Your Claude Code sessions as pets on your desktop, with a control panel and notifications.",
+    "shortDescription": "A personal assistant for working well with Claude Code.",
+    "longDescription": "A personal assistant for working well with Claude Code: a pet per session on your desktop, approvals from the pet or a notification, usage per session, and a skills audit.",
     "homepage": "https://github.com/baonguyen-agilityio/bobix",
     "windows": {
       "nsis": {

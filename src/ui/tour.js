@@ -6,18 +6,18 @@
   // the middle), and its strings tour.<key>.title / tour.<key>.body. open: what the panel opens first: a ticket (one with a ⚠ if there is one), or the Start box of the issue Next up suggests.
   // alt: where to point instead when none of `at` is there (another screen).
   const STEPS = [
-    { key: 'pets', tab: 'settings', item: 'set:place', at: ['#preview'], art: true },
+    { key: 'flat', tab: 'settings', item: 'set:place', at: ['#preview'], art: true },
+    { key: 'launcher', tab: 'overview', at: ['.b-search'] },
     { key: 'ondemand', tab: 'settings', item: 'set:place', at: ['[data-row="petMode"]'] },
     { key: 'dnd', tab: 'settings', item: 'set:notify', at: ['[data-row="dnd"]'] },
     { key: 'board', tab: 'sessions', at: ['#b-list'] },
-    { key: 'stages', tab: 'sessions', at: ['#b-dyn .stg', '[data-grp="doing"]'], open: 'ticket' },
     { key: 'stuck', tab: 'overview', at: ['[data-grp="stuck"]'], alt: { tab: 'settings', item: 'set:stuck', at: ['[data-row="stuckOn"]'] } },
     { key: 'next', tab: 'sessions', item: 'next', at: ['[data-bsel="next"]', '[data-grp="todo"]'] },
     { key: 'skill', tab: 'sessions', at: ['#st-skills'], open: 'start', alt: { tab: 'skills', item: 'role', at: ['#sk-role'] } },
     { key: 'skills', tab: 'skills', at: ['#b-list'] },
+    { key: 'audit', tab: 'skills', item: 'aud', at: ['[data-grp="audit"]'] },
+    { key: 'usage', tab: 'overview', item: 'today', at: ['#d-use'] },
     { key: 'standup', tab: 'overview', item: 'today', at: ['#b-dyn [data-standup]'] },
-    { key: 'wait', tab: 'overview', at: ['[data-grp="aq"] .wt'], alt: { tab: 'settings', item: 'set:notify', at: ['[data-row="longWait"]'] } },
-    { key: 'allow', tab: 'overview', at: ['[data-grp="aq"]', '#b-list'] },
   ];
 
   const GAP = 12, EDGE = 12, NARROW = 560;

@@ -193,7 +193,7 @@ impl Bobix {
             let aid = if kind == "waiting" && cfg!(target_os = "macos") { s.answer.as_ref().and_then(|a| a["id"].as_str()).map(String::from) } else { None };
             let body = if kind == "waiting" { s.ask.clone() } else if s.summary.is_empty() { s.quest.clone() } else { s.summary.clone() };
             (notify::Note { title: i18n::t(&l, &format!("notify.{kind}"), &[("name", name)]), body, sound: st["sound"] == true,
-                buttons: aid.as_ref().map(|_| (i18n::t(&l, "ask.allow", &[]), i18n::t(&l, "ask.deny", &[]))) }, aid)
+                buttons: aid.as_ref().map(|_| (i18n::t(&l, "ask.allow", &[]), i18n::t(&l, "ask.deny", &[]))), open: i18n::t(&l, "notify.open", &[]) }, aid)
         };
         let (b, id) = (self.clone(), id.to_string());
         notify::show(note, move |r| match (r, aid) {
@@ -639,7 +639,7 @@ fn check_for_update(b: &Arc<Bobix>) {
     };
     tray::build(app, b);
     if !tell { return; }
-    let note = notify::Note { title: i18n::t(&l, "update.title", &[("v", &v)]), body: i18n::t(&l, "update.body", &[("v", &current)]), sound: true, buttons: None };
+    let note = notify::Note { title: i18n::t(&l, "update.title", &[("v", &v)]), body: i18n::t(&l, "update.body", &[("v", &current)]), sound: true, buttons: None, open: i18n::t(&l, "notify.open", &[]) };
     notify::show(note, move |_| { let _ = tauri_plugin_opener::open_url(url, None::<&str>); });
 }
 
@@ -715,7 +715,7 @@ fn on_second_start(b: &Arc<Bobix>, version: String) {
     let mine = app.package_info().version.to_string();
     if version.is_empty() || version == mine { return; }
     let l = lang(&b.core.lock().unwrap().settings);
-    notify::show(notify::Note { title: i18n::t(&l, "other.title", &[("v", &version)]), body: i18n::t(&l, "other.body", &[("v", &mine)]), sound: true, buttons: None }, |_| {});
+    notify::show(notify::Note { title: i18n::t(&l, "other.title", &[("v", &version)]), body: i18n::t(&l, "other.body", &[("v", &mine)]), sound: true, buttons: None, open: i18n::t(&l, "notify.open", &[]) }, |_| {});
 }
 
 // ---------- commands the pages call (window.bobix, see bridge.js) ----------
@@ -1074,9 +1074,10 @@ async fn pet_choose(id: String, b: B<'_>, app: AppHandle) -> Result<Value, ()> {
     use base64::Engine;
     use tauri_plugin_dialog::DialogExt;
     let Some(project) = project_of(&b, &id) else { return Ok(json!({ "ok": false })) };
-    let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "pane.petPick", &[]);
+    let l = lang(&b.core.lock().unwrap().settings);
+    let (title, images) = (i18n::t(&l, "pane.petPick", &[]), i18n::t(&l, "pane.petPick.images", &[]));
     tauri::async_runtime::spawn_blocking(move || {
-        let mut d = app.dialog().file().set_title(title).add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]);
+        let mut d = app.dialog().file().set_title(title).add_filter(&images, &["png", "jpg", "jpeg", "gif", "webp"]);
         if let Some(w) = app.get_webview_window(panel::LABEL) { d = d.set_parent(&w); }
         let Some(path) = d.blocking_pick_file().and_then(|f| f.into_path().ok()) else { return json!({ "ok": false }) };
         let bytes = match std::fs::metadata(&path) {
