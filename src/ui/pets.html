@@ -99,6 +99,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .card .need code{display:block;margin-top:2px;font:500 12px/1.4 var(--f-mono);color:var(--ink-2);overflow-wrap:anywhere}
 .card .need.waiting{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink)}
 .card .need.done{background:var(--mint-soft)}
+.card .use{margin-top:var(--s2)}
+.card .need.use{margin:var(--s2) 0 0;background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink)}
 .card .need.ctx{background:oklch(96.5% .04 98);border-color:oklch(78% .1 90)} /* --butter, lightened (color-mix in oklch turned it cyan) */
 .card .answer{margin-left:0}
 #odCorner{position:fixed;right:12px;bottom:12px;z-index:5;display:flex;align-items:center;gap:var(--s1)}
@@ -127,6 +129,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 <script src="/ui/pet-ride.js"></script>
 <script src="/ui/pets-ondemand.js"></script>
 <script src="/ui/habits.js"></script>
+<script src="/ui/usage.js"></script>
 <script>
 const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -215,7 +218,7 @@ function paint(p, now) {
   // A bubble: its request when hovered; the tool it just picked up, for a pet on its own.
   const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
   const say = (habitSay && habitSay.id === s.id && !p.hover && Date.now() < habitSay.until ? ['habit', habitSay.text] : null) || (t && (p.hover || t[0] === '') ? t : null);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, card && [s.usage, cfg.usageCost], s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
   if (p.key === key) { // only its costume moved: swap the picture, keep the rest (a card being clicked, say)
     if (fr !== p.fr) { p.fr = fr; const svg = p.el.querySelector('.spr>svg'); if (svg) svg.outerHTML = petSVG(art, st, color, s, fr); }
     return;
@@ -234,6 +237,7 @@ function paint(p, now) {
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
+        ${s.usage ? `<div class="row use"><span>${esc(USAGE.line(s.usage, T, cfg))}</span></div>${USAGE.warns(s.usage, T).slice(0, 1).map(w => `<p class="need use">⚠ ${esc(w.text)}</p>`).join('')}` : ''}
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon, cfg.edge === 'top')}</div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}

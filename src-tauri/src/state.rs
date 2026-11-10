@@ -22,6 +22,7 @@ pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")] pub answer: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")] pub git: Option<Value>, // the folder's git status (work::git_status, remotes left out)
     #[serde(skip_serializing_if = "Option::is_none")] pub started: Option<Value>, // { path, iid }: started from that issue (New)
+    #[serde(skip_serializing_if = "Option::is_none")] pub usage: Option<Value>, // usage::view: tokens, models, time, warnings
     // Bookkeeping, never sent to the pages (publicView in state.js).
     #[serde(skip)] pub read_at: u64,
     #[serde(skip)] pub read_mark: Option<String>,

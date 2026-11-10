@@ -14,6 +14,12 @@ pub fn defaults() -> Value {
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false, "tourSeen": [],
         "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "petImages": {},
         "habitsOn": false, "habitsNo": {}, "habitsHidden": {}, "habitsSkill": {}, "habitsPetDay": "",
+        // usage per session (usage.rs): the API-equivalent estimate shown, prompt kinds read (opt-in), the warnings and when.
+        // Defaults from 73 sessions of a week on the owner's Mac: the largest context per session had a median of 171k and
+        // its top third passed 360k (warnContext 300k flags that third; on Opus a 300k turn costs more in cache reads than
+        // its answer); the median answer of the last 10 turns was about 320 tokens (200 is clearly light); read-only tool
+        // runs were 4 calls or fewer 95% of the time (8 is a real exploration); 3x the usual session is well past normal.
+        "usageCost": true, "usageContent": false, "usageWarn": true, "warnContext": 300, "warnNormal": 3, "warnLightOut": 200, "warnExplore": 8,
     })
 }
 
@@ -49,6 +55,12 @@ fn range_of(k: &str) -> Option<(f64, f64)> {
         "stuckIdle" => (1.0, 72.0),
         "stuckMaxAge" => (1.0, 365.0), // days: stuck work quiet longer than this is old, not a nudge
         "dndUntil" => (0.0, 1e14), // when "do not disturb" ends, in ms since 1970 (0: off)
+        // usage warnings: context in thousands of tokens, times your usual session, median output tokens per turn of
+        // the last 10 turns, read-only tool calls in a row
+        "warnContext" => (50.0, 1000.0),
+        "warnNormal" => (2.0, 20.0),
+        "warnLightOut" => (50.0, 2000.0),
+        "warnExplore" => (3.0, 50.0),
         _ => return None,
     })
 }

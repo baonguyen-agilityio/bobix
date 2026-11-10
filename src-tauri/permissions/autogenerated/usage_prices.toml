@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-usage-prices"
+description = "Enables the usage_prices command without any pre-configured scope."
+commands.allow = ["usage_prices"]
+
+[[permission]]
+identifier = "deny-usage-prices"
+description = "Denies the usage_prices command without any pre-configured scope."
+commands.deny = ["usage_prices"]

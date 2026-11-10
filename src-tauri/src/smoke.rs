@@ -38,7 +38,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         // A session delivered the way Claude Code delivers it: hook.js on stdin, real cwd, a transcript, CLAUDE_PID.
         let transcript = dir.join("real-session.jsonl");
         let lines = [json!({ "type": "ai-title", "aiTitle": "Smoke real session" }),
-            json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "Looking at the code." }], "usage": { "input_tokens": 10, "cache_read_input_tokens": 40000 } } })];
+            json!({ "type": "assistant", "timestamp": "2026-11-10T10:00:00.000Z", "message": { "id": "msg_smoke", "model": "claude-opus-5-5", "content": [{ "type": "text", "text": "Looking at the code." }], "usage": { "input_tokens": 10, "cache_read_input_tokens": 40000 } } })];
         let _ = fs::write(&transcript, lines.iter().map(|l| l.to_string() + "\n").collect::<String>());
         let cwd = std::env::current_dir().unwrap_or_default().to_string_lossy().into_owned();
         let sid = "3f1c2a9e-7b4d-4e21-9a0c-5d6e7f8a9b0c";
@@ -76,7 +76,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         thread::sleep(Duration::from_secs(6));
         {
             let c = b.core.lock().unwrap();
-            report["realSession"] = c.sessions.get(sid).map(|s| json!({ "state": s.state, "title": s.title, "name": s.name, "claudePid": s.claude_pid, "hostSession": s.host_session }))
+            report["realSession"] = c.sessions.get(sid).map(|s| json!({ "state": s.state, "title": s.title, "name": s.name, "claudePid": s.claude_pid, "hostSession": s.host_session, "usage": s.usage }))
                 .unwrap_or(json!("not received"));
             report["sessions"] = json!(c.sessions.len());
         }
@@ -153,7 +153,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
-            && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object()
+            && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 4 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
             && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
             && (report.get("drag").is_none() || (report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0 && report["drag"]["held"] == false))
