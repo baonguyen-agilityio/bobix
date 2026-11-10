@@ -452,14 +452,14 @@ fn room_act(act: &str, a: &Value) -> Value {
             Err(e) => fail(e),
         },
         "invite" | "uninvite" => room::invite(&data, &id, &s("login"), act == "invite"),
-        "frame" => room::frame(&data, &id, &s("problem")),
-        "add" => match me() { Ok(w) => room::add(&data, &id, &w, &s("kind"), a["option"].as_str(), &s("text"), now), Err(e) => fail(e) },
-        "summarize" => room::summarize(&data, &id, &room_run),
-        "decide" => room::decide(&data, &id, &s("option"), &s("text"), now),
+        "say" => match me() { Ok(w) => room::say(&data, &id, &w, &s("text"), now), Err(e) => fail(e) },
+        "draft" => room::draft(&data, &id, &room_run),
+        "save_draft" => room::save_draft(&data, &id, &a["draft"]),
+        "decide" => room::decide(&data, &id, &a["draft"], now),
         "audit" => return json!({ "ok": true, "lines": room::audit_lines(&data, &id) }),
         "markdown" => return room::load(&data, &id).map_or_else(|| fail("no such room"), |r| json!({ "ok": true, "text": room::markdown(&r) })),
         "get" => room::remote_get(&data, &s("addr")),
-        "radd" => room::remote_add(&s("addr"), &s("kind"), a["option"].as_str(), &s("text")),
+        "rsay" => room::remote_say(&s("addr"), &s("text")),
         "leave" => room::leave(&data, &s("addr")),
         "open" => {
             let p = std::path::PathBuf::from(s("path"));
@@ -472,8 +472,8 @@ fn room_act(act: &str, a: &Value) -> Value {
     if matches!(act, "create" | "decide") { room_serve(&data); }
     r
 }
-// The Room scope. act: list | create | invite | uninvite | frame | add | summarize | decide | audit | markdown (host);
-// get | radd | leave (a room you joined); open (a saved record).
+// The Room scope. act: list | create | invite | uninvite | say | draft | save_draft | decide | audit | markdown (host);
+// get | rsay | leave (a room you joined); open (a saved record).
 #[tauri::command]
 async fn room(act: String, a: Value) -> Result<Value, ()> {
     tauri::async_runtime::spawn_blocking(move || room_act(&act, &a)).await.map_err(|_| ())

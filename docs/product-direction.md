@@ -144,6 +144,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 **Decisions**
 - **Network:** the company tailnet.
 - **Purpose:** structure and a final decision record. One room per problem, with the frame problem → options → pros and cons → decision.
+- **Chat in the room; the AI arranges it into the frame at the end** (decided 2026-11-11). People type freely; the host's one summarizer drafts problem → options → pros and cons → decision from the chat, and the host edits the draft before deciding.
 - **Hosting:** the room creator's machine hosts it and the others connect. Real peer-to-peer sync is out of scope.
 - **AI:** exactly one summarizer, on the host's machine. People contribute by hand. This keeps company content from flowing into several personal Claude accounts.
 - **Output:**
