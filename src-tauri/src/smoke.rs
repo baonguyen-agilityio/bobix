@@ -22,9 +22,9 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                thread::sleep(Duration::from_secs(60));
-                let _ = fs::write(dir.join("report.json"), json!({ "watchdog": "gave up after 60 s" }).to_string());
-                log("gave up after 60 s");
+                thread::sleep(Duration::from_secs(90));
+                let _ = fs::write(dir.join("report.json"), json!({ "watchdog": "gave up after 90 s" }).to_string());
+                log("gave up after 90 s");
                 app.exit(2);
             });
         }
@@ -135,6 +135,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         thread::sleep(Duration::from_millis(500)); // the 300 ms save
         report["settingsSaved"] = json!(crate::settings::load(&paths::settings_file())["size"] == 64);
         report["skills"] = skills_audit(&app, &cwd);
+        report["skillsPanel"] = skills_panel(&app, sid);
         report["tray"] = json!(app.tray_by_id("main").is_some());
         // Start at login, on and off again (macOS / Linux: files under BOBIX_HOME; Windows: the runner's own registry).
         if std::env::var_os("BOBIX_HOME").is_some() {
@@ -160,6 +161,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && (report.get("drag").is_none() || (report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0 && report["drag"]["held"] == false))
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
+            && ["audit", "disable", "undoDisable", "remove", "undoRemove", "lines", "rulesAdd", "rulesRemove"].iter().all(|k| report["skillsPanel"][k] == true)
             && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
         write(&report);
@@ -187,13 +189,39 @@ fn skills_audit(app: &AppHandle, cwd: &str) -> Value {
         return r; }})()", cwd = json!(cwd)))
 }
 
+// The same changes as the person's clicks in the panel's Skills screen, on the scratch skill and the session's folder:
+// Disable then Undo (the toast), Remove (after its confirm) then Undo, the CLAUDE.md block added (after the confirm
+// that shows its lines) then removed. Each Undo puts the files back as they were (skill_audit.rs tests that bytewise).
+fn skills_panel(app: &AppHandle, sid: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    ask_for(app, panel::LABEL, &format!("(async () => {{ const r = {{}}, w = ms => new Promise(o => setTimeout(o, ms)); \
+        const until = async f => {{ for (let t = 0; t < 8000; t += 100) {{ if (f()) return true; await w(100); }} return false; }}; \
+        const bar = q => document.querySelector('#b-bar ' + q), yes = async () => {{ await until(() => $('#sk-dialog').open); $('#sk-dialog [data-sk-yes]').click(); }}; \
+        const undo = t => [...document.querySelectorAll('.toast')].find(x => x.textContent.includes(t))?.querySelector('button').click(); \
+        showTab('skills'); audDir = list.find(s => s.id === {sid:?})?.cwd; await loadAudit(); \
+        r.audit = await until(() => aud.a && items.some(x => x.label === 'smoke-skill')); \
+        const id = items.find(x => x.label === 'smoke-skill')?.id, back = () => !skBackups.length && items.some(x => x.id === id); \
+        bsel.skills = id; render(); bar('[data-sk=disable]').click(); \
+        r.disable = await until(() => skBackups[0]?.kind === 'disable' && !items.some(x => x.id === id)); undo('smoke-skill'); r.undoDisable = await until(back); \
+        bsel.skills = id; render(); bar('[data-sk=remove]').click(); await yes(); \
+        r.remove = await until(() => skBackups[0]?.kind === 'remove' && !items.some(x => x.id === id)); undo('smoke-skill'); r.undoRemove = await until(back); \
+        bsel.skills = 'aud:rules'; render(); bar('[data-sk=rulesAdd]').click(); await until(() => $('#sk-dialog').open); \
+        r.lines = $('#sk-dialog .b-code').textContent.includes('When to split, which model'); await yes(); \
+        r.rulesAdd = await until(() => aud.rules?.present && !!aud.rules.undo); \
+        bsel.skills = 'aud:rules'; render(); bar('[data-sk=rulesRm]').click(); await yes(); \
+        r.rulesRemove = await until(() => aud.rules && !aud.rules.present && !skBackups.length); \
+        r.err = aud.err?.text || aud.fail || null; return r; }})()"), 40)
+}
+
 // The value of a page expression (awaited), through the bridge like the pets' own calls.
-fn ask(app: &AppHandle, label: &str, expr: &str) -> Value {
+fn ask(app: &AppHandle, label: &str, expr: &str) -> Value { ask_for(app, label, expr, 5) }
+
+fn ask_for(app: &AppHandle, label: &str, expr: &str, secs: u64) -> Value {
     let Some(w) = app.get_webview_window(label) else { return json!("no window") };
     *PAGE.lock().unwrap() = None;
     let _ = w.eval(format!("(async () => {{ let v; try {{ v = await ({expr}); }} catch (e) {{ v = {{ error: String(e) }}; }} \
         window.__TAURI_INTERNALS__.invoke('smoke_page', {{ data: {{ v }} }}); }})()"));
-    let until = Instant::now() + Duration::from_secs(5);
+    let until = Instant::now() + Duration::from_secs(secs);
     while PAGE.lock().unwrap().is_none() && Instant::now() < until { thread::sleep(Duration::from_millis(50)); }
     PAGE.lock().unwrap().take().map(|v| v["v"].clone()).unwrap_or(json!("no answer"))
 }

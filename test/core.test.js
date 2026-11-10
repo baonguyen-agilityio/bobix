@@ -1074,3 +1074,12 @@ test('usage: one line, details and warnings from the numbers the app sends', () 
   assert.deepEqual(U.facts(undefined, T, {}), []);
   for (const k of Object.keys(I18N.STR.en).filter(k => k.startsWith('use.') || k.startsWith('set.warn') || k.startsWith('set.usage') || k.startsWith('set.prices'))) assert.ok(I18N.STR.vi[k], `vi ${k}`);
 });
+
+test('skills audit: every string of the Skills screen in both languages, with the same {names}', () => {
+  const I18N = require('../src/ui/i18n');
+  const vars = s => (s.match(/\{\w+\}/g) || []).sort().join();
+  const keys = Object.keys(I18N.STR.en).filter(k => k.startsWith('sk.'));
+  assert.ok(keys.length > 60);
+  for (const k of keys) assert.equal(vars(I18N.STR.vi[k] || ''), vars(I18N.STR.en[k]), `vi ${k}`);
+  for (const k of keys) assert.ok(I18N.STR.vi[k], `vi ${k}`);
+});

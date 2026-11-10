@@ -344,6 +344,16 @@ input[type=number]{width:104px}
 .proc .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:0;padding:0;border:0;background:none}
 .proc .row input[type=url]{flex:1 1 14em;min-width:0}
 .proc .file{position:relative;overflow:hidden}.proc .file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+/* the skills audit */
+.b-stats.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.b-ico.tx{font:600 11px/1 var(--f-mono);color:var(--ink-2)}
+.b-ico.lg.tx{font-size:15px}
+.b-code .add{color:var(--ok)}.b-code .del{color:var(--err)}
+.b-code b{font-weight:700}
+.row .acts{margin:0;flex-wrap:nowrap}
+.badges{display:flex;flex-wrap:wrap;gap:6px}
+.badge.ok{background:var(--ok-bg);color:var(--ok)}.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.fb .b-code{max-height:min(320px,40dvh)}
 
 /* setup */
 .hero{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s4);align-items:center}
@@ -505,6 +515,7 @@ input[type=number]{width:104px}
   .btn{min-height:34px;padding:4px 12px;font-size:var(--t-sm)}
   .btn.sm{min-height:30px}
   .b-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .b-stats.four{grid-template-columns:repeat(2,minmax(0,1fr))}
   .opt{grid-template-columns:minmax(0,1fr)}
   .ctl{justify-content:flex-start}
   #setup .kv{grid-template-columns:minmax(0,1fr)}
@@ -586,6 +597,7 @@ input[type=number]{width:104px}
   <textarea id="rp-text" spellcheck="false"></textarea>
   <div class="acts"><button class="btn" value="close" data-t="pane.close"></button><button class="btn pri" type="button" id="rp-copy" data-t="report.copy"></button></div>
 </form></dialog>
+<dialog id="sk-dialog" class="fb" aria-labelledby="sk-heading"></dialog>
 <div class="toasts" id="toasts"></div>
 <dialog class="tour" id="tour" aria-labelledby="tour-h"><div class="tour-hole" id="tour-hole"></div><div class="tour-pop" id="tour-pop"></div></dialog>
 
@@ -1520,7 +1532,7 @@ const leadSt = ss => ss.map(look).sort((a, b) => BOARD.PRI[a] - BOARD.PRI[b])[0]
 const toolOf = s => s.askTool || T('status.waiting'); // the tool's own name (Bash, Edit), as Claude asks it
 const hhmm = t => new Date(t).toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const answerAttrs = (s, c) => `data-choice="${c}" data-s="${esc(s.id)}"`;
-const GRP = { aq: 'day.aq', stuck: 'day.stuck', warn: 'b.warnings', hab: 'hab.title', run: 'b.running', doing: 'day.doing', verify: 'day.verify', todo: 'day.todo', done: 'day.done', loose: 'day.loose', rest: 'b.rest', you: 'b.you', projects: 'sk.projects' };
+const GRP = { aq: 'day.aq', stuck: 'day.stuck', warn: 'b.warnings', hab: 'hab.title', run: 'b.running', doing: 'day.doing', verify: 'day.verify', todo: 'day.todo', done: 'day.done', loose: 'day.loose', rest: 'b.rest', you: 'b.you', projects: 'sk.projects', audit: 'sk.grp.audit', dups: 'sk.grp.dups', off: 'sk.grp.off', unused: 'sk.grp.unused', inuse: 'sk.grp.inuse' };
 const grpName = (k, n) => (k === 'stuckOld' ? T('day.stuckOld', { n, d: stuckCfg().stuckMaxAge ?? 14 }) : GRP[k] ? T(GRP[k]) : '');
 const head = (lead, title, note = '') => `<div class="b-dh">${lead}<div><h2>${esc(title)}</h2>${note ? `<p class="note">${esc(note)}</p>` : ''}</div></div>`;
 // A session as a row inside a detail (a ticket's sessions, side sessions); a click shows it.
@@ -1747,14 +1759,16 @@ function skillItems() {
   const role = state.settings.role || '', pins = Object.keys(state.settings.skillPins || {}), picked = Object.entries(state.settings.habitsSkill || {});
   const it = [{ id: 'role', grp: 'you', kind: 'skills', lead: ico('user'), label: T('set.role'), sub: role ? ROLE_NAME[role] : T('set.role.none') },
     { id: 'mine', grp: 'you', kind: 'skills', lead: ico('pin'), label: T('set.skillPins'), sub: mySkills ? T('b.pinned', { n: pins.length, m: mySkills.length }) : T('work.loading') }];
-  if (!procs || !procs.length) return [...it, { id: 'proc:', grp: 'projects', kind: 'skills', lead: ico('layers'), label: T('sk.projects'), sub: T(procs ? 'set.skillProcess.noProjects' : 'work.loading') }];
+  const [top, skills] = audItems(); // the audit first, its long skill list after your role, skills and projects
+  if (!procs || !procs.length) return [...top, ...it, { id: 'proc:', grp: 'projects', kind: 'skills', lead: ico('layers'), label: T('sk.projects'), sub: T(procs ? 'set.skillProcess.noProjects' : 'work.loading') }, ...skills];
+  it.unshift(...top);
   for (const p of procs) {
     const used = p.repo || p.imported;
     it.push({ id: 'proc:' + p.path, grp: 'projects', kind: 'skills', lead: egg(p.path), label: BOARD.short(p.path),
       sub: [T('sk.team', { n: (p.skills || []).length }), used ? T('set.skillProcess') : '', (p.missing || []).length ? `${p.missing.length} ${T('start.missing')}` : ''].filter(Boolean).join(' · ') });
   }
   if (picked.some(([d]) => !procs.some(p => inDir(d, p.dir)))) it.push({ id: 'proc:*', grp: 'projects', kind: 'skills', lead: ico('file'), label: T('sk.habit.other'), sub: T('sk.habit') });
-  return it;
+  return [...it, ...skills];
 }
 function renderSkillsTab() {
   const box = $('#skills');
@@ -1796,9 +1810,176 @@ function paintProcess() {
 }
 async function loadSkillLists() {
   if (!bridge) return;
+  loadAudit();
   [mySkills, procs] = await Promise.all([bridge.mySkills().catch(() => []), bridge.processStatus().catch(() => [])]);
   render();
   paintMine(); paintProcess();
+}
+
+// ---------- the skills audit (src-tauri/src/skill_audit.rs), per project: what Claude loads there, unused skills,
+// duplicate sets, the size of the descriptions, and the "When to split, which model" block of its CLAUDE.md.
+// Every change is the person's click (Remove and CLAUDE.md after a confirm), backed up first, and has an Undo. ----------
+// audDir: the project picked (a session's folder; null: your own skills only; undefined: not picked yet).
+// aud: { dir, a: the audit, rules, busy, err: { id, text } } for that folder; skBackups: every change Bobix can undo.
+let audDir, aud = { busy: true }, audSeq = 0, skBackups = [], skConfirm = null;
+const audDirs = () => [...new Set([...list].sort((a, b) => (b.updated || 0) - (a.updated || 0)).map(s => s.cwd).filter(Boolean))];
+const base = p => String(p || '').split(/[\\/]/).filter(Boolean).pop() || p;
+const audName = d => (d ? base(d) : T('sk.aud.mine'));
+const kTok = n => (n / 1000).toFixed(1) + 'k';
+async function loadAudit() {
+  if (!bridge) return;
+  const dirs = audDirs(); // before the first sessions arrive: your own skills, until a project can be picked
+  if (audDir === undefined ? dirs.length : audDir && !dirs.includes(audDir)) audDir = dirs[0] ?? null;
+  const dir = audDir ?? null, seq = ++audSeq, fail = e => ({ ok: false, error: String(e?.message || e) });
+  aud = { ...(aud.dir === dir ? aud : {}), dir, busy: true };
+  render();
+  const [a, rules, backups] = await Promise.all([bridge.skillsAudit(dir).catch(fail), dir ? bridge.routingRules(dir).catch(fail) : null, bridge.skillBackups().catch(() => [])]);
+  if (seq !== audSeq) return; // another project was picked meanwhile
+  aud = { dir, a: a?.skills ? a : null, rules: rules?.text ? rules : null, busy: false, err: aud.err,
+    fail: (a?.skills ? '' : a?.error || '?') || (rules && !rules.text ? rules.error || '?' : '') };
+  skBackups = Array.isArray(backups) ? backups : [];
+  render();
+}
+// The folder a project skill's backup came from loads here: it is this folder or one of its parents.
+const owner = p => String(p).replace(/[\\/]\.claude[\\/]skills[\\/][^\\/]+$/, '');
+const backupHere = e => e.kind !== 'rules' && (e.source === 'personal' || (!!aud.dir && (aud.dir === owner(e.path) || inDir(aud.dir, owner(e.path)))));
+const lastUsed = r => (r.lastUsed ? ago(r.lastUsed) : T('sk.never'));
+const tag = r => esc((r.name.includes(':') ? r.name.split(':')[0] : r.name).slice(0, 2));
+const srcOf = r => T('skill.src.' + r.source) + (r.plugin ? ` · ${r.plugin}` : '');
+const errHTML = id => (aud.err?.id === id ? `<p class="note err" role="alert">${esc(aud.err.text)}</p>` : '');
+// The one a duplicate set keeps by default: the most used, then the one Bobix couldn't change anyway, then the first.
+const keepOf = ms => [...ms].sort((a, b) => b.uses - a.uses || (b.lastUsed || 0) - (a.lastUsed || 0) || a.change.can - b.change.can)[0];
+const dupLabel = (g, ms) => (g.why === 'name' ? base(ms[0].name.split(':').pop()) : ms[0].name);
+function audItems() {
+  const a = aud.a, top = [], skills = [], s = a?.summary;
+  const sub = aud.busy && !a ? T('sk.aud.loading') : aud.fail && !a ? T('sk.err', { e: aud.fail }) : T('sk.aud.sub', { n: s.skills, u: s.unused, d: s.duplicateGroups });
+  top.push({ id: 'aud', grp: 'audit', kind: 'board', lead: ico('skills'), label: T('sk.aud.label', { p: audName(aud.dir) }), sub, cls: aud.fail && !a ? 'hot' : '',
+    meta: s ? `<span>${esc(kTok(s.descriptionChars))}</span>` : '', detail: audHTML,
+    acts: [[T('sk.aud.refresh'), ['↵'], 'data-sk="reload"'], [T('sk.aud.backups'), [CMD, 'B'], 'data-sk-go="aud:backups"']] });
+  const r = aud.rules;
+  if (r) top.push({ id: 'aud:rules', grp: 'audit', kind: 'board', lead: ico('cpu', r.present ? 'ok' : ''), label: T('sk.rules.label'),
+    sub: r.present ? T(r.undo ? 'sk.rules.inKept' : 'sk.rules.in') : T('sk.rules.t'), detail: rulesHTML,
+    acts: r.present ? (r.undo ? [[T('sk.rules.rm'), ['↵'], 'data-sk="rulesRm"']] : []) : [[T('sk.rules.add'), ['↵'], 'data-sk="rulesAdd"'], [T('sk.rules.copy'), [CMD, '⇧', 'C'], 'data-sk="rulesCopy"']] });
+  top.push({ id: 'aud:backups', grp: 'audit', kind: 'board', lead: ico('clock'), label: T('sk.aud.backups'), sub: skBackups.length ? T('sk.aud.backups.sub', { n: skBackups.length }) : T('sk.aud.backups.none'),
+    detail: backupsHTML, acts: skBackups.length ? [[T('sk.aud.undoLatest'), ['↵'], `data-sk="undo" data-id="${esc(skBackups[0].id)}"`]] : [] });
+  if (!a) return [top, skills];
+  a.duplicates.forEach((g, i) => {
+    const ms = a.skills.filter(x => x.dup === i), k = keepOf(ms), drop = ms.filter(x => x !== k && x.change.can);
+    top.push({ id: 'dup:' + i, grp: 'dups', kind: 'board', lead: ico('layers'), label: dupLabel(g, ms), sub: g.names.join(' · '), detail: () => dupHTML(g, i, ms, k, drop),
+      acts: drop.length ? [[T('sk.dup.keep', { n: k.name }), ['↵'], `data-sk="keep" data-dup="${i}" data-key="${esc(k.key)}"`]] : [] });
+  });
+  skBackups.filter(e => e.kind === 'disable' && backupHere(e)).forEach(e => top.push({ id: 'off:' + e.id, grp: 'off', kind: 'board', lead: ico('x'), label: e.name, mono: true,
+    sub: T('sk.off.sub', { t: ago(e.at), p: home(owner(e.path)) }), detail: () => offHTML(e), acts: [[T('sk.enable'), ['↵'], `data-sk="undo" data-id="${esc(e.id)}"`]] }));
+  for (const [grp, f] of [['unused', x => x.unused], ['inuse', x => !x.unused]]) a.skills.filter(f).forEach(x => skills.push({ id: 'sk:' + x.key, grp, kind: 'board',
+    lead: `<span class="b-ico tx">${tag(x)}</span>`, label: x.name, mono: true, sub: `${srcOf(x)} · ${lastUsed(x)}`, meta: `${x.dup != null ? '<span class="dup">⚠</span>' : ''}<span>${esc(kTok(x.size))}</span>`,
+    detail: () => skillHTML(x), acts: x.change.can ? [[T('sk.disable'), ['↵'], `data-sk="disable" data-key="${esc(x.key)}"`], [T('sk.remove'), [CMD, '⌫'], `data-sk="remove" data-key="${esc(x.key)}"`]] : [] }));
+  return [top, skills];
+}
+function audHTML() {
+  const a = aud.a, s = a?.summary, title = T('sk.aud.t', { p: audName(aud.dir) });
+  if (!a) return `${head(ico('skills', 'lg'), title, aud.dir ? home(aud.dir) : '')}${errHTML('aud')}${aud.busy ? `<p class="note">${esc(T('sk.aud.loading'))} ${esc(T('sk.aud.loadingNote'))}</p>`
+    : `<p class="note err" role="alert">${esc(T('sk.err', { e: aud.fail }))}</p><div class="acts" style="margin:0"><button class="btn" type="button" data-sk="reload">${ic('refresh')}${esc(T('sk.aud.refresh'))}</button></div>`}`;
+  const src = Object.entries(s.bySource).map(([k, n]) => `${n} ${T('skill.src.' + k)}`).join(' · ');
+  return `${head(ico('skills', 'lg'), title, `${aud.dir ? home(aud.dir) + ' · ' : ''}${T('sk.aud.note')}`)}${errHTML('aud')}${aud.fail ? `<p class="note err" role="alert">${esc(T('sk.err', { e: aud.fail }))}</p>` : ''}
+    <div class="b-stats four"><div class="b-stat"><b>${s.skills}</b><span>${esc(T('sk.aud.installed'))}</span></div>
+      <div class="b-stat"><b class="${s.unused ? 'hot' : ''}">${s.unused}</b><span>${esc(T('sk.aud.unused', { n: a.days }))}</span></div>
+      <div class="b-stat"><b>${s.duplicateGroups}</b><span>${esc(T('sk.aud.dups'))}</span></div>
+      <div class="b-stat"><b>≈ ${esc(kTok(s.tokensPerTurn))}</b><span>${esc(T('sk.aud.tokens', { c: kTok(s.descriptionChars) }))}</span></div></div>
+    <p class="note">${esc(src)}${aud.busy ? ` · ${esc(T('sk.aud.loading'))}` : ''}</p>
+    <section class="b-sec"><h3>${esc(T('sk.grp.dups'))}</h3>${a.duplicates.length ? `<ul class="rows">${a.duplicates.map((g, i) => { const ms = a.skills.filter(x => x.dup === i);
+      return `<li><button class="row" type="button" data-sk-go="dup:${i}">${ico('layers')}<span class="b-tx"><span class="lb">${esc(dupLabel(g, ms))}</span><span class="sb">${esc(g.names.join(' · '))}</span></span><span class="mt">${esc(T(g.why === 'name' ? 'sk.dup.name' : 'sk.dup.desc', { n: ms.length }))}</span></button></li>`; }).join('')}</ul>` : `<p class="note">${esc(T('sk.dup.noneAll'))}</p>`}</section>
+    <p class="note">${esc(T(a.slashCounted ? 'sk.aud.slashOn' : 'sk.aud.slashOff'))}</p>
+    <div class="acts" style="margin:0"><button class="btn" type="button" data-sk="reload"${aud.busy ? ' disabled' : ''}>${ic('refresh')}${esc(T('sk.aud.refresh'))}</button><button class="btn" type="button" data-sk-go="aud:backups">${esc(T('sk.aud.backups'))}</button></div>`;
+}
+// The block's lines, as they would be added (+) or taken out (−).
+const blockHTML = (text, mark) => `<pre class="b-code">${String(text).replace(/\n$/, '').split('\n').map(l => `<span class="${mark === '+' ? 'add' : 'del'}">${mark} ${esc(l)}</span>`).join('\n')}</pre>`;
+function rulesHTML() {
+  const r = aud.rules;
+  return `${head(ico('cpu', 'lg'), T('sk.rules.t'), T('sk.rules.note'))}${errHTML('aud:rules')}
+    <dl class="kv"><dt>${esc(T('sk.rules.file'))}</dt><dd><code>${esc(home(r.file))}</code>${r.present ? `<span class="badge ok">${esc(T('sk.rules.in'))}</span>` : ''}</dd></dl>
+    <pre class="b-code">${esc(r.text).replace(/^(## .*)$/m, '<b>$1</b>')}</pre>
+    <div class="acts" style="margin:0">${r.present ? (r.undo ? `<button class="btn" type="button" data-sk="rulesRm">${esc(T('sk.rules.rm'))}</button>` : '')
+      : `<button class="btn pri" type="button" data-sk="rulesAdd">${esc(T('sk.rules.add'))}…</button><button class="btn" type="button" data-sk="rulesCopy">${esc(T('sk.rules.copy'))}</button>`}</div>
+    <p class="note">${esc(T(r.present && !r.undo ? 'sk.rules.byHand' : 'sk.rules.how'))}</p>`;
+}
+function backupsHTML() {
+  return `${head(ico('clock', 'lg'), T('sk.aud.backups'), T('sk.aud.backups.note'))}${errHTML('aud:backups')}
+    ${skBackups.length ? `<ul class="rows">${skBackups.map(e => `<li><div class="row">${ico(e.kind === 'rules' ? 'cpu' : e.kind === 'disable' ? 'x' : 'alert')}<span class="b-tx"><span class="lb">${esc(T('sk.kind.' + e.kind))} · <code>${esc(e.name)}</code></span><span class="sb" title="${esc(e.path)}">${esc(ago(e.at))} · ${esc(home(e.path))}</span></span>
+      <span class="acts"><button class="btn sm" type="button" data-sk="undo" data-id="${esc(e.id)}">${esc(T(e.kind === 'disable' ? 'sk.enable' : 'sk.undo'))}</button></span></div></li>`).join('')}</ul>`
+      : `<p class="blank">${esc(T('sk.aud.backups.none'))}</p>`}`;
+}
+function dupHTML(g, i, ms, k, drop) {
+  const id = 'dup:' + i;
+  return `${head(ico('layers', 'lg'), dupLabel(g, ms), T(g.why === 'name' ? 'sk.dup.name' : 'sk.dup.desc', { n: ms.length }))}${errHTML(id)}
+    <ul class="rows">${ms.map(x => `<li><div class="row"><span class="b-ico tx">${tag(x)}</span><span class="b-tx"><span class="lb mono"><button class="lnk" type="button" data-sk-go="sk:${esc(x.key)}">${esc(x.name)}</button>${x === k ? ` <span class="badge accent">${esc(T('sk.dup.kept1'))}</span>` : ''}</span>
+      <span class="sb">${esc(srcOf(x))} · ${esc(T('sk.uses.n', { n: x.uses }))} · ${esc(lastUsed(x))}</span></span>
+      <span class="acts">${x.change.can || x === k ? (x === k ? '' : `<button class="btn sm" type="button" data-sk="keep" data-dup="${i}" data-key="${esc(x.key)}">${esc(T('sk.dup.keepThis'))}</button>`) : `<span class="badge">${esc(T('sk.dup.fixed'))}</span>`}</span></div></li>`).join('')}</ul>
+    ${drop.length ? `<p class="note">${esc(T('sk.dup.note', { k: k.name, d: drop.map(x => x.name).join(', ') }))}</p><div class="acts" style="margin:0"><button class="btn pri" type="button" data-sk="keep" data-dup="${i}" data-key="${esc(k.key)}">${esc(T('sk.dup.keep', { n: k.name }))}</button></div>`
+      : `<p class="note">${esc(T('sk.dup.none'))}</p>`}`;
+}
+function offHTML(e) {
+  const id = 'off:' + e.id;
+  return `${head(ico('x', 'lg'), e.name, T('sk.off.sub', { t: ago(e.at), p: home(owner(e.path)) }))}${errHTML(id)}
+    <dl class="kv"><dt>${esc(T('sk.folder'))}</dt><dd><code>${esc(home(e.path))}</code></dd></dl>
+    <p class="note">${esc(T('sk.off.note'))}</p><div class="acts" style="margin:0"><button class="btn pri" type="button" data-sk="undo" data-id="${esc(e.id)}">${esc(T('sk.enable'))}</button></div>`;
+}
+function skillHTML(x) {
+  const id = 'sk:' + x.key, c = x.change, p = c.plan;
+  const why = c.can ? T('sk.how') : c.why === 'plugin' && p ? T('sk.cant.plugin', { n: p.skills, set: p.set, file: p.file }) : T('sk.cant.' + (c.why === 'managed' ? 'managed' : 'synced'));
+  return `<div class="b-dh"><span class="b-ico lg tx">${tag(x)}</span><div><h2 style="font-family:var(--f-mono);font-size:15px">${esc(x.name)}</h2><p class="note">${esc(srcOf(x))}</p></div></div>${errHTML(id)}
+    <div class="badges">${x.unused ? `<span class="badge warn">${esc(T('sk.grp.unused'))}</span>` : `<span class="badge ok">${esc(T('sk.grp.inuse'))}</span>`}${x.dup != null ? `<button class="badge lnk" type="button" data-sk-go="dup:${x.dup}">⚠ ${esc(T('sk.dupOf'))}</button>` : ''}${x.hidden ? `<span class="badge">${esc(T('sk.hidden'))}</span>` : ''}</div>
+    <dl class="kv"><dt>${esc(T('sk.lastUsed'))}</dt><dd>${esc(lastUsed(x))}</dd><dt>${esc(T('sk.uses'))}</dt><dd>${x.uses}</dd>
+      <dt>${esc(T('sk.size'))}</dt><dd>${esc(T('sk.chars', { n: x.size, t: Math.round(x.size / 4) }))}</dd><dt>${esc(T('sk.folder'))}</dt><dd><code>${esc(home(x.key))}</code></dd></dl>
+    ${x.description ? `<section class="b-sec"><h3>${esc(T('sk.size'))}</h3><p>${esc(x.description)}</p></section>` : ''}
+    ${c.can ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-sk="disable" data-key="${esc(x.key)}">${esc(T('sk.disable'))}</button><button class="btn danger" type="button" data-sk="remove" data-key="${esc(x.key)}">${esc(T('sk.remove'))}…</button></div>` : ''}
+    <p class="note">${esc(why)}</p>`;
+}
+// A confirm sheet: the question, what changes (lines or a folder), and the button that does it.
+function skAsk(title, body, pre, yes, run) {
+  skConfirm = run;
+  $('#sk-dialog').innerHTML = `<form method="dialog"><h2 id="sk-heading">${esc(title)}</h2><p class="note">${esc(body)}</p>${pre}
+    <div class="acts"><button class="btn" value="no">${esc(T('pd.cancel'))}</button><button class="btn pri" type="button" data-sk-yes>${esc(yes)}</button></div></form>`;
+  $('#sk-dialog').showModal();
+  $('#sk-dialog [data-sk-yes]').focus();
+}
+$('#sk-dialog').addEventListener('click', e => { if (!e.target.closest('[data-sk-yes]')) return; const run = skConfirm; skConfirm = null; $('#sk-dialog').close(); run?.(); });
+$('#sk-dialog').addEventListener('close', () => { skConfirm = null; });
+// One change through the bridge; its error stays on the item it came from, its Undo in a toast.
+async function skDo(itemId, work) {
+  aud.err = null;
+  try { await work(); } catch (e) { aud.err = { id: itemId, text: T('sk.err', { e: String(e?.message || e) }) }; }
+  await loadAudit();
+}
+const skFail = (itemId, r) => { aud.err = { id: itemId, text: T(r?.id ? 'sk.err.kept' : 'sk.err', { e: r?.error || '?', id: r?.id }) + (r?.plan ? ' ' + T('sk.cant.plugin', { n: r.plan.skills, set: r.plan.set, file: r.plan.file }) : '') }; };
+function undoToast(text, ids) {
+  toast(text, { label: T('sk.undo'), run: () => skDo(cur?.id, async () => { for (const id of ids) { const r = await bridge.undoSkill(id); if (!r?.ok) return skFail(cur?.id, r); } toast(T('sk.undone')); }) });
+}
+async function skAct(d) {
+  if (d.skGo) { bsel.skills = d.skGo; nextFocus = 'it:' + d.skGo; render(); return document.querySelector('.b-it[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }
+  if (!bridge) return;
+  const at = cur?.id, a = aud.a, dir = aud.dir, row = k => a?.skills.find(x => x.key === k);
+  if (d.sk === 'reload') return skDo(at, async () => {});
+  if (d.sk === 'disable') { const x = row(d.key); if (!x) return;
+    return skDo(at, async () => { const r = await bridge.changeSkill(dir, x.key, 'disable'); if (!r?.ok) return skFail(at, r); undoToast(T('sk.disabled', { n: x.name }), [r.id]); }); }
+  if (d.sk === 'remove') { const x = row(d.key); if (!x) return;
+    return skAsk(T('sk.rmQ', { n: x.name }), T('sk.rmBody', { p: home(x.key) }), '', T('sk.remove'), () => skDo(at, async () => {
+      const r = await bridge.changeSkill(dir, x.key, 'remove'); if (!r?.ok) return skFail(at, r); undoToast(T('sk.removed', { n: x.name }), [r.id]); })); }
+  if (d.sk === 'keep') { const k = row(d.key), drop = a?.skills.filter(x => x.dup === +d.dup && x !== k && x.change.can) || []; if (!k || !drop.length) return;
+    return skDo(at, async () => { const ids = [];
+      for (const x of drop) { const r = await bridge.changeSkill(dir, x.key, 'disable'); if (!r?.ok) { skFail(at, r); break; } ids.push(r.id); }
+      if (ids.length) undoToast(T('sk.dup.kept', { k: k.name, n: ids.length }), ids); }); }
+  if (d.sk === 'undo') { const e = skBackups.find(x => x.id === d.id); if (!e) return;
+    return skDo(at, async () => { const r = await bridge.undoSkill(e.id); if (!r?.ok) return skFail(at, r);
+      toast(e.kind === 'rules' ? T(r.exact === false ? 'sk.rules.removedEdit' : 'sk.rules.removed') : T('sk.restored', { n: e.name })); }); }
+  const r = aud.rules;
+  if (!r || !dir) return;
+  if (d.sk === 'rulesCopy') { try { await navigator.clipboard.writeText(r.text); toast(T('sk.rules.copied')); } catch { toast(r.text); } return; }
+  if (d.sk === 'rulesAdd') return skAsk(T('sk.rules.addQ'), T('sk.rules.addBody', { f: home(r.file) }), blockHTML(r.block, '+'), T('sk.rules.add'), () => skDo(at, async () => {
+    const x = await bridge.addRoutingRules(dir); if (!x?.ok) return skFail(at, x);
+    undoToast(T('sk.rules.added'), [x.id]); }));
+  if (d.sk === 'rulesRm' && r.undo) return skAsk(T('sk.rules.rmQ'), T('sk.rules.rmBody', { f: home(r.file) }), blockHTML(r.block, '−'), T('sk.rules.rm'), () => skDo(at, async () => {
+    const x = await bridge.undoSkill(r.undo); if (!x?.ok) return skFail(at, x);
+    toast(T(x.exact === false ? 'sk.rules.removedEdit' : 'sk.rules.removed')); }));
 }
 
 // ---------- Settings: one item per section, then habits, Setup (connect Claude Code) and feedback ----------
@@ -1870,6 +2051,7 @@ function drawScopes() {
   const n = waitingList().length, projs = scope === 'sessions' ? [...new Set(st.todo.map(x => x[1].path))] : [];
   swap($('#scopes'), SCOPES.map(k => `<button class="tab" type="button" role="tab" data-tab="${k}" data-f="tab:${k}" aria-selected="${k === scope}">${esc(T('tab.' + k))}${k === 'overview' && n ? `<span class="cnt">${n}</span>` : ''}</button>`).join('')
     + '<span class="sp"></span>'
+    + (scope === 'skills' && bridge && state ? `<select class="sel" data-skdir data-f="skdir" aria-label="${esc(T('sk.aud.proj'))}" title="${esc(aud.dir ? home(aud.dir) : '')}">${[...audDirs(), null].map(d => `<option value="${esc(d ?? '')}"${(d ?? null) === (aud.dir ?? null) ? ' selected' : ''}>${esc(audName(d))}</option>`).join('')}</select>` : '')
     + (projs.length > 1 ? `<select class="sel" data-proj data-f="proj" aria-label="${esc(T('day.proj.label'))}"><option value="all">${esc(T('day.proj.all', { n: st.todo.length }))}</option>${projs.map(p => `<option value="${esc(p)}"${proj === p ? ' selected' : ''}>${esc(BOARD.short(p))} (${st.todo.filter(x => x[1].path === p).length})</option>`).join('')}</select>` : '')
     + (state?.version ? `<span class="ver">v${esc(state.version)}</span>` : ''));
   const q = $('#bq');
@@ -1939,7 +2121,10 @@ function move(dir, focusItem) {
   document.querySelector('.b-it[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
 }
 $('#scopes').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) showTab(b.dataset.tab); });
-$('#scopes').addEventListener('change', e => { if (e.target.dataset.proj !== undefined) { proj = e.target.value; render(); } });
+$('#scopes').addEventListener('change', e => {
+  if (e.target.dataset.proj !== undefined) { proj = e.target.value; render(); }
+  if (e.target.dataset.skdir !== undefined) { audDir = e.target.value || null; aud.err = null; bsel.skills = 'aud'; loadAudit(); }
+});
 $('#b-list').addEventListener('click', e => {
   const r = e.target.closest('[data-act="refresh"]');
   if (r) { r.disabled = true; return bridge?.refreshWork(); }
@@ -1961,6 +2146,7 @@ async function onAct(e) {
   if (!b || b.disabled) return;
   const d = b.dataset;
   if (d.cmdk !== undefined) return openCmdk();
+  if (d.sk !== undefined || d.skGo) return skAct(d);
   if (d.more) { moreOpen.has(d.more) ? moreOpen.delete(d.more) : moreOpen.add(d.more); $('#b-dyn').dataset.html = ''; return render(); }
   if (d.choice) { const s = list.find(x => x.id === d.s); if (s?.answer && bridge) await bridge.answer(s.answer.id, d.choice); return; }
   if (d.sel) return select(d.sel);
@@ -2186,6 +2372,7 @@ es.onmessage = m => {
   const projects = [...(work.local || []), ...(work.away || [])].map(g => g.path + ':' + g.autoKey).join();
   if (projects !== lastProjects) { lastProjects = projects; if (cur?.id === 'set:work' && !document.activeElement?.dataset?.keyOf) renderSettings(); } // the codes list
   if (pendingSel && list.some(s => s.id === pendingSel)) { const id = pendingSel; pendingSel = null; select(id); } else render();
+  if (scope === 'skills' && audDir === undefined && audDirs().length) loadAudit(); // the first project, once sessions are in
   if (firstIds !== list.slice(0, 4).map(x => x.id).join()) renderPreview();
   arrived('list');
 };
