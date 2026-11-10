@@ -157,7 +157,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 - Remote control of other machines (Tailscale and SSH already do it).
 
 **Open questions**
-- Can a headless `claude -p` publish an artifact?
+- Can a headless `claude -p` publish an artifact? **No** (checked 2026-11-11 with Claude Code 2.1.322: no artifact or publish tool, with MCP servers off or on). The room offers "Copy for Claude" instead: the host pastes the record into claude.ai. Built in [#114](https://github.com/baonguyen-agilityio/bobix/issues/114).
 
 ## 6. Security of the war room
 
@@ -175,14 +175,15 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 - Remote control of other machines.
 
 **Open questions**
-- None recorded yet beyond step 5's artifact question.
+- macOS's firewall asks once whether Bobix may accept incoming connections when a room is first hosted (an unsigned build is not allowed on its own).
+- Secret redaction covers known token shapes and `key = value` assignments; a secret in another shape can still pass.
 
 ---
 
 ## Open questions in one list
 
 1. Can a model be preset for a new Claude desktop session? (step 2)
-2. Can a headless `claude -p` publish an artifact? (step 5)
+2. ~~Can a headless `claude -p` publish an artifact?~~ No; the room copies the record for Claude instead. (step 5)
 3. The exact usage thresholds for "too long". (step 1)
 4. Where Jira and Trello credentials are stored. (step 3)
 

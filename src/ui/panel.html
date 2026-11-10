@@ -318,6 +318,21 @@ input[type=number]{width:104px}
 .hs-draft{width:100%;min-height:min(320px,42dvh);padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface-2);color:var(--ink);font:13px/1.5 var(--f-mono);resize:vertical}
 .hs-ev{display:flex;flex-wrap:wrap;gap:6px}
 .rows .row .mt{font-size:var(--t-xs);color:var(--ink-3)}
+/* the war room */
+.rm-f{display:grid;gap:6px}
+.rm-f input,.rm-f textarea,.rm-f select{width:100%;padding:6px 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font:inherit;font-size:var(--t-sm)}
+.rm-f textarea{min-height:64px;resize:vertical}
+.rm-f .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:0;padding:0;border:0;background:none}
+.rm-f .row input{flex:1 1 12em;min-width:0}
+.rm-opt{border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;display:grid;gap:6px}
+.rm-opt.chosen{border-color:var(--ok)}
+.rm-opt h4{margin:0;font-size:var(--t-md,14px);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.rm-pc{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:var(--t-sm)}
+.rm-pc ul{margin:0;padding-left:16px}.rm-pc .lbl{font-size:var(--t-xs);font-weight:600;color:var(--ink-2)}
+.rm-by{font-size:var(--t-xs);color:var(--ink-3)}
+.rm-steps{display:flex;gap:6px;flex-wrap:wrap}
+.rm-sum{white-space:pre-wrap;font-size:var(--t-sm);padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
+@media (max-width:720px){.rm-pc{grid-template-columns:1fr}}
 /* setup */
 .sprite{display:grid;place-items:center;width:44px;height:44px;border-radius:var(--r-lg);background:var(--surface-2)}
 .sprite svg{width:100%;height:100%}
@@ -2053,6 +2068,142 @@ async function hsAct(d) {
 }
 for (const el of [$('#b-dyn'), $('#b-bar')]) el.addEventListener('click', e => { const b = e.target.closest('button[data-hs]'); if (b && !b.disabled) hsAct(b.dataset); });
 $('#b-dyn').addEventListener('input', e => { const k = e.target.dataset?.hsText; if (k !== undefined) hsText[k] = e.target.value; });
+
+// ---------- Room (src-tauri/src/room.rs): one room per problem over the team's tailnet. This machine hosts the rooms
+// it made (their own port, its tailnet address only) and joins others' by address. Only what people type here is
+// shared, with secrets removed; the host's Claude writes the one summary; a decision saves the record everywhere. ----------
+// rm: { v: the list, busy: the item an act runs for, err: { id, text }, remote: addr → the room as its host sent it }.
+let rm = { v: null, busy: '', err: null, remote: {}, loading: false }, rmIn = {};
+const buildOther = buildItems;
+buildItems = sc => (sc === 'room' ? roomItems() : buildOther(sc)); // the other scopes as they were
+async function rmLoad() {
+  if (!bridge?.room || rm.loading) return;
+  rm.loading = true;
+  try {
+    const v = await bridge.room('list');
+    if (v?.ok) rm.v = v;
+    const j = cur?.id?.startsWith('rm:j:') ? cur.id.slice(5) : null;
+    if (j) { const r = await bridge.room('get', { addr: j }); rm.remote[j] = r; }
+  } catch (e) { rm.err = { id: 'rm:new', text: T('sk.err', { e: String(e?.message || e) }) }; }
+  rm.loading = false;
+  if (scope === 'room') render();
+}
+setInterval(() => { if (scope === 'room' && !document.hidden) rmLoad(); }, 4000);
+const rmErr = id => (rm.err?.id === id ? `<p class="note err" role="alert">${esc(rm.err.text)}</p>` : '');
+const rmVal = (k, d = '') => esc(rmIn[k] ?? d);
+const rmName = w => w?.name || w?.login || '?';
+const rmWhy = w => (w && has('rm.why.' + w) ? T('rm.why.' + w) : w || ''); // the host's reason, in your language when known
+function roomItems() {
+  if (!bridge?.room || !state) return [offItem('room')];
+  if (!rm.v && !rm.loading) rmLoad();
+  const v = rm.v, tn = v?.tailnet, it = [];
+  it.push({ id: 'rm:new', grp: 'rmstart', kind: 'board', lead: ico('room', tn?.me ? 'ok' : ''), label: T('rm.new'), sub: !v ? T('work.loading') : tn?.me ? T('rm.you', { n: tn.me.login }) : T('rm.noTs'),
+    detail: rmNewHTML, acts: tn?.me ? [[T('rm.create'), ['↵'], 'data-rm="create"']] : [] });
+  it.push({ id: 'rm:join', grp: 'rmstart', kind: 'board', lead: ico('plug'), label: T('rm.join'), sub: T('rm.join.sub'), detail: rmJoinHTML, acts: [[T('rm.join.go'), ['↵'], 'data-rm="join"']] });
+  for (const r of v?.hosted || []) it.push({ id: 'rm:h:' + r.id, grp: 'rmhost', kind: 'board', lead: ico(r.state === 'decided' ? 'check' : 'room', r.state === 'decided' ? 'ok' : ''), label: r.title,
+    sub: [T('rm.state.' + r.state), T('rm.people', { n: r.invited.length }), T('rm.items', { n: r.items.length })].join(' · '), detail: () => rmRoomHTML(r, true),
+    acts: r.state === 'open' ? [[T('rm.summarize'), ['↵'], `data-rm="summarize" data-id="${esc(r.id)}"`], [T('rm.copyAddr'), [CMD, 'C'], `data-rm="addr" data-id="${esc(r.id)}"`]] : r.record ? [[T('rm.open'), ['↵'], `data-rm="open" data-path="${esc(r.record)}"`]] : [] });
+  for (const j of v?.joined || []) {
+    const rr = rm.remote[j.addr];
+    it.push({ id: 'rm:j:' + j.addr, grp: 'rmjoin', kind: 'board', lead: ico(j.state === 'decided' ? 'check' : 'chat', j.state === 'decided' ? 'ok' : ''), label: j.title || j.addr,
+      sub: [T('rm.by', { n: j.host || '?' }), T('rm.state.' + (j.state || 'open'))].join(' · '), detail: () => rr?.ok ? rmRoomHTML(rr.room, false, j) : rmJoinedHTML(j, rr),
+      acts: j.record ? [[T('rm.open'), ['↵'], `data-rm="open" data-path="${esc(j.record)}"`]] : [[T('rm.leave'), [CMD, '⌫'], `data-rm="leave" data-addr="${esc(j.addr)}"`]] });
+  }
+  return it;
+}
+Object.assign(GRP, { rmstart: 'tab.room', rmhost: 'rm.grp.host', rmjoin: 'rm.grp.join' });
+function rmNewHTML() {
+  const tn = rm.v?.tailnet;
+  const ts = !rm.v ? `<p class="note">${esc(T('work.loading'))}</p>` : tn?.me ? `<dl class="kv"><dt>${esc(T('rm.you.t'))}</dt><dd>${esc(rmName(tn.me))} · <code>${esc(tn.me.login)}</code></dd><dt>${esc(T('rm.port'))}</dt><dd><code>${esc(tn.ip || '')}:${tn.port}</code>${tn.serving ? ` <span class="badge ok">${esc(T('rm.serving'))}</span>` : ''}</dd></dl>`
+    : `<p class="note err">${esc(T('rm.noTs.long'))}</p>`;
+  return `${head(ico('room', 'lg'), T('rm.new'), T('rm.new.note'))}${rmErr('rm:new')}${ts}
+    <div class="rm-f"><label class="lbl" for="rm-title">${esc(T('rm.f.title'))}</label><input id="rm-title" data-rmin="title" data-f="rm-title" value="${rmVal('title')}" maxlength="120" placeholder="${esc(T('rm.f.title.ph'))}">
+      <label class="lbl" for="rm-problem">${esc(T('rm.f.problem'))}</label><textarea id="rm-problem" data-rmin="problem" data-f="rm-problem" placeholder="${esc(T('rm.f.problem.ph'))}">${rmVal('problem')}</textarea>
+      <label class="lbl" for="rm-inv">${esc(T('rm.f.invite'))}</label><textarea id="rm-inv" data-rmin="invite" data-f="rm-inv" placeholder="name@example.com" spellcheck="false">${rmVal('invite')}</textarea>
+      <div class="acts" style="margin:0"><button class="btn pri" type="button" data-rm="create"${tn?.me && !rm.busy ? '' : ' disabled'}>${esc(T('rm.create'))}</button></div></div>
+    <section class="b-sec"><h3>${esc(T('rm.safe'))}</h3><ul class="guide-more" style="margin:0">${['rm.safe.1', 'rm.safe.2', 'rm.safe.3', 'rm.safe.4'].map(k => `<li>${esc(T(k))}</li>`).join('')}</ul></section>`;
+}
+function rmJoinHTML() {
+  return `${head(ico('plug', 'lg'), T('rm.join'), T('rm.join.note'))}${rmErr('rm:join')}
+    <div class="rm-f"><label class="lbl" for="rm-addr">${esc(T('rm.f.addr'))}</label><div class="row"><input id="rm-addr" data-rmin="addr" data-f="rm-addr" value="${rmVal('addr')}" placeholder="100.64.0.10:4748/0123456789abcdef" spellcheck="false">
+      <button class="btn pri" type="button" data-rm="join"${rm.busy ? ' disabled' : ''}>${esc(T('rm.join.go'))}</button></div></div>`;
+}
+function rmJoinedHTML(j, rr) {
+  return `${head(ico('chat', 'lg'), j.title || j.addr, T('rm.by', { n: j.host || '?' }))}${rmErr('rm:j:' + j.addr)}
+    ${rr && !rr.ok ? `<p class="note err" role="alert">${esc(T(rr.status === 403 ? 'rm.refused' : 'rm.unreachable', { e: rr.status === 403 ? rmWhy(rr.error) : rr.error || '' }))}</p>` : `<p class="note">${esc(T('work.loading'))}</p>`}
+    ${j.record ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-rm="open" data-path="${esc(j.record)}">${esc(T('rm.open'))}</button></div>` : ''}
+    <div class="acts" style="margin:0"><button class="btn" type="button" data-rm="leave" data-addr="${esc(j.addr)}">${esc(T('rm.leave'))}</button></div>`;
+}
+// One room, as its host (all controls) or a guest (contributions only) sees it.
+function rmRoomHTML(r, host, j) {
+  const id = host ? 'rm:h:' + r.id : 'rm:j:' + j.addr, open = r.state === 'open', items = r.items || [];
+  const k = host ? `data-id="${esc(r.id)}"` : `data-addr="${esc(j.addr)}"`, key = x => `${host ? r.id : j.addr}:${x}`;
+  const opts = items.filter(i => i.kind === 'option'), notes = items.filter(i => i.kind === 'note');
+  const by = i => `<span class="rm-by">${esc(rmName(i.by))}</span>`;
+  const step = (on, label) => `<span class="badge${on ? ' ok' : ''}">${on ? '✓ ' : ''}${esc(label)}</span>`;
+  const pcs = items.filter(i => i.kind === 'pro' || i.kind === 'con').length;
+  const tn = rm.v?.tailnet, addr = host && tn?.ip ? `${tn.ip}:${tn.port}/${r.id}` : '';
+  const optHTML = o => { const list = kd => items.filter(i => i.kind === kd && i.option === o.id).map(p => `<li>${esc(p.text)} ${by(p)}</li>`).join('') || `<li class="rm-by">—</li>`;
+    return `<div class="rm-opt${r.decision?.option === o.id ? ' chosen' : ''}"><h4>${esc(o.text)} ${by(o)}${r.decision?.option === o.id ? `<span class="badge ok">${esc(T('rm.chosen'))}</span>` : ''}</h4>
+      <div class="rm-pc"><div><span class="lbl">${esc(T('rm.pros'))}</span><ul>${list('pro')}</ul></div><div><span class="lbl">${esc(T('rm.cons'))}</span><ul>${list('con')}</ul></div></div>
+      ${open ? `<div class="rm-f"><div class="row"><input data-rmin="${esc(key('pc:' + o.id))}" data-f="${esc(key('pc:' + o.id))}" value="${rmVal(key('pc:' + o.id))}" placeholder="${esc(T('rm.pc.ph'))}" aria-label="${esc(T('rm.pc.ph'))}">
+        <button class="btn sm" type="button" data-rm="add" data-kind="pro" data-opt="${esc(o.id)}" ${k}>+ ${esc(T('rm.pro'))}</button><button class="btn sm" type="button" data-rm="add" data-kind="con" data-opt="${esc(o.id)}" ${k}>+ ${esc(T('rm.con'))}</button></div></div>` : ''}</div>`; };
+  const seen = r.seen || {}, people = r.invited.map(l => `<li><div class="row">${ico('user', seen[l] != null ? 'ok' : '')}<span class="b-tx"><span class="lb"><code>${esc(l)}</code></span><span class="sb">${esc(seen[l] == null ? T('rm.p.not') : seen[l] === r.v ? T('rm.p.latest') : T('rm.p.saw', { v: seen[l] }))}</span></span>
+    ${open ? `<span class="acts"><button class="btn sm" type="button" data-rm="uninvite" data-login="${esc(l)}" ${k}>${esc(T('rm.uninvite'))}</button></span>` : ''}</div></li>`).join('');
+  const chosen = items.find(i => i.id === r.decision?.option);
+  return `${head(ico(open ? 'room' : 'check', 'lg'), r.title, `${T('rm.by', { n: rmName(r.host) })} · ${T('rm.state.' + r.state)}${host ? '' : ' · ' + T('rm.guest')}`)}${rmErr(id)}
+    <div class="rm-steps">${step(!!r.problem, T('rm.s.frame'))}${step(opts.length > 0, T('rm.s.options', { n: opts.length }))}${step(pcs > 0, T('rm.s.pc', { n: pcs }))}${step(!!r.decision, T('rm.s.decision'))}</div>
+    ${host && open && addr ? `<div class="rm-f"><span class="lbl">${esc(T('rm.addr'))}</span><div class="row"><code>${esc(addr)}</code><button class="btn sm" type="button" data-rm="addr" ${k}>${esc(T('rm.copyAddr'))}</button></div><p class="note">${esc(T('rm.addr.note'))}</p></div>` : ''}
+    <section class="b-sec"><h3>${esc(T('rm.s.frame'))}</h3>${host && open ? `<div class="rm-f"><textarea data-rmin="${esc(key('problem'))}" data-f="${esc(key('problem'))}" aria-label="${esc(T('rm.f.problem'))}">${rmVal(key('problem'), r.problem)}</textarea>
+      <div class="acts" style="margin:0"><button class="btn sm" type="button" data-rm="frame" ${k}>${esc(T('rm.save'))}</button></div></div>` : `<p>${esc(r.problem || '—')}</p>`}</section>
+    <section class="b-sec"><h3>${esc(T('rm.s.options', { n: opts.length }))}</h3><div class="rm-f">${opts.map(optHTML).join('') || `<p class="blank">${esc(T('rm.noOptions'))}</p>`}
+      ${open ? `<div class="row"><input data-rmin="${esc(key('opt'))}" data-f="${esc(key('opt'))}" value="${rmVal(key('opt'))}" placeholder="${esc(T('rm.opt.ph'))}" aria-label="${esc(T('rm.opt.ph'))}"><button class="btn sm" type="button" data-rm="add" data-kind="option" ${k}>+ ${esc(T('rm.option'))}</button></div>` : ''}</div></section>
+    <section class="b-sec"><h3>${esc(T('rm.notes'))}</h3><div class="rm-f">${notes.length ? `<ul style="margin:0;padding-left:18px">${notes.map(n => `<li>${esc(n.text)} ${by(n)}</li>`).join('')}</ul>` : ''}
+      ${open ? `<div class="row"><input data-rmin="${esc(key('note'))}" data-f="${esc(key('note'))}" value="${rmVal(key('note'))}" placeholder="${esc(T('rm.note.ph'))}" aria-label="${esc(T('rm.note.ph'))}"><button class="btn sm" type="button" data-rm="add" data-kind="note" ${k}>+ ${esc(T('rm.note'))}</button></div>` : ''}</div></section>
+    <section class="b-sec"><h3>${esc(T('rm.summary'))}</h3>${r.summary ? `<div class="rm-sum">${esc(r.summary.text)}</div><p class="note">${esc(T('rm.summary.by', { n: rmName(r.host), t: ago(r.summary.at) }))}</p>` : `<p class="blank">${esc(T('rm.summary.none'))}</p>`}
+      ${host && open ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-rm="summarize" ${k}${rm.busy === id ? ' disabled' : ''}>${esc(T(rm.busy === id ? 'rm.summarizing' : 'rm.summarize'))}</button></div><p class="note">${esc(T('rm.summary.note'))}</p>` : ''}</section>
+    <section class="b-sec"><h3>${esc(T('rm.s.decision'))}</h3>${r.decision ? `<div class="rm-opt chosen"><h4>${esc(chosen?.text || '')}</h4><p style="margin:0">${esc(r.decision.text)}</p><span class="rm-by">${esc(ago(r.decision.at))}</span></div>`
+      : host && opts.length ? `<div class="rm-f"><select data-rmin="${esc(key('dopt'))}" aria-label="${esc(T('rm.s.decision'))}">${opts.map(o => `<option value="${esc(o.id)}"${(rmIn[key('dopt')] ?? opts[0].id) === o.id ? ' selected' : ''}>${esc(o.text)}</option>`).join('')}</select>
+        <textarea data-rmin="${esc(key('why'))}" data-f="${esc(key('why'))}" placeholder="${esc(T('rm.why.ph'))}" aria-label="${esc(T('rm.why.ph'))}">${rmVal(key('why'))}</textarea><div class="acts" style="margin:0"><button class="btn pri" type="button" data-rm="decide" ${k}>${esc(T('rm.decide'))}…</button></div></div>`
+      : `<p class="blank">${esc(T(host ? 'rm.decide.need' : 'rm.decide.wait'))}</p>`}</section>
+    ${r.state === 'decided' ? `<section class="b-sec"><h3>${esc(T('rm.record'))}</h3>${(host ? r.record : j?.record) ? `<p class="note">${esc(T('rm.record.saved', { p: home(host ? r.record : j.record) }))}</p><div class="acts" style="margin:0"><button class="btn pri" type="button" data-rm="open" data-path="${esc(host ? r.record : j.record)}">${esc(T('rm.open'))}</button>${host ? `<button class="btn" type="button" data-rm="copy" ${k}>${esc(T('rm.copyClaude'))}…</button>` : ''}</div>` : `<p class="note">${esc(T('rm.record.fetching'))}</p>`}
+      ${host ? `<p class="note">${esc(T('rm.noArtifact'))}</p>` : ''}</section>` : ''}
+    ${host ? `<section class="b-sec"><h3>${esc(T('rm.people.t'))}</h3><ul class="rows">${people || `<li class="blank">${esc(T('rm.p.none'))}</li>`}</ul>
+      ${open ? `<div class="rm-f"><div class="row"><input data-rmin="${esc(key('inv'))}" data-f="${esc(key('inv'))}" value="${rmVal(key('inv'))}" placeholder="name@example.com" aria-label="${esc(T('rm.f.invite'))}" spellcheck="false"><button class="btn sm" type="button" data-rm="invite" ${k}>${esc(T('rm.invite'))}</button></div></div>` : ''}</section>
+      <section class="b-sec"><h3>${esc(T('rm.audit'))}</h3><div class="acts" style="margin:0"><button class="btn sm" type="button" data-rm="audit" ${k}>${esc(T('rm.audit.show'))}</button></div>${rm.audit?.id === r.id ? `<ul class="rows">${rm.audit.lines.slice(0, 30).map(l => `<li><div class="row">${ico(l.ev === 'refused' ? 'x' : l.ev === 'add' ? 'chat' : 'eye', l.ev === 'refused' ? 'hot' : '')}<span class="b-tx"><span class="lb">${esc(T('rm.ev.' + l.ev, { v: l.v ?? '', k: l.kind ? T('rm.kind.' + l.kind) : '' }))}${l.who ? ` · <code>${esc(l.who)}</code>` : ''}</span><span class="sb">${esc(ago(l.t))}${l.why ? ' · ' + esc(rmWhy(l.why)) : ''}</span></span></div></li>`).join('')}</ul>` : ''}</section>` : ''}
+    <p class="note">${esc(T('rm.footer'))}</p>`;
+}
+async function rmDo(itemId, work) {
+  rm.busy = itemId; rm.err = null; render();
+  try { const r = await work(); if (r && r.ok === false) rm.err = { id: itemId, text: T('sk.err', { e: r.error || '?' }) }; }
+  catch (e) { rm.err = { id: itemId, text: T('sk.err', { e: String(e?.message || e) }) }; }
+  rm.busy = ''; await rmLoad();
+}
+async function rmAct(d) {
+  if (!bridge?.room) return;
+  const at = cur?.id || 'rm:new', host = !!d.id, key = x => `${host ? d.id : d.addr}:${x}`, take = x => { const v = (rmIn[x] || '').trim(); delete rmIn[x]; return v; };
+  if (d.rm === 'create') return rmDo('rm:new', async () => { const r = await bridge.room('create', { title: rmIn.title || '', problem: rmIn.problem || '', invite: String(rmIn.invite || '').split(/[\s,;]+/).filter(Boolean) });
+    if (r?.ok) { rmIn.title = rmIn.problem = rmIn.invite = ''; bsel.room = 'rm:h:' + r.room.id; nextFocus = 'it:rm:h:' + r.room.id; toast(T('rm.created')); } return r; });
+  if (d.rm === 'join') return rmDo('rm:join', async () => { const addr = (rmIn.addr || '').trim(), r = await bridge.room('get', { addr });
+    if (r?.ok) { rmIn.addr = ''; rm.remote[addr] = r; bsel.room = 'rm:j:' + addr; toast(T('rm.joined', { n: r.room.title })); } else if (r?.status === 403) return { ok: false, error: T('rm.refused', { e: rmWhy(r.error) }) }; return r; });
+  if (d.rm === 'add') { const f = key(d.kind === 'option' ? 'opt' : d.kind === 'note' ? 'note' : 'pc:' + d.opt), text = (rmIn[f] || '').trim(); if (!text) return;
+    return rmDo(at, async () => { const r = host ? await bridge.room('add', { id: d.id, kind: d.kind, option: d.opt || null, text }) : await bridge.room('radd', { addr: d.addr, kind: d.kind, option: d.opt || null, text });
+      if (r?.ok) { delete rmIn[f]; const it = (r.room?.items || []).slice(-1)[0]; if (it?.redacted) toast(T('rm.redacted', { n: it.redacted })); } return r; }); }
+  if (d.rm === 'frame') return rmDo(at, () => bridge.room('frame', { id: d.id, problem: take(key('problem')) }));
+  if (d.rm === 'invite') return rmDo(at, () => bridge.room('invite', { id: d.id, login: take(key('inv')) }));
+  if (d.rm === 'uninvite') return rmDo(at, () => bridge.room('uninvite', { id: d.id, login: d.login }));
+  if (d.rm === 'summarize') return rmDo(at, () => bridge.room('summarize', { id: d.id }));
+  if (d.rm === 'audit') { const r = await bridge.room('audit', { id: d.id }); rm.audit = { id: d.id, lines: r?.lines || [] }; return render(); }
+  if (d.rm === 'addr') { const tn = rm.v?.tailnet, a = `${tn?.ip}:${tn?.port}/${d.id}`; try { await navigator.clipboard.writeText(a); toast(T('rm.addrCopied')); } catch { toast(a); } return; }
+  if (d.rm === 'leave') return rmDo(at, () => bridge.room('leave', { addr: d.addr }));
+  if (d.rm === 'open') { const r = await bridge.room('open', { path: d.path }); if (!r?.ok) toast(T('sk.err', { e: r?.error || '?' })); return; }
+  if (d.rm === 'decide') { const r = rm.v?.hosted.find(x => x.id === d.id), opt = rmIn[key('dopt')] ?? r?.items.find(i => i.kind === 'option')?.id, o = r?.items.find(i => i.id === opt); if (!o) return;
+    return skAsk(T('rm.decideQ', { n: o.text }), T('rm.decideBody'), '', T('rm.decide'), () => rmDo(at, async () => { const x = await bridge.room('decide', { id: d.id, option: opt, text: take(key('why')) }); if (x?.ok) toast(T('rm.decided')); return x; })); }
+  if (d.rm === 'copy') return skAsk(T('rm.copyQ'), T('rm.copyBody'), '', T('rm.copyClaude'), async () => { const r = await bridge.room('markdown', { id: d.id });
+    if (!r?.ok) return toast(T('sk.err', { e: r?.error || '?' })); try { await navigator.clipboard.writeText(r.text); toast(T('rm.copied')); } catch { toast(T('sk.err', { e: 'clipboard' })); } });
+}
+for (const el of [$('#b-dyn'), $('#b-bar')]) el.addEventListener('click', e => { const b = e.target.closest('button[data-rm]'); if (b && !b.disabled) rmAct(b.dataset); });
+for (const ev of ['input', 'change']) $('#b-dyn').addEventListener(ev, e => { const k = e.target.dataset?.rmin; if (k !== undefined) rmIn[k] = e.target.value; });
 
 // ---------- Settings: one item per section, then habits, Setup (connect Claude Code) and feedback ----------
 const SET_ICON = { place: 'paw', look: 'eye', notify: 'bell', stuck: 'clock', usage: 'gauge', work: 'work', app: 'app', advanced: 'cpu' };

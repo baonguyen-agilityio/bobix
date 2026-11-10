@@ -24,6 +24,7 @@ mod server;
 mod settings;
 mod skill_audit;
 mod habit_skills;
+mod room;
 mod skills;
 mod smoke;
 mod state;
@@ -393,11 +394,89 @@ fn usage_tick(b: &Arc<Bobix>) {
 }
 
 // Habits become skills (habit_skills.rs): your own `claude -p`, found the way your shell finds it.
-fn habit_run(model: &str, tools: &str, prompt: &str) -> Result<String, String> {
+fn claude_bin() -> Result<String, String> {
     static BIN: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    let bin = BIN.get_or_init(|| find_bin("claude")).clone().ok_or("claude is not installed (no `claude` on your PATH)")?;
+    BIN.get_or_init(|| find_bin("claude")).clone().ok_or_else(|| "claude is not installed (no `claude` on your PATH)".into())
+}
+fn habit_run(model: &str, tools: &str, prompt: &str) -> Result<String, String> {
     let secs = if model == "haiku" { 180 } else { 420 };
-    habit_skills::claude(&bin, &paths::data_dir().join("habit-skills/work"), model, tools, prompt, secs)
+    habit_skills::claude(&claude_bin()?, &paths::data_dir().join("habit-skills/work"), model, tools, prompt, secs)
+}
+
+// ---------- the war room (room.rs) ----------
+
+// Tailscale's CLI: where the shell finds it, else where the macOS app keeps it.
+fn tailscale() -> Option<String> {
+    static TS: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    TS.get_or_init(|| find_bin("tailscale").or_else(|| ["/usr/local/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"].iter().find(|p| std::path::Path::new(p).exists()).map(|p| p.to_string()))).clone()
+}
+// This machine's tailnet address and its person, asked at most once a minute.
+fn room_me() -> Option<(std::net::Ipv4Addr, room::Who)> {
+    static ME: Mutex<Option<(u64, Option<(std::net::Ipv4Addr, room::Who)>)>> = Mutex::new(None);
+    let now = room::now_ms();
+    if let Some((at, v)) = ME.lock().unwrap().clone() { if now.saturating_sub(at) < 60_000 { return v; } }
+    let ts = tailscale();
+    let v = ts.as_deref().and_then(|ts| { let ip = room::my_ip(ts)?; Some((ip, room::whois(ts, &ip.to_string())?)) });
+    *ME.lock().unwrap() = Some((now, v.clone()));
+    v
+}
+// The room's server runs while this machine hosts an open room: on its tailnet address only.
+fn room_serve(data: &std::path::Path) -> Value {
+    if !room::any_open(data) { room::stop(); return json!({ "serving": null }); }
+    if let Some(a) = room::running() { return json!({ "serving": a.to_string() }); }
+    let (Some(ts), Some((ip, _))) = (tailscale(), room_me()) else { return json!({ "serving": null, "error": "Tailscale is not running" }) };
+    let port = room::port();
+    let host = std::sync::Arc::new(room::Host { data: data.to_path_buf(), host: format!("{ip}:{port}"), whois: Box::new(move |a| room::whois(&ts, a)), peer_ok: room::is_tailnet });
+    match room::serve(std::net::IpAddr::V4(ip), port, host) { Ok(a) => json!({ "serving": a.to_string() }), Err(e) => json!({ "serving": null, "error": format!("port {port}: {e}") }) }
+}
+fn room_run(model: &str, tools: &str, prompt: &str) -> Result<String, String> {
+    habit_skills::claude(&claude_bin()?, &paths::data_dir().join("rooms/work"), model, tools, prompt, 300)
+}
+fn room_act(act: &str, a: &Value) -> Value {
+    let data = paths::data_dir();
+    let s = |k: &str| a[k].as_str().unwrap_or("").to_string();
+    let (id, now) = (s("id"), room::now_ms());
+    let me = || room_me().map(|x| x.1).ok_or("Tailscale is not running, or this machine has no person on it");
+    let fail = |e: &str| json!({ "ok": false, "error": e });
+    let r = match act {
+        "list" => {
+            let m = room_me();
+            let up = room_serve(&data);
+            return json!({ "ok": true, "tailnet": { "cli": tailscale().is_some(), "ip": m.as_ref().map(|x| x.0.to_string()), "me": m.as_ref().map(|x| json!({ "login": x.1.login, "name": x.1.name, "node": x.1.node })),
+                "port": room::port(), "serving": up["serving"], "error": up["error"] },
+                "hosted": room::hosted(&data).iter().map(|r| { let mut v = r.clone(); v["record"] = json!(room::record_path(&data, r).is_file().then(|| room::record_path(&data, r))); v }).collect::<Vec<_>>(),
+                "joined": room::joined(&data) });
+        }
+        "create" => match me() {
+            Ok(w) => { let inv: Vec<String> = a["invite"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(String::from)).collect(); room::create(&data, &w, &s("title"), &s("problem"), &inv, now) }
+            Err(e) => fail(e),
+        },
+        "invite" | "uninvite" => room::invite(&data, &id, &s("login"), act == "invite"),
+        "frame" => room::frame(&data, &id, &s("problem")),
+        "add" => match me() { Ok(w) => room::add(&data, &id, &w, &s("kind"), a["option"].as_str(), &s("text"), now), Err(e) => fail(e) },
+        "summarize" => room::summarize(&data, &id, &room_run),
+        "decide" => room::decide(&data, &id, &s("option"), &s("text"), now),
+        "audit" => return json!({ "ok": true, "lines": room::audit_lines(&data, &id) }),
+        "markdown" => return room::load(&data, &id).map_or_else(|| fail("no such room"), |r| json!({ "ok": true, "text": room::markdown(&r) })),
+        "get" => room::remote_get(&data, &s("addr")),
+        "radd" => room::remote_add(&s("addr"), &s("kind"), a["option"].as_str(), &s("text")),
+        "leave" => room::leave(&data, &s("addr")),
+        "open" => {
+            let p = std::path::PathBuf::from(s("path"));
+            // only a record Bobix saved
+            if p.parent() != Some(room::records(&data).as_path()) || p.extension().is_none_or(|e| e != "html") || !p.is_file() { return fail("no such record"); }
+            return match tauri_plugin_opener::open_path(&p, None::<&str>) { Ok(()) => json!({ "ok": true }), Err(e) => fail(&e.to_string()) };
+        }
+        _ => fail("unknown"),
+    };
+    if matches!(act, "create" | "decide") { room_serve(&data); }
+    r
+}
+// The Room scope. act: list | create | invite | uninvite | frame | add | summarize | decide | audit | markdown (host);
+// get | radd | leave (a room you joined); open (a saved record).
+#[tauri::command]
+async fn room(act: String, a: Value) -> Result<Value, ()> {
+    tauri::async_runtime::spawn_blocking(move || room_act(&act, &a)).await.map_err(|_| ())
 }
 fn habit_scan() -> Value { habit_skills::scan(&paths::home(), &paths::data_dir(), skill_audit::now_ms(), &habit_run) }
 
@@ -1279,7 +1358,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -1314,6 +1393,7 @@ fn main() {
                 fail(format!("Port {port} is busy ({e}). Is Bobix already running?\nChange \"port\" in {}", paths::settings_file().display()));
             }
 
+            thread::spawn(|| { room_serve(&paths::data_dir()); }); // a room still open from before
             let hb = b.clone();
             thread::spawn(move || { let node = find_bin("node"); hb.core.lock().unwrap().node_path = node; refresh_hooks(&hb); });
             overlay::create(&handle, &b)?;
