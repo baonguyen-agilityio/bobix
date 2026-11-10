@@ -6,6 +6,10 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `develop`, not released yet
 
+On `develop` after the v0.2.0-rc.5 test build:
+
+- **A family's name starts under the parent** ([#103](https://github.com/baonguyen-agilityio/bobix/issues/103), on `develop` after 0.2.0-rc.5): the tag still spans the parent and its side sessions, but the name is aligned towards the parent instead of centred, where it sat under a side pet.
+
 Shipped on `develop` for the v0.2.0-rc.5 test build ([release notes](releases/0.2.0-rc.5.md)):
 
 - **Skills audit and model rules** ([#111](https://github.com/baonguyen-agilityio/bobix/issues/111) backend, PR #125; the Skills screen, [#129](https://github.com/baonguyen-agilityio/bobix/issues/129), PR #130): step 2 of the [product direction](product-direction.md). Per project, it lists every skill Claude loads (personal, project, enabled plugins, claude.ai, managed), its uses over the last 30 days, the unused ones, the duplicate sets and the cost of the descriptions each turn. Disable and Remove (personal and project skills) keep a backup and can be undone; plugin skills are not changed, Bobix shows the `enabledPlugins` setting that would turn the plugin off. The "When to split, which model" block goes at the end of the project's `CLAUDE.md` only after you see the exact text, and Undo restores the file byte for byte. Nothing is written without a click. Checked on macOS in the smoke run (the audit, remove and undo, the rules block); not on Windows or Linux. Still open: the plugin settings are not edited, and the model advice at Start on a ticket and the pet's in-place tip (parts b and c of the direction) are not built.
