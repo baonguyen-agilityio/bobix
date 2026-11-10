@@ -95,3 +95,31 @@ side the pet walks to. That carries over:
 4. Default size: keep 56 px, or move to 72 px for exact 2× pixels on 1× screens?
 5. Should the app gain a "failed" state (a turn that ended in an error) now that the pets can show one?
 6. Do today's generated creatures stay as a choice next to the new pets?
+
+## Calm styles for the new panel (`raycast.html`)
+
+For the calm, system-like panel of #116, three original directions for the same pets (today's creature, Nota, Tty,
+Miso, Ship), every state at the real size (56 px), on a dark and a light desktop, each with a row of today's pet to
+compare. Drawn in code (SVG), no external assets, works offline; colours are CSS tokens with light and dark page themes
+and a toggle. `raycast-contact-sheet.png`: the whole page at 1×, t = 0, 1, 2 s.
+
+- **A · Flat icon.** A soft, rounded, app-icon-like pet: 2–3 colours, a gentle gradient, no outline. Status is an
+  app-icon badge (… working, ! waiting, ✓ done, × failed); asleep dims and shows a "z". Waiting adds a coral ring and
+  tint round the whole icon. Every state reads at 56 px on both desktops, and it keeps the whole-body acting.
+- **B · Mono pixel.** The pixel pets as line art in the session's colour on a dark glass capsule, status as a dot,
+  waiting as a coral, glowing edge. The calmest, but at 56 px on a 1× screen the 1-pixel lines and faces get thin, so
+  the state rests mostly on the dot. On a light desktop the capsule needs near-opaque dark glass to keep its contrast.
+- **C · Glass capsule.** A frosted pill with the flat pet, the session's name and a status dot with a word ("Needs
+  you", "Done", "Failed"). The clearest of the three: you can tell sessions and states apart without hovering, and
+  waiting stands out most (coral edge, glow, coral words). But a pill is about 164 px wide, three times a pet, so far
+  fewer fit along the edge.
+
+**Recommendation: A, with C's pill when a session needs you.** Pets walk the edge as flat icons (A): calm, compact,
+in the panel's style, and the pet avatar in the panel's session rows can be the same icon. When a session waits for
+you, finishes or fails, its pet opens into C's pill with the name and the state in words, then closes again. B is the
+weakest at 56 px and is not worth taking further.
+
+Open questions for this part:
+1. A or C as the default look, or the mix above?
+2. Should the flat icons replace the pixel pets everywhere, or be a "calm" option next to them?
+3. Failed is red here; is that too close to waiting's coral? (Waiting also gets the ring or edge and the glow.)

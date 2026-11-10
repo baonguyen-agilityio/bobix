@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calm pet styles</title>
+<!-- Prototype for #106 / #116: three calm, system-like pet styles to match the panel redesign. Original designs, drawn
+     in code, no external assets. Today's pets come from src/ui/creature.js and the pixel pets from index.html, copied in. -->
+<style>
+:root{
+  /* page */
+  --bg:#f4f5f8;--surface:#ffffff;--line:#e3e5eb;--ink:#1b1d24;--ink-2:#4d5260;--ink-3:#868b99;--accent:#5b6cf0;--chip:#eef0f5;
+  /* status: the same on every desktop; waiting keeps today's coral approval cue */
+  --st-working:#5b8def;--st-waiting:#ff7a4d;--st-waiting-glow:rgb(255 122 77 / .55);--st-done:#34c38f;--st-failed:#e5484d;--st-idle:#9095a3;
+  /* session colours (today's body tokens) */
+  --s-sky:oklch(84% .075 235);--s-mint:oklch(86% .085 162);--s-lilac:oklch(83% .075 300);--s-butter:oklch(90% .095 98);--s-rose:oklch(84% .075 5);
+  /* flat pets */
+  --face:#1f2230;--white:#ffffff;
+  --nota-hi:#8db6f5;--nota-lo:#5a86d9;--nota-page:#fbf6ea;
+  --tty-hi:#efe9dc;--tty-lo:#cfc6b3;--tty-screen:#1e2a33;--tty-glow:#7df29b;--tty-glow-fail:#ff6b6b;--tty-glow-sleep:#3f7a50;
+  --miso-hi:#c4b8e4;--miso-lo:#9a8bc6;--miso-muzzle:#f6f3fb;
+  --ship-hi:#f6f8fc;--ship-lo:#cdd5e2;--ship-blue:#4f7fe8;--ship-glass:#2d4a7a;
+  --def-lo:oklch(76% .09 235);--cheek:#f6a9bd;
+  /* desktops */
+  --wall-dark:radial-gradient(120% 140% at 15% 0%,#3a3f63 0%,#20233a 45%,#14151d 100%);
+  --wall-light:radial-gradient(120% 140% at 15% 0%,#ffffff 0%,#e7ecf4 45%,#d9e0ea 100%);
+  --glass-dark:rgb(24 26 34 / .58);--glass-dark-strong:rgb(22 24 32 / .84);--glass-dark-edge:rgb(255 255 255 / .14);--glass-dark-ink:#f1f2f6;--glass-dark-ink-2:#b4b8c4;
+  --glass-light:rgb(255 255 255 / .62);--glass-light-edge:rgb(255 255 255 / .9);--glass-light-ink:#1b1d24;--glass-light-ink-2:#5b606e;
+  --tag-bg:#fbfaf7;--tag-line:#d5d9e2;
+  /* what today's balloons (creature.js balloonSVG) read */
+  --coral:oklch(66% .175 33);--mint:oklch(86% .085 162);--n-900:oklch(24% .035 266);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121318;--surface:#1b1d24;--line:#2c2f39;--ink:#eceef3;--ink-2:#b6bac6;--ink-3:#7e8392;--accent:#8e9bff;--chip:#262934}}
+:root[data-theme="dark"]{--bg:#121318;--surface:#1b1d24;--line:#2c2f39;--ink:#eceef3;--ink-2:#b6bac6;--ink-3:#7e8392;--accent:#8e9bff;--chip:#262934}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:1240px;margin:0 auto;padding:24px 16px 48px}
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+h1{font-size:20px;font-weight:650;letter-spacing:-.01em;margin:0 0 4px}
+h2{font-size:15px;font-weight:650;margin:0}
+.lead{color:var(--ink-2);margin:0;max-width:760px}
+.toggle{flex:none;display:inline-flex;padding:2px;border-radius:8px;background:var(--chip);border:1px solid var(--line)}
+.toggle button{border:0;background:none;color:var(--ink-2);font:500 12px/1 inherit;padding:6px 10px;border-radius:6px;cursor:pointer}
+.toggle button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / .12)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:14px 0 0;padding:0;list-style:none;color:var(--ink-2);font-size:12px}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+section{margin-top:28px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.sec-h .k{font:600 11px/1 inherit;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.sec-p{color:var(--ink-2);margin:4px 0 12px;max-width:820px}
+.walls{display:grid;gap:12px}
+.wall{border-radius:10px;padding:10px 12px 6px;overflow-x:auto}
+.wall.dark{background:var(--wall-dark);--g:var(--glass-dark);--g-edge:var(--glass-dark-edge);--g-ink:var(--glass-dark-ink);--g-ink-2:var(--glass-dark-ink-2);--w-ink:#d7dae3;--w-ink-2:#9ca1b0;--w-line:rgb(255 255 255 / .08)}
+.wall.light{background:var(--wall-light);--g:var(--glass-light);--g-edge:var(--glass-light-edge);--g-ink:var(--glass-light-ink);--g-ink-2:var(--glass-light-ink-2);--w-ink:#30333d;--w-ink-2:#6b7080;--w-line:rgb(20 24 40 / .08)}
+.wall .cap-t{font:600 11px/1 inherit;color:var(--w-ink-2);letter-spacing:.04em;text-transform:uppercase;margin:2px 0 6px}
+table{border-collapse:collapse}
+th,td{padding:5px 8px;text-align:center;vertical-align:bottom}
+thead th{font:600 11px inherit;color:var(--w-ink-2);padding-bottom:2px}
+tbody th{font:600 12px inherit;color:var(--w-ink);text-align:left;vertical-align:middle;white-space:nowrap;padding-right:14px}
+tbody th small{display:block;font-weight:400;color:var(--w-ink-2)}
+tr.today td,tr.today th{border-top:1px dashed var(--w-line);padding-top:34px} /* room for today's balloons */
+.cell{position:relative;width:56px;height:56px;margin:14px auto 4px}
+.cell svg{display:block;width:56px;height:56px;overflow:visible}
+/* A: flat icon */
+.flat .ring{animation:pulse 1.2s ease-in-out infinite}
+.flat.asleep{opacity:.8}
+/* B: mono pixel on a dark glass capsule */
+.cap{position:relative;width:56px;height:56px;border-radius:17px;background:var(--glass-dark);border:1px solid var(--glass-dark-edge);
+  -webkit-backdrop-filter:blur(14px) saturate(1.5);backdrop-filter:blur(14px) saturate(1.5);box-shadow:0 6px 16px rgb(0 0 0 / .22);display:grid;place-items:center}
+.cap svg{width:44px;height:44px}
+.cap.waiting{border-color:var(--st-waiting);box-shadow:0 0 0 1.5px var(--st-waiting),0 0 16px var(--st-waiting-glow);animation:glow 1.2s ease-in-out infinite}
+.cap.asleep{opacity:.7}
+.wall.light .cap{background:var(--glass-dark-strong)} /* stays dark glass on a light desktop, so the line art keeps its contrast */
+.dot{position:absolute;top:-3px;right:-3px;width:11px;height:11px;border-radius:50%;border:2px solid #1c1e27}
+.dot.working{background:var(--st-working)}.dot.waiting{background:var(--st-waiting);width:13px;height:13px;top:-4px;right:-4px}.dot.done{background:var(--st-done)}.dot.failed{background:var(--st-failed)}.dot.asleep{background:var(--st-idle)}
+.dot.working{animation:pulse 1.4s ease-in-out infinite}
+/* C: glass pill widget */
+.pill{position:relative;display:flex;align-items:center;gap:9px;width:164px;height:56px;margin:14px auto 4px;padding:6px 14px 6px 6px;border-radius:28px;text-align:left;
+  background:var(--g);border:1px solid var(--g-edge);-webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6);box-shadow:0 6px 18px rgb(0 0 0 / .16)}
+.pill .ico{flex:none;width:44px;height:44px;border-radius:22px;display:grid;place-items:center}
+.pill .ico svg{width:40px;height:40px;overflow:visible}
+.pill .tx{min-width:0}
+.pill .nm{font:600 12.5px/1.2 inherit;color:var(--g-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill .st{display:flex;align-items:center;gap:5px;font:500 11px/1.3 inherit;color:var(--g-ink-2);white-space:nowrap}
+.pill .st i{flex:none;width:7px;height:7px;border-radius:50%}
+.pill.waiting{border-color:var(--st-waiting);box-shadow:0 0 0 1.5px var(--st-waiting),0 0 18px var(--st-waiting-glow);animation:glow 1.2s ease-in-out infinite}
+.pill.waiting .st{color:var(--st-waiting);font-weight:650}
+.pill.asleep{opacity:.72}
+.pill .st i.working{background:var(--st-working);animation:pulse 1.4s ease-in-out infinite}.pill .st i.waiting{background:var(--st-waiting)}.pill .st i.done{background:var(--st-done)}.pill .st i.failed{background:var(--st-failed)}.pill .st i.asleep{background:var(--st-idle)}
+/* today's pets, with today's cues: step, hop, the coral outline, balloons, dim and "z", the name tag */
+.today-pet{position:relative;width:56px;height:56px}
+.today-pet>svg{width:56px;height:56px;filter:drop-shadow(0 2px 0 rgb(40 44 70 / .25))}
+.today-pet.walking>svg{animation:step 320ms steps(2) infinite}
+.today-pet.waiting>svg{animation:hop 900ms ease infinite;filter:drop-shadow(1px 0 0 #ff7a4d) drop-shadow(-1px 0 0 #ff7a4d) drop-shadow(0 1px 0 #ff7a4d) drop-shadow(0 -1px 0 #ff7a4d)}
+.today-pet.asleep{opacity:.75}
+.bb{position:absolute;left:50%;bottom:calc(100% - 5px);width:28px;translate:-50% 0}
+.bb svg{display:block;width:100%;height:auto}
+.zz{position:absolute;left:72%;top:-8px;font:700 13px/1 inherit;color:var(--w-ink-2)}
+.none{display:grid;place-items:center;height:56px;margin:14px auto 4px;color:var(--w-ink-2);font-size:11px}
+.tag{display:inline-block;margin-top:2px;padding:0 8px;border-radius:999px;background:var(--tag-bg);border:1px solid var(--tag-line);color:#1b1d24;font:600 11px/1.5 inherit}
+.tag.waiting{background:#ff7a4d;border-color:#ff7a4d}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes glow{0%,100%{box-shadow:0 0 0 1.5px var(--st-waiting),0 0 16px var(--st-waiting-glow)}50%{box-shadow:0 0 0 1.5px var(--st-waiting),0 0 4px transparent}}
+@keyframes step{to{transform:translateY(-3px)}}
+@keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+.rec main{max-width:none;width:max-content}
+.note{color:var(--ink-3);font-size:12px;margin:10px 0 0}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="g-def" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--s-sky)"/><stop offset="1" style="stop-color:var(--def-lo)"/></linearGradient>
+    <linearGradient id="g-nota" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--nota-hi)"/><stop offset="1" style="stop-color:var(--nota-lo)"/></linearGradient>
+    <linearGradient id="g-tty" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--tty-hi)"/><stop offset="1" style="stop-color:var(--tty-lo)"/></linearGradient>
+    <linearGradient id="g-miso" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--miso-hi)"/><stop offset="1" style="stop-color:var(--miso-lo)"/></linearGradient>
+    <linearGradient id="g-ship" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--ship-hi)"/><stop offset="1" style="stop-color:var(--ship-lo)"/></linearGradient>
+  </defs>
+</svg>
+<main>
+  <header>
+    <div>
+      <h1>Calm pet styles</h1>
+      <p class="lead">Three original directions for pets that sit next to a calm, system-like panel. Every pet acts every state at the real size (56 px), on a dark and a light desktop. The last row of each desktop is today's pet, for comparison.</p>
+    </div>
+    <div class="toggle" role="group" aria-label="Page theme">
+      <button type="button" data-theme-set="auto" aria-pressed="true">Auto</button><button type="button" data-theme-set="light" aria-pressed="false">Light</button><button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+    </div>
+  </header>
+  <ul class="legend">
+    <li><i style="background:var(--st-working)"></i>Working</li>
+    <li><i style="background:var(--st-waiting)"></i>Waiting for you (today's coral cue, ring + glow)</li>
+    <li><i style="background:var(--st-done)"></i>Done</li>
+    <li><i style="background:var(--st-failed)"></i>Failed</li>
+    <li><i style="background:var(--st-idle)"></i>Asleep</li>
+  </ul>
+  <div id="dirs"></div>
+  <p class="note">Today's pets have no failed look (the app has no failed state yet). Their walk and waiting motion is the overlay's step and hop.</p>
+</main>
+<script>
+// --- copied from src/ui/creature.js (today's pets) ---
+function hashStr(str) { let h = 2166136261; for (const c of str) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
+
+// Sinh "sinh vật" pixel 7x7 đối xứng từ session_id, có viền tối 1px. Mắt/miệng đổi theo trạng thái.
+const BODY = ['--sky', '--mint', '--lilac', '--peach', '--butter', '--rose'];
+// color: an index into BODY (see petColor); by default the colour that goes with id.
+// pixel: the face is pixel art, so it is scaled without smoothing.
+// Without a picture the pet is the fine 36×36 version of the 7×7 creature (fineSprite), drawn as one path per colour.
+function creature(id, st, face, color, pixel) {
+  let r = hashStr(id) || 1;
+  const bit = () => (r = Math.imul(r ^ (r >>> 15), 2246822507) >>> 0, r & 1);
+  const ci = color ?? hashStr(id + 'c') % BODY.length;
+  if (face) return bigHead(`var(${BODY[ci]})`, bit, face, pixel);
+  return spriteSVG(fineSprite(id, st, ci));
+}
+
+// ---- the fine pet (36×36) ------------------------------------------------------------------------------------------
+// Built from the 7×7 creature: Scale2x twice rounds the body's diagonal steps (ears, arms and legs stay apart), then
+// a fresh 1-pixel outline, a light top-left and a dark bottom-right band, and a face redrawn per state. Colours are
+// packed like ImageData (0xAABBGGRR) so the pets overlay's effects can draw the same pixels into a canvas.
+// The design tokens the pets are made of (oklch L, C, h), the same values as ui/theme.css (a test keeps them equal).
+const TOKENS = { '--n-900': [.24, .035, 266], '--sky': [.84, .075, 235], '--mint': [.86, .085, 162], '--lilac': [.83, .075, 300], '--peach': [.86, .075, 55], '--butter': [.90, .095, 98], '--rose': [.84, .075, 5] };
+const packRGB = (r, g, b) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0;
+function oklch([L, C, h]) {
+  const a = C * Math.cos(h * Math.PI / 180), b = C * Math.sin(h * Math.PI / 180);
+  const l = (L + .3963377774 * a + .2158037573 * b) ** 3, m = (L - .1055613458 * a - .0638541728 * b) ** 3, s = (L - .0894841775 * a - 1.291485548 * b) ** 3;
+  const g = x => Math.round(255 * Math.min(1, Math.max(0, x <= .0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - .055)));
+  return packRGB(g(4.0767416621 * l - 3.3077115913 * m + .2309699292 * s), g(-1.2684380046 * l + 2.6097574011 * m - .3413193965 * s), g(-.0041960863 * l - .7034186147 * m + 1.707614701 * s));
+}
+// color-mix(in oklch, a p, b): lightness and chroma blend, the hue takes the shorter way round.
+function mixOklch(a, b, p) { let dh = b[2] - a[2]; if (dh > 180) dh -= 360; if (dh < -180) dh += 360; return [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] + dh * (1 - p)]; }
+const WHITE32 = packRGB(255, 255, 255);
+const mix32 = (a, b, t) => { const m = s => Math.round(((a >>> s) & 255) * (1 - t) + ((b >>> s) & 255) * t); return packRGB(m(0), m(8), m(16)); };
+const hex32 = c => '#' + [0, 8, 16].map(s => ((c >>> s) & 255).toString(16).padStart(2, '0')).join('');
+// Scale2x (EPX): doubles a picture and rounds its diagonal steps without blurring.
+function scale2x(src, w, h) {
+  const W = w * 2, out = new Uint32Array(W * h * 2), at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : src[y * w + x]);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const P = at(x, y), A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+    out[2 * y * W + 2 * x] = C === A && C !== D && A !== B ? A : P; out[2 * y * W + 2 * x + 1] = A === B && A !== C && B !== D ? B : P;
+    out[(2 * y + 1) * W + 2 * x] = D === C && D !== B && C !== A ? C : P; out[(2 * y + 1) * W + 2 * x + 1] = B === D && B !== A && D !== C ? D : P;
+  }
+  return out;
+}
+// The 7×7 creature's cells (ears, arms, legs, rounded head) for a project: the same bits in the same order as always.
+function creatureCells(id) {
+  let r = hashStr(id) || 1;
+  const bit = () => (r = Math.imul(r ^ (r >>> 15), 2246822507) >>> 0, r & 1);
+  const on = new Set(), put = (x, y) => { on.add(`${x},${y}`); on.add(`${6 - x},${y}`); };
+  for (let y = 1; y <= 5; y++) for (let x = 1; x <= 3; x++) put(x, y);
+  if (bit()) put(1, 0); if (bit()) put(2, 0);          // tai / sừng
+  for (let y = 2; y <= 4; y++) if (bit()) put(0, y);    // tay
+  if (bit()) put(1, 6); else put(2, 6);                 // chân
+  if (bit()) { on.delete('1,1'); on.delete('5,1'); }    // đầu tròn
+  return on;
+}
+const FINE = new Map();
+function fineSprite(id, st, ci) {
+  const key = `${id}|${st}|${ci}`;
+  if (FINE.has(key)) return FINE.get(key);
+  const tone = TOKENS[BODY[ci]], body = oklch(tone), line = oklch(mixOklch(tone, TOKENS['--n-900'], .45)), W = 36;
+  const d9 = new Uint32Array(81); // the body on the 9×9 grid (the old outline ring stays empty)
+  for (const k of creatureCells(id)) { const [x, y] = k.split(',').map(Number); d9[(y + 1) * 9 + x + 1] = body; }
+  const d = scale2x(scale2x(d9, 9, 9), 18, 18), o = d.slice();
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) { // the new outline: every empty pixel touching the body (8 ways)
+    if (d[y * W + x]) continue;
+    outer: for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const xx = x + i, yy = y + j; if (xx >= 0 && yy >= 0 && xx < W && yy < W && d[yy * W + xx]) { o[y * W + x] = line; break outer; } }
+  }
+  // Shading: body pixels within 2 of the rim get light on the top and left, dark on the bottom and right.
+  const get = (x, y) => (x < 0 || y < 0 || x >= W || y >= W ? 0 : o[y * W + x]), rim = c => !c || c === line;
+  const near = (x, y, dx, dy) => rim(get(x + dx, y + dy)) || rim(get(x + 2 * dx, y + 2 * dy));
+  const light = mix32(body, WHITE32, .38), dark = mix32(body, line, .32), out = o.slice();
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    if (o[y * W + x] !== body) continue;
+    if (near(x, y, 0, -1) || near(x, y, -1, 0)) out[y * W + x] = light; else if (near(x, y, 0, 1) || near(x, y, 1, 0)) out[y * W + x] = dark;
+  }
+  face36(out, st, oklch(TOKENS['--n-900']), oklch(TOKENS['--rose']));
+  const spr = { w: W, h: W, data: out };
+  FINE.set(key, spr);
+  return spr;
+}
+// The face where the 7×7 creature has it (eyes on its pixels 2 and 4 of row 3): round eyes with a glint while working,
+// wide eyes and an "o" while waiting, happy arcs, a U smile and pink cheeks when done, closed lines when idle.
+function face36(o, st, ink, rose) {
+  const P = (x, y, c) => { o[y * 36 + x] = c; }, R = (x, y, w, h, c) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) P(x + i, y + j, c); };
+  const eye = (x, y, w, h, glint) => { // a rectangle with its corners taken off, and a white glint top-left
+    R(x, y, w, h, ink);
+    for (const [cx, cy] of [[x, y], [x + w - 1, y], [x, y + h - 1], [x + w - 1, y + h - 1]]) P(cx, cy, o[cy * 36 + (cx === x ? cx - 1 : cx + 1)] || 0);
+    R(x + 1, y + 1, glint, glint, WHITE32);
+  };
+  if (st === 'idle') { R(12, 18, 4, 1, ink); R(20, 18, 4, 1, ink); return; }
+  if (st === 'done') {
+    for (const x of [12, 20]) { P(x, 19, ink); P(x + 1, 18, ink); P(x + 2, 18, ink); P(x + 3, 19, ink); P(x, 20, ink); P(x + 3, 20, ink); }
+    P(15, 23, ink); P(16, 24, ink); R(17, 25, 2, 1, ink); P(19, 24, ink); P(20, 23, ink); R(16, 23, 4, 1, ink); R(17, 24, 2, 1, packRGB(0xff, 0x8f, 0xa3));
+    R(8, 21, 3, 2, rose); R(25, 21, 3, 2, rose); return;
+  }
+  if (st === 'waiting') { eye(12, 15, 4, 5, 2); eye(20, 15, 4, 5, 2); R(17, 23, 2, 3, ink); return; }
+  eye(12, 16, 4, 4, 1); eye(20, 16, 4, 4, 1);
+}
+// A sprite as SVG: one path per colour, each run of pixels in a row one rectangle. Same box as the 9×9 creature had.
+function spriteSVG(spr) {
+  const runs = new Map();
+  for (let y = 0; y < spr.h; y++) for (let x = 0; x < spr.w;) {
+    const c = spr.data[y * spr.w + x];
+    let n = 1; while (x + n < spr.w && spr.data[y * spr.w + x + n] === c) n++;
+    if (c >>> 24) runs.set(c, (runs.get(c) || '') + `M${x} ${y}h${n}v1h-${n}z`);
+    x += n;
+  }
+  return `<svg viewBox="0 0 ${spr.w} ${spr.h}" width="80%" height="80%" shape-rendering="crispEdges" aria-hidden="true">${[...runs].map(([c, d]) => `<path fill="${hex32(c)}" d="${d}"/>`).join('')}</svg>`;
+}
+
+// A creature wearing an uploaded picture: the picture (13 of 22 units) sits in the creature's body, and the outline around the
+// body is drawn last, so it trims only the picture's corners into pixel steps. Ears, arms and legs come from the same project's creature (same bits,
+// same order).
+function bigHead(color, bit, face, pixel) {
+  const px = (x, y, fill) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}"/>`;
+  const line = `color-mix(in oklch, ${color} 45%, var(--n-900))`, { limbLine, limbs, body, ring } = bigHeadCells(bit);
+  const cells = (set, fill) => [...set].map(k => { const [x, y] = k.split(',').map(Number); return px(x, y, fill); }).join('');
+  return `<svg class="faced" viewBox="0 0 22 22" width="100%" height="100%" shape-rendering="crispEdges" aria-hidden="true">`
+    + `${cells(limbLine, line)}${cells(limbs, color)}${cells(body, color)}`
+    + `<image href="${face}" x="4.5" y="4.5" width="13" height="13"${pixel ? ' style="image-rendering:pixelated"' : ''} preserveAspectRatio="xMidYMid slice"/>${cells(ring, line)}</svg>`;
+}
+// The cells of a big-head creature on its 22×22 grid: limbs and their outline, the body (under the picture) and the
+// outline ring drawn over the picture's corners. The pets overlay paints the same cells into its effects.
+function bigHeadCells(bit) {
+  const limbs = new Set(), put = (x, y) => { limbs.add(`${x},${y}`); limbs.add(`${21 - x},${y}`); };
+  const block = (x, y, w, h) => { for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) put(x + i, y + j); };
+  if (bit()) block(6, 1, 2, 2); if (bit()) block(8, 1, 2, 2); // ears / horns
+  for (const y of [7, 10, 13]) if (bit()) block(1, y, 2, 2);  // arms
+  block(bit() ? 6 : 8, 19, 2, 2);                             // legs
+  const body = new Set();
+  for (let x = 4; x <= 17; x++) for (let y = 4; y <= 17; y++) body.add(`${x},${y}`);
+  const cut = bit() ? [[4, 4], [5, 4], [4, 5]] : [[4, 4]];    // the corners of the body: rounder or squarer
+  for (const [x, y] of cut) for (const [a, b] of [[x, y], [21 - x, y], [x, 21 - y], [21 - x, 21 - y]]) body.delete(`${a},${b}`);
+  const around = (set, skip) => {
+    const out = new Set();
+    for (const k of set) { const [x, y] = k.split(',').map(Number); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = `${x + dx},${y + dy}`; if (!skip.has(n)) out.add(n); } }
+    return out;
+  };
+  return { limbLine: around(limbs, new Set([...limbs, ...body])), limbs, body, ring: around(body, body) };
+}
+// The picture pet's look for drawing in a canvas: big-head cells, and its colours as packed pixels (see fineSprite).
+function bigHeadLook(id, color) {
+  let r = hashStr(id) || 1;
+  const bit = () => (r = Math.imul(r ^ (r >>> 15), 2246822507) >>> 0, r & 1);
+  const tone = TOKENS[BODY[color ?? hashStr(id + 'c') % BODY.length]];
+  return { ...bigHeadCells(bit), body32: oklch(tone), line32: oklch(mixOklch(tone, TOKENS['--n-900'], .45)) };
+}
+
+// A pixel-art picture that is the whole pet: it stands on the bottom of the pet's box, scaled without smoothing.
+function picturePet(href) {
+  return `<svg class="pic" viewBox="0 0 1 1" width="100%" height="100%" aria-hidden="true">`
+    + `<image href="${href}" width="1" height="1" preserveAspectRatio="xMidYMax meet" style="image-rendering:pixelated"/></svg>`;
+}
+
+// Where to answer a permission request Bobix can't answer: the Claude app asks in its own card for its sessions.
+const approveWhere = s => (s.hostSession ? 'ask.whereApp' : 'pane.askHint');
+
+// The pet of a session: its project's creature, wearing the picture chosen for that project if there is one, or the
+// picture itself when the person chose it to be the whole pet.
+function petArt(s, st, color) {
+  const token = new URLSearchParams(location.search).get('t') || '';
+  const pic = s.image && `/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(token)}`;
+  return pic && s.pixel && s.whole ? picturePet(pic) : creature(s.project || s.id, st, pic, color, s.pixel);
+}
+
+// A session's colour. Its project gives the shape; the colour tells sessions apart: sessions of one project take the
+// project's colour and the next ones in turn, and a side session never has its parent's colour or its neighbour's.
+function petColor(s, list) {
+  // In the order sessions came (the list keeps it), so one that arrives later never shifts the colour of one already out.
+  const n = BODY.length, proj = x => x.project || x.id, ids = xs => xs.map(x => x.id);
+  const top = x => !(x.parent && list.some(y => y.id === x.parent)); // stands on its own (no parent on screen)
+  const par = s.parent && list.find(x => x.id === s.parent);
+  if (par) { // side sessions avoid the colours of their project's own sessions, so a kid never looks like one of them
+    const taken = new Set(list.filter(x => top(x) && proj(x) === proj(par)).map(x => petColor(x, list)));
+    const free = [...Array(n).keys()].map(i => (petColor(par, list) + 1 + i) % n).filter(i => !taken.has(i));
+    const k = ids(list.filter(x => x.parent === s.parent)).indexOf(s.id);
+    return free.length ? free[k % free.length] : (petColor(par, list) + 1 + (k % (n - 1))) % n;
+  }
+  const mates = ids(list.filter(x => top(x) && proj(x) === proj(s)));
+  return (hashStr(proj(s) + 'c') % n + Math.max(0, mates.indexOf(s.id))) % n;
+}
+
+// A party balloon in the pets' pixel style: orange with "!" waits for you, green with a tick is done. Its string hangs to the pet.
+// On the top edge it floats below the pet: balloon and string are flipped, the "!" / tick and the shine are not.
+function balloonSVG(kind, down = false) {
+  const W = 11, rows = ['...xxxxx...', '..xxxxxxx..', '.xxxxxxxxx.', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx',
+    '.xxxxxxxxx.', '.xxxxxxxxx.', '..xxxxxxx..', '...xxxxx...', '....xxx....', '.....x.....'];
+  const on = new Set(); rows.forEach((r, y) => [...r].forEach((c, x) => c === 'x' && on.add(`${x},${y}`)));
+  const fill = kind === 'waiting' ? 'var(--coral)' : 'var(--mint)', line = `color-mix(in oklch, ${fill} 45%, var(--n-900))`;
+  const icon = kind === 'waiting' ? [[5, 3], [5, 4], [5, 5], [5, 6], [5, 8]] : [[3, 5], [4, 6], [5, 7], [6, 6], [7, 5], [8, 4]];
+  const shine = [[3, 2], [2, 3], [2, 4]], px = (x, y, f) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${f}"/>`;
+  let out = '';
+  for (const k of on) { const [x, y] = k.split(',').map(Number); const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => !on.has(`${x + a},${y + b}`)); out += px(x, y, edge ? line : fill); }
+  out += [5, 5, 6, 6, 5, 5, 4, 4, 5].map((x, i) => px(x, 13 + i, 'var(--ink-3)')).join(''); // the string
+  // Flipped, body row y shows at 21 - y; the upright marks shift by 11 so they land on the same part of the body.
+  const marks = shine.map(([x, y]) => px(x, y + (down ? 11 : 0), 'oklch(98% 0.01 90 / .85)')).join('') + icon.map(([x, y]) => px(x, y + (down ? 11 : 0), 'var(--n-900)')).join('');
+  return `<svg viewBox="0 0 ${W} 22" shape-rendering="crispEdges" aria-hidden="true">${down ? `<g transform="matrix(1 0 0 -1 0 22)">${out}</g>` : out}${marks}</svg>`;
+}
+</script>
+<script>
+// ---- New pets: 36×36 pixel grids drawn in code, the same box and the same SVG output (spriteSVG) as today's pets ----
+// Each pet draws its body for a pose; limbs and faces are shared, so every pet acts the same states the same way.
+const N = 36, GROUND = 33; // feet stand on row 33; the outline takes row 34
+const hex = s => { const n = parseInt(s.slice(1), 16); return packRGB(n >> 16 & 255, n >> 8 & 255, n & 255); };
+const C = new Proxy({}, { get: (m, k) => (m[k] ??= hex(k)) }); // C['#ffcc00'] -> packed colour, cached
+
+function grid() {
+  const d = new Uint32Array(N * N);
+  const g = {
+    d, ox: 0, oy: 0,
+    P(x, y, c) { x = Math.round(x + g.ox); y = Math.round(y + g.oy); if (x >= 0 && y >= 0 && x < N && y < N) d[y * N + x] = c; },
+    R(x, y, w, h, c) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) g.P(x + i, y + j, c); },
+    E(cx, cy, rx, ry, c) {
+      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+        const a = (x - cx) / (rx + .5), b = (y - cy) / (ry + .5); if (a * a + b * b <= 1) g.P(x, y, c);
+      }
+    },
+    L(x0, y0, x1, y1, c, t = 1) {
+      const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) || 1;
+      for (let i = 0; i <= n; i++) g.R(Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n), t, t, c);
+    },
+    clear(x, y) { g.P(x, y, 0); },
+    arms: [], // drawn over the body by outline(), each with its own outline
+  };
+  return g;
+}
+// A 1-pixel outline round everything drawn so far (8 ways), as today's pets have; then the arms on top, each with a
+// 4-way outline of its own, so an arm in front of the body still reads (the way costume.js layers a prop).
+function outline(g, c) {
+  ring(g.d, c, 8);
+  for (const a of g.arms) {
+    const t = grid(); t.ox = g.ox; t.oy = g.oy;
+    a(t); ring(t.d, c, 4);
+    for (let k = 0; k < N * N; k++) if (t.d[k]) g.d[k] = t.d[k];
+  }
+  g.arms = [];
+}
+function ring(d, c, ways) {
+  const s = d.slice(), on = (x, y) => x >= 0 && y >= 0 && x < N && y < N && s[y * N + x];
+  const near = ways === 8 ? [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] : [[0, -1], [-1, 0], [1, 0], [0, 1]];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!s[y * N + x] && near.some(([i, j]) => on(x + i, y + j))) d[y * N + x] = c;
+}
+
+// ---- states: frames and timing; a pose per frame ----
+const STATES = [
+  // id, label, frames, ms per frame, what it is for
+  ['asleep', 'Asleep', 2, 1200, 'Idle for a while: eyes shut, slow breathing'],
+  ['walkR', 'Walk right', 4, 150, 'Walking along the screen edge'],
+  ['walkL', 'Walk left', 4, 150, 'The same walk, mirrored'],
+  ['typing', 'Working · typing', 4, 150, 'Editing, running a command'],
+  ['reading', 'Working · reading', 4, 300, 'Reading, searching, the web'],
+  ['waiting', 'Waiting for you', 4, 220, 'Looks out at you, taps a foot'],
+  ['wave', 'Done · wave', 4, 150, 'Finished: waves at you…'],
+  ['jump', 'Done · jump', 4, 150, '…then jumps for joy'],
+  ['failed', 'Failed', 4, 300, 'Slumps, a drop of sweat'],
+];
+const STATE = Object.fromEntries(STATES.map(([id, label, n, ms, note]) => [id, { id, label, n, ms, note }]));
+
+function pose(st, f) {
+  const p = { st, f, dy: 0, jump: 0, lift: [0, 0], arms: ['down', 'down'], eyes: 'open', mouth: 'smile', look: 0, fx: [] };
+  switch (st) {
+    case 'walkR': case 'walkL':
+      p.dy = f % 2 ? -1 : 0; p.lift = [[2, 0], [0, 0], [0, 2], [0, 0]][f]; p.arms = f < 2 ? ['fwd', 'back'] : ['back', 'fwd']; p.look = 1; p.mouth = 'small'; break;
+    case 'typing':
+      p.eyes = 'down'; p.mouth = 'flat'; p.arms = ['type', 'type']; p.tap = f % 2; break;
+    case 'reading':
+      p.eyes = 'down'; p.mouth = 'small'; p.arms = ['hold', 'hold']; p.look = [-1, 0, 1, 0][f]; break;
+    case 'waiting':
+      p.eyes = 'look'; p.mouth = 'o'; p.arms = ['hips', 'hips']; p.lift = [0, f % 2 ? 2 : 0]; break;
+    case 'wave':
+      p.eyes = 'happy'; p.mouth = 'open'; p.arms = ['down', f % 2 ? 'wave2' : 'wave1']; p.cheeks = true; break;
+    case 'jump':
+      p.eyes = 'happy'; p.mouth = 'open'; p.cheeks = true;
+      p.dy = [1, 0, 0, 1][f]; p.jump = [0, -4, -6, -2][f]; p.arms = f ? ['up', 'up'] : ['down', 'down']; p.lift = f === 0 ? [0, 0] : [1, 1];
+      if (f === 2) p.fx.push('sparkle'); break;
+    case 'failed':
+      p.dy = 2; p.eyes = 'sad'; p.mouth = 'frown'; p.arms = ['slump', 'slump']; p.fx.push('sweat'); break;
+    case 'asleep':
+      p.dy = f ? 2 : 1; p.eyes = 'closed'; p.mouth = 'none'; p.arms = ['rest', 'rest']; break;
+  }
+  return p;
+}
+
+// Legs from the body's bottom (top) to the ground; a lifted foot stops short of it.
+function legs(g, xs, top, p, c, w = 3) {
+  xs.forEach((x, i) => {
+    const bottom = GROUND - p.lift[i];
+    g.R(x, top, w, Math.max(1, bottom - top + 1), c);
+    g.R(i ? x : x - 1, bottom, w + 1, 1, c); // the foot points outward
+  });
+}
+// An arm from the shoulder (x, y): side -1 is the pet's left (screen left), 1 its right. 2 pixels thick.
+function arm(g, side, x, y, mode, p, c) {
+  g.arms.push(t => armOn(t, side, x, y, mode, p, c));
+}
+function armOn(g, side, x, y, mode, p, c) {
+  const s = side, seg = (ax, ay, bx, by) => g.L(x + s * ax, y + ay, x + s * bx, y + by, c, 2);
+  switch (mode) {
+    case 'fwd': return seg(0, 0, 2, 4);
+    case 'back': return seg(0, 0, 0, 5);
+    case 'type': { const up = (p.tap + (s > 0)) % 2; return seg(0, 0, -3, 4 - up); } // hands in front, one up, one down
+    case 'hold': return seg(0, 0, -3, 3);
+    case 'hips': seg(0, 0, 3, 2); return seg(3, 2, 1, 5);
+    case 'wave1': return seg(0, 0, 3, -5);
+    case 'wave2': return seg(0, 0, 4, -3);
+    case 'up': return seg(0, 0, 2, -6);
+    case 'slump': return seg(0, 0, 0, 7);
+    case 'rest': return seg(0, 0, 1, 4);
+    default: return seg(0, 0, 1, 5);
+  }
+}
+// Eyes and mouth. cx: the middle between the eyes; y: the eyes' top row. o: { ink, glint, gap, mouthInk, cheek, noMouth }
+function face(g, cx, y, p, o) {
+  const ink = o.ink, gap = o.gap ?? 6, lx = Math.round(cx - gap / 2 - 1 + p.look), rx = Math.round(cx + gap / 2 - 1 + p.look);
+  const glint = o.glint === undefined ? WHITE32 : o.glint;
+  for (const x of [lx, rx]) {
+    switch (p.eyes) {
+      case 'open': g.R(x, y, 2, 3, ink); if (glint) g.P(x, y, glint); break;
+      case 'look': g.R(x, y - 1, 3, 4, ink); if (glint) { g.P(x, y - 1, glint); g.P(x + 1, y, glint); } break;
+      case 'down': g.R(x, y + 1, 2, 2, ink); break;
+      case 'happy': g.P(x - 1, y + 2, ink); g.R(x, y + 1, 2, 1, ink); g.P(x + 2, y + 2, ink); break;
+      case 'sad': g.R(x, y + 1, 2, 2, ink); g.P(x === lx ? x + 1 : x - 1, y - 1, ink); g.P(x === lx ? x + 2 : x - 2, y, ink); break; // brows up in the middle
+      case 'closed': g.R(x - 1, y + 2, 4, 1, ink); break;
+    }
+  }
+  if (p.cheeks && o.cheek) { g.R(lx - 3, y + 3, 2, 1, o.cheek); g.R(rx + 3, y + 3, 2, 1, o.cheek); }
+  if (o.noMouth) return;
+  const m = o.mouthInk ?? ink, mx = Math.round(cx - 1 + p.look), my = y + 4;
+  switch (p.mouth) {
+    case 'smile': g.P(mx - 1, my, m); g.R(mx, my + 1, 2, 1, m); g.P(mx + 2, my, m); break;
+    case 'small': case 'flat': g.R(mx, my, 2, 1, m); break;
+    case 'o': g.R(mx, my, 2, 2, m); break;
+    case 'open': g.R(mx - 1, my, 4, 2, m); g.R(mx, my + 1, 2, 1, C['#ff8fa3']); break;
+    case 'frown': g.P(mx - 1, my + 1, m); g.R(mx, my, 2, 1, m); g.P(mx + 2, my + 1, m); break;
+  }
+}
+// Little extras over the pet, after its outline.
+function extras(g, p, top) {
+  if (p.fx.includes('sweat')) { const y = top + 1 + (p.f % 2); g.R(29, y, 2, 3, C['#8fd3ff']); g.P(29, y, C['#d6f1ff']); g.P(30, y - 1, C['#8fd3ff']); }
+  if (p.fx.includes('sparkle')) for (const [x, y] of [[4, 8], [31, 12]]) { g.P(x, y, C['#ffd23f']); g.P(x - 1, y, C['#ffd23f']); g.P(x + 1, y, C['#ffd23f']); g.P(x, y - 1, C['#ffd23f']); g.P(x, y + 1, C['#ffd23f']); }
+}
+
+// ---- the pets ----
+const INK = C['#1f2433'];
+const PETS = [
+  {
+    id: 'nota', name: 'Nota', idea: 'A spiral notebook that writes down everything you do. Cover face, bookmark ribbon.',
+    draw(g, p) {
+      const b = 4 + p.dy, cover = C['#6f9fe6'], dark = C['#4f7fc8'], page = C['#fbf3df'];
+      legs(g, [12, 20], b + 24, p, dark);
+      g.R(9, b, 18, 24, cover);                                   // the cover
+      g.R(25, b + 1, 2, 22, page);                                // page edges
+      g.R(10, b + 1, 1, 9, C['#a9c6f2']);                         // shine
+      for (let y = b + 2; y <= b + 21; y += 3) { g.P(8, y, C['#c9ced8']); g.P(7, y, C['#c9ced8']); } // the spiral
+      g.R(13, b + 16, 10, 4, page); g.R(14, b + 17, 8, 1, C['#9aa6c4']); g.R(14, b + 18, 5, 1, C['#9aa6c4']); // label
+      g.R(22, b + 24, 2, 3, C['#e05a6a']);                        // ribbon
+      arm(g, -1, 8, b + 11, p.arms[0], p, dark); arm(g, 1, 27, b + 11, p.arms[1], p, dark);
+      outline(g, C['#2c3a63']);
+      face(g, 18, b + 6, p, { ink: INK, gap: 8, cheek: C['#f7a1b5'] });
+      return b;
+    },
+  },
+  {
+    id: 'tty', name: 'Tty', idea: 'A little terminal with its face on the screen: green prompt eyes, a blinking cursor for a mouth.',
+    draw(g, p) {
+      const b = 3 + p.dy, shell = C['#e4dccb'], dark = C['#c2b8a3'];
+      const glow = p.st === 'failed' ? C['#ff6b6b'] : p.st === 'asleep' ? C['#3f7a50'] : C['#7df29b'];
+      legs(g, [12, 21], b + 22, p, dark);
+      g.R(14, b + 20, 8, 2, dark);                                // stand
+      g.R(6, b, 24, 20, shell);
+      for (const [x, y] of [[6, b], [29, b], [6, b + 19], [29, b + 19]]) g.clear(x, y);
+      g.R(7, b + 1, 1, 8, C['#f6f1e6']);                          // shine
+      g.R(9, b + 3, 18, 12, C['#1d2b33']);                        // screen
+      g.R(10, b + 17, 6, 1, dark); g.P(26, b + 17, p.st === 'failed' ? C['#ff6b6b'] : C['#5fd38a']); // vents, power light
+      arm(g, -1, 7, b + 10, p.arms[0], p, dark); arm(g, 1, 28, b + 10, p.arms[1], p, dark);
+      outline(g, C['#4a4438']);
+      face(g, 18, b + 6, p, { ink: glow, glint: 0, gap: 8, noMouth: true });
+      const blink = p.st === 'asleep' ? 0 : p.st === 'typing' || p.st === 'walkR' || p.st === 'walkL' ? p.f % 2 : 1;
+      const cur = p.mouth === 'open' || p.mouth === 'o' ? [3, 2] : p.mouth === 'frown' ? [4, 1] : [3, 1];
+      if (blink || p.mouth === 'open' || p.mouth === 'o') g.R(Math.round(17 - cur[0] / 2 + p.look), b + 11, cur[0], cur[1], glow); // the cursor
+      return b;
+    },
+  },
+  {
+    id: 'bitbug', name: 'Bitbug', idea: 'A small beetle, the bug you are hunting, friendly about it. Teal shell, waving antennae.',
+    draw(g, p) {
+      const b = p.dy + 1, shell = C['#5fc3a6'], dark = C['#3e9a82'], head = C['#3a3552'];
+      legs(g, [12, 21], 28 + b, p, head, 3);
+      g.L(9, 22 + b, 5, 25 + b, head, 2); g.L(27, 22 + b, 31, 25 + b, head, 2); // middle legs
+      g.E(18, 21 + b, 11, 9, shell);
+      g.R(18, 14 + b, 1, 16, dark);                               // the shell's seam
+      for (const [x, y] of [[11, 19], [24, 19], [13, 25], [22, 25]]) g.R(x, y + b, 2, 2, C['#2f6d5d']);
+      g.R(10, 16 + b, 2, 1, C['#9be3cf']);                         // shine
+      const wig = p.st === 'waiting' || p.st === 'wave' || p.st === 'jump' ? p.f % 2 : 0, droop = p.st === 'failed' || p.st === 'asleep' ? 3 : 0;
+      g.L(15, 7 + b, 12 - wig, 3 + b + droop, head); g.L(21, 7 + b, 24 + wig, 3 + b + droop, head); // antennae
+      g.R(11 - wig, 2 + b + droop, 2, 2, shell); g.R(24 + wig, 2 + b + droop, 2, 2, shell);
+      g.E(18, 11 + b, 7, 5, head);
+      arm(g, -1, 9, 16 + b, p.arms[0], p, head); arm(g, 1, 27, 16 + b, p.arms[1], p, head);
+      outline(g, C['#252238']);
+      if (p.eyes === 'open' || p.eyes === 'look' || p.eyes === 'down') { // white eyes on the dark head
+        const lx = 12 + p.look, rx = 20 + p.look, h = p.eyes === 'look' ? 5 : 4, y = p.eyes === 'look' ? 7 + b : 8 + b;
+        for (const x of [lx, rx]) { // round whites, the pupil low while it works, a glint while it looks at you
+          g.R(x, y + 1, 4, h - 2, WHITE32); g.R(x + 1, y, 2, h, WHITE32);
+          g.R(x + 1, p.eyes === 'down' ? y + h - 2 : y + 1, 2, 2, INK);
+          if (p.eyes === 'look') g.P(x + 1, y + 1, WHITE32);
+        }
+        face(g, 18, 9 + b, { ...p, eyes: 'none' }, { ink: C['#f2c6d0'], gap: 7 }); // the mouth only
+      } else face(g, 18, 9 + b, p, { ink: C['#f2f2f7'], gap: 7, mouthInk: C['#f2c6d0'] });
+      return b;
+    },
+  },
+  {
+    id: 'dux', name: 'Dux', idea: 'A rubber duck, for rubber-duck debugging: you explain the bug to it and it listens.',
+    draw(g, p) {
+      const b = p.dy, y = C['#f6cf4f'], dark = C['#e0a92f'], beak = C['#f28c38'];
+      legs(g, [13, 21], 30 + b, p, beak, 3);
+      g.E(18, 24 + b, 12, 7, y);                                  // body
+      g.R(5, 18 + b, 3, 3, y); g.P(5, 17 + b, y);                 // tail
+      g.E(19, 12 + b, 7, 7, y);                                   // head
+      g.P(18, 5 + b, y); g.P(19, 4 + b, y); g.P(20, 3 + b, y);    // a curl on top
+      g.R(14, 7 + b, 1, 4, C['#fde7a0']); g.R(9, 21 + b, 1, 4, C['#fde7a0']); // shine
+      const open = p.mouth === 'open' || p.mouth === 'o';
+      g.R(26, 12 + b, 4, 2, beak); g.R(26, 14 + b + (open ? 1 : 0), 3, 1, C['#d9702a']); // beak, open when it talks
+      arm(g, -1, 9, 21 + b, p.arms[0], p, dark); arm(g, 1, 27, 21 + b, p.arms[1], p, dark);
+      outline(g, C['#7a5418']);
+      if (open) g.R(26, 14 + b, 3, 1, C['#b5482b']);
+      face(g, 20, 10 + b, p, { ink: C['#2a1f12'], gap: 6, cheek: C['#f7a1a1'], noMouth: true });
+      return b;
+    },
+  },
+  {
+    id: 'hoot', name: 'Hoot', idea: 'A night owl who codes late. Big facial disc, ear tufts, a chevron-pattern belly.',
+    draw(g, p) {
+      const b = p.dy, brown = C['#a77b5a'], dark = C['#7f5a3f'], disc = C['#f3e6cb'];
+      legs(g, [13, 20], 29 + b, p, C['#f0a24a'], 3);
+      g.R(8, 4 + b, 3, 4, brown); g.R(25, 4 + b, 3, 4, brown); g.P(8, 3 + b, brown); g.P(27, 3 + b, brown); // ear tufts
+      g.E(18, 18 + b, 11, 12, brown);
+      g.E(18, 23 + b, 7, 6, C['#ecd9b5']);                        // belly
+      for (const [x, yy] of [[13, 21], [19, 21], [16, 24], [22, 24], [16, 27]]) { g.P(x, yy + b, dark); g.P(x + 1, yy + 1 + b, dark); g.P(x + 2, yy + b, dark); }
+      g.E(14, 13 + b, 4, 4, disc); g.E(22, 13 + b, 4, 4, disc);  // facial disc
+      arm(g, -1, 8, 15 + b, p.arms[0], p, dark); arm(g, 1, 28, 15 + b, p.arms[1], p, dark);
+      outline(g, C['#4a3222']);
+      g.R(17, 15 + b, 2, 2, C['#f0a24a']); g.P(17, 17 + b, C['#f0a24a']); // beak
+      face(g, 18, 11 + b, p, { ink: C['#24170f'], gap: 8, cheek: C['#f2a7a0'], noMouth: true });
+      if (p.mouth === 'open' || p.mouth === 'o') g.R(17, 17 + b, 2, 1, C['#b5482b']);
+      return b;
+    },
+  },
+  {
+    id: 'miso', name: 'Miso', idea: 'A round lilac-grey cat who sits on your keyboard while you work. Whiskers, a curled tail.',
+    draw(g, p) {
+      const b = 2 + p.dy, fur = C['#a99bc9'], dark = C['#8576ad'], white = C['#f6f3fb'], pink = C['#f2a6bd'];
+      legs(g, [13, 20], b + 26, p, dark);
+      g.L(25, b + 25, 30, b + 20, fur, 2); g.R(29, b + 16, 2, 4, fur);   // tail, curled up
+      g.E(18, b + 22, 7, 6, fur);                                          // body
+      g.E(18, b + 23, 4, 4, white);                                        // belly
+      for (const [x0, s] of [[10, 1], [26, -1]]) for (let r = 0; r < 4; r++) g.R(s > 0 ? x0 : x0 - r - 1, b + 3 + r, 2 + r, 1, fur); // ears
+      g.E(18, b + 11, 8, 6, fur);                                          // head
+      g.P(11, b + 5, pink); g.P(24, b + 5, pink);                          // inside the ears
+      g.R(17, b + 6, 2, 2, dark); g.P(14, b + 6, dark); g.P(21, b + 6, dark); // forehead stripes
+      g.E(18, b + 14, 3, 2, white);                                        // muzzle
+      arm(g, -1, 12, b + 19, p.arms[0], p, dark); arm(g, 1, 24, b + 19, p.arms[1], p, dark);
+      outline(g, C['#4b4166']);
+      for (const y of [b + 12, b + 14]) { g.R(6, y, 3, 1, C['#8a8fa3']); g.R(28, y, 3, 1, C['#8a8fa3']); } // whiskers
+      g.R(17, b + 12, 2, 1, C['#e07a9a']);                                 // nose
+      face(g, 18, b + 8, p, { ink: INK, gap: 7, cheek: pink });
+      return b;
+    },
+  },
+  {
+    id: 'frost', name: 'Frost', idea: 'An arctic fox, pale as snow, with tall ears and a big fluffy tail it wraps round itself to sleep.',
+    draw(g, p) {
+      const b = 2 + p.dy, fur = C['#e6edf5'], shade = C['#b9c9dc'], inner = C['#9fb3cc'];
+      legs(g, [13, 20], b + 26, p, shade);
+      g.E(28, b + 21, 4, 6, fur); g.R(27, b + 14, 3, 2, shade);          // tail, its tip a shade darker
+      g.E(18, b + 22, 6, 6, fur);                                          // body
+      g.R(14, b + 25, 8, 1, shade);
+      for (const [x0, s] of [[10, 1], [26, -1]]) for (let r = 0; r < 5; r++) { const w = 1 + r; g.R(s > 0 ? x0 + (r === 0 ? 1 : 0) : x0 - w - (r === 0 ? 1 : 0), b + 1 + r, w, 1, fur); } // tall ears
+      g.E(18, b + 11, 8, 5, fur);                                          // head
+      g.R(9, b + 12, 2, 2, fur); g.R(26, b + 12, 2, 2, fur); g.R(16, b + 16, 4, 1, fur); // cheek tufts, chin
+      g.P(11, b + 4, inner); g.P(11, b + 5, inner); g.P(24, b + 4, inner); g.P(24, b + 5, inner);
+      arm(g, -1, 13, b + 19, p.arms[0], p, shade); arm(g, 1, 23, b + 19, p.arms[1], p, shade);
+      outline(g, C['#5d6f8a']);
+      g.R(17, b + 12, 2, 1, INK);                                          // nose
+      face(g, 18, b + 8, p, { ink: INK, gap: 8, cheek: C['#f2b8c6'] });
+      return b;
+    },
+  },
+  {
+    id: 'pip', name: 'Pip', idea: 'A tall navy penguin in a tidy white shirt, very serious about code review.',
+    draw(g, p) {
+      const b = 2 + p.dy, navy = C['#33476b'], dark = C['#24344f'], white = C['#f4f6fb'], gold = C['#f5c542'];
+      legs(g, [13, 20], b + 29, p, gold);
+      g.E(18, b + 15, 9, 13, navy);                                        // body
+      g.E(18, b + 20, 6, 9, white);                                        // shirt front
+      g.E(18, b + 9, 6, 4, white);                                         // face
+      g.R(13, b + 4, 1, 3, C['#5b72a0']);                                   // shine
+      arm(g, -1, 10, b + 14, p.arms[0], p, dark); arm(g, 1, 26, b + 14, p.arms[1], p, dark);
+      outline(g, C['#1a2236']);
+      const open = p.mouth === 'open' || p.mouth === 'o';
+      g.R(17, b + 12, 2, 2, gold); if (open) g.R(17, b + 14, 2, 1, C['#b5482b']); // beak
+      face(g, 18, b + 7, p, { ink: dark, gap: 6, cheek: C['#f7a1b5'], noMouth: true });
+      return b;
+    },
+  },
+  {
+    id: 'hop', name: 'Hop', idea: 'A wide green frog who leaps when your build goes green. Big bulging eyes, a huge grin.',
+    draw(g, p) {
+      const b = 8 + p.dy, green = C['#7ccf6a'], dark = C['#4f9e48'], belly = C['#d9f2b0'];
+      legs(g, [10, 23], b + 20, p, dark);
+      g.E(18, b + 13, 13, 8, green);                                       // body
+      g.E(12, b + 3, 4, 4, green); g.E(24, b + 3, 4, 4, green);            // eye bulges
+      g.E(18, b + 16, 8, 4, belly);
+      for (const [x, y] of [[8, 12], [27, 13], [25, 18]]) g.R(x, b + y, 2, 1, dark); // spots
+      arm(g, -1, 8, b + 12, p.arms[0], p, dark); arm(g, 1, 28, b + 12, p.arms[1], p, dark);
+      outline(g, C['#2e5e2b']);
+      if (['open', 'look', 'down'].includes(p.eyes)) for (const x of [10, 22]) g.R(x, b + 1, 4, 4, WHITE32); // whites on the bulges
+      face(g, 18, b + 1, p, { ink: INK, gap: 12, cheek: C['#f2a6bd'], noMouth: true });
+      const m = INK, y = b + 9; // a frog's mouth, across its face
+      switch (p.mouth) {
+        case 'smile': g.P(12, y, m); g.R(13, y + 1, 10, 1, m); g.P(23, y, m); break;
+        case 'small': case 'flat': g.R(14, y + 1, 8, 1, m); break;
+        case 'o': g.R(17, y, 2, 2, m); break;
+        case 'open': g.R(13, y, 10, 2, m); g.R(14, y + 1, 8, 1, C['#ff8fa3']); break;
+        case 'frown': g.P(12, y + 1, m); g.R(13, y, 10, 1, m); g.P(23, y + 1, m); break;
+      }
+      return b;
+    },
+  },
+  {
+    id: 'mocha', name: 'Mocha', idea: 'A coffee mug that keeps you going: cream cup, lilac band, steam that curls while you work.',
+    draw(g, p) {
+      const b = 7 + p.dy, cup = C['#f4f1ea'], shade = C['#d9d3c5'], band = C['#9b8fe0'];
+      legs(g, [12, 20], b + 18, p, shade);
+      g.R(26, b + 3, 4, 2, cup); g.R(28, b + 5, 2, 6, cup); g.R(26, b + 11, 4, 2, cup); // handle
+      g.R(10, b, 16, 18, cup); g.clear(10, b + 17); g.clear(25, b + 17);   // the cup
+      g.E(18, b + 1, 7, 1, C['#7a4b2e']);                                  // coffee
+      g.R(10, b + 12, 16, 3, band); g.R(24, b + 2, 1, 15, shade);           // band, side shade
+      arm(g, -1, 9, b + 8, p.arms[0], p, shade); arm(g, 1, 26, b + 8, p.arms[1], p, shade);
+      outline(g, C['#5e5446']);
+      if (p.st !== 'asleep' && p.st !== 'failed') { const k = p.f % 2, s = C['#c3c9d6']; for (const x of [15, 21]) { g.P(x + k, b - 2, s); g.P(x + 1 - k, b - 3, s); g.P(x + k, b - 4, s); } } // steam
+      face(g, 18, b + 5, p, { ink: INK, gap: 7, cheek: C['#f2a6bd'] });
+      return b;
+    },
+  },
+  {
+    id: 'ship', name: 'Ship', idea: 'A small rocket for the moment you ship. Porthole, blue fins, a flame when it jumps.',
+    draw(g, p) {
+      const b = 2 + p.dy, hull = C['#e8ecf3'], shade = C['#c4ccd9'], blue = C['#4f7fe8'];
+      legs(g, [14, 19], b + 23, p, shade);
+      if (p.st === 'jump' && p.f > 0) { g.R(16, b + 24, 4, 7, C['#ffd23f']); g.R(17, b + 24, 2, 5, C['#fff3b0']); } // flame
+      for (let r = 0; r < 6; r++) { const w = Math.min(10, 2 + r * 2); g.R(18 - w / 2, b + 1 + r, w, 1, r < 4 ? blue : hull); } // nose cone
+      g.R(13, b + 5, 10, 18, hull);                                        // body
+      g.R(10, b + 18, 3, 5, blue); g.R(11, b + 16, 2, 2, blue); g.R(23, b + 18, 3, 5, blue); g.R(23, b + 16, 2, 2, blue); // fins
+      g.R(14, b + 6, 1, 8, C['#ffffff']); g.R(21, b + 6, 1, 15, shade);
+      g.E(18, b + 8, 2, 2, C['#5a6b8c']); g.E(18, b + 8, 1, 1, C['#7fd3f5']); // porthole
+      arm(g, -1, 12, b + 13, p.arms[0], p, shade); arm(g, 1, 23, b + 13, p.arms[1], p, shade);
+      outline(g, C['#3c4a66']);
+      face(g, 18, b + 12, p, { ink: INK, gap: 6, cheek: C['#f2a6bd'] });
+      return b;
+    },
+  },
+  {
+    id: 'puff', name: 'Puff', idea: 'A wide, soft cloud: where your code runs. Floats a little when happy, drizzles when it fails.',
+    draw(g, p) {
+      const b = 7 + p.dy, white = C['#f4f8ff'], shade = C['#c9dcf2'];
+      legs(g, [12, 21], b + 18, p, shade);
+      g.E(11, b + 11, 6, 6, white); g.E(19, b + 7, 7, 7, white); g.E(26, b + 11, 6, 6, white); g.E(18, b + 13, 13, 5, white); // puffs
+      g.R(8, b + 17, 21, 1, shade); g.R(10, b + 4, 2, 1, C['#ffffff']);
+      arm(g, -1, 8, b + 12, p.arms[0], p, shade); arm(g, 1, 28, b + 12, p.arms[1], p, shade);
+      outline(g, C['#6f86a8']);
+      face(g, 18, b + 8, p, { ink: INK, gap: 8, cheek: C['#f7b6c8'] });
+      return b;
+    },
+  },
+];
+
+// A pet's sprite for a state's frame, as today's pets are drawn: { w, h, data } for spriteSVG. Cached.
+const SPR = new Map();
+function petSprite(pet, st, f) {
+  const key = `${pet.id}|${st}|${f}`;
+  if (SPR.has(key)) return SPR.get(key);
+  const p = pose(st === 'walkL' ? 'walkR' : st, f), g = grid();
+  const top = pet.draw(g, p);
+  extras(g, p, top);
+  let data = g.d;
+  if (st === 'walkL') { data = new Uint32Array(N * N); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) data[y * N + x] = g.d[y * N + N - 1 - x]; }
+  const spr = { w: N, h: N, data, lift: -p.jump }; // lift: grid rows to raise the whole sprite (a jump), as the overlay's hop does
+  SPR.set(key, spr);
+  return spr;
+}
+</script>
+<script>
+// ---- the page: three calm styles of the same pets ----
+const REC = new URLSearchParams(location.search).has('rec'); // recording: the clock moves only by __at(ms)
+if (REC) document.documentElement.classList.add('rec');
+
+// The six states, and the pose loop each plays (pets.js: STATE, pose). 'done' waves, then jumps.
+const SIX = [['walk', 'Walk', 'walkR'], ['working', 'Working', 'typing'], ['waiting', 'Waiting for you', 'waiting'],
+  ['done', 'Done', 'done'], ['failed', 'Failed', 'failed'], ['asleep', 'Asleep', 'asleep']];
+const STATUS = { walk: 'working', working: 'working', waiting: 'waiting', done: 'done', failed: 'failed', asleep: 'asleep' }; // a walking pet is working
+const LABEL = { working: 'Working', waiting: 'Needs you', done: 'Done', failed: 'Failed', asleep: 'Asleep' };
+function frameAt(ps, t) {
+  if (ps === 'done') { const w = STATE.wave, j = STATE.jump, k = t % (w.n * w.ms + j.n * j.ms); return k < w.n * w.ms ? ['wave', Math.floor(k / w.ms)] : ['jump', Math.floor((k - w.n * w.ms) / j.ms)]; }
+  const s = STATE[ps]; return [ps, Math.floor(t / s.ms) % s.n];
+}
+
+// The pets: today's default creature and four of the new ones, each with the colour of its session.
+const ROWS = [
+  ['default', 'Bobix creature', 'bobix', '--s-sky'], ['nota', 'Nota', 'api-server', '--s-butter'], ['tty', 'Tty', 'dotfiles', '--s-mint'],
+  ['miso', 'Miso', 'web-app', '--s-lilac'], ['ship', 'Ship', 'release', '--s-rose'],
+];
+
+// ---------- A. flat icon: soft shapes, 2–3 colours, no outline ----------
+function flatPose(ps, f) {
+  const o = { dy: 0, rot: 0, sx: 1, sy: 1, lift: 0, feet: [0, 0], hands: [[6.5, 21], [29.5, 21]], eyes: 'open', mouth: 'smile', look: 0, cheeks: false, shadow: 1, blink: 1 };
+  switch (ps) {
+    case 'walkR': o.dy = f % 2 ? -1 : 0; o.rot = [-3, 0, 3, 0][f]; o.feet = [[1.6, 0], [0, 0], [0, 1.6], [0, 0]][f]; o.hands = f < 2 ? [[6.5, 19], [29.5, 23]] : [[6.5, 23], [29.5, 19]]; o.look = .8; o.mouth = 'small'; o.blink = f % 2; break;
+    case 'typing': o.eyes = 'down'; o.mouth = 'small'; o.hands = f % 2 ? [[13, 25], [23, 26.6]] : [[13, 26.6], [23, 25]]; o.blink = f % 2; break;
+    case 'waiting': o.eyes = 'look'; o.mouth = 'o'; o.hands = [[5, 22], [31, 22]]; o.feet = [0, f % 2 ? 1.8 : 0]; o.sy = f % 2 ? 1.02 : 1; break;
+    case 'wave': o.eyes = 'happy'; o.mouth = 'open'; o.cheeks = true; o.hands = [[6.5, 22], f % 2 ? [32.5, 9.5] : [31, 5.5]]; o.rot = f % 2 ? 2 : -1; break;
+    case 'jump': o.eyes = 'happy'; o.mouth = 'open'; o.cheeks = true; o.lift = [0, 4, 6, 2][f]; o.sy = f === 0 ? .92 : f === 2 ? 1.04 : 1; o.sx = f === 0 ? 1.06 : 1;
+      o.hands = f ? [[5.5, 7], [30.5, 7]] : [[6.5, 23], [29.5, 23]]; o.shadow = [1, .7, .55, .85][f]; o.feet = f ? [1, 1] : [0, 0]; break;
+    case 'failed': o.dy = 2; o.rot = 5; o.sy = .95; o.eyes = 'sad'; o.mouth = 'frown'; o.hands = [[8, 28.5], [28, 28.5]]; break;
+    case 'asleep': o.dy = f ? 1.6 : 1; o.sy = f ? .97 : 1; o.eyes = 'closed'; o.mouth = 'none'; o.hands = [[8.5, 26.5], [27.5, 26.5]]; break;
+  }
+  return o;
+}
+const n1 = v => +v.toFixed(2);
+// Eyes and mouth as soft strokes and dots. cx: between the eyes, ey: the eyes' row.
+function faceSVG(cx, ey, gap, o, ink = 'var(--face)') {
+  let s = '';
+  for (const x0 of [cx - gap / 2, cx + gap / 2]) {
+    const x = n1(x0 + o.look), d = x0 < cx ? 1 : -1;
+    switch (o.eyes) {
+      case 'open': s += `<circle cx="${x}" cy="${ey}" r="1.5" fill="${ink}"/>`; break;
+      case 'look': s += `<circle cx="${x}" cy="${ey}" r="2.05" fill="${ink}"/><circle cx="${n1(x - .65)}" cy="${n1(ey - .75)}" r=".7" fill="#fff"/>`; break;
+      case 'down': s += `<ellipse cx="${x}" cy="${ey + 1}" rx="1.5" ry=".8" fill="${ink}"/>`; break;
+      case 'happy': s += `<path d="M${n1(x - 1.7)} ${ey + .9}Q${x} ${ey - 1.3} ${n1(x + 1.7)} ${ey + .9}" fill="none" stroke="${ink}" stroke-width="1.25" stroke-linecap="round"/>`; break;
+      case 'sad': s += `<circle cx="${x}" cy="${ey + 1}" r="1.2" fill="${ink}"/><path d="M${n1(x - 1.6 * d)} ${ey - .8}L${n1(x + 1.3 * d)} ${ey - 2}" stroke="${ink}" stroke-width="1" stroke-linecap="round"/>`; break;
+      case 'closed': s += `<path d="M${n1(x - 1.7)} ${ey + .5}Q${x} ${ey + 1.8} ${n1(x + 1.7)} ${ey + .5}" fill="none" stroke="${ink}" stroke-width="1.15" stroke-linecap="round"/>`; break;
+    }
+  }
+  if (o.cheeks) s += `<ellipse cx="${cx - gap / 2 - 2.4}" cy="${ey + 2.7}" rx="1.5" ry=".85" fill="var(--cheek)"/><ellipse cx="${cx + gap / 2 + 2.4}" cy="${ey + 2.7}" rx="1.5" ry=".85" fill="var(--cheek)"/>`;
+  const mx = n1(cx + o.look), my = ey + 4, st = `fill="none" stroke="${ink}" stroke-width="1.1" stroke-linecap="round"`;
+  switch (o.mouth) {
+    case 'smile': s += `<path d="M${mx - 1.6} ${my}Q${mx} ${my + 1.6} ${mx + 1.6} ${my}" ${st}/>`; break;
+    case 'small': s += `<path d="M${mx - .9} ${my + .3}H${mx + .9}" ${st}/>`; break;
+    case 'o': s += `<ellipse cx="${mx}" cy="${my + .4}" rx=".95" ry="1.15" fill="${ink}"/>`; break;
+    case 'open': s += `<path d="M${mx - 2} ${my - .2}Q${mx} ${my + 3.2} ${mx + 2} ${my - .2}Z" fill="${ink}"/>`; break;
+    case 'frown': s += `<path d="M${mx - 1.6} ${my + 1.1}Q${mx} ${my - .5} ${mx + 1.6} ${my + 1.1}" ${st}/>`; break;
+  }
+  return s;
+}
+// Tty's face is on its screen: glowing bars, a cursor for a mouth.
+function ttyFace(o, glow) {
+  let s = '';
+  for (const x0 of [13.2, 22.8]) {
+    const x = n1(x0 - 1 + o.look);
+    switch (o.eyes) {
+      case 'open': s += `<rect x="${x}" y="11" width="2" height="3" rx=".4" fill="${glow}"/>`; break;
+      case 'look': s += `<rect x="${x - .3}" y="10.4" width="2.6" height="3.8" rx=".5" fill="${glow}"/>`; break;
+      case 'down': s += `<rect x="${x}" y="13" width="2.2" height="1.4" rx=".4" fill="${glow}"/>`; break;
+      case 'happy': s += `<path d="M${x - .7} 13.4L${x + 1} 11.6L${x + 2.7} 13.4" fill="none" stroke="${glow}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`; break;
+      case 'sad': s += `<rect x="${x}" y="12.2" width="2" height="2" rx=".4" fill="${glow}"/><path d="M${x0 < 18 ? x - .4 : x + 2.4} 10.8L${x0 < 18 ? x + 2 : x} 10" stroke="${glow}" stroke-width=".9" stroke-linecap="round"/>`; break;
+      case 'closed': s += `<rect x="${x - .5}" y="13.4" width="3" height=".9" rx=".45" fill="${glow}"/>`; break;
+    }
+  }
+  const tall = o.mouth === 'open' || o.mouth === 'o';
+  if (o.blink || tall) s += `<rect x="${n1(16.5 + o.look)}" y="16.6" width="3" height="${tall ? 2 : 1.1}" rx=".4" fill="${glow}"/>`;
+  return s;
+}
+const FLAT = {
+  default: {
+    feet: [10.3, 20.1], hand: 'var(--def-lo)',
+    body: () => `<circle cx="11.5" cy="8.6" r="3.3" fill="url(#g-def)"/><circle cx="24.5" cy="8.6" r="3.3" fill="url(#g-def)"/><rect x="6.5" y="7" width="23" height="22" rx="8.5" fill="url(#g-def)"/>`,
+    face: o => faceSVG(18, 16, 7, o),
+  },
+  nota: {
+    feet: [10.8, 19.6], hand: 'var(--nota-lo)',
+    body: () => `<rect x="8" y="4" width="20" height="26" rx="5" fill="url(#g-nota)"/><rect x="24.5" y="5.6" width="2.3" height="22.8" rx="1.15" fill="var(--nota-page)"/>`
+      + [9, 13.5, 18, 22.5].map(y => `<circle cx="8.7" cy="${y}" r="1.05" fill="var(--nota-page)"/>`).join('') + `<rect x="12" y="21.4" width="9.6" height="4" rx="1.2" fill="var(--nota-page)" opacity=".92"/>`,
+    face: o => faceSVG(16.8, 12.4, 7, o),
+  },
+  tty: {
+    feet: [10.6, 19.8], hand: 'var(--tty-lo)',
+    body: (o, st) => `<rect x="15" y="23.5" width="6" height="5" rx="1" fill="var(--tty-lo)"/><rect x="5.5" y="5" width="25" height="20" rx="5" fill="url(#g-tty)"/><rect x="8.5" y="7.8" width="19" height="13" rx="3" fill="var(--tty-screen)"/>`,
+    face: (o, st) => ttyFace(o, st === 'failed' ? 'var(--tty-glow-fail)' : st === 'asleep' ? 'var(--tty-glow-sleep)' : 'var(--tty-glow)'),
+  },
+  miso: {
+    feet: [10.3, 20.1], hand: 'var(--miso-lo)',
+    body: () => `<path d="M28 25.5Q34.5 23.5 32.2 15.8" fill="none" stroke="var(--miso-lo)" stroke-width="2.6" stroke-linecap="round"/>`
+      + `<path d="M9.2 11L10.6 3L16 8Z" fill="url(#g-miso)" stroke="var(--miso-hi)" stroke-width="2" stroke-linejoin="round"/><path d="M26.8 11L25.4 3L20 8Z" fill="url(#g-miso)" stroke="var(--miso-hi)" stroke-width="2" stroke-linejoin="round"/>`
+      + `<path d="M11.2 7.6L11.7 5.2L13.6 7Z" fill="var(--cheek)"/><path d="M24.8 7.6L24.3 5.2L22.4 7Z" fill="var(--cheek)"/>`
+      + `<rect x="6.5" y="6.5" width="23" height="22.5" rx="10" fill="url(#g-miso)"/><ellipse cx="18" cy="20.2" rx="4.4" ry="3.1" fill="var(--miso-muzzle)"/>`
+      + `<path d="M3.4 17.6H7.6M3.8 20.2H7.6M28.4 17.6H32.6M28.4 20.2H32.2" stroke="var(--face)" stroke-opacity=".35" stroke-width=".7" stroke-linecap="round"/><path d="M17 17.4h2l-1 1.1z" fill="#e07a9a"/>`,
+    face: o => faceSVG(18, 14.2, 7, o),
+  },
+  ship: {
+    feet: [11.8, 18.6], hand: 'var(--ship-lo)',
+    body: () => `<path d="M11.2 19.5L6.6 26.6Q6.3 28.6 8.3 28.4L11.6 27Z" fill="var(--ship-blue)"/><path d="M24.8 19.5L29.4 26.6Q29.7 28.6 27.7 28.4L24.4 27Z" fill="var(--ship-blue)"/>`
+      + `<rect x="10.5" y="5.5" width="15" height="23.5" rx="7.5" fill="url(#g-ship)"/><path d="M10.7 11.2Q18 -2.2 25.3 11.2Z" fill="var(--ship-blue)"/>`
+      + `<circle cx="18" cy="13.6" r="2.9" fill="var(--ship-glass)" stroke="var(--ship-lo)" stroke-width="1"/><circle cx="17.1" cy="12.7" r=".85" fill="#9fd8ff"/>`,
+    face: o => faceSVG(18, 20.2, 5.4, o),
+  },
+};
+// An app-icon badge for the status, top right.
+function badge(st) {
+  const x = 29.6, y = 6.4, w = 'stroke="#fff" stroke-width="1.3" stroke-linecap="round" fill="none"';
+  const glyph = {
+    working: `<circle cx="${x - 1.8}" cy="${y}" r=".65" fill="#fff"/><circle cx="${x}" cy="${y}" r=".65" fill="#fff"/><circle cx="${x + 1.8}" cy="${y}" r=".65" fill="#fff"/>`,
+    waiting: `<path d="M${x} ${y - 2.4}V${y + .5}" ${w}/><circle cx="${x}" cy="${y + 2.1}" r=".72" fill="#fff"/>`,
+    done: `<path d="M${x - 2} ${y + .1}L${x - .5} ${y + 1.6}L${x + 2.1} ${y - 1.5}" ${w}/>`,
+    failed: `<path d="M${x - 1.6} ${y - 1.6}L${x + 1.6} ${y + 1.6}M${x + 1.6} ${y - 1.6}L${x - 1.6} ${y + 1.6}" ${w}/>`,
+  }[st];
+  return glyph ? `<circle cx="${x}" cy="${y}" r="4.7" fill="var(--st-${st})" stroke="#fff" stroke-width="1.2"/>${glyph}` : '';
+}
+function flatSVG(key, ps, f, st, withBadge) {
+  const P = FLAT[key], o = flatPose(ps, f);
+  const T = `translate(18 30) rotate(${o.rot}) scale(${o.sx} ${o.sy}) translate(-18 -30) translate(0 ${o.dy})`;
+  const feet = P.feet.map((x, i) => `<rect x="${x}" y="${n1(28.4 - o.feet[i])}" width="5.6" height="3.2" rx="1.6" fill="${P.hand}"/>`).join('');
+  const hands = o.hands.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.3" fill="${P.hand}"/>`).join('');
+  let s = `<ellipse cx="18" cy="31.7" rx="${n1(9 * o.shadow)}" ry="1.3" fill="rgb(0 0 0 / .22)"/>`;
+  // Waiting for you: a coral ring and tint round the whole icon, like today's coral outline but louder.
+  if (withBadge && st === 'waiting') s += `<rect class="ring" x="1.6" y="-.6" width="32.8" height="34" rx="10.5" fill="var(--st-waiting)" fill-opacity=".14" stroke="var(--st-waiting)" stroke-width="1.7"/>`;
+  s += `<g transform="translate(0 ${-o.lift})">${feet}<g transform="${T}">${P.body(o, st)}${P.face(o, st)}${hands}</g>${withBadge ? badge(st) : ''}</g>`;
+  return `<svg viewBox="0 0 36 36" aria-hidden="true">${s}</svg>`;
+}
+
+// ---------- B. mono pixel: one colour of line art on a dark glass capsule ----------
+// Line art from the pixel sprites: their outline (every pixel at the silhouette's edge) and their darkest pixels (eyes,
+// mouth, a terminal's screen) in the session's colour; the rest of the body a faint tint of it.
+const MONO = new Map();
+function monoSVG(key, ps, f, acc) {
+  let spr, lift = 0;
+  if (key === 'default') { // today's creature has faces, not poses: its own state faces, moved as a whole
+    spr = fineSprite('bobix', { walkR: 'working', typing: 'working', waiting: 'waiting', wave: 'done', jump: 'done', failed: 'idle', asleep: 'idle' }[ps], 0);
+    lift = ps === 'jump' ? [0, 4, 6, 2][f] : ps === 'walkR' || ps === 'waiting' ? (f % 2) * 1.5 : 0;
+  } else { spr = petSprite(PETS.find(p => p.id === key), ps, f); lift = spr.lift || 0; }
+  const k = `${key}|${ps}|${f}`;
+  if (!MONO.has(k)) {
+    const W = 36, d = spr.data, on = (x, y) => x >= 0 && y >= 0 && x < W && y < W && (d[y * W + x] >>> 24);
+    const lin = v => (v / 255) ** 2.2;
+    let line = '', fill = '';
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+      if (!on(x, y)) continue;
+      const c = d[y * W + x], Y = .2126 * lin(c & 255) + .7152 * lin((c >>> 8) & 255) + .0722 * lin((c >>> 16) & 255);
+      const edge = !on(x - 1, y) || !on(x + 1, y) || !on(x, y - 1) || !on(x, y + 1);
+      if (edge || Y < .1) line += `M${x} ${y}h1v1h-1z`; else fill += `M${x} ${y}h1v1h-1z`;
+    }
+    MONO.set(k, [line, fill]);
+  }
+  const [line, fill] = MONO.get(k);
+  return `<svg viewBox="0 0 36 36" shape-rendering="crispEdges" aria-hidden="true"${lift ? ` style="transform:translateY(${n1(-lift / 36 * 100)}%)"` : ''}><path fill="var(${acc})" fill-opacity=".16" d="${fill}"/><path fill="var(${acc})" d="${line}"/></svg>`;
+}
+
+// ---------- today's pet, with today's cues ----------
+function todayHTML(st, withTag) {
+  const face = { walk: 'working', working: 'working', waiting: 'waiting', done: 'done', asleep: 'idle' }[st];
+  if (!face) return '<span class="none">—</span>';
+  const cls = st === 'walk' ? 'walking' : st === 'waiting' ? 'waiting' : st === 'asleep' ? 'asleep' : '';
+  const bb = st === 'waiting' || st === 'done' ? `<span class="bb">${balloonSVG(st)}</span>` : '';
+  return `<div class="cell"><div class="today-pet ${cls}">${spriteSVG(fineSprite('bobix', face, 0))}${bb}${st === 'asleep' ? '<span class="zz">z</span>' : ''}</div></div>`
+    + (withTag ? `<span class="tag${st === 'waiting' ? ' waiting' : ''}">bobix</span>` : '');
+}
+
+// ---------- the three directions ----------
+const DIRS = [
+  { id: 'A', k: 'A · Flat icon', h: 'An app icon that walks',
+    p: 'Each pet is a soft, rounded, app-icon-like character: 2–3 colours with a gentle gradient, no outline, no pixels. Its status is an app-icon badge; waiting for you adds a coral ring and tint round the whole icon.',
+    cell: (key, st, ps, f) => `<div class="cell flat ${STATUS[st]}">${flatSVG(key, ps, f, STATUS[st], true)}${st === 'asleep' ? '<span class="zz">z</span>' : ''}</div>` },
+  { id: 'B', k: 'B · Mono pixel', h: 'One colour of pixel line art on dark glass',
+    p: "The same pixel pets as line art in a single colour, the session's colour, on a dark translucent capsule. Status is a small dot; waiting for you turns the capsule's edge coral and makes it glow.",
+    cell: (key, st, ps, f, acc) => { const s = STATUS[st]; return `<div class="cell"><div class="cap ${s}">${monoSVG(key, ps, f, acc)}<i class="dot ${s}"></i></div></div>`; } },
+  { id: 'C', k: 'C · Glass capsule', h: 'A small widget walking along the edge',
+    p: "A simplified pet inside a frosted-glass pill with the session's name and a status dot, like a macOS widget. Waiting for you turns the pill's edge coral, makes it glow and says “Needs you”.",
+    cell: (key, st, ps, f, acc, name) => { const s = STATUS[st], dx = st === 'walk' ? [0, 1.5, 3, 1.5][f] : 0;
+      return `<div class="pill ${s}"${dx ? ` style="transform:translateX(${dx}px)"` : ''}><span class="ico">${flatSVG(key, ps, f, s, false)}</span><span class="tx"><span class="nm">${name}</span><span class="st"><i class="${s}"></i>${LABEL[s]}</span></span></div>`; } },
+];
+
+const live = []; // [element, dir, row, state]
+function build() {
+  document.getElementById('dirs').innerHTML = DIRS.map(d => `<section aria-labelledby="h-${d.id}"><div class="sec-h"><span class="k">${d.k}</span><h2 id="h-${d.id}">${d.h}</h2></div><p class="sec-p">${d.p}</p>
+    <div class="walls">${['dark', 'light'].map(w => `<div class="wall ${w}"><div class="cap-t">${w === 'dark' ? 'Dark' : 'Light'} desktop</div><table>
+      <thead><tr><th></th>${SIX.map(([, l]) => `<th scope="col">${l}</th>`).join('')}</tr></thead>
+      <tbody>${ROWS.map(([key, label, name]) => `<tr><th scope="row">${label}<small>${name}</small></th>${SIX.map(([st]) => `<td data-live="${d.id}|${key}|${st}"></td>`).join('')}</tr>`).join('')}
+      <tr class="today"><th scope="row">Today's pet<small>for comparison</small></th>${SIX.map(([st]) => `<td>${todayHTML(st, d.id === 'C')}</td>`).join('')}</tr></tbody></table></div>`).join('')}</div></section>`).join('');
+  for (const el of document.querySelectorAll('[data-live]')) {
+    const [dir, key, st] = el.dataset.live.split('|');
+    live.push([el, DIRS.find(d => d.id === dir), ROWS.find(r => r[0] === key), SIX.find(s => s[0] === st)]);
+  }
+}
+function draw(t) {
+  for (const [el, dir, [key, , name, acc], [st, , ps]] of live) {
+    const [p, f] = frameAt(ps, t), k = `${p}|${f}`;
+    if (el.dataset.k !== k) { el.dataset.k = k; el.innerHTML = dir.cell(key, st, p, f, acc, name); }
+  }
+}
+let clock = 0;
+window.__at = ms => { clock = ms; draw(ms); for (const a of document.getAnimations()) { a.pause(); a.currentTime = ms; } };
+
+// Page theme: auto (the system's), light or dark.
+document.querySelector('.toggle').addEventListener('click', e => {
+  const b = e.target.closest('[data-theme-set]'); if (!b) return;
+  const v = b.dataset.themeSet;
+  if (v === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = v;
+  for (const x of document.querySelectorAll('[data-theme-set]')) x.setAttribute('aria-pressed', String(x === b));
+});
+build(); draw(0);
+if (!REC) (function tick() { draw(performance.now()); requestAnimationFrame(tick); })();
+</script>
+</body>
+</html>
