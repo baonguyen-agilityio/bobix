@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ticket-classify"
+description = "Enables the ticket_classify command without any pre-configured scope."
+commands.allow = ["ticket_classify"]
+
+[[permission]]
+identifier = "deny-ticket-classify"
+description = "Denies the ticket_classify command without any pre-configured scope."
+commands.deny = ["ticket_classify"]

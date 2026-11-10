@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ticket-summary"
+description = "Enables the ticket_summary command without any pre-configured scope."
+commands.allow = ["ticket_summary"]
+
+[[permission]]
+identifier = "deny-ticket-summary"
+description = "Denies the ticket_summary command without any pre-configured scope."
+commands.deny = ["ticket_summary"]

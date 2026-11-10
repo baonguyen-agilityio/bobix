@@ -2092,7 +2092,8 @@ setInterval(() => { if (scope === 'room' && !document.hidden) rmLoad(); }, 4000)
 const rmErr = id => (rm.err?.id === id ? `<p class="note err" role="alert">${esc(rm.err.text)}</p>` : '');
 const rmVal = (k, d = '') => esc(rmIn[k] ?? d);
 const rmName = w => w?.name || w?.login || '?';
-const rmWhy = w => (w && has('rm.why.' + w) ? T('rm.why.' + w) : w || ''); // the host's reason, in your language when known
+const RM_WHY = { 'not invited': 'notInvited', 'not a tailnet address': 'notTailnet', 'unknown on the tailnet': 'unknown' };
+const rmWhy = w => (RM_WHY[w] ? T('rm.why.' + RM_WHY[w]) : w || ''); // the host's reason, in your language when known
 function roomItems() {
   if (!bridge?.room || !state) return [offItem('room')];
   if (!rm.v && !rm.loading) rmLoad();
