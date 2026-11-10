@@ -1,11 +1,12 @@
 # New Bobix pets: prototype (#106)
 
-Five original pets, with Petdex (petdex.dev) used only as a style reference: chibi characters and objects with faces,
+Twelve original pets, with Petdex (petdex.dev) used only as a style reference: chibi characters and objects with faces,
 acting each state with the whole body. No Petdex pet, no known character, no Petdex art in the repo. No app change.
 
 - `index.html`: the prototype, self-contained, open it in a browser. A state viewer (pick a pet, pick a state) and the
-  new pets next to 3 of today's pets, at 56 px (today's default) and 84 px (1.5×), one state per row.
-- `pets-106.gif`: the two comparison tables, 4.8 s loop, 10 fps, captured at 2× (Retina), 2.8 MB.
+  new pets next to 3 of today's pets, at 56 px (today's default) and 84 px (1.5×), one state per row. The tables
+  scroll sideways; `?rec` lays them out full width (used for the recordings).
+- `pets-106.gif`: the two comparison tables, 4.8 s loop, 10 fps, captured at 2× (Retina), 5.1 MB.
 - `contact-sheet-1fps.png`: the same tables at 1× (true size on a 1× screen), t = 0, 1, 2, 3, 4 s left to right.
 - `state-viewer.png`: the state viewer (Nota, waiting).
 
@@ -18,8 +19,17 @@ acting each state with the whole body. No Petdex pet, no known character, no Pet
 | **Bitbug** | A small teal beetle, the bug you are hunting, friendly about it. Antennae wave when it is happy, droop when it is not. |
 | **Dux** | A rubber duck, for rubber-duck debugging. The beak opens when it talks to you. |
 | **Hoot** | A night owl who codes late. Facial disc, ear tufts, a chevron belly. |
+| **Miso** | A round lilac-grey cat who sits on your keyboard while you work. Whiskers, a curled tail. |
+| **Frost** | An arctic fox, pale as snow, with tall ears and a big fluffy tail. |
+| **Pip** | A tall navy penguin in a tidy white shirt, very serious about code review. |
+| **Hop** | A wide green frog who leaps when your build goes green. Big bulging eyes, a huge grin. |
+| **Mocha** | A coffee mug that keeps you going: cream cup, lilac band, steam that curls while you work. |
+| **Ship** | A small rocket for the moment you ship. Porthole, blue fins, a flame under it when it jumps. |
+| **Puff** | A wide, soft cloud: where your code runs. |
 
-Two animals (Bitbug, Hoot), three coding objects (Nota, Tty, Dux).
+Six animals (Bitbug, Hoot, Miso, Frost, Pip, Hop) and six coding objects (Nota, Tty, Dux, Mocha, Ship, Puff).
+Shapes vary: tall and narrow (Ship 18 px wide, Pip 21), round (Miso, Hoot), wide and low (Hop and Puff, 29–30 px wide,
+29 tall). Colours vary too, and none is orange or red, so none clashes with the coral outline a waiting pet gets.
 
 ## States
 
@@ -51,12 +61,12 @@ so no frame is ever cut off. A check over every pet, state and frame found no pi
 
 ## Size
 
-Today's pets are 26–30 of the 36 rows tall; the new ones 32–33, so at the same box they stand a little taller and
+Today's pets are 26–30 of the 36 rows tall; the new ones 29–33, so at the same box they stand a little taller and
 hold more detail (a face with brows, cheeks, hands, feet).
 
 - **56 px (recommended default, as today).** On a Retina screen (2×, most Macs) every state reads and the pixels are
   crisp. The pet line keeps its width. On a 1× screen one grid pixel is 1.56 screen pixels, so pixels come out uneven
-  and the faces get small, but the poses still read (see the contact sheet).
+  and the faces get small, but the poses still read (see the contact sheet). Smallest face: Ship's (narrowest body).
 - **84 px (1.5×).** Every detail reads on any screen, but the line is 1.5× wider and taller and covers more of the
   desktop. Better left to the existing Size setting (32–128 px) for people who want it.
 - Worth testing: **72 px**, where one grid pixel is exactly 2 screen pixels on a 1× screen (perfectly crisp
@@ -72,12 +82,13 @@ side the pet walks to. That carries over:
   The typing and reading poses are made to hold one.
 - **Hats** (hard hat, headlamp, crown, nightcap) need a head anchor per pet instead of the first row in the middle:
   Bitbug's antennae and Hoot's tufts would catch a hat found that way. Proposed: each pet gives `head: [x, y, w]`.
-- **Tty** could show some props on its screen instead (a spinner while working, a check when done).
+- **Tty** could show some props on its screen instead (a spinner while working, a check when done); **Mocha**'s steam
+  and **Ship**'s flame already act as built-in props.
 - Props stay inside the 36×36 box, as today. The jump lifts the dressed sprite, so the props jump with it.
 
 ## Open questions
 
-1. Which pets go into the app? All five, or a pick of them?
+1. Which pets go into the app? All twelve, or a pick of them?
 2. Colours: today a project's sessions differ by body colour (6 tokens). Do the new pets get tint variants (e.g. a red
    Nota, a green Tty), or does a project's second session get a different pet?
 3. Is a pet chosen per project in the panel (like Change pet), or given out by project hash as today's creature is?

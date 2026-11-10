@@ -35,6 +35,7 @@ h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}
 @media (max-width:720px){.viewer{grid-template-columns:1fr}.states{grid-template-columns:repeat(2,minmax(0,1fr))}}
 /* the comparison tables: each cell is a pet box as the overlay draws it (pets.html: .spr) */
 .wrap{overflow-x:auto}
+.rec main{max-width:none}.rec #compare{width:max-content} /* recording: the whole table, no scrolling */
 table{border-collapse:collapse}
 th,td{padding:6px 8px;text-align:center;vertical-align:bottom}
 thead th{font:600 12px system-ui,sans-serif;color:var(--ink-2);vertical-align:bottom}
@@ -60,7 +61,7 @@ tbody tr+tr td,tbody tr+tr th{border-top:1px solid var(--line)}
 <body>
 <main>
   <h1>New Bobix pets: prototype</h1>
-  <p class="lead">Five original pets drawn the way Bobix draws pets today: a 36×36 pixel grid in code, one SVG path per colour, a 1-pixel outline. Each acts every state with its whole body. Petdex was only the style reference; no Petdex pet or known character is copied.</p>
+  <p class="lead">Twelve original pets drawn the way Bobix draws pets today: a 36×36 pixel grid in code, one SVG path per colour, a 1-pixel outline. Each acts every state with its whole body. Petdex was only the style reference; no Petdex pet or known character is copied.</p>
 
   <section class="card" aria-labelledby="sv">
     <div class="picker" id="picker" role="group" aria-label="Pet"></div>
@@ -72,6 +73,7 @@ tbody tr+tr td,tbody tr+tr th{border-top:1px solid var(--line)}
 
   <div id="compare">
   <h2>Next to today's pets: real size (56 px, the default)</h2>
+  <p class="note">The tables scroll sideways.</p>
   <div class="card wrap"><table id="t56" style="--size:56px"></table></div>
   <h2>One size up: 84 px (1.5×)</h2>
   <div class="card wrap"><table id="t84" style="--size:84px"></table></div>
@@ -528,6 +530,133 @@ const PETS = [
       return b;
     },
   },
+  {
+    id: 'miso', name: 'Miso', idea: 'A round lilac-grey cat who sits on your keyboard while you work. Whiskers, a curled tail.',
+    draw(g, p) {
+      const b = 2 + p.dy, fur = C['#a99bc9'], dark = C['#8576ad'], white = C['#f6f3fb'], pink = C['#f2a6bd'];
+      legs(g, [13, 20], b + 26, p, dark);
+      g.L(25, b + 25, 30, b + 20, fur, 2); g.R(29, b + 16, 2, 4, fur);   // tail, curled up
+      g.E(18, b + 22, 7, 6, fur);                                          // body
+      g.E(18, b + 23, 4, 4, white);                                        // belly
+      for (const [x0, s] of [[10, 1], [26, -1]]) for (let r = 0; r < 4; r++) g.R(s > 0 ? x0 : x0 - r - 1, b + 3 + r, 2 + r, 1, fur); // ears
+      g.E(18, b + 11, 8, 6, fur);                                          // head
+      g.P(11, b + 5, pink); g.P(24, b + 5, pink);                          // inside the ears
+      g.R(17, b + 6, 2, 2, dark); g.P(14, b + 6, dark); g.P(21, b + 6, dark); // forehead stripes
+      g.E(18, b + 14, 3, 2, white);                                        // muzzle
+      arm(g, -1, 12, b + 19, p.arms[0], p, dark); arm(g, 1, 24, b + 19, p.arms[1], p, dark);
+      outline(g, C['#4b4166']);
+      for (const y of [b + 12, b + 14]) { g.R(6, y, 3, 1, C['#8a8fa3']); g.R(28, y, 3, 1, C['#8a8fa3']); } // whiskers
+      g.R(17, b + 12, 2, 1, C['#e07a9a']);                                 // nose
+      face(g, 18, b + 8, p, { ink: INK, gap: 7, cheek: pink });
+      return b;
+    },
+  },
+  {
+    id: 'frost', name: 'Frost', idea: 'An arctic fox, pale as snow, with tall ears and a big fluffy tail it wraps round itself to sleep.',
+    draw(g, p) {
+      const b = 2 + p.dy, fur = C['#e6edf5'], shade = C['#b9c9dc'], inner = C['#9fb3cc'];
+      legs(g, [13, 20], b + 26, p, shade);
+      g.E(28, b + 21, 4, 6, fur); g.R(27, b + 14, 3, 2, shade);          // tail, its tip a shade darker
+      g.E(18, b + 22, 6, 6, fur);                                          // body
+      g.R(14, b + 25, 8, 1, shade);
+      for (const [x0, s] of [[10, 1], [26, -1]]) for (let r = 0; r < 5; r++) { const w = 1 + r; g.R(s > 0 ? x0 + (r === 0 ? 1 : 0) : x0 - w - (r === 0 ? 1 : 0), b + 1 + r, w, 1, fur); } // tall ears
+      g.E(18, b + 11, 8, 5, fur);                                          // head
+      g.R(9, b + 12, 2, 2, fur); g.R(26, b + 12, 2, 2, fur); g.R(16, b + 16, 4, 1, fur); // cheek tufts, chin
+      g.P(11, b + 4, inner); g.P(11, b + 5, inner); g.P(24, b + 4, inner); g.P(24, b + 5, inner);
+      arm(g, -1, 13, b + 19, p.arms[0], p, shade); arm(g, 1, 23, b + 19, p.arms[1], p, shade);
+      outline(g, C['#5d6f8a']);
+      g.R(17, b + 12, 2, 1, INK);                                          // nose
+      face(g, 18, b + 8, p, { ink: INK, gap: 8, cheek: C['#f2b8c6'] });
+      return b;
+    },
+  },
+  {
+    id: 'pip', name: 'Pip', idea: 'A tall navy penguin in a tidy white shirt, very serious about code review.',
+    draw(g, p) {
+      const b = 2 + p.dy, navy = C['#33476b'], dark = C['#24344f'], white = C['#f4f6fb'], gold = C['#f5c542'];
+      legs(g, [13, 20], b + 29, p, gold);
+      g.E(18, b + 15, 9, 13, navy);                                        // body
+      g.E(18, b + 20, 6, 9, white);                                        // shirt front
+      g.E(18, b + 9, 6, 4, white);                                         // face
+      g.R(13, b + 4, 1, 3, C['#5b72a0']);                                   // shine
+      arm(g, -1, 10, b + 14, p.arms[0], p, dark); arm(g, 1, 26, b + 14, p.arms[1], p, dark);
+      outline(g, C['#1a2236']);
+      const open = p.mouth === 'open' || p.mouth === 'o';
+      g.R(17, b + 12, 2, 2, gold); if (open) g.R(17, b + 14, 2, 1, C['#b5482b']); // beak
+      face(g, 18, b + 7, p, { ink: dark, gap: 6, cheek: C['#f7a1b5'], noMouth: true });
+      return b;
+    },
+  },
+  {
+    id: 'hop', name: 'Hop', idea: 'A wide green frog who leaps when your build goes green. Big bulging eyes, a huge grin.',
+    draw(g, p) {
+      const b = 8 + p.dy, green = C['#7ccf6a'], dark = C['#4f9e48'], belly = C['#d9f2b0'];
+      legs(g, [10, 23], b + 20, p, dark);
+      g.E(18, b + 13, 13, 8, green);                                       // body
+      g.E(12, b + 3, 4, 4, green); g.E(24, b + 3, 4, 4, green);            // eye bulges
+      g.E(18, b + 16, 8, 4, belly);
+      for (const [x, y] of [[8, 12], [27, 13], [25, 18]]) g.R(x, b + y, 2, 1, dark); // spots
+      arm(g, -1, 8, b + 12, p.arms[0], p, dark); arm(g, 1, 28, b + 12, p.arms[1], p, dark);
+      outline(g, C['#2e5e2b']);
+      if (['open', 'look', 'down'].includes(p.eyes)) for (const x of [10, 22]) g.R(x, b + 1, 4, 4, WHITE32); // whites on the bulges
+      face(g, 18, b + 1, p, { ink: INK, gap: 12, cheek: C['#f2a6bd'], noMouth: true });
+      const m = INK, y = b + 9; // a frog's mouth, across its face
+      switch (p.mouth) {
+        case 'smile': g.P(12, y, m); g.R(13, y + 1, 10, 1, m); g.P(23, y, m); break;
+        case 'small': case 'flat': g.R(14, y + 1, 8, 1, m); break;
+        case 'o': g.R(17, y, 2, 2, m); break;
+        case 'open': g.R(13, y, 10, 2, m); g.R(14, y + 1, 8, 1, C['#ff8fa3']); break;
+        case 'frown': g.P(12, y + 1, m); g.R(13, y, 10, 1, m); g.P(23, y + 1, m); break;
+      }
+      return b;
+    },
+  },
+  {
+    id: 'mocha', name: 'Mocha', idea: 'A coffee mug that keeps you going: cream cup, lilac band, steam that curls while you work.',
+    draw(g, p) {
+      const b = 7 + p.dy, cup = C['#f4f1ea'], shade = C['#d9d3c5'], band = C['#9b8fe0'];
+      legs(g, [12, 20], b + 18, p, shade);
+      g.R(26, b + 3, 4, 2, cup); g.R(28, b + 5, 2, 6, cup); g.R(26, b + 11, 4, 2, cup); // handle
+      g.R(10, b, 16, 18, cup); g.clear(10, b + 17); g.clear(25, b + 17);   // the cup
+      g.E(18, b + 1, 7, 1, C['#7a4b2e']);                                  // coffee
+      g.R(10, b + 12, 16, 3, band); g.R(24, b + 2, 1, 15, shade);           // band, side shade
+      arm(g, -1, 9, b + 8, p.arms[0], p, shade); arm(g, 1, 26, b + 8, p.arms[1], p, shade);
+      outline(g, C['#5e5446']);
+      if (p.st !== 'asleep' && p.st !== 'failed') { const k = p.f % 2, s = C['#c3c9d6']; for (const x of [15, 21]) { g.P(x + k, b - 2, s); g.P(x + 1 - k, b - 3, s); g.P(x + k, b - 4, s); } } // steam
+      face(g, 18, b + 5, p, { ink: INK, gap: 7, cheek: C['#f2a6bd'] });
+      return b;
+    },
+  },
+  {
+    id: 'ship', name: 'Ship', idea: 'A small rocket for the moment you ship. Porthole, blue fins, a flame when it jumps.',
+    draw(g, p) {
+      const b = 2 + p.dy, hull = C['#e8ecf3'], shade = C['#c4ccd9'], blue = C['#4f7fe8'];
+      legs(g, [14, 19], b + 23, p, shade);
+      if (p.st === 'jump' && p.f > 0) { g.R(16, b + 24, 4, 7, C['#ffd23f']); g.R(17, b + 24, 2, 5, C['#fff3b0']); } // flame
+      for (let r = 0; r < 6; r++) { const w = Math.min(10, 2 + r * 2); g.R(18 - w / 2, b + 1 + r, w, 1, r < 4 ? blue : hull); } // nose cone
+      g.R(13, b + 5, 10, 18, hull);                                        // body
+      g.R(10, b + 18, 3, 5, blue); g.R(11, b + 16, 2, 2, blue); g.R(23, b + 18, 3, 5, blue); g.R(23, b + 16, 2, 2, blue); // fins
+      g.R(14, b + 6, 1, 8, C['#ffffff']); g.R(21, b + 6, 1, 15, shade);
+      g.E(18, b + 8, 2, 2, C['#5a6b8c']); g.E(18, b + 8, 1, 1, C['#7fd3f5']); // porthole
+      arm(g, -1, 12, b + 13, p.arms[0], p, shade); arm(g, 1, 23, b + 13, p.arms[1], p, shade);
+      outline(g, C['#3c4a66']);
+      face(g, 18, b + 12, p, { ink: INK, gap: 6, cheek: C['#f2a6bd'] });
+      return b;
+    },
+  },
+  {
+    id: 'puff', name: 'Puff', idea: 'A wide, soft cloud: where your code runs. Floats a little when happy, drizzles when it fails.',
+    draw(g, p) {
+      const b = 7 + p.dy, white = C['#f4f8ff'], shade = C['#c9dcf2'];
+      legs(g, [12, 21], b + 18, p, shade);
+      g.E(11, b + 11, 6, 6, white); g.E(19, b + 7, 7, 7, white); g.E(26, b + 11, 6, 6, white); g.E(18, b + 13, 13, 5, white); // puffs
+      g.R(8, b + 17, 21, 1, shade); g.R(10, b + 4, 2, 1, C['#ffffff']);
+      arm(g, -1, 8, b + 12, p.arms[0], p, shade); arm(g, 1, 28, b + 12, p.arms[1], p, shade);
+      outline(g, C['#6f86a8']);
+      face(g, 18, b + 8, p, { ink: INK, gap: 8, cheek: C['#f7b6c8'] });
+      return b;
+    },
+  },
 ];
 
 // A pet's sprite for a state's frame, as today's pets are drawn: { w, h, data } for spriteSVG. Cached.
@@ -548,6 +677,7 @@ function petSprite(pet, st, f) {
 <script>
 // ---- the page ----
 const REC = new URLSearchParams(location.search).has('rec'); // recording: the clock moves only by __at(ms)
+if (REC) document.documentElement.classList.add('rec');
 const OLD = [['alpha', 0, 'Today'], ['bobix', 2, 'Today'], ['web', 4, 'Today']]; // today's pets: project id, colour
 // The rows of the comparison: the issue's states. 'done' plays wave then jump.
 const ROWS = [['walk', 'Walk', 'walkR'], ['typing', 'Working · typing', 'typing'], ['reading', 'Working · reading', 'reading'],
