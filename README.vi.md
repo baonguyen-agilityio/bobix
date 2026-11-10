@@ -36,7 +36,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 ### Thú cưng cho các session
 - **Mỗi session một chú thú.** Các session của cùng một project (kể cả git worktree) dùng chung một trong năm mẫu thú kiểu icon phẳng, mỗi session một màu riêng, tên lấy theo tiêu đề session.
 - **Một hàng dọc mép** màn hình bạn chọn, mép trên hoặc mép dưới, đi cùng một chiều; session phụ đi ngay sau session đã tạo ra nó. Hoặc **Hiện khi có việc**: chỉ session cần bạn mới bay lên màn hình cho tới khi bạn trả lời.
-- **Tín hiệu nhỏ**: lên cấp khi session xong một việc, pin yếu khi context sắp hết. Khi bật giảm chuyển động, một quả bóng cho biết việc gì cần bạn.
+- **Tín hiệu nhỏ**: lên cấp khi session xong một việc, pin yếu khi context sắp hết. Khi bật giảm chuyển động thì không có hiệu ứng; huy hiệu và vòng cam vẫn cho biết việc gì cần bạn.
 
 ### Duyệt yêu cầu mà không chuyển cửa sổ
 - Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu.

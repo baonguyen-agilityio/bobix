@@ -36,7 +36,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 ### Pets for your sessions
 - **One pet per session.** A project's sessions (git worktrees too) share one of five flat-icon designs, each session in a colour of its own, named after the session's title.
 - **One line along the edge** of the screen you choose, top or bottom, walking one way; side sessions walk right behind the session they came from. Or **Show when needed**: only a session that needs you rises up the screen until you answer it.
-- **Small signals**: a level-up when a session finishes a task, a low battery when its context runs low. With reduced motion, a balloon says what needs you instead.
+- **Small signals**: a level-up when a session finishes a task, a low battery when its context runs low. With reduced motion they stay off; the badge and the coral ring still say what needs you.
 
 ### Answer approvals without switching windows
 - When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked.
