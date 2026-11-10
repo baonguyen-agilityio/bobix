@@ -10,6 +10,7 @@
    the panel look like one product, in light and dark. */
 html{--size:56px}
 html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 var(--t-sm)/1.45 var(--f-ui);-webkit-font-smoothing:antialiased;color:var(--ink);font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none}
+button{font:inherit;color:inherit}
 .pet{position:absolute;left:0;bottom:var(--s1);width:var(--size);cursor:pointer;touch-action:none;transform-origin:50% 100%;transition:opacity 150ms var(--ease),scale 250ms var(--ease),translate 250ms var(--ease),filter 250ms var(--ease)}
 .pet.dragging{cursor:grabbing}
 .pet.hover{z-index:3}
@@ -498,17 +499,31 @@ function lineDrop(p) {
 // A pet's name tag is the ground it stands on: as wide as the pet, or as the whole family (a parent and the side
 // sessions walking right behind it; not one that has already come round again).
 function groundTags(all) {
+  const tags = [];
   for (const p of all) {
     const tg = p.el.querySelector('.tag:not(.ghost)');
     if (!tg) continue;
     const fam = all.filter(q => q.s.parent === p.s.id), reach = sideFirst() + fam.length * sideStep() + 8, back = rtl() ? 1 : -1;
     const kids = fam.filter(q => (q.x - p.x) * back > 0 && Math.abs(q.x - p.x) <= reach), xs = [p.x, ...kids.map(q => q.x)];
-    const l = Math.max(0, Math.min(...xs) - TAG), r = Math.min(innerWidth, Math.max(...xs) + cfg.size + TAG); // never past the screen's ends
-    const g = `${Math.round(l - p.x)}|${Math.round(r - l)}`;
-    if (tg.dataset.g === g) continue;
-    tg.dataset.g = g;
+    if (tg.nw == null) { tg.style.width = 'max-content'; tg.nw = tg.offsetWidth + 2; tg.dataset.g = ''; } // its whole name, measured once
+    tags.push({ p, tg, l: Math.min(...xs) - TAG, r: Math.max(...xs) + cfg.size + TAG, on: !p.el.classList.contains('line-off') });
+  }
+  // A name longer than its pets takes the free room beside them, up to halfway to the next tag on each side, so a name
+  // is cut only when the line is really full (two tags stay apart).
+  const shown = tags.filter(t => t.on).sort((a, b) => a.l - b.l);
+  for (const t of tags) {
+    const i = shown.indexOf(t), lo = i > 0 ? (shown[i - 1].r + t.l) / 2 + 1 : 0, hi = i >= 0 && i < shown.length - 1 ? (t.r + shown[i + 1].l) / 2 - 1 : innerWidth;
+    let l = Math.max(0, t.l), r = Math.min(innerWidth, t.r); // never past the screen's ends
+    const more = t.tg.nw - (r - l);
+    if (more > 0) {
+      const gl = Math.max(0, l - lo), gr = Math.max(0, hi - r), a = Math.min(gl, Math.max(more / 2, more - gr)), b = Math.min(gr, more - a);
+      l -= a; r += b;
+    }
+    const g = `${Math.round(l - t.p.x)}|${Math.round(r - l)}`;
+    if (t.tg.dataset.g === g) continue;
+    t.tg.dataset.g = g;
     const [left, width] = g.split('|');
-    Object.assign(tg.style, { left: left + 'px', width: width + 'px' });
+    Object.assign(t.tg.style, { left: left + 'px', width: width + 'px' });
   }
 }
 // Bubbles that touch are lifted one lane: they never overlap, even when pets cross.

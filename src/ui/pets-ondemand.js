@@ -250,7 +250,8 @@ function odPill() {
       OD.ui.pop.innerHTML = `<h2>${T('od.list')}</h2>` + list.map(s => {
         const st = look(s);
         return `<div class="row ${st}" data-sid="${esc(s.id)}"><span class="mini">${petArt(s, st, petColor(s, lastList || []))}</span><span class="nm">${esc(labelOf(s))}</span>`
-          + `<span class="stx">${esc(statusText(s, st))}</span>${st === 'waiting' ? answerButtons(s, now) : ''}</div>`;
+          // Allow / Deny when Bobix can answer; otherwise the row keeps its status (where to answer is its tooltip).
+          + `<span class="stx"${st === 'waiting' && !(bridge && left(s, now)) ? ` title="${esc(T(approveWhere(s)))}"` : ''}>${esc(statusText(s, st))}</span>${st === 'waiting' && bridge && left(s, now) ? answerButtons(s, now) : ''}</div>`;
       }).join('');
     }
   }
