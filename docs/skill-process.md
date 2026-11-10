@@ -2,7 +2,7 @@
 
 A team can tell Bobix which Claude Code skill to suggest for which kind of issue. Write it in **`.bobix/skills.json`** at the root of the repository and commit it, so everyone who clones the repository gets the same suggestions. Bobix reads the file each time you press **Start** on an issue of that project. It never changes the file.
 
-For a repository without one, each person can import a process in **Settings → Skill process**, from a file on their computer or from an `https://` link. Bobix keeps the imported copy in its own settings. When the repository has its own file, the repository's file is used.
+For a repository without one, each person can import a process in the **Skills** tab, under the project, from a file on their computer or from an `https://` link. Bobix keeps the imported copy in its own settings. When the repository has its own file, the repository's file is used.
 
 The file only says which skill to suggest. In the Start box the suggested skill is preselected and marked **Suggested**, and you can still pick any other skill, or none, before anything starts. With a process, its rules replace Bobix's own guess from labels and role for that project.
 
@@ -30,7 +30,7 @@ The file only says which skill to suggest. In the Start box the suggested skill 
 | `version` | yes | Always `1`. |
 | `name` | no | A short name shown next to the process (100 characters at most). |
 | `rules` | yes | 1 to 100 rules, checked in order. The first rule that fits the issue **and** names a skill Claude has for that folder is suggested. |
-| `rules[].when` | yes | One or more conditions; all of them must fit. `label`: one label or a list of up to 20 (any of them on the issue fits, case does not matter). `role`: `ba`, `qa` or `dev` (your role, set in Settings). `stage`: `todo`, `doing` or `verify` (an issue you start is at `todo`). |
+| `rules[].when` | yes | One or more conditions; all of them must fit. `label`: one label or a list of up to 20 (any of them on the issue fits, case does not matter). `role`: `ba`, `qa` or `dev` (your role, set in the Skills tab). `stage`: `todo`, `doing` or `verify` (an issue you start is at `todo`). |
 | `rules[].skill` | yes | The skill's command, as you would type it after `/`: `fix-ticket`, or `plugin:skill` for a plugin's skill. Letters, digits, `-`, `_`, `.` and `:` only. |
 | `install` | no | For a skill some people may not have: what to tell Claude to install it (300 characters at most, one line). Without it, Bobix offers `/plugin install <plugin>` for a plugin's skill, or a sentence asking Claude to install the skill. |
 
@@ -46,6 +46,6 @@ The file is data and nothing in it is ever run. Bobix refuses the whole file, an
 - a role or stage is not one of the values above;
 - a label, the name or an install line is empty, too long, or has control characters such as a new line.
 
-A file that is refused is not used. The Start box and Settings show why.
+A file that is refused is not used. The Start box and the Skills tab show why.
 
 An imported link is read once, when you press Import: one GET over `https` only (also after redirects), 64 KB and 10 seconds at most.

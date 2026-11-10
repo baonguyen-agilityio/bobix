@@ -837,8 +837,9 @@ async fn skills_mine() -> Result<Value, ()> {
     tauri::async_runtime::spawn_blocking(|| json!(skills::mine(&paths::home()))).await.map_err(|_| ())
 }
 
-// Settings → Skill process: each project with a folder here, and the process Bobix uses for it: the repository's
-// .bobix/skills.json (or why it is not valid), and the one imported by hand.
+// The Skills tab, per project with a folder here: the process Bobix uses for it (the repository's .bobix/skills.json,
+// or why it is not valid, and the one imported by hand), the project's and team's skills in that folder, and the
+// skills the process names that Claude doesn't have there (names only).
 #[tauri::command]
 async fn process_status(b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
@@ -850,7 +851,15 @@ async fn process_status(b: B<'_>) -> Result<Value, ()> {
         let list: Vec<Value> = view["local"].as_array().into_iter().flatten().map(|g| {
             let (path, dir) = (g["path"].as_str().unwrap_or(""), g["dir"].as_str().unwrap_or(""));
             let (repo, error) = match process::from_repo(std::path::Path::new(dir)) { Some(Ok(p)) => (p, Value::Null), Some(Err(e)) => (Value::Null, json!(e)), None => (Value::Null, Value::Null) };
-            json!({ "path": path, "repo": repo, "repoError": error, "imported": imported.get(path).cloned().unwrap_or(Value::Null) })
+            let imported = imported.get(path).cloned().unwrap_or(Value::Null);
+            let all = skills::list(&paths::home(), std::path::Path::new(dir));
+            let used = if repo.is_null() { &imported } else { &repo };
+            let mut missing: Vec<&str> = vec![];
+            for r in used["rules"].as_array().into_iter().flatten().filter_map(|r| r["skill"].as_str()) {
+                if !all.iter().any(|s| s.name == r) && !missing.contains(&r) { missing.push(r); }
+            }
+            let team: Vec<&skills::Skill> = all.iter().filter(|s| matches!(s.source, "project" | "team" | "managed")).collect();
+            json!({ "path": path, "dir": dir, "repo": repo, "repoError": error, "imported": imported, "skills": team, "missing": missing })
         }).collect();
         json!(list)
     }).await.map_err(|_| ())

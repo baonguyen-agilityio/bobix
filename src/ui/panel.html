@@ -41,6 +41,7 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .tab .dot{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:var(--pill);background:var(--coral);color:var(--on-pop);font-size:11px;line-height:18px;text-align:center}
 .conn{font-size:var(--t-sm);color:var(--ink-3);margin-left:auto}
 .conn.lost{color:var(--coral-ink);font-weight:600}
+.conn[hidden]+#fb-open{margin-left:auto} /* the connection is said only when lost; Feedback stays at the end */
 .btn{position:relative;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--pill);padding:7px var(--s4);font-size:var(--t-sm);font-weight:600;cursor:pointer;transition:border-color 120ms var(--ease)}
 .btn:hover{border-color:var(--ink-3)}
 .btn:disabled{opacity:.5;cursor:default}
@@ -104,13 +105,10 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .dsec{display:flex;flex-direction:column;gap:var(--s3);min-width:0;scroll-margin-top:76px}
 .dsec>.note{margin:0;font-size:var(--t-xs);color:var(--ink-3)}
 .dsec .card{padding:var(--s3) var(--s4);border-radius:16px}
-.flow{list-style:none;margin:0 0 var(--s6);padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s3)}
-.flow li{position:relative;min-width:0}
-.flow li+li::before{content:"›";position:absolute;left:calc(var(--s3) / -2);top:50%;transform:translate(-50%,-50%);color:var(--ink-3);font-size:18px;line-height:1}
-.step{width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:12px 16px;background:var(--surface);border:1px solid var(--line);border-radius:18px;text-align:left;cursor:pointer;transition:border-color 120ms var(--ease),box-shadow 120ms var(--ease)}
-.step:hover{border-color:var(--line-strong);box-shadow:var(--lift)}
-.step b{font:700 var(--t-2xl)/1 var(--f-display)}
-.step span{font-size:var(--t-xs);font-weight:600;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+/* an empty section: its heading and a few quiet words on one line */
+.dh .none{font-size:var(--t-sm);color:var(--ink-3)}
+.note.away{margin:var(--s2) 4px 0;font-size:var(--t-xs);color:var(--ink-3)}
+.stk-old{margin:0 0 var(--s6);padding:0 4px}
 .dg{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-areas:"doing todo" "verify todo" "done todo" "loose todo";grid-template-rows:auto auto auto 1fr;gap:var(--s8);align-items:start}
 .dg>[data-area=doing]{grid-area:doing}.dg>[data-area=verify]{grid-area:verify}.dg>[data-area=done]{grid-area:done}.dg>[data-area=loose]{grid-area:loose}.dg>[data-area=todo]{grid-area:todo}
 .sprite{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:var(--sunk)}
@@ -162,7 +160,6 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .gh{display:flex;align-items:center;gap:var(--s2);padding:0 4px;font-size:var(--t-xs);color:var(--ink-3);min-width:0}
 .gh .egg{flex:none;width:14px;height:16px;filter:grayscale(1);opacity:.5}
 .gh b{font:600 var(--t-sm) var(--f-display);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.gh .away{flex:none;padding:1px 8px;border-radius:var(--pill);background:var(--line);color:var(--ink-2);font-weight:500}
 .gh .n{margin-left:auto;flex:none}
 .tr{background:var(--surface);border:1px solid var(--line);border-radius:16px;transition:border-color 120ms var(--ease),box-shadow 120ms var(--ease)}
 .tr:hover{border-color:var(--line-strong);box-shadow:var(--lift)}
@@ -292,15 +289,10 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .rp p{margin:0}
 .fb.rp textarea{width:100%;min-height:min(340px,50dvh);resize:vertical;padding:12px 14px;border:1px solid var(--line-strong);border-radius:14px;background:var(--sunk);color:var(--ink);font:400 var(--t-sm)/1.6 var(--f-mono)}
 .rp .acts{justify-content:flex-end;margin:0}
-/* a narrow window: the four counters become tabs, one section at a time; the approvals stay on top */
+/* a narrow window: one column, the sections one under the other; the approvals stay on top */
 @media (max-width:819px){
   .dg{grid-template-columns:minmax(0,1fr);grid-template-areas:none;grid-template-rows:none;gap:var(--s6)}
   .dg>[data-area]{grid-area:auto}
-  .dg>[data-area]:not(.on){display:none}
-  .flow{gap:6px}.flow li+li::before{display:none}
-  .step{padding:8px 10px;border-radius:14px}.step b{font-size:var(--t-xl)}
-  .step span{white-space:normal;line-height:1.3}
-  .step[aria-pressed=true]{border-color:var(--ink);box-shadow:var(--lift)}
   .d-hi h2{font-size:var(--t-xl)}
   .aq{padding:var(--s3);border-radius:18px}
   .ap{grid-template-columns:36px minmax(0,1fr)}.ap .acts,.ap>.note{grid-column:1/-1;flex-wrap:wrap;max-width:none}.stl li{grid-template-columns:minmax(0,1fr)}
@@ -500,6 +492,34 @@ input[type=number]{width:104px}
 .btn.danger{color:var(--coral-ink)}
 .acts{display:flex;gap:var(--s3);flex-wrap:wrap;margin-top:var(--s4)}
 
+/* skills: your role and your skills on the left, the projects on the right (one column when narrow) */
+.skills-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--s6);align-items:start;max-width:1180px;margin:0 auto;padding:var(--s6) clamp(12px,2vw,28px)}
+.sk-col{display:flex;flex-direction:column;gap:var(--s6);min-width:0}
+.skills-wrap .card{padding:var(--s4) var(--s6)}
+.skills-wrap .card>.note{margin:0 0 var(--s3);font-size:var(--t-sm);color:var(--ink-3)}
+#sk-projects{gap:var(--s3)}
+.proc .ph .egg{flex:none;width:14px;height:16px;align-self:center}
+.proc{grid-template-columns:minmax(0,1fr)}
+.proc .ph{flex-wrap:nowrap}
+.proc .ph .src{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proc .pg{display:grid;gap:4px;padding-top:6px;border-top:1px solid var(--line)}
+.proc .lbl{font-size:var(--t-xs);font-weight:700;color:var(--ink-2)}
+.proc .note{margin:0;font-size:var(--t-xs)}
+.proc .tags{display:flex;flex-wrap:wrap;gap:4px}
+.proc .tags li{display:inline-flex;gap:6px;align-items:baseline;padding:2px 8px;border:1px solid var(--line);border-radius:var(--pill)}
+.proc .tags code,.proc .miss code,.proc .fold code{font:600 var(--t-xs) var(--f-mono);background:none;border:0;padding:0}
+.proc .rules{color:var(--ink-2)}
+.proc .miss,.proc .fold{display:flex;flex-direction:column;gap:4px}
+.proc .miss li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center;padding:6px 8px;border:1px dashed var(--line-strong);border-radius:12px}
+.proc .miss .line{grid-column:1;font-weight:500!important;color:var(--ink-2);overflow-wrap:anywhere}
+.proc .miss .btn{grid-column:2;grid-row:1/3}
+.proc .nm{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;min-width:0}
+.proc .miss-tag{font-size:11px;font-weight:700;padding:0 7px;border-radius:var(--pill);border:1px solid var(--line-strong);color:var(--ink-2)}
+.proc .fold li{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.proc .fold .nm{flex-wrap:nowrap}
+.proc .fold .src{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:980px){.skills-wrap{grid-template-columns:minmax(0,1fr)}}
+
 /* setup */
 .setup-wrap{max-width:860px;margin:0 auto;padding:var(--s6) clamp(12px,2vw,28px);display:flex;flex-direction:column;gap:var(--s6)}
 .hero{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s6);align-items:center}
@@ -508,8 +528,6 @@ input[type=number]{width:104px}
 .hero .note{margin:0 0 var(--s3)}
 .state{display:inline-flex;align-items:center;gap:var(--s2);padding:4px var(--s3);border-radius:var(--pill);font-weight:600;font-size:var(--t-sm)}
 .state.ok{background:var(--mint-soft)}.state.bad{background:var(--coral-soft);color:var(--coral-ink)}
-.intro{display:grid;gap:var(--s4);margin-bottom:var(--s4)}.intro:empty{display:none}
-.intro .card h2{display:flex;align-items:center;gap:var(--s3)}.intro .acts{margin-top:var(--s4)}
 .guide{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s3) var(--s6)}
 .guide li{display:grid;grid-template-columns:40px minmax(0,1fr);gap:var(--s3);align-items:center;font-size:var(--t-sm)}
 .guide .sprite{width:40px;height:40px}.guide .st-waiting .sprite{background:var(--coral-soft);box-shadow:inset 0 0 0 1px var(--coral)}.guide .st-done .sprite{background:var(--mint-soft)}.guide .st-idle .sprite svg{opacity:.6}.guide-more{margin:var(--s4) 0 0;padding-left:1.2em;font-size:var(--t-sm);display:grid;gap:var(--s2)}
@@ -568,11 +586,12 @@ input[type=number]{width:104px}
   <div class="brand"><span class="logo" id="logo"></span><h1 data-t="app.name"></h1><span class="ver" id="ver" hidden></span></div>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" data-tab="sessions" data-t="tab.sessions"></button>
+    <button class="tab" role="tab" data-tab="skills" data-t="tab.skills"></button>
     <button class="tab" role="tab" data-tab="settings" data-t="tab.settings"></button>
     <button class="tab" role="tab" data-tab="setup" data-t="tab.setup"></button>
   </nav>
   <button class="btn" type="button" id="showAll" data-t="board.showAll" hidden></button>
-  <span class="conn lost" id="conn" role="status"></span>
+  <span class="conn lost" id="conn" role="status" hidden></span>
   <button class="btn" type="button" id="fb-open" data-t="fb.title"></button>
 </header>
 <dialog id="fb-dialog" class="fb" aria-labelledby="fb-heading"></dialog>
@@ -602,13 +621,13 @@ input[type=number]{width:104px}
 
 <section id="tab-sessions">
   <main class="app" id="board">
-    <div class="intro" id="intro"></div>
     <div id="day"></div>
   </main>
   <div class="scrim" id="scrim" hidden></div>
   <aside class="pane" id="pane" hidden role="dialog" aria-labelledby="pane-h"></aside>
 </section>
 
+<section id="tab-skills" hidden><div class="skills-wrap" id="skills"></div></section>
 <section id="tab-settings" hidden><div class="set-wrap" id="settings"></div></section>
 <section id="tab-setup" hidden><div class="setup-wrap" id="setup"></div></section>
 <div class="toasts" id="toasts"></div>
@@ -668,12 +687,14 @@ function toast(text, action) {
 // ---------- tabs ----------
 function showTab(name) {
   if (name === 'feedback') return openFeedback(); // from the tray, over whichever tab is open
-  if (name === 'work') { tab = 'todo'; name = 'sessions'; } // the issues are the board's To do section
+  const todo = name === 'work'; // the issues are the board's To do section
+  if (todo) name = 'sessions';
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
-  for (const n of ['sessions', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
+  for (const n of ['sessions', 'skills', 'settings', 'setup']) $(`#tab-${n}`).hidden = n !== name;
   if (name === 'sessions') render();
+  if (todo) $('#d-todo')?.scrollIntoView({ block: 'start' });
   if (name === 'setup') renderSetup();
-  if (name === 'settings') loadSkillLists();
+  if (name === 'skills') { renderSkillsTab(); loadSkillLists(); }
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
@@ -717,7 +738,6 @@ const moreOpen = new Set(); // Quest and log lines opened with "Show more" (the 
 // → done today → the end-of-day report. Drawn whole as HTML, skipped when nothing changed; focus survives a redraw.
 const AQ_MAX = 3, VER_MAX = 4, DONE_MAX = 5, PER_GROUP = 4;
 const narrow = () => matchMedia('(max-width:819px)').matches;
-let tab = null; // a narrow window's section (todo | doing | verify | done); null: in progress while a ticket runs or waits
 const opened = new Set(); // lists opened past their cap ('aq', 'verify', 'done', 'g:<path>'), tickets ('t:<key>'), commands ('c:<id>')
 let query = '', proj = 'all', nextFocus = null, st = BOARD.stages(null, []);
 const flip = k => (opened.has(k) ? opened.delete(k) : opened.add(k));
@@ -835,15 +855,15 @@ function stuckWhy(x) {
 const nudgeLabel = x => (x.kind === 'noreview' ? T('nudge.ask') : x.branch && x.kind !== 'idle' ? T('nudge.newReview', { pr: prOf(x) }) : T('nudge.open'));
 const stuckRow = x => `<li><span class="sk-tx"><span class="tt1">${x.iid != null ? `<span class="id">#${x.iid}</span>` : ''}${esc(x.title)}</span><span class="why">${esc(stuckWhy(x))}</span></span>
   <span class="acts">${bridge || x.kind === 'noreview' ? `<button class="btn sm" type="button" data-nudge="${esc(x.id)}" data-f="nudge:${esc(x.id)}">${esc(nudgeLabel(x))}</button>` : ''}<button class="btn sm ghost" type="button" data-skip="${esc(x.id)}" data-f="skip:${esc(x.id)}">${esc(T('day.skip'))}</button></span></li>`;
-// Today's stuck work as lines; what has been quiet for longer (old) folds into one quiet line at the end.
+// Today's stuck work as lines; what has been quiet for longer (old) folds into one quiet line at the end. No card
+// when nothing is stuck today: the older items, if any, are that one line alone.
 function stuckHTML() {
   const all = stuckList(), xs = all.filter(x => !x.old), old = all.filter(x => x.old);
-  if (!all.length) return '';
+  const oldHTML = old.length ? `<details class="sk-old"${opened.has('stuck-old') ? ' open' : ''}><summary data-flag="stuck-old" data-f="flag:stuck-old">${esc(T('day.stuckOld', { n: old.length, d: stuckCfg().stuckMaxAge ?? 14 }))}</summary><ul class="stl">${old.map(stuckRow).join('')}</ul></details>` : '';
+  if (!xs.length) return oldHTML && `<div class="stk-old">${oldHTML}</div>`;
   const shown = opened.has('stuck') ? xs : xs.slice(0, 3);
-  return `<section class="stk" id="d-stuck" aria-labelledby="h-stuck">${head('stuck', T('day.stuck'), xs.length, esc(T('day.stuck.tip')))}
-    ${xs.length ? `<ul class="stl">${shown.map(stuckRow).join('')}</ul>` : ''}
-    ${xs.length > 3 ? moreBtn('stuck', xs.length - 3) : ''}
-    ${old.length ? `<details class="sk-old"${opened.has('stuck-old') ? ' open' : ''}><summary data-flag="stuck-old" data-f="flag:stuck-old">${esc(T('day.stuckOld', { n: old.length, d: stuckCfg().stuckMaxAge ?? 14 }))}</summary><ul class="stl">${old.map(stuckRow).join('')}</ul></details>` : ''}</section>`;
+  return `<section class="stk" id="d-stuck" aria-labelledby="h-stuck">${head('stuck', T('day.stuck'), xs.length)}
+    <ul class="stl">${shown.map(stuckRow).join('')}</ul>${xs.length > 3 ? moreBtn('stuck', xs.length - 3) : ''}${oldHTML}</section>`;
 }
 // Skip: kept with the last activity it had, so it comes back only once it moves again. In the app it goes to Bobix's
 // own settings (the newest 300); elsewhere this page keeps it.
@@ -950,9 +970,11 @@ function todoHTML() {
     ? `<select aria-label="${esc(T('day.proj.label'))}" data-proj data-f="proj"><option value="all">${esc(T('day.proj.all', { n: all.length }))}</option>${projs.map(p => `<option value="${esc(p)}"${proj === p ? ' selected' : ''}>${esc(BOARD.short(p))} (${all.filter(x => x[1].path === p).length})</option>`).join('')}</select>` : ''}</div>` : '';
   const keep = all.filter(([i, g]) => (proj === 'all' || g.path === proj) && (!qx || `#${i.iid} ${i.title}`.toLowerCase().includes(qx)));
   const uncapped = !!qx || proj !== 'all';
+  let away = false; // projects not on this machine come last; said once, above the first of them
   const groups = projs.map(p => [p, keep.filter(x => x[1].path === p)]).filter(([, xs]) => xs.length).map(([p, xs]) => {
     const k = 'g:' + p, shown = uncapped || opened.has(k) ? xs : xs.slice(0, PER_GROUP), g = xs[0][1];
-    return `<section class="grp" aria-label="${esc(BOARD.short(p))}"><div class="gh"><span class="egg">${eggSVG(p)}</span><b title="${esc(p)}">${esc(BOARD.short(p))}</b>${g.dir ? '' : `<span class="away" title="${esc(T('work.away.desc'))}">${esc(T('work.away'))}</span>`}<span class="n">${xs.length}</span></div>
+    const note = !g.dir && bridge && !away && (away = true) ? `<p class="note away">${esc(T('day.away'))}</p>` : '';
+    return `${note}<section class="grp" aria-label="${esc(BOARD.short(p))}"><div class="gh"><span class="egg">${eggSVG(p)}</span><b title="${esc(p)}">${esc(BOARD.short(p))}</b><span class="n">${xs.length}</span></div>
       <ol class="il">${shown.map(issueRow).join('')}</ol>${!uncapped && xs.length > PER_GROUP ? moreBtn(k, xs.length - PER_GROUP) : ''}</section>`;
   }).join('');
   return problems + nextHTML() + bar + (groups ? `<div class="grps">${groups}</div>` : `<p class="blank">${esc(T('day.todo.nomatch', { q: query }))}</p>`);
@@ -974,21 +996,21 @@ const sessRow = s => `<li class="st-${look(s)}"><button class="sr-main" type="bu
 function dayHTML() {
   const lz = familyOrder(BOARD.loose(st, list).sort((a, b) => BOARD.PRI[look(a)] - BOARD.PRI[look(b)] || b.updated - a.updated));
   const count = { todo: st.todo.length, doing: st.doing.length, verify: st.verify.length, done: st.done.length };
-  const cur = tab || (count.doing || waitingList().length ? 'doing' : 'todo');
-  const sec = (k, n, body, tools = '') => `<section class="dsec${k === cur || (k === 'loose' && cur === 'doing') ? ' on' : ''}" id="d-${k}" data-area="${k}" aria-labelledby="h-${k}">${head(k, T('day.' + k), n, tools)}${body}</section>`;
+  const sec = (k, n, body, tools = '') => `<section class="dsec" id="d-${k}" data-area="${k}" aria-labelledby="h-${k}">${head(k, T('day.' + k), n, tools)}${body}</section>`;
+  // an empty section is its heading and a few words on the same line
+  const none = k => `<section class="dsec" id="d-${k}" data-area="${k}" aria-labelledby="h-${k}"><div class="dh"><h2 id="h-${k}">${esc(T('day.' + k))}</h2><span class="none">${esc(T('day.' + k + '.none'))}</span></div></section>`;
   const date = new Date().toLocaleDateString(I18N.pick(lang) === 'vi' ? 'vi-VN' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const refresh = bridge && work.status !== 'off' ? `${work.at ? `<span>${esc(ago(work.at))}</span>` : ''}<button class="ib" type="button" data-act="refresh" aria-label="${esc(T('work.refresh'))}" title="${esc(T('work.refresh'))}"${work.status === 'loading' ? ' disabled' : ''}>↻</button>` : '';
   const idle = lz.length && lz.every(s => look(s) === 'idle');
-  return `<div class="d-top"><div class="d-hi"><h2>${esc(date)}</h2><p>${esc(T('day.sub'))}</p></div><div class="d-acts"><button class="btn" type="button" data-standup data-f="standup">${T('su.title')}</button><button class="btn pri" type="button" data-report data-f="report">${T('day.report')}</button></div></div>
+  return `<div class="d-top"><div class="d-hi"><h2>${esc(date)}</h2></div><div class="d-acts"><button class="btn" type="button" data-standup data-f="standup">${T('su.title')}</button><button class="btn pri" type="button" data-report data-f="report">${T('day.report')}</button></div></div>
     ${queueHTML()}
     ${stuckHTML()}
     ${habitsHTML()}
-    <ol class="flow" aria-label="${esc(T('day.flow'))}">${['todo', 'doing', 'verify', 'done'].map(k => `<li><button class="step" type="button" data-step="${k}" data-f="step:${k}" aria-pressed="${k === cur}" aria-controls="d-${k}"><b>${count[k]}</b><span>${esc(T('day.' + k))}</span></button></li>`).join('')}</ol>
     <div class="dg">
-      ${sec('doing', count.doing, count.doing ? grouped(st.doing, doingRow, 'trl') : `<p class="blank">${esc(T('day.doing.none') + (count.todo ? T('day.doing.pick') : ''))}</p>`)}
-      ${sec('verify', count.verify, count.verify ? grouped(st.verify, verifyRow, 'vrl', VER_MAX, 'verify') : `<p class="blank">${esc(T('day.verify.none'))}</p>`)}
+      ${count.doing ? sec('doing', count.doing, grouped(st.doing, doingRow, 'trl')) : none('doing')}
+      ${count.verify ? sec('verify', count.verify, grouped(st.verify, verifyRow, 'vrl', VER_MAX, 'verify')) : none('verify')}
       ${sec('todo', count.todo, todoHTML(), refresh)}
-      ${sec('done', count.done, count.done ? grouped(st.done, doneRow, 'dl', DONE_MAX, 'done') : `<p class="blank">${esc(T('day.done.none'))}</p>`)}
+      ${count.done ? sec('done', count.done, grouped(st.done, doneRow, 'dl', DONE_MAX, 'done')) : none('done')}
       ${lz.length ? sec('loose', lz.length, idle ? `<details class="dfold"${opened.has('idle') ? ' open' : ''}><summary data-flag="idle">${esc(T('day.resting', { n: lz.length }))}</summary><ul class="sl">${lz.map(sessRow).join('')}</ul></details>` : `<ul class="sl">${lz.map(sessRow).join('')}</ul>`) : ''}
     </div>`;
 }
@@ -1006,7 +1028,6 @@ function render() {
     if (el) { el.focus({ preventScroll: !nextFocus }); if (sel != null && el.setSelectionRange) el.setSelectionRange(sel, sel); }
     if (el || !nextFocus?.startsWith('allow:')) nextFocus = null;
   }
-  renderIntro();
   $('#showAll').hidden = !bridge || !list.some(offScreen);
   const n = waitingList().length, tabBtn = document.querySelector('.tab[data-tab="sessions"]');
   tabBtn.querySelector('.dot')?.remove();
@@ -1262,18 +1283,12 @@ $('#day').addEventListener('click', async e => {
     const s = list.find(x => x.id === d.s);
     if (!s?.answer || !bridge) return;
     const next = waitingList().find(x => x.id !== s.id);
-    nextFocus = next ? 'allow:' + next.id : 'step:doing';
+    nextFocus = next ? 'allow:' + next.id : null;
     await bridge.answer(s.answer.id, d.choice);
     return;
   }
   if (d.sel) return select(d.sel === selected ? null : d.sel);
   if (d.flag) { e.preventDefault(); flip(d.flag); return render(); }
-  if (d.step) {
-    tab = d.step;
-    render();
-    if (!narrow()) $('#d-' + d.step)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion:reduce)').matches ? 'auto' : 'smooth', block: 'start' });
-    return;
-  }
   if (d.jump) { $('#' + d.jump)?.scrollIntoView({ block: 'start' }); return $('#' + d.jump)?.querySelector('[data-choice]')?.focus({ preventScroll: true }); }
   if (d.report !== undefined) return openReport();
   if (d.habGo) return habGo(d.habGo, b);
@@ -1364,15 +1379,11 @@ const SECTIONS = [
   ['set.section.work', [
     { k: 'gitlab', type: 'switch' },
     { k: 'github', type: 'switch' },
-    { k: 'role', type: 'seg', opts: () => [['', T('set.role.none')], ['ba', 'BA'], ['qa', 'QA'], ['dev', 'Dev']] },
-    { k: 'skillPins', type: 'mine', wide: true },
-    { k: 'skillProcess', type: 'process', wide: true },
     { k: 'workKeys', type: 'keys', wide: true },
   ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
     { k: 'autostart', type: 'switch' },
-    { k: 'tour', type: 'tour' },
   ]],
   ['set.section.advanced', [{ k: 'port', type: 'port' }, { k: 'reset', type: 'reset' }]],
 ];
@@ -1400,9 +1411,6 @@ function control(r, s) {
     if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
     return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
   }
-  if (r.type === 'mine') return `<div class="mine" id="mine-box"></div>`; // filled by paintMine (your skills are read in the background)
-  if (r.type === 'process') return `<div class="proc-list" id="proc-box"></div>`;
-  if (r.type === 'tour') return `<button class="btn" type="button" data-act="tour">${T('set.tour.open')}</button>`;
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
 }
@@ -1424,8 +1432,6 @@ function renderSettings() {
         <div class="ctl">${control(r, s)}</div>
       </div>`).join('')}</section>`).join('')}${habitsSettingsHTML(s)}</div>`;
   renderPreview();
-  paintMine();
-  paintProcess();
 }
 
 // Settings → "Bobix nhớ gì về bạn": the switch, what is and is never kept, and while on everything kept, by day.
@@ -1450,11 +1456,25 @@ function habitsSettingsHTML(s) {
       <div><b>${esc(T('hab.set.never'))}</b><ul>${['hab.set.n1', 'hab.set.n2', 'hab.set.n3'].map(li).join('')}</ul></div></div></div>
     ${on ? stored : `<div class="opt wide"><p class="note">${esc(T('hab.set.off'))}</p></div>`}</section>`;
 }
-// ---------- Settings → My skills, Skill process ----------
-let mySkills = null, mineQ = '', procs = null; // read when Settings opens
+// ---------- the Skills tab: your role, your skills, and per project its skills, process file and folder skill ----------
+// The same settings the Start box reads: role, skillPins (name → roles), skillProcess (project → imported process),
+// habitsSkill (folder → the skill you chose there). mySkills and procs are read each time the tab opens.
+let mySkills = null, mineQ = '', procs = null;
 async function loadSkillLists() {
   if (!bridge) return;
   [mySkills, procs] = await Promise.all([bridge.mySkills().catch(() => []), bridge.processStatus().catch(() => [])]);
+  paintMine(); paintProcess();
+}
+function renderSkillsTab() {
+  const box = $('#skills');
+  if (!bridge) { box.innerHTML = `<div class="card"><p class="note">${T('set.onlyInApp')}</p></div>`; return; }
+  const role = state.settings.role || '', roles = [['', T('set.role.none')], ['ba', 'BA'], ['qa', 'QA'], ['dev', 'Dev']];
+  box.innerHTML = `<div class="sk-col">
+      <section class="card" id="sk-role" aria-labelledby="l-role"><h2 id="l-role">${esc(T('set.role'))}</h2><p class="note">${esc(T('set.role.desc'))}</p>
+        <div class="seg" role="radiogroup" aria-labelledby="l-role">${roles.map(([v, l]) => `<button type="button" role="radio" aria-checked="${role === v}" data-role="${v}">${esc(l)}</button>`).join('')}</div></section>
+      <section class="card" id="sk-mine" aria-labelledby="h-mine"><h2 id="h-mine">${esc(T('set.skillPins'))}</h2><p class="note">${esc(T('set.skillPins.desc'))}</p><div class="mine" id="mine-box"></div></section>
+    </div>
+    <section class="card sk-col" id="sk-projects" aria-labelledby="h-procs"><h2 id="h-procs">${esc(T('sk.projects'))}</h2><p class="note">${esc(T('sk.projects.desc'))}</p><div class="proc-list" id="proc-box"></div></section>`;
   paintMine(); paintProcess();
 }
 function paintMine() {
@@ -1474,23 +1494,35 @@ function paintMine() {
     + (rest.length > max ? `<li><span class="note">${esc(T('set.skillPins.more', { n: rest.length - max }))}</span></li>` : '');
 }
 const ruleText = r => `${[r.when.label && T('start.why.label', { l: r.when.label.join(' / ') }), r.when.role && T('start.why.role', { r: ROLE_NAME[r.when.role] }), r.when.stage && T('start.why.stage', { s: T('stage.' + r.when.stage) })].filter(Boolean).join(' + ')} → /${r.skill}`;
+const home = d => String(d || '').replace(/^(\/Users|\/home|[A-Za-z]:\\Users)[\\/][^\\/]+/, '~');
+const inDir = (d, top) => !!top && (d === top || d.startsWith(top + '/') || d.startsWith(top + '\\'));
+// The skill picked for a folder (habits), with Forget; it starts the Start box's prompt there while habits are on.
+const folderSkill = ([d, k], top) => `<li><span class="nm"><code>/${esc(k)}</code>${d === top ? '' : `<span class="src" title="${esc(d)}">${esc(top ? d.slice(top.length + 1) : home(d))}</span>`}</span><button class="btn sm" type="button" data-forget="${esc(d)}">${esc(T('sk.habit.forget'))}</button></li>`;
 function paintProcess() {
   const box = $('#proc-box');
   if (!box) return;
   if (!procs) { box.innerHTML = `<p class="note">${esc(T('work.loading'))}</p>`; return; }
-  if (!procs.length) { box.innerHTML = `<p class="note">${esc(T('set.skillProcess.noProjects'))}</p>`; return; }
-  box.innerHTML = procs.map(p => {
-    const used = p.repo || p.imported, n = x => x.rules.length;
+  const picked = Object.entries(state.settings.habitsSkill || {}), off = picked.length && !state.settings.habitsOn ? `<p class="note">${esc(T('sk.habit.off'))}</p>` : '';
+  const other = picked.filter(([d]) => !procs.some(p => inDir(d, p.dir)));
+  box.innerHTML = (procs.length ? procs.map(p => {
+    const used = p.repo || p.imported, n = x => x.rules.length, mine = picked.filter(([d]) => inDir(d, p.dir));
     const status = p.repo ? T('set.skillProcess.repo', { n: n(p.repo) }) : p.imported ? T('set.skillProcess.imported', { n: n(p.imported) }) : T('set.skillProcess.none');
-    return `<div class="proc"><div class="ph"><b title="${esc(p.path)}">${esc(BOARD.short(p.path))}</b><span class="src">${esc(status)}${used?.name ? ` · ${esc(used.name)}` : ''}</span></div>
-      ${p.repoError ? `<p class="note err">${esc(T('set.skillProcess.repoBad', { e: p.repoError }))}</p>` : ''}
-      ${p.repo && p.imported ? `<p class="note">${esc(T('set.skillProcess.importedUnused', { n: n(p.imported) }))}</p>` : ''}
-      ${used ? `<ul>${used.rules.slice(0, 8).map(r => `<li>${esc(ruleText(r))}</li>`).join('')}${used.rules.length > 8 ? `<li>…</li>` : ''}</ul>` : ''}
-      <div class="row"><span class="btn sm file">${esc(T('set.skillProcess.file'))}<input type="file" accept=".json,application/json" data-proc-file="${esc(p.path)}" aria-label="${esc(T('set.skillProcess.file'))} ${esc(p.path)}"></span>
-        <input type="url" placeholder="${esc(T('set.skillProcess.url'))}" aria-label="${esc(T('set.skillProcess.url'))}" data-proc-url="${esc(p.path)}" spellcheck="false">
-        <button class="btn sm" type="button" data-proc-go="${esc(p.path)}">${esc(T('set.skillProcess.go'))}</button>
-        ${p.imported ? `<button class="btn sm" type="button" data-proc-rm="${esc(p.path)}">${esc(T('set.skillProcess.remove'))}</button>` : ''}</div></div>`;
-  }).join('');
+    const team = p.skills || [], miss = p.missing || [];
+    return `<div class="proc"><div class="ph"><span class="egg">${eggSVG(p.path)}</span><b title="${esc(p.path)}">${esc(BOARD.short(p.path))}</b><span class="src" title="${esc(p.dir)}">${esc(home(p.dir))}</span></div>
+      <div class="pg"><span class="lbl">${esc(T('sk.team', { n: team.length }))}</span>${team.length ? `<ul class="tags">${team.map(x => `<li title="${esc(x.description)}"><code>/${esc(x.name)}</code><span class="src">${esc(T('skill.src.' + x.source))}</span></li>`).join('')}</ul>` : `<p class="note">${esc(T('sk.team.none'))}</p>`}</div>
+      <div class="pg"><span class="lbl">${esc(T('set.skillProcess'))}</span><span class="src">${esc(status)}${used?.name ? ` · ${esc(used.name)}` : ''}</span>
+        ${p.repoError ? `<p class="note err">${esc(T('set.skillProcess.repoBad', { e: p.repoError }))}</p>` : ''}
+        ${p.repo && p.imported ? `<p class="note">${esc(T('set.skillProcess.importedUnused', { n: n(p.imported) }))}</p>` : ''}
+        ${used ? `<ul class="rules">${used.rules.slice(0, 8).map(r => `<li>${esc(ruleText(r))}</li>`).join('')}${used.rules.length > 8 ? `<li>…</li>` : ''}</ul>` : ''}
+        ${miss.length ? `<ul class="miss">${miss.map(m => { const hint = BOARD.installHint(m, used) || T('skill.installAsk', { n: m });
+          return `<li><span class="nm"><code>/${esc(m)}</code><span class="miss-tag">${esc(T('start.missing'))}</span></span><code class="line">${esc(hint)}</code><button class="btn sm" type="button" data-hint="${esc(hint)}">${esc(T('start.missing.copy'))}</button></li>`; }).join('')}</ul>` : ''}
+        <div class="row"><span class="btn sm file">${esc(T('set.skillProcess.file'))}<input type="file" accept=".json,application/json" data-proc-file="${esc(p.path)}" aria-label="${esc(T('set.skillProcess.file'))} ${esc(p.path)}"></span>
+          <input type="url" placeholder="${esc(T('set.skillProcess.url'))}" aria-label="${esc(T('set.skillProcess.url'))}" data-proc-url="${esc(p.path)}" spellcheck="false">
+          <button class="btn sm" type="button" data-proc-go="${esc(p.path)}">${esc(T('set.skillProcess.go'))}</button>
+          ${p.imported ? `<button class="btn sm" type="button" data-proc-rm="${esc(p.path)}">${esc(T('set.skillProcess.remove'))}</button>` : ''}</div></div>
+      ${mine.length ? `<div class="pg"><span class="lbl">${esc(T('sk.habit'))}</span><ul class="fold">${mine.map(x => folderSkill(x, p.dir)).join('')}</ul>${off}</div>` : ''}</div>`;
+  }).join('') : `<p class="note">${esc(T('set.skillProcess.noProjects'))}</p>`)
+    + (other.length ? `<div class="proc"><div class="pg"><span class="lbl">${esc(T('sk.habit.other'))}</span><ul class="fold">${other.map(x => folderSkill(x)).join('')}</ul>${off}</div></div>` : '');
 }
 async function importProcess(project, v) {
   const r = await bridge.importProcess(project, v);
@@ -1500,17 +1532,22 @@ async function importProcess(project, v) {
   paintProcess();
   toast(T(v.remove ? 'set.skillProcess.removed' : 'set.skillProcess.done'));
 }
-$('#settings').addEventListener('input', e => {
+// A change from here: saved, then this tab drawn again (Settings is drawn when it is opened).
+async function saveSkills(patch) {
+  if (!(await save(patch, { rerender: false }))) return;
+  if (patch.role !== undefined) renderSkillsTab(); else { paintMine(); paintProcess(); }
+}
+$('#skills').addEventListener('input', e => {
   if (e.target.id !== 'mine-q') return;
   mineQ = e.target.value;
   paintMine();
 });
-$('#settings').addEventListener('change', async e => {
+$('#skills').addEventListener('change', async e => {
   const t = e.target;
   if (t.dataset.pin !== undefined) {
     const pins = { ...(state.settings.skillPins || {}) };
     if (t.checked) pins[t.dataset.pin] = []; else delete pins[t.dataset.pin];
-    if (await save({ skillPins: pins }, { rerender: false })) paintMine();
+    saveSkills({ skillPins: pins });
   }
   if (t.dataset.procFile !== undefined && t.files?.[0]) {
     const f = t.files[0];
@@ -1519,19 +1556,23 @@ $('#settings').addEventListener('change', async e => {
     t.value = '';
   }
 });
-$('#settings').addEventListener('click', async e => {
+$('#skills').addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.pinRole) {
-    const pins = { ...(state.settings.skillPins || {}) }, cur = pins[b.dataset.of] || [], r = b.dataset.pinRole;
-    pins[b.dataset.of] = cur.includes(r) ? cur.filter(x => x !== r) : [...cur, r];
-    if (await save({ skillPins: pins }, { rerender: false })) paintMine();
+  const d = b.dataset;
+  if (d.role !== undefined) return saveSkills({ role: d.role });
+  if (d.pinRole) {
+    const pins = { ...(state.settings.skillPins || {}) }, cur = pins[d.of] || [];
+    pins[d.of] = cur.includes(d.pinRole) ? cur.filter(x => x !== d.pinRole) : [...cur, d.pinRole];
+    return saveSkills({ skillPins: pins });
   }
-  if (b.dataset.procGo) {
-    const url = $(`[data-proc-url="${CSS.escape(b.dataset.procGo)}"]`)?.value.trim();
-    if (url) importProcess(b.dataset.procGo, { url });
+  if (d.forget) { const h = { ...(state.settings.habitsSkill || {}) }; delete h[d.forget]; return saveSkills({ habitsSkill: h }); }
+  if (d.hint) { try { await navigator.clipboard.writeText(d.hint); toast(T('start.missing.copied')); } catch { toast(d.hint); } return; }
+  if (d.procGo) {
+    const url = $(`[data-proc-url="${CSS.escape(d.procGo)}"]`)?.value.trim();
+    if (url) importProcess(d.procGo, { url });
   }
-  if (b.dataset.procRm) importProcess(b.dataset.procRm, { remove: true });
+  if (d.procRm) importProcess(d.procRm, { remove: true });
 });
 
 // Mini screen: work area, the band pets may use, a few pets at real scale and visibility.
@@ -1609,7 +1650,6 @@ $('#settings').addEventListener('click', async e => {
     toast(T('hab.set.wiped'));
     return $('#f-habitsOn')?.focus();
   }
-  if (t.dataset.act === 'tour') return tourStart(false);
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
     if (v === state.settings.port) return;
@@ -1812,24 +1852,6 @@ function guideHTML() {
   return `<ul class="guide">${['working', 'waiting', 'done', 'idle'].map(st => `<li class="st-${st}">${art(st)}<span>${esc(T('guide.' + st))}</span></li>`).join('')}</ul>
     <ul class="guide-more"><li>${esc(T('guide.click'))}</li><li>${esc(T('guide.ask'))}</li></ul>`;
 }
-let guideOut = false;
-function renderIntro() {
-  const box = $('#intro');
-  // The guide waits for a first pet, then stays until Got it, even when that session ends.
-  guideOut ||= !!state && !state.settings.guideSeen && list.length > 0;
-  const showGuide = guideOut && !state.settings.guideSeen;
-  const key = JSON.stringify([showGuide, lang]);
-  if (box.dataset.key === key) return;
-  box.dataset.key = key;
-  box.innerHTML = (showGuide ? `<section class="card" aria-labelledby="guide-h"><h2 id="guide-h">${esc(T('guide.title'))}</h2>${guideHTML()}
-      <div class="acts"><button class="btn pri" type="button" data-intro="guide">${T('guide.ok')}</button></div></section>` : '');
-}
-$('#intro').addEventListener('click', async e => {
-  const which = e.target.closest('[data-intro]')?.dataset.intro;
-  if (!which || !bridge) return;
-  state.settings = await bridge.setSettings({ guideSeen: true });
-  renderIntro();
-});
 
 // The tour: a few steps, each lighting up the real element it talks about (TOUR.STEPS in tour.js). It opens by itself
 // with the steps not seen yet, and whole from Settings → Tour; Skip and Done both mark every step seen (and the
@@ -1846,10 +1868,10 @@ function tourStart(auto, steps = TOUR.STEPS) {
 const tourOnTop = () => { $('#tour').close(); $('#tour').showModal(); };
 function tourBoxClose() { if (tourBox) { tourBox = false; $('#st-dialog').close(); } }
 async function tourEnd() {
-  tourAt = -1; tab = null; // the board picks its section again
+  tourAt = -1;
   tourBoxClose();
   $('#tour').close();
-  showTab(tourAuto ? 'sessions' : 'settings'); // back where it was opened from
+  showTab(tourAuto ? 'sessions' : 'setup'); // back where it was opened from
   if (bridge && state) {
     state.settings = await bridge.setSettings({ tourSeen: TOUR.STEPS.map(s => s.key), ...(state.news ? { seenVersion: state.news } : {}) });
     state.news = null;
@@ -1859,7 +1881,6 @@ async function tourShow() {
   const st = tourSteps[tourAt], n = tourSteps.length, last = tourAt === n - 1;
   tourBoxClose();
   if ($('#tab-' + st.tab).hidden) showTab(st.tab);
-  if (st.section && narrow() && tab !== st.section) { tab = st.section; render(); }
   const go = st.open === 'start' && document.querySelector('.nx [data-start]');
   if (go) { // what Start on the suggested issue opens (it reads the issue; nothing starts until its own button)
     await startIssue(go);
@@ -1939,7 +1960,8 @@ async function renderSetup(note) {
       ${!state.nodePath ? `<p class="note">${T('setup.noNode', { mode: state.platform === 'win32' ? 'PowerShell' : 'curl' })}</p>` : ''}
       ${linuxNote}
     </div>
-    <div class="card"><h2>${esc(T('guide.title'))}</h2>${guideHTML()}</div>
+    <div class="card" id="guide"><h2>${esc(T('guide.title'))}</h2>${guideHTML()}
+      <div class="acts"><button class="btn" type="button" data-act="tour">${T('set.tour.open')}</button></div></div>
     ${h.events.length ? `<div class="card"><h2>${T('setup.remove.title')}</h2><p class="note">${T('setup.remove.body')}</p>
       <div class="acts"><button class="btn danger" type="button" data-act="uninstall">${T('setup.uninstall')}</button></div></div>` : ''}`;
 }
@@ -1948,6 +1970,7 @@ $('#setup').addEventListener('click', async e => {
   if (!act) return;
   if (act === 'reveal') return bridge.revealSettings();
   if (act === 'diag') { await bridge.copyDiagnostics(); return toast(T('setup.diag.done')); }
+  if (act === 'tour') return tourStart(false);
   e.target.disabled = true;
   const r = await bridge[{ install: 'installHooks', uninstall: 'uninstallHooks', test: 'testEvent' }[act]]();
   const text = r.error ? T('setup.error', { x: r.error }) : [r.backup && T('setup.backup', { file: r.backup }), act === 'install' && T('setup.newSessions')].filter(Boolean).join(' ');
@@ -1959,9 +1982,10 @@ $('#setup').addEventListener('click', async e => {
 function applyLang() {
   lang = !state || state.settings.language === 'auto' ? navigator.language : state.settings.language;
   translate();
-  $('#conn').textContent = T(es.readyState === 1 ? 'conn.ok' : es.readyState === 0 ? 'conn.wait' : 'conn.lost');
+  $('#conn').textContent = T('conn.lost');
   render();
   renderSettings();
+  if (!$('#tab-skills').hidden) renderSkillsTab();
   if (!$('#tab-setup').hidden) renderSetup();
 }
 $('#logo').innerHTML = creature('bobix', 'done');
@@ -1974,8 +1998,9 @@ const arrived = k => {
   if (fresh?.length) tourStart(true, fresh);
 };
 const es = new EventSource('/events?t=' + encodeURIComponent(new URLSearchParams(location.search).get('t') || ''));
-es.onopen = () => { $('#conn').textContent = T('conn.ok'); $('#conn').className = 'conn'; };
-es.onerror = () => { $('#conn').textContent = T('conn.lost'); $('#conn').className = 'conn lost'; };
+// The connection to the app is said only when it is lost (the stream reconnects by itself).
+es.onopen = () => { $('#conn').hidden = true; };
+es.onerror = () => { $('#conn').hidden = false; };
 es.onmessage = m => {
   const d = JSON.parse(m.data);
   const firstIds = list.slice(0, 4).map(x => x.id).join();
@@ -1993,7 +2018,6 @@ es.onmessage = m => {
 };
 setInterval(render, 15e3);
 setInterval(() => list.some(s => s.answer) && render(), 1000); // countdown of a waiting permission request
-$('#conn').textContent = T('conn.wait');
 (async () => {
   if (bridge) {
     state = await bridge.getState();
@@ -2008,8 +2032,8 @@ $('#conn').textContent = T('conn.wait');
       const habits = s.habitsOn !== state.settings.habitsOn;
       state.settings = s;
       langChanged ? applyLang() : renderSettings(); // e.g. toggled from the tray
+      if (!langChanged && !$('#tab-skills').hidden && !$('#skills').contains(document.activeElement)) renderSkillsTab();
       if (habits) loadHabits();
-      renderIntro();
     });
   }
   applyLang();
