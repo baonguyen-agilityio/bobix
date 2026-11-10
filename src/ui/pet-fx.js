@@ -71,10 +71,10 @@ class Scene {
     return a > .02 && this.add(`<path d="M${n1(x)} ${n1(y - 2.4 * s * d)}C${n1(x + 1.7 * s)} ${n1(y - .4 * s * d)} ${n1(x + 1.6 * s)} ${n1(y + 1.5 * s * d)} ${n1(x)} ${n1(y + 1.5 * s * d)}C${n1(x - 1.6 * s)} ${n1(y + 1.5 * s * d)} ${n1(x - 1.7 * s)} ${n1(y - .4 * s * d)} ${n1(x)} ${n1(y - 2.4 * s * d)}Z" fill="${COOL[3]}"${op(a)}/>`
       + `<circle cx="${n1(x - .5 * s)}" cy="${n1(y + .3 * s * d)}" r="${n1(.45 * s)}" fill="#fff"${op(a * .9)}/>`, x - 1.7 * s, y - 2.4 * s, x + 1.7 * s, y + 2.4 * s);
   }
-  // Text in the app's display font, centred on (cx, cy), size cells tall, with a dark edge so it reads on any wallpaper.
+  // Text in the app's UI font (heavy), centred on (cx, cy), size cells tall, with a dark edge so it reads on any wallpaper.
   text(s, cx, cy, size, fill, a = 1) {
     const w = textW(s, size);
-    return a > .02 && this.add(this.upright(cx, cy, `<text x="${n1(cx)}" y="${n1(cy)}" font-family="'Baloo 2',sans-serif" font-weight="800" font-size="${n1(size)}" text-anchor="middle" dominant-baseline="central" fill="${fill}" stroke="${INK}" stroke-width="${n1(size * .16)}" stroke-linejoin="round" paint-order="stroke"${op(a)}>${s}</text>`),
+    return a > .02 && this.add(this.upright(cx, cy, `<text x="${n1(cx)}" y="${n1(cy)}" font-family="-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif" font-weight="800" font-size="${n1(size)}" text-anchor="middle" dominant-baseline="central" fill="${fill}" stroke="${INK}" stroke-width="${n1(size * .16)}" stroke-linejoin="round" paint-order="stroke"${op(a)}>${s}</text>`),
       cx - w / 2, cy - size * .55, cx + w / 2, cy + size * .55);
   }
   svg() { const g = this.out.join(''); return this.fy ? `<g transform="matrix(1 0 0 -1 0 ${GH})">${g}</g>` : g; }
@@ -173,7 +173,8 @@ const FX = {
         },
         draw(S, t) {
           const X0 = CX - 8, Y0 = TOP - 13 - (o.flipY ? 9 : 0), on = (t % .5) < .28; // the battery whole or not at all
-          if (S.fits(X0, Y0, X0 + 17, Y0 + 9)) {
+          if (S.fits(X0 - .6, Y0 - .6, X0 + 17.6, Y0 + 9.6)) {
+            S.rect(X0 - .6, Y0 - .6, 16.2, 10.2, '#fff', .85, 3); S.rect(X0 + 14.4, Y0 + 2.4, 3.2, 4.2, '#fff', .85, 1.2); // a light rim: it reads on a dark wallpaper too
             S.rect(X0, Y0, 15, 9, INK, 1, 2.4); S.rect(X0 + 1, Y0 + 1, 13, 7, '#fff', 1, 1.6); S.rect(X0 + 15, Y0 + 3, 2, 3, INK, 1, .8);
             S.rect(X0 + 2.2, Y0 + 2.2, 3, 4.6, on ? RED[3] : RED[2], 1, 1);
             if (textFits(S, '!', X0 + 21, Y0 + 4.5, 7)) S.text('!', X0 + 21, Y0 + 4.5, 7, RED[3], on ? 1 : .45);

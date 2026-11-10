@@ -25,3 +25,53 @@
   --ease:cubic-bezier(0.25,1,0.5,1);
   --pane:clamp(400px,30vw,640px);
 }
+
+/* Panel style B (the launcher): the tokens both pages use, light as the base and dark following the system; they
+   take over the older names above (--coral, --surface, --f-display ...). Coral is the one signal colour: "needs you". */
+:root{color-scheme:light;
+  --bg:oklch(97.4% .004 262);--surface:oklch(99.6% .001 262);--surface-2:oklch(96.6% .004 262);--surface-3:oklch(93.6% .007 262);
+  --line:oklch(25% .02 262 / .10);--line-strong:oklch(25% .02 262 / .17);
+  --ink:oklch(22% .02 264);--ink-2:oklch(40% .02 264);--ink-3:oklch(51% .018 264);
+  --accent:oklch(66% .175 33);--accent-ink:oklch(50% .16 33);--accent-bg:oklch(66% .175 33 / .12);--accent-solid:oklch(55% .17 33);--on-accent:oklch(99% .005 33);
+  --ok:oklch(52% .13 155);--ok-bg:oklch(60% .13 155 / .13);--warn:oklch(52% .12 70);--warn-bg:oklch(78% .14 80 / .20);
+  --info:oklch(52% .15 255);--info-bg:oklch(60% .14 255 / .12);--err:oklch(52% .19 15);
+  --c-ctx:oklch(68% .07 255);--c-in:oklch(84% .035 255);--c-out:var(--accent);
+  --pop:0 1px 2px oklch(20% .02 262 / .06),0 16px 48px oklch(20% .02 262 / .16);--scrim:oklch(25% .02 262 / .28);
+  /* the names the dialogs, settings and skills use, on this palette */
+  --sunk:var(--surface-2);--coral:var(--accent);--coral-ink:var(--accent-ink);--coral-soft:var(--accent-bg);--on-pop:var(--on-accent);
+  --mint-soft:var(--ok-bg);--sky-soft:var(--info-bg);
+  --f-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,Roboto,sans-serif;--f-body:var(--f-ui);--f-display:var(--f-ui);
+  --f-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --t-xs:12px;--t-sm:13px;--t-md:14px;--t-lg:15px;--t-xl:20px;--t-2xl:28px;
+  --r-sm:5px;--r-md:8px;--r-lg:12px;--lift:0 1px 2px oklch(20% .02 262 / .08);--ease:cubic-bezier(.2,.8,.2,1)}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;
+  --bg:oklch(16.4% .006 265);--surface:oklch(20.4% .007 265);--surface-2:oklch(23.8% .008 265);--surface-3:oklch(27.4% .01 265);
+  --line:oklch(100% 0 0 / .075);--line-strong:oklch(100% 0 0 / .13);
+  --ink:oklch(95% .004 265);--ink-2:oklch(80% .008 265);--ink-3:oklch(66% .012 265);
+  --accent-ink:oklch(77% .13 33);--accent-bg:oklch(66% .175 33 / .16);--accent-solid:oklch(68% .17 33);--on-accent:oklch(17% .03 33);
+  --ok:oklch(76% .14 155);--ok-bg:oklch(70% .14 155 / .14);--warn:oklch(84% .13 82);--warn-bg:oklch(80% .14 80 / .13);
+  --info:oklch(75% .12 255);--info-bg:oklch(70% .12 255 / .15);--err:oklch(72% .17 18);
+  --c-ctx:oklch(60% .08 255);--c-in:oklch(42% .04 255);
+  --pop:0 0 0 1px oklch(100% 0 0 / .06),0 24px 64px oklch(0% 0 0 / .55);--scrim:oklch(0% 0 0 / .45);
+  --n-50:oklch(25% .022 266);--n-100:oklch(20.5% .02 266);--n-200:oklch(30% .022 266);--n-300:oklch(38% .024 266);--n-500:oklch(70% .02 262);--n-700:oklch(85% .014 262)}}
+
+/* Shared parts: buttons, badges, status dots, meters, code and keys, the same on the panel and the pets. */
+code{font:500 .92em/1.5 var(--f-mono);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:0 4px;overflow-wrap:anywhere}
+.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:4px;border:1px solid var(--line-strong);border-bottom-width:2px;color:var(--ink-3);font:500 11px/1 var(--f-ui);background:var(--surface)}
+.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:28px;padding:3px 10px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font-weight:500;font-size:var(--t-xs);text-align:center;transition:background .15s var(--ease)}
+.btn:hover{background:var(--surface-2)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.pri{background:var(--accent-solid);border-color:transparent;color:var(--on-accent)}
+.btn.pri:hover{background:color-mix(in oklch,var(--accent-solid) 88%,var(--ink))}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+.btn.ghost:hover{background:var(--surface-3);color:var(--ink)}
+.btn.danger{color:var(--err)}
+.btn.sm{min-height:24px;padding:2px 8px}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex:none;background:var(--ink-3)}
+.dot.working{background:var(--info)}.dot.waiting{background:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}.dot.done{background:var(--ok)}.dot.idle{background:transparent;border:1.5px solid var(--ink-3)}
+.badge{display:inline-flex;align-items:center;gap:4px;min-height:18px;padding:0 6px;border-radius:4px;font-size:11px;font-weight:500;background:var(--surface-3);color:var(--ink-2)}
+.badge.accent{background:var(--accent-bg);color:var(--accent-ink)}
+.meter{display:inline-block;width:64px;height:6px;border-radius:999px;background:var(--surface-3);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--ink-3);transform-origin:left;transform:scaleX(var(--v))}
+.meter.low i{background:var(--accent)}
+.badge.ok{background:var(--ok-bg);color:var(--ok)}.badge.warn{background:var(--warn-bg);color:var(--warn)}

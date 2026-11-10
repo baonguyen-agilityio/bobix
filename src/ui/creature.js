@@ -1,3 +1,8 @@
+// A project's own picture as its pet ("Change pet") is off until it is redone in the flat style (#139): no way in from
+// the panel, and a project with a saved picture shows its flat pet. The saved pictures and settings stay as they are;
+// turning this on brings it all back.
+const PICTURE_PETS = false;
+
 function hashStr(str) { let h = 2166136261; for (const c of str) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
 
 // The session colours, as the design tokens of ui/theme.css (oklch L, C, h; a test keeps them equal).
@@ -186,7 +191,7 @@ const approveWhere = s => (s.hostSession ? 'ask.whereApp' : 'pane.askHint');
 // when the person chose it to be the whole pet (no poses then). pose: as creature's.
 function petArt(s, st, color, pose) {
   const token = new URLSearchParams(location.search).get('t') || '';
-  const pic = s.image && `/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(token)}`;
+  const pic = PICTURE_PETS && s.image && `/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(token)}`;
   return pic && s.pixel && s.whole ? picturePet(pic, st) : creature(s.project || s.id, st, pic, color, s.pixel, pose);
 }
 

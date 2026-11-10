@@ -9,32 +9,8 @@
 /* The launcher: one window with a search field on top, scope tabs, the list on the left and the selected item's
    detail on the right, and an action bar with each action's keys. Light is the base; dark follows the system.
    Coral is the one signal colour and means "needs you". The pets keep their own pastels (theme.css). */
-:root{color-scheme:light;
-  --bg:oklch(97.4% .004 262);--surface:oklch(99.6% .001 262);--surface-2:oklch(96.6% .004 262);--surface-3:oklch(93.6% .007 262);
-  --line:oklch(25% .02 262 / .10);--line-strong:oklch(25% .02 262 / .17);
-  --ink:oklch(22% .02 264);--ink-2:oklch(40% .02 264);--ink-3:oklch(51% .018 264);
-  --accent:oklch(66% .175 33);--accent-ink:oklch(50% .16 33);--accent-bg:oklch(66% .175 33 / .12);--accent-solid:oklch(55% .17 33);--on-accent:oklch(99% .005 33);
-  --ok:oklch(52% .13 155);--ok-bg:oklch(60% .13 155 / .13);--warn:oklch(52% .12 70);--warn-bg:oklch(78% .14 80 / .20);
-  --info:oklch(52% .15 255);--info-bg:oklch(60% .14 255 / .12);--err:oklch(52% .19 15);
-  --c-ctx:oklch(68% .07 255);--c-in:oklch(84% .035 255);--c-out:var(--accent);
-  --pop:0 1px 2px oklch(20% .02 262 / .06),0 16px 48px oklch(20% .02 262 / .16);--scrim:oklch(25% .02 262 / .28);
-  /* the names the dialogs, settings and skills use, on this palette */
-  --sunk:var(--surface-2);--coral:var(--accent);--coral-ink:var(--accent-ink);--coral-soft:var(--accent-bg);--on-pop:var(--on-accent);
-  --mint-soft:var(--ok-bg);--sky-soft:var(--info-bg);
-  --f-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,Roboto,sans-serif;--f-body:var(--f-ui);--f-display:var(--f-ui);
-  --f-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
-  --t-xs:12px;--t-sm:13px;--t-md:14px;--t-lg:15px;--t-xl:20px;--t-2xl:28px;
-  --r-sm:5px;--r-md:8px;--r-lg:12px;--lift:0 1px 2px oklch(20% .02 262 / .08);--ease:cubic-bezier(.2,.8,.2,1)}
-@media (prefers-color-scheme:dark){:root{color-scheme:dark;
-  --bg:oklch(16.4% .006 265);--surface:oklch(20.4% .007 265);--surface-2:oklch(23.8% .008 265);--surface-3:oklch(27.4% .01 265);
-  --line:oklch(100% 0 0 / .075);--line-strong:oklch(100% 0 0 / .13);
-  --ink:oklch(95% .004 265);--ink-2:oklch(80% .008 265);--ink-3:oklch(66% .012 265);
-  --accent-ink:oklch(77% .13 33);--accent-bg:oklch(66% .175 33 / .16);--accent-solid:oklch(68% .17 33);--on-accent:oklch(17% .03 33);
-  --ok:oklch(76% .14 155);--ok-bg:oklch(70% .14 155 / .14);--warn:oklch(84% .13 82);--warn-bg:oklch(80% .14 80 / .13);
-  --info:oklch(75% .12 255);--info-bg:oklch(70% .12 255 / .15);--err:oklch(72% .17 18);
-  --c-ctx:oklch(60% .08 255);--c-in:oklch(42% .04 255);
-  --pop:0 0 0 1px oklch(100% 0 0 / .06),0 24px 64px oklch(0% 0 0 / .55);--scrim:oklch(0% 0 0 / .45);
-  --n-50:oklch(25% .022 266);--n-100:oklch(20.5% .02 266);--n-200:oklch(30% .022 266);--n-300:oklch(38% .024 266);--n-500:oklch(70% .02 262);--n-700:oklch(85% .014 262)}}
+/* The tokens (colours, type, radius, shadows) and the shared parts (buttons, badges, status dots, meters, code,
+   keys) are in theme.css, shared with the pets overlay. */
 /* the creatures draw eyes and outlines with --n-900: keep them dark on any theme */
 .av,.sprite,.mini,.pd-pet,.preview .ride{--n-900:oklch(24% .035 266)}
 
@@ -47,7 +23,6 @@ body{background:var(--bg);color:var(--ink);font:400 var(--t-sm)/1.45 var(--f-ui)
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.005em;text-wrap:balance}
-code{font:500 .92em/1.5 var(--f-mono);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:0 4px;overflow-wrap:anywhere}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r-sm)}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
@@ -56,18 +31,8 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .note{margin:0;font-size:var(--t-xs);color:var(--ink-3)}
 .note.err{color:var(--accent-ink);font-weight:600}
 .hot{color:var(--accent-ink);font-weight:600}
-.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:4px;border:1px solid var(--line-strong);border-bottom-width:2px;color:var(--ink-3);font:500 11px/1 var(--f-ui);background:var(--surface)}
 
 /* buttons */
-.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:28px;padding:3px 10px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font-weight:500;font-size:var(--t-xs);text-align:center;transition:background .15s var(--ease)}
-.btn:hover{background:var(--surface-2)}
-.btn:disabled{opacity:.5;cursor:default}
-.btn.pri{background:var(--accent-solid);border-color:transparent;color:var(--on-accent)}
-.btn.pri:hover{background:color-mix(in oklch,var(--accent-solid) 88%,var(--ink))}
-.btn.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
-.btn.ghost:hover{background:var(--surface-3);color:var(--ink)}
-.btn.danger{color:var(--err)}
-.btn.sm{min-height:24px;padding:2px 8px}
 .lnk{border:0;background:none;padding:0;font:inherit;color:var(--accent-ink);font-weight:500;text-align:left;cursor:pointer}
 .lnk:hover{text-decoration:underline}
 .acts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:var(--s3)}
@@ -166,11 +131,7 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .row:hover{background:var(--surface-2)}
 .row .b-tx .lb{font-weight:500}
 .row .mt{font-size:12px;color:var(--ink-3);white-space:nowrap}
-.dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex:none;background:var(--ink-3)}
-.dot.working{background:var(--info)}.dot.waiting{background:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}.dot.done{background:var(--ok)}.dot.idle{background:transparent;border:1.5px solid var(--ink-3)}
 .st{display:inline-flex;align-items:center;gap:6px}
-.badge{display:inline-flex;align-items:center;gap:4px;min-height:18px;padding:0 6px;border-radius:4px;font-size:11px;font-weight:500;background:var(--surface-3);color:var(--ink-2)}
-.badge.accent{background:var(--accent-bg);color:var(--accent-ink)}
 .wt.long{color:var(--accent-ink);font-weight:600}
 .dup{font-size:var(--t-xs);font-weight:600;color:var(--ink-2)}
 .risk{margin:0;font-size:var(--t-xs);font-weight:600;color:var(--accent-ink)}
@@ -185,9 +146,6 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .big{display:flex;align-items:baseline;gap:var(--s2);flex-wrap:wrap}
 .big b{font-size:30px;font-weight:600;letter-spacing:-.03em;line-height:1}
 .big span{color:var(--ink-2)}
-.meter{display:inline-block;width:64px;height:6px;border-radius:999px;background:var(--surface-3);overflow:hidden}
-.meter i{display:block;height:100%;background:var(--ink-3);transform-origin:left;transform:scaleX(var(--v))}
-.meter.low i{background:var(--accent)}
 .stg{display:flex;flex-direction:column;gap:6px}
 .stp{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px}
 .stp li{font-size:var(--t-xs);padding:2px 8px;border-radius:999px;background:var(--surface-3);color:var(--ink-3)}
@@ -354,7 +312,6 @@ input[type=number]{width:104px}
 .b-code b{font-weight:700}
 .row .acts{margin:0;flex-wrap:nowrap}
 .badges{display:flex;flex-wrap:wrap;gap:6px}
-.badge.ok{background:var(--ok-bg);color:var(--ok)}.badge.warn{background:var(--warn-bg);color:var(--warn)}
 .fb .b-code{max-height:min(320px,40dvh)}
 
 /* setup */
@@ -1632,7 +1589,7 @@ function sessionItems() {
 function sessItem(s, grp, kid) {
   const lk = look(s), u = s.usage, acts = [];
   if (held(s)) acts.push([T('ask.allow'), ['↵'], answerAttrs(s, 'allow')], [T('ask.deny'), [CMD, '⌫'], answerAttrs(s, 'deny')]);
-  if (bridge) acts.push([T('pane.open'), acts.length ? [CMD, 'O'] : ['↵'], 'data-act="open"'], [T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet'), [CMD, '⇧', 'H'], 'data-act="pet"'], [T('pane.petPick'), [CMD, '⇧', 'P'], 'data-act="pic"']);
+  if (bridge) acts.push([T('pane.open'), acts.length ? [CMD, 'O'] : ['↵'], 'data-act="open"'], [T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet'), [CMD, '⇧', 'H'], 'data-act="pet"'], ...(PICTURE_PETS ? [[T('pane.petPick'), [CMD, '⇧', 'P'], 'data-act="pic"']] : []));
   return { id: 's:' + s.id, grp, kind: 'session', s: s.id, cls: `${kid ? 'kid' : ''}${lk === 'waiting' ? ' hot' : ''}`, lead: pet(s),
     label: s.title || s.name, sub: [statusText(s, lk), s.issue && !kid ? '#' + s.issue.iid : ''].filter(Boolean).join(' · '),
     meta: `${dup.sessions.get(s.id) ? '<span class="dup">⚠</span>' : ''}${lowCtx(s.ctx)}${u?.times != null ? `<span class="${u.warnings?.length ? 'hot' : ''}">${times(u.times)}</span>` : ''}<span>${esc(ago(s.since))}</span>`,
@@ -1724,7 +1681,7 @@ function sessionHTML(s) {
       <div class="acts"><button class="btn pri" type="button" ${answerAttrs(s, 'allow')} data-f="allow:${esc(s.id)}">${T('ask.allow')}</button><button class="btn" type="button" ${answerAttrs(s, 'deny')}>${T('ask.deny')}</button></div>` : T(approveWhere(s))}</div>` : ''}
     ${bridge ? `<div class="pane-acts"><button class="btn${lk === 'waiting' ? '' : ' pri'}" type="button" data-act="open">${T('pane.open')}</button>
       <button class="btn" type="button" data-act="pet"><span>${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</span><span class="alt" aria-hidden="true">${T(offScreen(s) ? 'pane.hidePet' : 'pane.showPet')}</span></button>
-      <button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.pixel ? `<button class="btn" type="button" data-act="picEdit">${T('pane.petAdjust')}</button>` : ''}${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}</div>` : ''}
+      ${PICTURE_PETS ? `<button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.pixel ? `<button class="btn" type="button" data-act="picEdit">${T('pane.petAdjust')}</button>` : ''}${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}` : ''}</div>` : ''}
     ${hint?.id === s.id ? `<p class="note err">${esc(hintText(hint))}</p>` : ''}
     <div>${ctx}${dupBranch(s) ? ` · ${dupBranch(s)}` : ''}<p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p></div>
     ${s.git ? `<section class="b-sec">${gitHTML(s)}</section>` : ''}
@@ -2167,10 +2124,10 @@ async function onAct(e) {
     toast(T('hab.skill.done', { p: HABITS.base(c.dir), x: '/' + c.skill }));
     return render();
   }
-  if (d.act === 'pic' || d.act === 'picEdit') return openPetPicture(d.act === 'pic' ? 'choose' : 'edit');
+  if (PICTURE_PETS && (d.act === 'pic' || d.act === 'picEdit')) return openPetPicture(d.act === 'pic' ? 'choose' : 'edit');
   if (!bridge) return;
   const s = list.find(x => x.id === selected);
-  if (d.act === 'picReset') { const r = await bridge.petImage(selected, 'reset'); if (r?.reason) toast(T('pane.petFail.' + r.reason)); return; }
+  if (PICTURE_PETS && d.act === 'picReset') { const r = await bridge.petImage(selected, 'reset'); if (r?.reason) toast(T('pane.petFail.' + r.reason)); return; }
   if (d.act === 'pet') return s && bridge.setPet(s.id, offScreen(s) ? 'shown' : 'hidden');
   if (d.act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); return; }
   if (d.url) return bridge.openIssue(d.url);

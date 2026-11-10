@@ -583,9 +583,22 @@ test('a pixel-art face is drawn without smoothing, any other picture as before',
   strict.doesNotMatch(smooth, /image-rendering/);
   strict.equal(pixel.replace(' style="image-rendering:pixelated"', ''), smooth, 'only the smoothing differs');
 });
+test('picture pets are off: a project with a saved picture shows its flat pet', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx = { URLSearchParams, location: { search: '?t=tok' } };
+  strict.equal((src.match(/^const PICTURE_PETS = (true|false);$/m) || [])[1], 'false', 'one switch, off');
+  require('vm').runInNewContext(src, ctx);
+  const plain = x => x.replace(/bx\d+/g, ''), s = { id: 's1', project: '/p', image: '0123456789abcdef01234567.gif', pixel: true, whole: true };
+  strict.equal(plain(ctx.petArt(s, 'working', 2)), plain(ctx.creature('/p', 'working', null, 2)));
+  strict.doesNotMatch(ctx.petArt(s, 'working', 2), /pet-image/);
+  const panel = fs.readFileSync(path.join(__dirname, '../src/ui/panel.html'), 'utf8');
+  for (const act of ['pic', 'picEdit', 'picReset']) strict.ok(panel.includes(`PICTURE_PETS && ${act === 'picReset' ? "d.act === 'picReset'" : "(d.act === 'pic' || d.act === 'picEdit')"}`), `${act}: behind the switch`);
+  strict.match(panel, /\$\{PICTURE_PETS \? `<button class="btn" type="button" data-act="pic">/, 'the buttons only with it on');
+  strict.match(panel, /\.\.\.\(PICTURE_PETS \? \[\[T\('pane\.petPick'\)/, 'the action and its keys only with it on');
+});
+// With the switch on (the redo), pictures are worn as before.
 test('a pixel-art picture is the whole pet when the person chose so, else the face in the pet', () => {
   const ctx = { URLSearchParams, location: { search: '?t=tok' } };
-  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
+  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8').replace('const PICTURE_PETS = false;', 'const PICTURE_PETS = true;'), ctx);
   const s = { id: 's1', project: '/p', image: '0123456789abcdef01234567.gif', pixel: true }, plain = x => x.replace(/bx\d+/g, '');
   const url = '/pet-image/0123456789abcdef01234567.gif?t=tok';
   const whole = ctx.petArt({ ...s, whole: true }, 'waiting', 2);

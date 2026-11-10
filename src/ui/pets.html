@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <title>Bobix pets</title>
-<link rel="stylesheet" href="/ui/fonts/fonts.css">
 <link rel="stylesheet" href="/ui/theme.css">
 <style>
-/* Runs inside a transparent, click-through window covering the screen's work area. */
+/* Runs inside a transparent, click-through window covering the screen's work area. Every surface (name tag, card,
+   request, bubble, the corner pill and its list) is drawn with the panel's tokens and parts (theme.css), so the pets and
+   the panel look like one product, in light and dark. */
 html{--size:56px}
-html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 var(--t-sm)/1.45 var(--f-body);color:var(--ink);font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none}
+html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 var(--t-sm)/1.45 var(--f-ui);-webkit-font-smoothing:antialiased;color:var(--ink);font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none}
 .pet{position:absolute;left:0;bottom:var(--s1);width:var(--size);cursor:pointer;touch-action:none;transform-origin:50% 100%;transition:opacity 150ms var(--ease),scale 250ms var(--ease),translate 250ms var(--ease),filter 250ms var(--ease)}
 .pet.dragging{cursor:grabbing}
 .pet.hover{z-index:3}
@@ -16,51 +17,49 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .edge-top .pet{bottom:auto;top:var(--s1)}
 .spr{position:relative;width:var(--size);height:var(--size);display:grid;place-items:center}
 .spr svg{width:100%;height:100%}
-.tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;padding:0 var(--s2);border-radius:var(--pill);background:var(--surface);border:1px solid var(--line-strong);font-size:var(--t-xs);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.st-waiting .tag{background:var(--coral);border-color:var(--coral);color:var(--n-900)}
+.tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;min-height:20px;padding:0 var(--s2);border-radius:999px;background:var(--surface);border:1px solid var(--line-strong);box-shadow:var(--lift);font-size:var(--t-xs);font-weight:500;line-height:18px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-waiting .tag{background:var(--accent-solid);border-color:transparent;color:var(--on-accent)}
 .pet.side .spr{transform:scale(.8);transform-origin:50% 100%}
 .tag.ghost{visibility:hidden}
 .tag{max-width:none;transform:none;overflow:visible;display:flex;justify-content:center;align-items:center;gap:var(--s1);box-sizing:border-box}
 .tag .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center}
-.tag .iss{flex:none;color:var(--ink-2)}
+.tag .iss{flex:none;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.st-waiting .tag .iss{color:inherit;opacity:.8}
 .bb{position:absolute;left:50%;bottom:calc(100% - var(--size) * .08);width:calc(var(--size) * .5);translate:-50% 0;cursor:pointer;animation:bob 2.6s var(--ease) infinite;transform-origin:50% 100%}
 .pet.side .bb{width:calc(var(--size) * .42)}
 /* Top edge: the balloon floats below the pet's name tag, its string up (balloonSVG draws it upside down there). */
 .edge-top .bb{bottom:auto;top:calc(100% + 2px)}
-.bb svg{display:block;width:100%;height:auto;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .2))}
+.bb svg{display:block;width:100%;height:auto;filter:drop-shadow(0 1px 2px oklch(20% .02 262 / .18))}
 @keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-4px) rotate(2deg)}}
 .st-idle .spr{opacity:.75}
-.say,.card{position:absolute;bottom:calc(100% + var(--s2) + var(--lane, 0) * 36px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--lift)}
+.say,.card{position:absolute;bottom:calc(100% + var(--s2) + var(--lane, 0) * 36px);left:50%;transform:translateX(-50%);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--pop)}
 .edge-top .say,.edge-top .card{bottom:auto;top:calc(100% + var(--s2) + var(--lane, 0) * 36px)}
 .edge-l .say,.edge-l .card{left:0;transform:none}
 .edge-r .say,.edge-r .card{left:auto;right:0;transform:none}
-.say{padding:var(--s1) var(--s3);white-space:nowrap;font-weight:500;animation:pop 200ms var(--ease)}
-.say.habit{cursor:pointer}
-.say.waiting{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink);font-weight:600}
-.say.done{background:var(--mint-soft)}
-.where{display:block;font-size:var(--t-xs);font-weight:500}
-.answer{display:inline-flex;align-items:center;gap:var(--s1);margin-left:var(--s2)}
-.answer button{font:600 var(--t-xs) var(--f-body);border-radius:var(--pill);padding:0 var(--s2);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);cursor:pointer}
-.answer button[data-answer="allow"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
-.answer button:hover{filter:brightness(1.1)}
-.answer .left{font-weight:500;color:var(--ink-3)}
-.card .answer{display:flex;flex-wrap:wrap;margin:0 0 var(--s2)}
-.card{width:272px;padding:var(--s3) var(--s4);z-index:2;animation:pop 150ms var(--ease)}
-.card h2{font:700 var(--t-lg)/1.15 var(--f-display);margin:0;overflow-wrap:anywhere}
-.card .sub{font-size:var(--t-xs);color:var(--ink-3);margin:0 0 var(--s2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card .q{color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:0 0 var(--s2)}
-.card .row{display:flex;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3)}
-.card .row+.row{margin-top:var(--s1)}
-.card .row.ctx{margin-top:var(--s2)}
-.card .st{font-weight:600;color:var(--ink)}
-.st-waiting .card .st{color:var(--coral-ink)}
-.meter{height:6px;border-radius:var(--pill);background:var(--n-200);overflow:hidden;margin:var(--s1) 0 var(--s2)}
-.meter i{display:block;height:100%;background:var(--ink-2);transform-origin:left;transform:scaleX(var(--v))}
-.meter.low i{background:var(--coral)}
+/* A bubble: what the pet is doing (a tool), the morning habit, or its request with Allow / Deny. */
+.say{display:flex;align-items:center;gap:var(--s2);padding:5px 10px;border-radius:var(--r-md);white-space:nowrap;font-size:var(--t-xs);font-weight:500;color:var(--ink-2);animation:pop 200ms var(--ease)}
+.say.habit{cursor:pointer;color:var(--ink)}
+.say.waiting{padding:6px 6px 6px 12px;border-color:color-mix(in oklch,var(--accent) 45%,transparent);color:var(--accent-ink);font-weight:600}
+.say.waiting::before{content:"";width:7px;height:7px;border-radius:50%;flex:none;background:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.say.done{background:var(--ok-bg);border-color:transparent;color:var(--ok)}
+.where{display:block;font-size:var(--t-xs);font-weight:400;color:var(--ink-3)}
+.answer{display:inline-flex;align-items:center;gap:6px}
+.answer .left{font-weight:400;color:var(--ink-3);font-size:var(--t-xs)}
+/* The card: the session as the panel shows it, its title, folder, task, status with its dot, level and model badges,
+   context meter and usage. */
+.card{width:272px;padding:12px 14px;z-index:2;animation:pop 150ms var(--ease);white-space:normal}
+.card h2{font:600 var(--t-lg)/1.3 var(--f-ui);margin:0;overflow-wrap:anywhere}
+.card .sub{font-size:var(--t-xs);color:var(--ink-3);margin:2px 0 var(--s2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .q{color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:0 0 10px}
+.card .row{display:flex;justify-content:space-between;align-items:center;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);padding:4px 0;border-top:1px solid var(--line)}
+.card .row .bdg{display:flex;gap:4px;flex:none}
+.card .st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink);min-width:0}
+.st-waiting .card .st{color:var(--accent-ink)}
+.card .meter{display:block;width:auto;margin:0 0 var(--s1)}
+.card .row.ctx{border-bottom:0;padding-bottom:4px}
+.card .answer{display:flex;flex-wrap:wrap;margin:0 0 10px}
 .card .hint{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--line);padding-top:var(--s2);margin-top:var(--s1)}
-.card .hide{flex:none;font:600 var(--t-xs) var(--f-body);color:var(--ink-2);background:var(--n-100);border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2);cursor:pointer}
-.card .hide:hover{background:var(--n-200);color:var(--ink)}
-.zz{position:absolute;left:70%;top:-6px;font:700 var(--t-sm) var(--f-display);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
+.zz{position:absolute;left:70%;top:-6px;font:600 var(--t-sm) var(--f-ui);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
 /* While an effect plays (pet-fx.js) the pet keeps its own SVG (it acts its state) and the effect draws round it; one
    that draws over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and the "z". A pet
    saying goodbye melts from the feet up and keeps nothing but itself. Two pets too close: the effect waits, the pet
@@ -90,30 +89,28 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .pet.od:not(.hover) :is(.tag,.card),.pet.od.going :is(.tag,.card){display:none}
 .pet.od .tag{margin-top:2px;left:50%;translate:-50% 0;width:max-content;max-width:160px}
 .pet.od .card{top:var(--cy,0);bottom:auto;left:var(--cx,0);transform:none;cursor:default;text-align:left}
-.card .need{margin:0 0 var(--s2);padding:var(--s2) var(--s3);border-radius:var(--r-sm,8px);border:1px solid var(--line-strong);font-size:var(--t-xs)}
-.card .need b{display:block;font-size:var(--t-sm)}
-.card .need code{display:block;margin-top:2px;font:500 12px/1.4 var(--f-mono);color:var(--ink-2);overflow-wrap:anywhere}
-.card .need.waiting{background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink)}
-.card .need.done{background:var(--mint-soft)}
+.card .need{margin:0 0 10px;padding:var(--s2) 10px;border-radius:var(--r-md);font-size:var(--t-xs);color:var(--ink-2);background:var(--surface-2)}
+.card .need b{display:block;font-size:var(--t-sm);font-weight:600}
+.card .need code{display:block;margin-top:4px;color:var(--ink)}
+.card .need.waiting{background:var(--accent-bg);color:var(--accent-ink)}
+.card .need.done{background:var(--ok-bg);color:var(--ok)}
 .card .use{margin-top:var(--s2)}
-.card .need.use{margin:var(--s2) 0 0;background:var(--coral-soft);border-color:var(--coral);color:var(--coral-ink)}
-.card .need.ctx{background:oklch(96.5% .04 98);border-color:oklch(78% .1 90)} /* --butter, lightened (color-mix in oklch turned it cyan) */
-.card .answer{margin-left:0}
-#odCorner{position:fixed;right:12px;bottom:12px;z-index:5;display:flex;align-items:center;gap:var(--s1)}
+.card .need.use{margin:var(--s2) 0 0;background:var(--accent-bg);color:var(--accent-ink)}
+.card .need.ctx{background:var(--warn-bg);color:var(--warn)}
+/* Show when needed: the corner pill (how many sessions, which need you) and its list, like the panel's rows. */
+#odCorner{position:fixed;right:12px;bottom:12px;z-index:5;display:flex;align-items:center;gap:var(--s2)}
 #odCorner[hidden],#odCorner [hidden]{display:none}
-#odPill,#odDndOff{display:inline-flex;align-items:center;gap:var(--s2);height:28px;padding:0 var(--s3);border-radius:var(--pill);border:1px solid var(--line-strong);background:color-mix(in oklch,var(--surface) 90%,transparent);box-shadow:var(--lift);font:600 var(--t-xs) var(--f-body);color:var(--ink);cursor:pointer}
-#odDndOff{background:var(--ink);color:var(--surface);border-color:var(--ink)}
-#odPill .dot{width:9px;height:9px;border-radius:50%;background:var(--n-500)}
-#odPill .dot.waiting{background:var(--coral);box-shadow:0 0 0 3px color-mix(in oklch,var(--coral) 30%,transparent)}
-#odPill .dot.done{background:var(--mint)}
-#odPop{position:absolute;right:0;bottom:calc(100% + 8px);width:340px;max-height:60vh;overflow:auto;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--lift);padding:var(--s2) var(--s3);animation:pop 150ms var(--ease)}
-#odPop h2{font:700 var(--t-md) var(--f-display);margin:0 0 var(--s1)}
-#odPop .row{display:flex;align-items:center;gap:var(--s2);padding:var(--s1) 0;border-top:1px solid var(--line);font-size:var(--t-xs);cursor:pointer}
-#odPop .mini{flex:none;width:24px;height:24px}#odPop .mini svg{width:100%;height:100%}
-#odPop .nm{font-weight:700;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#odPop .stx{flex:1;min-width:0;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#odPop .row.waiting .stx{color:var(--coral-ink);font-weight:600}
-#odPop .answer{margin:0}
+#odPill,#odDndOff{display:inline-flex;align-items:center;gap:var(--s2);min-height:28px;padding:0 12px;border-radius:999px;border:1px solid var(--line-strong);background:var(--surface);box-shadow:var(--pop);font:500 var(--t-xs) var(--f-ui);color:var(--ink);cursor:pointer}
+#odPill:hover{background:var(--surface-2)}
+#odDndOff{background:var(--accent-solid);border-color:transparent;color:var(--on-accent)}
+#odPop{position:absolute;right:0;bottom:calc(100% + 8px);width:360px;max-height:60vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--pop);padding:6px;animation:pop 150ms var(--ease)}
+#odPop h2{font:600 var(--t-xs) var(--f-ui);color:var(--ink-3);margin:4px 8px 6px}
+#odPop .row{display:flex;align-items:center;gap:10px;min-height:40px;padding:5px 8px;border-radius:var(--r-md);font-size:var(--t-sm);cursor:pointer}
+#odPop .row:hover{background:var(--surface-2)}
+#odPop .mini{flex:none;width:26px;height:26px}#odPop .mini svg{width:100%;height:100%}
+#odPop .nm{font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#odPop .stx{flex:1;min-width:0;color:var(--ink-3);font-size:var(--t-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#odPop .row.waiting .stx{color:var(--accent-ink);font-weight:500}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important}}
 </style>
 </head>
@@ -172,7 +169,7 @@ function answerButtons(s, now) {
   const n = left(s, now);
   if (!n || !bridge) return `<span class="where">${T(approveWhere(s))}</span>`; // Bobix can't answer it: say where it can be
   return `<span class="answer">`
-    + `<button type="button" data-answer="allow">${T('ask.allow')}</button><button type="button" data-answer="deny">${T('ask.deny')}</button>`
+    + `<button class="btn sm pri" type="button" data-answer="allow">${T('ask.allow')}</button><button class="btn sm" type="button" data-answer="deny">${T('ask.deny')}</button>`
     + (n === Infinity ? '' : `<span class="left" data-sid="${esc(s.id)}">${T('ask.left', { n })}</span>`) + '</span>';
 }
 // Side sessions: a side session's pet is smaller, walks right behind its parent and names the session it came from.
@@ -218,18 +215,18 @@ function paint(p, now) {
   const hp = s.ctx;
   const keep = ['line-off', 'fx-hide', 'leaving'].filter(c => p.el.classList.contains(c)).map(c => ' ' + c).join(''); // set by the line and the effects
   p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''}${keep} ${p.edge}`;
-  const kids = kidsText(s), parent = s.parent && byId(s.parent);
+  const kids = kidsText(s), parent = s.parent && byId(s.parent), model = s.usage && USAGE.mix(s.usage)[0]?.name;
   p.el.innerHTML = `
     ${card ? `<div class="card">
         <h2>${esc(s.title || s.name)}</h2>
         <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
         <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
-        <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
+        <div class="row"><span class="st"><i class="dot ${st}"></i>${esc(statusText(s, st))}</span><span class="bdg">${model ? `<span class="badge">${esc(model)}</span>` : ''}<span class="badge">${T('pet.lv', { n: s.lv })}</span></span></div>
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         ${s.usage ? `<div class="row use"><span>${esc(USAGE.line(s.usage, T, cfg))}</span></div>${USAGE.warns(s.usage, T).slice(0, 1).map(w => `<p class="need use">⚠ ${esc(w.text)}</p>`).join('')}` : ''}
-        <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
+        <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="btn sm ghost" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon, cfg.edge === 'top')}</div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
