@@ -17,6 +17,8 @@ const { parentOf } = require('./core/links');
 const feedback = require('./core/feedback');
 const { bitmap } = require('./core/icon');
 const petstore = require('./core/petstore');
+const svg = require('./core/svg');
+const { decodeInPage } = require('./decode');
 const I18N = require('./ui/i18n');
 const news = require('./core/news');
 const work = require('./core/work');
@@ -175,7 +177,7 @@ function openIssue(url) {
 // The original is kept next to the result, so the picture can be adjusted again later (core/petstore.js).
 const petDir = () => path.join(app.getPath('userData'), 'pets');
 const MAX_PICTURE = 2 * 1024 * 1024, DECODE_SIDE = 1024; // bytes of the file; long side before the pixel art shrinks it
-const PIXEL_WAIT_MS = 20e3, WEBP_WAIT_MS = 15e3; // longer than this, a decoder is stuck on a broken file
+const PIXEL_WAIT_MS = 20e3, PAGE_WAIT_MS = 15e3; // longer than this, a decoder is stuck on a broken file
 let importing = null; // the one import being adjusted: { project, original, kind, input, token }
 
 // One worker for the import in progress; it is stopped when the import ends, so it holds no memory in between.
@@ -202,29 +204,13 @@ const runPixel = msg => new Promise((resolve, reject) => {
   w.postMessage({ ...msg, id });
 });
 
-// A WebP: nativeImage cannot read it, a page can. First frame only, drawn at no more than DECODE_SIDE.
-async function decodeWebp(buf) {
-  const win = new BrowserWindow({ show: false, width: 1, height: 1, webPreferences: { sandbox: true, contextIsolation: true } });
-  try {
-    await win.loadURL('about:blank');
-    const b64 = await Promise.race([win.webContents.executeJavaScript(`(async () => {
-      const bmp = await createImageBitmap(await (await fetch('data:image/webp;base64,${buf.toString('base64')}')).blob());
-      const k = Math.min(1, ${DECODE_SIDE} / Math.max(bmp.width, bmp.height)), w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
-      const c = new OffscreenCanvas(w, h), g = c.getContext('2d');
-      g.drawImage(bmp, 0, 0, w, h);
-      const d = g.getImageData(0, 0, w, h).data;
-      let s = '';
-      for (let i = 0; i < d.length; i += 0x8000) s += String.fromCharCode(...d.subarray(i, i + 0x8000));
-      return [w, h, btoa(s)];
-    })()`), new Promise((_, no) => setTimeout(() => no(new Error('webp decode timed out')), WEBP_WAIT_MS))]);
-    return { kind: 'rgba', width: b64[0], height: b64[1], data: Buffer.from(b64[2], 'base64') };
-  } finally { win.destroy(); }
-}
-
 // What the worker needs to decode a picture; null when it cannot be read.
 async function importInput(buf, kind) {
   if (kind === 'gif') return { kind: 'gif', data: buf };
-  if (kind === 'webp') return decodeWebp(buf);
+  // WebP and SVG: drawn by a hidden page (src/decode.js); WebP's first frame only. An SVG is drawn at its own shape
+  // with the long side DECODE_SIDE, so a small icon is not blurred and a huge declared size costs nothing.
+  if (kind === 'webp') return decodeInPage(buf, 'image/webp', { side: DECODE_SIDE, waitMs: PAGE_WAIT_MS });
+  if (kind === 'svg') return decodeInPage(buf, 'image/svg+xml', { size: svg.drawSize(buf, DECODE_SIDE), waitMs: PAGE_WAIT_MS });
   let img = nativeImage.createFromBuffer(buf);
   if (img.isEmpty()) return null;
   const { width, height } = img.getSize();
@@ -258,7 +244,7 @@ async function startImport(project, original, opts) {
   if (!kind) return { ok: false, reason: 'bad' };
   let input;
   try { input = await importInput(original, kind); } catch (err) { console.error('[bobix] pet picture:', err.message); }
-  if (!input) return { ok: false, reason: 'bad' };
+  if (!input) return { ok: false, reason: kind === 'svg' ? 'svg' : 'bad' };
   endImport();
   const p = importing = { project, original, kind, input, token: Math.random().toString(36).slice(2) };
   const r = await importReply(p, opts);
@@ -269,7 +255,7 @@ async function choosePetImage(id) {
   const s = sessions.get(id), project = s?.project;
   if (!project) return { ok: false };
   const win = panel && !panel.isDestroyed() ? panel : undefined;
-  const r = await dialog.showOpenDialog(win, { title: tr('pane.petPick'), properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
+  const r = await dialog.showOpenDialog(win, { title: tr('pane.petPick'), properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }] });
   if (r.canceled || !r.filePaths[0]) return { ok: false };
   let original;
   try {

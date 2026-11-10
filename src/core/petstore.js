@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { isSvg } = require('./svg');
 
 const hash = buf => crypto.createHash('sha256').update(buf).digest('hex').slice(0, 24);
 
@@ -15,6 +16,7 @@ function kindOf(buf) {
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
   if (buf.toString('latin1', 0, 4) === 'GIF8') return 'gif';
   if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+  if (isSvg(buf)) return 'svg';
   return null;
 }
 

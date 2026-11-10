@@ -15,6 +15,7 @@ const strict = require('node:assert/strict');
 const zlib = require('zlib');
 const P = require('../src/core/pixelate');
 const petstore = require('../src/core/petstore');
+const svg = require('../src/core/svg');
 
 test('session lifecycle', () => {
   const m = new Map(), base = { session_id: 'abc', cwd: '/x/my-app' };
@@ -961,7 +962,64 @@ test('petstore: kindOf reads the bytes, not the name', () => {
   strict.equal(petstore.kindOf(Buffer.from('GIF89a......')), 'gif');
   strict.equal(petstore.kindOf(Buffer.from('RIFF\0\0\0\0WEBPVP8 ')), 'webp');
   strict.equal(petstore.kindOf(Buffer.from('RIFF\0\0\0\0WAVEfmt ')), null);
-  strict.equal(petstore.kindOf(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')), null);
+  strict.equal(petstore.kindOf(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')), 'svg');
+  strict.equal(petstore.kindOf(Buffer.from('<html><body><svg></svg></body></html>')), null);
+});
+
+test('svg: an SVG is known by its root element, after an optional BOM, XML declaration, comments and DOCTYPE', () => {
+  const yes = [
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>',
+    '\uFEFF  <?xml version="1.0"?>\n<!-- made by hand -->\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<SVG width="4" height="4">',
+    '<svg>',
+    fs.readFileSync(path.join(__dirname, 'fixtures', 'script.svg'), 'utf8'),
+  ];
+  for (const t of yes) strict.equal(svg.isSvg(Buffer.from(t)), true, t.slice(0, 40));
+  const no = [
+    'just some text that mentions <svg> later',
+    '<html><svg></svg></html>',
+    '<svgfoo/>',
+    '<!-- <svg> in a comment only -->',
+    '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaaaaaa">]><svg>&a;</svg>', // an internal subset
+    '<svg><!ENTITY a "x"></svg>',
+    '',
+  ];
+  for (const t of no) strict.equal(svg.isSvg(Buffer.from(t)), false, t.slice(0, 40));
+});
+
+test('svg: drawSize keeps the picture\'s shape with the long side fixed, from viewBox, then width/height, then 300x150', () => {
+  const size = t => svg.drawSize(Buffer.from(t), 1024);
+  strict.deepEqual(size('<svg viewBox="0 0 40 20">'), { width: 1024, height: 512 });
+  strict.deepEqual(size('<svg viewBox="-5,-5,10,30" width="9999" height="1">'), { width: 341, height: 1024 }, 'viewBox wins over width/height');
+  strict.deepEqual(size('<svg width="20px" height="10">'), { width: 1024, height: 512 });
+  strict.deepEqual(size('<svg width="1in" height="48pt">'), { width: 1024, height: 683 }, '96 px by 64 px');
+  strict.deepEqual(size('<svg width="100%" height="100%" viewBox="0 0 1 0">'), { width: 1024, height: 512 }, 'a broken viewBox and relative sizes: the browser default');
+  strict.deepEqual(size('<svg width="100000" height="1">'), { width: 1024, height: 128 }, 'shape kept within 8:1');
+  strict.deepEqual(size('<svg width="-3" height="NaN">'), { width: 1024, height: 512 });
+  strict.deepEqual(size('<!-- <svg viewBox="0 0 1 9"> --><svg viewBox="0 0 9 9">'), { width: 1024, height: 1024 }, 'the root tag, not one in a comment');
+});
+
+test('pet pictures: an SVG original is kept in settings, an SVG result is not (it would be served)', () => {
+  const A = '0123456789abcdef01234567', B = 'fedcba9876543210fedcba98';
+  const out = sanitize({ petImages: { '/ok': { src: `${A}.svg`, file: `${B}.png`, opts: OPTS }, '/served': { src: `${A}.png`, file: `${B}.svg`, opts: OPTS }, '/legacy': `${A}.svg` } }).petImages;
+  strict.deepEqual(Object.keys(out), ['/ok']);
+});
+
+// Needs a display: skipped on a Linux runner without one (CI runs this before it starts Xvfb).
+const noDisplay = process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
+test('svg: a hidden page draws an SVG without running its script or loading anything it points at', { skip: noDisplay && 'no display for electron', timeout: 60e3 }, async () => {
+  const { execFile } = require('child_process');
+  const electron = require('electron');
+  const out = await new Promise(res => execFile(electron, [path.join(__dirname, 'svg-raster.js')], { timeout: 50e3 }, (err, stdout, stderr) => res(stdout + (err ? `\n${err.message}\n${stderr}` : ''))));
+  const line = out.split('\n').find(l => l.startsWith('RESULT '));
+  assert.ok(line, out);
+  const r = JSON.parse(line.slice(7));
+  strict.equal(r.error, undefined);
+  strict.deepEqual(r.viewbox, { width: 64, height: 32, left: [255, 0, 0, 255], right: [0, 0, 255, 255] }, 'drawn at the viewBox shape, filling it');
+  strict.deepEqual(r.script, { width: 64, height: 64, middle: [0, 255, 0, 255] }, 'the script did not recolour it');
+  strict.equal(r.broken, 'rejected');
+  strict.deepEqual(r.webp, { width: 64, height: 32, left: [16, 0, 0, 16], right: [0, 0, 16, 16] }, 'a WebP: shrunk to the long side, colours kept (to within lossy noise)');
+  strict.equal(r.fetch, 'refused');
+  strict.deepEqual(r.hits, [], 'nothing reached the server');
 });
 
 test('petstore: fromBitmap turns premultiplied BGRA into straight RGBA', () => {

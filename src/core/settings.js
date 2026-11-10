@@ -35,7 +35,7 @@ const DEFAULTS = {
 };
 
 const PET_FILE = /^[a-f0-9]{24}\.(png|gif)$/;
-const PET_SRC = /^[a-f0-9]{24}\.(png|jpg|gif|webp)$/;
+const PET_SRC = /^[a-f0-9]{24}\.(png|jpg|gif|webp|svg)$/;
 const ENUMS = { language: ['auto', 'en', 'vi'], edge: ['bottom', 'top'], label: ['title', 'folder', 'both'], clickAction: ['focus', 'panel'] };
 const UNTIL_ANSWER = -1; // approveWait: no countdown, the request waits until you answer (or Claude moves on)
 const RANGES = { port: [1024, 65535], zoneStart: [0, 95], zoneEnd: [5, 100], size: [32, 128], opacity: [0.2, 1], sleepHide: [0, 1440], approveWait: [0, 300] };
