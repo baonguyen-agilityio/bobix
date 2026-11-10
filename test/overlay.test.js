@@ -323,6 +323,12 @@ async function oneCard(b, url) {
   const step = async k => { for (let i = 0; i < k; i++) await ev('__step(33.4)'); };
   await step(60);
   const at = await ev(`Object.fromEntries(['p0', 'k1', 'k2'].map(id => { const r = pets.get(id).el.getBoundingClientRect(); return [id, [r.left, r.right, r.top, r.bottom]]; }))`);
+  // The family's name starts under the parent: the name sits nearer the parent than any of its side sessions.
+  { const near = await ev(`(() => { const mid = e => { const r = e.getBoundingClientRect(); return (r.left + r.right) / 2; };
+      const n = pets.get('p0').el.querySelector('.tag .nm'), range = document.createRange(); range.selectNodeContents(n);
+      const t = range.getBoundingClientRect(), c = (t.left + t.right) / 2, at = id => mid(pets.get(id).el.querySelector('.spr'));
+      return { name: Math.round(c), p0: Math.round(at('p0')), k1: Math.round(at('k1')), k2: Math.round(at('k2')) }; })()`);
+    if (Math.abs(near.name - near.p0) >= Math.min(Math.abs(near.name - near.k1), Math.abs(near.name - near.k2))) out.push(`the family's name is not under its parent: ${JSON.stringify(near)}`); }
   const cards = () => ev(`[...pets.values()].filter(p => p.el.querySelector('.card')?.offsetParent).map(p => p.s.id)`);
   const move = (x, y) => b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
   const [a, c] = [at.p0, at.k1].sort((u, v) => u[0] - v[0]), y = (a[2] + a[3]) / 2; // the left one and the right one
