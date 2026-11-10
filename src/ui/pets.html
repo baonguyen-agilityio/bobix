@@ -123,6 +123,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 <script src="/ui/i18n.js"></script>
 <script src="/ui/creature.js"></script>
 <script src="/ui/pet-fx.js"></script>
+<script src="/ui/costume.js"></script>
 <script src="/ui/pet-ride.js"></script>
 <script src="/ui/pets-ondemand.js"></script>
 <script src="/ui/habits.js"></script>
@@ -193,9 +194,19 @@ function kidsText(s) {
   const w = k.filter(x => look(x) === 'waiting').length;
   return [w > 0, w ? T('pet.kidsWaiting', { n: k.length, w }) : T('pet.kids', { n: k.length })];
 }
+// Costumes by state (costume.js): a pet wears one for its state, and its effects draw the same dressed pet. A picture
+// pet keeps its picture as it is. The held tool and the finish flag move: 4 frames, about 4.5 a second (-1: still).
+const costumeOf = (art, s, st) => (art.image ? null : COSTUME.kindOf(s, st));
+const costumeFrame = (art, s, st) => { const k = costumeOf(art, s, st); return k && COSTUME.moves(k, s.tool) ? Math.floor(performance.now() / 220) % 4 : -1; };
+function petSVG(art, st, color, s, frame) {
+  const kind = costumeOf(art, s, st);
+  if (!kind) return petArt(art, st, color);
+  const id = art.project || art.id;
+  return spriteSVG(COSTUME.dress(fineSprite(id, st, color ?? hashStr(id + 'c') % BODY.length), kind, { left: rtl(), tool: s.tool, frame }));
+}
 function paint(p, now) {
-  const s = p.s, st = look(s), kid = attached(s), color = petColor(s, lastList || []);
-  p.art = [(s.parent && byId(s.parent)) || s, color]; // what the pet looks like, for its effects
+  const s = p.s, st = look(s), kid = attached(s), color = petColor(s, lastList || []), art = (s.parent && byId(s.parent)) || s, fr = costumeFrame(art, s, st);
+  p.art = [art, color]; // what the pet looks like, for its effects
   const fam = !kid && kidsOf(s).some(k => visible(k)), mine = reportOf(s, now);
   // Hovered: its own card, or its request and buttons while it waits for you (the card would cover them).
   const card = p.hover && st !== 'waiting';
@@ -204,9 +215,12 @@ function paint(p, now) {
   // A bubble: its request when hovered; the tool it just picked up, for a pet on its own.
   const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
   const say = (habitSay && habitSay.id === s.id && !p.hover && Date.now() < habitSay.until ? ['habit', habitSay.text] : null) || (t && (p.hover || t[0] === '') ? t : null);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, lang]);
-  if (p.key === key) return;
-  p.key = key;
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
+  if (p.key === key) { // only its costume moved: swap the picture, keep the rest (a card being clicked, say)
+    if (fr !== p.fr) { p.fr = fr; const svg = p.el.querySelector('.spr>svg'); if (svg) svg.outerHTML = petSVG(art, st, color, s, fr); }
+    return;
+  }
+  p.key = key; p.fr = fr;
   const hp = s.ctx;
   const keep = ['line-off', 'fx-hide', 'wait-ring', 'leaving'].filter(c => p.el.classList.contains(c)).map(c => ' ' + c).join(''); // set by the line and the effects
   p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''}${keep} ${p.edge}`;
@@ -224,7 +238,7 @@ function paint(p, now) {
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon, cfg.edge === 'top')}</div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
-    <div class="spr">${petArt(parent || s, st, color)}</div>
+    <div class="spr">${petSVG(art, st, color, s, fr)}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>`}`;
   if (p.fx) p.el.querySelector('.spr').append(p.sheetShown ? p.sheetEl : p.cv);
 }
@@ -266,7 +280,9 @@ const FX_ON = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 const leaving = new Set(); // pets of ended sessions playing their goodbye
 const fxCell = () => cfg.size / 18; // CSS px per effect cell: half a pixel of the 9×9 creature (its box is the pet's)
 function fxStart(p, kind, o = {}) {
-  const [art, color] = p.art || [p.s, undefined], pet = st => fxSprite(art, st, color, wake);
+  // Dressed as the pet is, except for an effect that plays before the costume goes on (XP, the low-context battery).
+  const [art, color] = p.art || [p.s, undefined], dress = !COSTUME.after(kind) && costumeOf(art, p.s, look(p.s));
+  const pet = st => COSTUME.dress(fxSprite(art, st, color, wake), dress, { left: rtl(), tool: p.s.tool });
   if (!pet('done')) return false; // its picture is still loading
   if (!p.cv) {
     p.cv = Object.assign(document.createElement('canvas'), { width: GW * 2, height: GH * 2, className: 'fxc' });
@@ -275,7 +291,7 @@ function fxStart(p, kind, o = {}) {
   if (p.fx) { p.fx.done = true; sheetOff(p); }
   // On the top edge the effect is mirrored down (the screen's edge is its ground); a tool's prop is held in its hands.
   p.lay = fxRoom(p, fxScene([...pets.values()])); // drawn for its room from the first frame
-  o = { ...o, flipX: false, mini: kind === 'tool', flipY: cfg.edge === 'top' && kind !== 'tool' };
+  o = { ...o, flipX: false, mini: kind === 'tool', flipY: cfg.edge === 'top' && kind !== 'tool', dress };
   const run = fxRun(kind, { pet, ...o }), at = fxPlace(cfg.size, run.ox, o.flipX, o.flipY);
   Object.assign(p.cv.style, { width: at.width + 'px', height: at.height + 'px', left: at.left + 'px', top: at.top + 'px', translate: '', clipPath: '' }); p.clip = '';
   p.fx = run; p.fxSeg = o.seg; p.fxO = o; p.fxArt = [art, color, pet]; p.sheet = null; p.sheetRoom = '';
@@ -350,7 +366,7 @@ function fxStop(p) { if (p.fx) p.fx.done = true; sheetOff(p); p.fx = p.sheet = n
 // Loops play from a sheet of frames drawn once (fxSheet) as soon as it is ready: a CSS animation, nothing drawn per frame.
 const SHEETS = new Map(); // kind|prop|look -> fxSheet, the 6 latest
 function sheetFor(kind, o, art, color, pet) {
-  const key = [kind, o.seg, o.flipX, o.flipY, o.badge, o.plain, o.mini, o.room, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
+  const key = [kind, o.seg, o.flipX, o.flipY, o.badge, o.plain, o.mini, o.dress, o.room, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
   let sh = SHEETS.get(key);
   if (sh) SHEETS.delete(key); else sh = fxSheet(kind, { pet, ...o });
   SHEETS.set(key, sh);
@@ -382,7 +398,8 @@ function fxTick(p, dt) {
     const next = p.queue?.[0];
     if (next && fxStart(p, ...next)) p.queue.shift();
     else if (!p.leaving) {
-      const want = fxLoop(p.s, look(p.s));
+      let want = fxLoop(p.s, look(p.s));
+      if (want?.[0] === 'tool' && COSTUME.holdsTool(costumeOf(p.art?.[0] || p.s, p.s, look(p.s)), p.s.tool)) want = null; // the tool is in its hands
       if (!want) { if (p.fx) fxStop(p); }
       else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1]) fxStart(p, want[0], { seg: want[1], first: true });
     }
@@ -640,7 +657,7 @@ function frame(t) {
   const busy = mouseMoved || !!drag || leaving.size > 0 || all.some(p => p.stepping || p.hover || p.fx);
   mouseMoved = false;
   if (busy && !document.hidden) raf = requestAnimationFrame(frame);
-  else timer = setTimeout(() => frame(performance.now()), all.length ? 400 : 1000);
+  else timer = setTimeout(() => frame(performance.now()), all.some(p => p.fr >= 0) ? 220 : all.length ? 400 : 1000); // a moving costume's next frame
 }
 
 // Seconds left to answer a request, without redrawing its card.
