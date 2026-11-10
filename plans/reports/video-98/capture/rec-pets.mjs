@@ -33,6 +33,9 @@ try {
   await sleep(1000);
   const t0 = Date.now();
   console.log('rec start', new Date().toISOString());
+  // JS_AT: [[seconds, "page script"], …] run in the page on that clock (a person's click on the page, for instance).
+  const jsAt = JSON.parse(process.env.JS_AT || '[]');
+  for (const [at, js] of jsAt) setTimeout(() => send('Runtime.evaluate', { expression: js }), at * 1000);
   while (Date.now() - t0 < +secs * 1000) {
     const r = await send('Page.captureScreenshot', { format: 'jpeg', quality: 85, optimizeForSpeed: true });
     const f = path.join(frames, `f${String(shots.length).padStart(5, '0')}.jpg`); fs.writeFileSync(f, Buffer.from(r.data, 'base64')); shots.push([f, Date.now() / 1000]);

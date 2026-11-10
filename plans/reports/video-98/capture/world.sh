@@ -19,7 +19,7 @@ setup)
   printf '#!/bin/sh\ncase "$2" in *" gh") echo "%s/bin/gh" ;; *" glab") ;; *) exec /bin/zsh "$@" ;; esac\n' "$W" > "$W/bin/sh-stand-in"; chmod +x "$W/bin/sh-stand-in"
   [ -f "$W/data/settings.json" ] || cat > "$W/data/settings.json" <<J
 { "language": "en", "port": $PORT, "github": true, "gitlab": false, "role": "dev", "size": 64, "label": "both",
-  "approveWait": -1, "longWait": 2, "stuckNoPr": 1, "stuckIdle": 1, "stuckBranch": 1, "habitsOn": true,
+  "approveWait": -1, "longWait": 2, "stuckNoPr": 1, "stuckIdle": 1, "stuckBranch": 1, "stuckNoReview": 1, "habitsOn": true, "skillPins": { "ak:cook": ["dev"] },
   "notifyWaiting": false, "notifyDone": false, "sound": false, "autostart": false, "checkUpdates": false,
   "guideSeen": true, "tourSeen": ["pets","ondemand","dnd","board","stages","stuck","next","skill","skills","standup","wait","allow"],
   "seenVersion": "0.2.0-rc.4", "petsVisible": true, "showIdle": true, "sleepHide": 60, "fadeNearCursor": false }
@@ -31,10 +31,10 @@ clone) # NAME BRANCH: a throwaway clone (objects shared with the repo, its own r
   d=$CODE/$2; [ -d "$d" ] && { echo exists; exit; }
   git clone -q --shared /Users/baonguyen/Desktop/test/bobix "$d" && git -C "$d" remote set-url origin git@github.com:baonguyen-agilityio/bobix.git
   git -C "$d" remote set-url --push origin no-push; git -C "$d" checkout -q -B "$3" origin/develop 2>/dev/null || git -C "$d" checkout -q -b "$3"
-  git -C "$d" branch --unset-upstream 2>/dev/null; echo "$d on $3" ;;
+  git -C "$d" remote set-head origin main; git -C "$d" branch --unset-upstream 2>/dev/null; echo "$d on $3" ;;
 start)
   ( unset CLAUDE_PID CLAUDE_CODE_HOST_SESSION_ID CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID
-    EVIDENCE_PANEL_W=${PW:-1440} EVIDENCE_PANEL_H=${PH:-900} EVIDENCE_TAB=${TAB:-sessions} EVIDENCE_PANEL_JS="$W/panel.js" EVIDENCE_PETS_JS="$W/pets.js" \
+    EVIDENCE_LIGHT=1 EVIDENCE_PANEL_W=${PW:-1440} EVIDENCE_PANEL_H=${PH:-900} EVIDENCE_TAB=${TAB:-sessions} EVIDENCE_PANEL_JS="$W/panel.js" EVIDENCE_PETS_JS="$W/pets.js" \
     BOBIX_PORT=$PORT BOBIX_DATA_DIR="$W/data" BOBIX_HOME="$W/home" SHELL="$W/bin/sh-stand-in" exec "$BIN" ) >> "$W/app.log" 2>&1 &
   echo $! > "$W/app.pid"
   for i in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$PORT/ui/theme.css" && break; sleep 0.2; done
@@ -45,7 +45,7 @@ term) # NAME PROMPT [args]: a real interactive Claude Code session in a new Term
   n=$2; p=$3; shift 3
   [ "$p" = "@big" ] && p='"$(cat '"$W"'/big-prompt.txt)"' || p=$(printf %q "$p")
   cmd="cd $CODE/$n && clear && claude --setting-sources project,local --settings $W/claude-hooks.json --model haiku $* $p"
-  osascript -e 'on run a' -e 'tell application "Terminal"' -e 'set t to do script (item 1 of a)' -e 'return id of (first window whose tabs contains t)' -e 'end tell' -e 'end run' "$cmd" > "$W/term-$n" && echo "term $n window $(cat "$W/term-$n")" ;;
+  osascript -e 'on run a' -e 'tell application "Terminal"' -e 'set t to do script (item 1 of a)' -e 'set font size of t to 20' -e 'set w to (first window whose tabs contains t)' -e 'set bounds of w to {120, 80, 1320, 860}' -e 'return id of w' -e 'end tell' -e 'end run' "$cmd" > "$W/term-$n" && echo "term $n window $(cat "$W/term-$n")" ;;
 type) # NAME TEXT: type into that session's Terminal tab (TEXT + Return), as a person would
   osascript -e 'on run a' -e 'tell application "Terminal" to do script (item 2 of a) in tab 1 of window id ((item 1 of a) as integer)' -e 'end run' "$(cat "$W/term-$2")" "$3" >/dev/null
   # a long text arrives as a paste and waits in the prompt box: press Return only when it is still there

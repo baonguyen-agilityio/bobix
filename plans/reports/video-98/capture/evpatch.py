@@ -11,10 +11,12 @@ s = s.replace(a, a + '''\n    let tab = tab.or_else(|| std::env::var("EVIDENCE_T
 a = '''            .initialization_script(crate::BRIDGE)'''
 assert s.count(a) == 1
 s = s.replace(a, a + '''\n            .initialization_script(std::fs::read_to_string(std::env::var("EVIDENCE_PANEL_JS").unwrap_or_default()).unwrap_or_default())''')
+a = '''            .initialization_script(crate::BRIDGE)'''
+s = s.replace(a, a + '''\n            .theme(std::env::var_os("EVIDENCE_LIGHT").map(|_| Theme::Light))''')
 open(p, 'w').write(s)
 p = root + '/src-tauri/src/overlay.rs'; s = open(p).read()
 a = '''        .initialization_script(crate::BRIDGE)'''
 assert s.count(a) == 1
-s = s.replace(a, a + '''\n        .initialization_script(std::fs::read_to_string(std::env::var("EVIDENCE_PETS_JS").unwrap_or_default()).unwrap_or_default())''')
+s = s.replace(a, a + '''\n        .initialization_script(std::fs::read_to_string(std::env::var("EVIDENCE_PETS_JS").unwrap_or_default()).unwrap_or_default())\n        .theme(std::env::var_os("EVIDENCE_LIGHT").map(|_| tauri::Theme::Light))''')
 open(p, 'w').write(s)
 print('patched')

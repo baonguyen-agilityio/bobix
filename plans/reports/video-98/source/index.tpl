@@ -22,9 +22,9 @@
       .crop { position: absolute; overflow: hidden; border-radius: 12px; background: #fff; box-shadow: 0 2px 0 #e3d9c9, 0 24px 60px rgba(60, 40, 20, .18); }
       .crop img { position: absolute; display: block; }
       .crop.flat { background: none; box-shadow: none; border-radius: 0; }
-      .grid6 { position: absolute; left: 50%; top: 120px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(3, 440px); gap: 26px 40px; }
+      .grid6 { position: absolute; left: 50%; top: 130px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(3, 360px); gap: 30px 48px; }
       .tile { background: #fffaf2; border: 2px solid #eadfcd; border-radius: 22px; padding: 6px 0 12px; text-align: center; }
-      .tile img { width: 384px; height: 320px; image-rendering: pixelated; display: block; margin: 0 auto; }
+      .tile img { width: 300px; height: 250px; display: block; margin: 0 auto; }
       .tile span { font: 600 34px "Be Vietnam Pro", sans-serif; }
       .tile.hot { border-color: #e7744f; background: #fff3ec; }
       .title { position: absolute; left: 50%; top: 150px; transform: translateX(-50%); display: flex; align-items: center; gap: 40px; width: max-content; }

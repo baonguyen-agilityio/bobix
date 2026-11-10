@@ -2,7 +2,8 @@
 
 151 s, 1920×1080, 30 fps, no sound, English captions. The app was set to English while filming. Made with
 **ak:hyperframes** (`hyperframes@0.7.99`), like #96: the video is real captures with captions on top, plain HTML/CSS.
-`source/gen.py` writes `source/index.html` from the scene list; `source/index.tpl` holds the styles.
+`source/gen.py` writes `source/index.html` from the scene list; `source/index.tpl` holds the styles. Hard cuts only,
+and every second has a caption. Encoded with x264 CRF 24 to stay under 25 MB.
 
 ## Story
 
@@ -12,22 +13,22 @@
 | **1** | | **See everything** | |
 | 1a | 6–15 s | Seven sessions at work, one pet each, `#84 #85 #86 #88 #17` on their tags | Seven Claude Code sessions on the bobix repo. One pet each. → One project, one creature, a colour per session. |
 | 1b | 15–23 s | Six close-ups from the same recordings: reading files, running a command, editing code, needs you, done, resting | The costume says what each session is doing right now. |
-| 1c | 23–34 s | #85 reads the repo until its context runs low: battery alarm; its card: Context 14% | #85 has read a lot: under 25% context left, the battery alarm goes off. → Point at the pet: its card shows context left: 14%. |
+| 1c | 23–34 s | #85 reads the repo until its context runs low: battery alarm; its card: Context 21% | #85 has read a lot: under 25% context left, the battery alarm goes off. → Point at the pet: its card shows context left: 21%. |
 | 1d | 34–41 s | Resting pets with `[BOB-88] … #88`, `#86`, `#84`, `#17` | A session on an issue's branch shows #88, #86, #84, #17 on its pet… → …and Bobix names the session after the issue: [BOB-88]. |
 | **2** | | **Control without opening windows** | |
-| 2a | 41–51 s | Board › Needs your approval: #17 (`rm README.vi.md`, waited 1 min, "This deletes or overwrites data") above a `curl` request | Two sessions wait for you. The one waiting longest is on top. → A request that deletes or overwrites data is marked. |
-| 2b | 51–60 s | The pets window: "Needs you: Bash · Allow / Deny" over the pet; Allow; the card says "Now running a command" | Answer on the pet itself: Allow or Deny. → Allowed: Claude carries on and runs the command. |
-| 2c | 60–69 s | Deny on the #17 request in the panel; the session's Terminal: "Error: Denied from Bobix" | Or in the panel: Deny the delete… → …and Claude gets the answer: Denied from Bobix. |
-| 2d | 69–74 s | The Terminal brought forward by a click on a pet | Click a pet and its terminal comes forward. |
-| 2e | 74–83 s | Show when needed: a pet floats up under a "!" balloon; the corner pill "7 sessions · 1 need you" and its list with Allow / Deny | Show when needed: a pet floats up only while its session needs you. → The corner pill lists every session, with Allow / Deny. |
+| 2a | 41–51 s | Board › Needs your approval: a WebFetch request that has "waited 6 min" (in red) on top, then #17 `rm docs/install.md` marked "This deletes or overwrites data" | Two sessions wait for you. The one waiting longest is on top. → A request that deletes or overwrites data is marked. |
+| 2b | 51–60 s | The pets window: "Needs you: WebFetch · Allow / Deny" over the pet; Allow; the pet picks up its globe and reads the page | Answer on the pet itself: Allow or Deny. → Allowed: Claude carries on and reads the web page. |
+| 2c | 60–69 s | The #17 delete request in the panel; Deny; the session's Terminal: "Error: Denied from Bobix." | Or in the panel: Deny the delete… → …and Claude gets the answer: Denied from Bobix. |
+| 2d | 69–74 s | Terminal, brought to the front by a click on the #84 pet | Click a pet and Terminal comes to the front. |
+| 2e | 74–83 s | Settings › Pet mode: Show when needed; #85 (context low) floats up under a "!" balloon; the corner pill "8 sessions · 1 with news" and its list | Show when needed: a pet floats up only while its session needs you. → A pill in the corner lists every session. |
 | 2f | 83–89 s | Settings › Do not disturb (30 min, "On for 30 more min"); the pill "☾ Do not disturb · 30 min left" | Do not disturb: no pets, no notifications. Requests wait on the Board. |
 | **3** | | **From issue to PR** (GitHub on, `baonguyen-agilityio/bobix` issues) | |
 | 3a | 89–99 s | The Board late in the day: In progress (5 issues with their sessions), To do, Waiting for review (#98, "PR #99 is open"), Done today (#96, #92, #91, …) | The Board follows the day: In progress with its sessions, To do… → …Waiting for review (PR #99 is open) and Done today. |
 | 3b | 99–108 s | Start #87 (the suggested Next up): `/ak:cook` "Suggested · pinned for role Dev", the prompt filled in with the issue's title, description and link | To do suggests the issue to start next, and a skill for your role. → Start opens a new Claude session with this prompt, named after the issue. |
-| 3c | 108–114 s | #88 "⚠ 2 sessions, one issue", opened: its steps and its two `[BOB-88]` sessions | Two sessions on one issue? Bobix warns you. |
-| 3d | 114–123 s | Stuck work (6): #84, #86, #88, #85, #17 "Session done 1 h ago, no PR yet" with Open PR; #98 "PR #99 open 1 h, nobody reviewed it" with Ask for review | Late afternoon: stuck work, each with its next step. → Done but no PR? Open PR. A PR nobody reviewed? Ask for review. |
+| 3c | 108–114 s | #88 "⚠ 2 sessions, one issue", opened: its steps and its two `[BOB-88]` sessions, next to To do | Two sessions on one issue? Bobix warns you. |
+| 3d | 114–123 s | Stuck work: #98 "PR #99 open 2 h, nobody reviewed it" with Ask for review; #84 and #86 branches with no PR, with Open PR | Late afternoon: stuck work, each with its next step. → A PR nobody reviewed? Ask for review. A branch with no PR? Open PR. |
 | **4** | | **End of day** | |
-| 4a | 123–131 s | Today's report: [bobix] done today, waiting for review, "Claude waited for you 9 min in all today" (bobix-dev 7 min, bobix-17 2 min) | Today's report, per project, with how long Claude waited for you. |
+| 4a | 123–131 s | Today's report: [bobix] done today, waiting for review (#98), "Claude waited for you 4 min in all today" (bobix-17 2 min, bobix-dev 2 min) | Today's report, per project, with how long Claude waited for you. |
 | 4b | 131–138 s | Stand-up: done yesterday (closed bobix issues), in progress today, stuck | A stand-up to copy: done yesterday, in progress today… → …and what is stuck. Bobix sends nothing. |
 | 4c | 138–145 s | Suggestions for you: "A few more days to see your habits"; Settings › What Bobix remembers: what is kept, never kept, and today's log | Habits: after about five working days, suggestions for what to do next. → What Bobix keeps is listed, on this machine only. |
 | 5 | 145–151 s | Icon, version, repo link | Everything stays on your machine. No account, nothing sent. |
@@ -52,10 +53,16 @@
   and the account's assigned issues are in other repos, so "issues assigned to you" reads the open issues of
   `baonguyen-agilityio/bobix`, and "your open PRs" keeps only bobix's. Every other call goes to `gh` unchanged; writes
   are refused. Waiting for review shows #98 because this video's own PR #99 is open.
-- **Pets**: two ways. The app's own `/pets` page from the running app in headless Chrome with the app's settings applied
-  (`capture/rec-pets.mjs`, 1280×260 CSS px at 1.5×, frames back to back), for the walking line, costumes and battery
-  alarm. The real pets window (`screencapture -l`, about 7 frames a second, `capture/ov-rec.sh`) for what needs the app
-  around it: the Allow / Deny on a pet, the #85 card, show when needed, the pill and do not disturb.
+- **Sharpness**: this screen is not Retina, so windows capture at 1x. Nothing in the video is upscaled: the panel was
+  drawn at 1.5x (CSS zoom on its page, window 2400×1350) and the pets window at 1.6x (a CSS scale on its page), so text
+  is drawn large rather than enlarged; every crop is shown 1:1. The Terminal windows used a 20 pt font.
+- **Pets**: the app's own `/pets` page in headless Chrome with the app's settings applied (`capture/rec-pets.mjs`, 1.5x
+  for the walking line, costumes and battery alarm; 2x for show when needed, the pill and do not disturb). The real
+  pets window (`screencapture -l`, `capture/ov-rec.sh`) for what needs the app around it: Allow / Deny on a pet and the
+  #85 card.
+- **Two requests waiting at once**: a Claude Code permission dialog in a Terminal window was accepted by itself as soon
+  as another Terminal window got focus (Claude records it as `"source":"user_temporary"`). So the two filmed requests
+  came from sessions run in a windowless pseudo-terminal (`capture/pty-run.py`); nothing typed into them.
 - **Panel**: the panel window captured with `screencapture -l` (`capture/shoot.sh`).
 - **Terminal**: the Terminal windows of the sessions, `screencapture -l`.
 - Fonts: the app's own Baloo 2 and Be Vietnam Pro (`src/ui/fonts`, SIL OFL).
@@ -67,16 +74,16 @@
   port 4747) through `~/.claude/settings.json`, and changing that, or filming the Claude desktop app, was out of bounds.
   The CLI sessions filmed here can't be side sessions, so this is left out rather than faked.
 - **The macOS notification with Allow / Deny.** The filmed build is unsigned and not the installed app, and its
-  notifications were off; as in #96, the pet, the pill and the panel show the same answer.
+  notifications were off; as in #96, the pet and the panel show the same answer.
 - **Opening the exact session on click.** With Terminal, Bobix brings the Terminal app forward (`open -a`), not the
-  exact window; only the Claude desktop app opens the exact session (README FAQ). The video says "its terminal comes
-  forward", which is what happened.
+  exact window; only the Claude desktop app opens the exact session (README FAQ). The video says "Terminal comes to the
+  front", which is what happened.
 - **Start → the new session named after the issue.** Start opens the Claude desktop app, which was not to be filmed or
   driven, and no run was started on a real issue: the video stops at the filled-in Start box. The naming itself is
   real: Bobix named every filmed session after its branch's issue (`[BOB-84] feat: tokens, …`), seen on the pets.
 - **The stuck-work limits** were set to 1 hour in Settings (their lowest) so the hints showed the same day; the defaults
-  are 2 h to 24 h. Two hints Bobix also gave were skipped with their Skip button before filming: a branch with
-  "193 commits, no PR" for the clones on `develop` (see below).
+  are 2 h to 24 h. The branch hints read "196 commits, no PR" because the clones sit on `develop` (see below); the
+  "Session done 1 h ago, no PR yet" hints were not filmed this time (they needed the sessions quiet for an hour more).
 - **Habits suggestions.** They start after about five logged working days; habits were turned on for filming today, so
   the Board shows "A few more days to see your habits" and the day's log, not suggestions.
 
@@ -86,12 +93,17 @@
   (193 commits ahead), so every branch cut from `develop` shows "193 commits, no PR". A base branch per project (or the
   PR's base) would fix it.
 
+- In Claude Code 2.1.322 (CLI in Terminal), a pending permission dialog was accepted on its own when another
+  Terminal window was used, so Bobix's held request ran without anyone answering it. Worth a look, since Bobix's
+  approvals rely on that dialog staying open.
+
 ## Rebuild
 
 ```bash
 cd plans/reports/video-98/source
 python3 gen.py
-DO_NOT_TRACK=1 npx -y hyperframes@0.7.99 render -o ../bobix-day-98.mp4 -f 30 -q high
+DO_NOT_TRACK=1 npx -y hyperframes@0.7.99 render -o /tmp/day-98.mp4 -f 30 -q high
+ffmpeg -i /tmp/day-98.mp4 -c:v libx264 -preset slow -crf 24 -pix_fmt yuv420p -movflags +faststart ../bobix-day-98.mp4
 ```
 
 The capture scripts in `capture/` have this machine's paths; they are kept as a record of how each picture was made.
