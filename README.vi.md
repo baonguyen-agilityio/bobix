@@ -14,7 +14,7 @@ Mỗi session là một chú thú trên màn hình. Duyệt yêu cầu mà khôn
 
 <p align="center"><a href="README.md">English</a> · <b>Tiếng Việt</b></p>
 
-<p align="center"><img src="docs/media/demo.gif" alt="Bảng điều khiển Bobix có một yêu cầu đang chờ duyệt và ba cảnh báo mức dùng. Bên dưới, các chú thú đi dọc mép màn hình: một con xong việc và nhận XP, một con đi vào với vòng viền cam và nhãn đỏ vì đang chờ bạn duyệt." width="860"></p>
+<p align="center"><img src="docs/media/demo.gif" alt="Bảng điều khiển Bobix có một yêu cầu đang chờ duyệt và ba cảnh báo mức dùng. Bên dưới, các chú thú đi dọc mép màn hình: chỉ chuột vào một con thì hiện thẻ với việc đang làm, ngữ cảnh và mức dùng; chỉ vào con có vòng viền cam thì hiện yêu cầu với Cho phép và Từ chối, bấm Cho phép là nó làm tiếp." width="860"></p>
 
 ---
 
