@@ -58,6 +58,9 @@
     undoSkill: id => invoke('skills_undo', { id: String(id) }), // a skill change or the CLAUDE.md rule block
     routingRules: dir => invoke('skills_rules', { dir: String(dir), add: false }), // { file, present, text, block, undo }
     addRoutingRules: dir => invoke('skills_rules', { dir: String(dir), add: true }), // only after showing the exact text
+    // From your habits (src-tauri/src/habit_skills.rs): act view | scan | draft | approve | dismiss | restore | undo | remove.
+    // Answers the view, with the act's { ok, error } in `result`. Changes run only on the person's click.
+    habitSkills: (act, id, text, v) => invoke('habit_skills', { act: String(act || 'view'), id: id == null ? null : String(id), text: text == null ? null : String(text), v: Number.isFinite(v) ? v : null }),
     processStatus: () => invoke('process_status'), // per project: the repository's .bobix/skills.json and the imported process
     // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one
     importProcess: (project, v) => (typeof project === 'string' ? invoke('process_import', { project, text: v?.text ?? null, url: v?.url ?? null, remove: v?.remove ?? null }) : Promise.resolve(null)),

@@ -14,6 +14,7 @@ pub fn defaults() -> Value {
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false, "tourSeen": [],
         "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "petImages": {},
         "habitsOn": false, "habitsNo": {}, "habitsHidden": {}, "habitsSkill": {}, "habitsPetDay": "",
+        "habitScan": false, // habits become skills (habit_skills.rs): the weekly scan, also needs usageContent
         // usage per session (usage.rs): the API-equivalent estimate shown, prompt kinds read (opt-in), the warnings and when.
         // Defaults from 73 sessions of a week on the owner's Mac: the largest context per session had a median of 171k and
         // its top third passed 360k (warnContext 300k flags that third; on Opus a 300k turn costs more in cache reads than
