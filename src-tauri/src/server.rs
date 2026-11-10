@@ -39,7 +39,7 @@ pub struct Ctx {
 const MAX_BODY: usize = 8_000_000;
 // The files under /ui/ the pages may load; anything else is not found. A file a page loads must be listed here
 // (test/core.test.js checks every <script> and stylesheet of the pages against this list).
-const ASSETS: [&str; 18] = ["theme.css", "creature.js", "pet-fx.js", "costume.js", "pet-ride.js", "pets-ondemand.js", "i18n.js", "markdown.js", "log.js", "board.js", "habits.js", "tour.js", "pet-import.js", "pixelate.js", "pixelate-worker.js",
+const ASSETS: [&str; 19] = ["theme.css", "usage.js", "creature.js", "pet-fx.js", "costume.js", "pet-ride.js", "pets-ondemand.js", "i18n.js", "markdown.js", "log.js", "board.js", "habits.js", "tour.js", "pet-import.js", "pixelate.js", "pixelate-worker.js",
     "gif/lzw.js", "gif/deinterlace.js", "gif/gifenc.js"];
 
 fn ok_host(h: Option<&HeaderValue>) -> bool {

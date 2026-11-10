@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-06",
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "note": "API-equivalent estimate only: USD per million tokens at Anthropic's public API list prices. A Pro or Max subscription is not billed this way. Edit freely and change 'date' when you do; Bobix reads this file again when it changes. The first entry whose 'match' is part of the model id is used. 'heavy' marks the models the warnings treat as heavy. Haiku 5.5's cache prices are taken as the usual 1.25x / 2x / 0.1x of input.",
+  "models": [
+    { "match": "fable-5-1", "input": 10, "output": 50, "cacheWrite5m": 12.5, "cacheWrite1h": 20, "cacheRead": 0.25, "heavy": true },
+    { "match": "mythos-5-1", "input": 10, "output": 50, "cacheWrite5m": 12.5, "cacheWrite1h": 20, "cacheRead": 0.25, "heavy": true },
+    { "match": "fable-5", "input": 10, "output": 50, "cacheWrite5m": 12.5, "cacheWrite1h": 20, "cacheRead": 1, "heavy": true },
+    { "match": "mythos-5", "input": 10, "output": 50, "cacheWrite5m": 12.5, "cacheWrite1h": 20, "cacheRead": 1, "heavy": true },
+    { "match": "opus-5-5", "input": 4, "output": 20, "cacheWrite5m": 5, "cacheWrite1h": 8, "cacheRead": 0.2, "heavy": true },
+    { "match": "opus-5", "input": 5, "output": 25, "cacheWrite5m": 6.25, "cacheWrite1h": 10, "cacheRead": 0.5, "heavy": true },
+    { "match": "opus-4-8", "input": 5, "output": 25, "cacheWrite5m": 6.25, "cacheWrite1h": 10, "cacheRead": 0.5, "heavy": true },
+    { "match": "opus-4-7", "input": 5, "output": 25, "cacheWrite5m": 6.25, "cacheWrite1h": 10, "cacheRead": 0.5, "heavy": true },
+    { "match": "opus-4-6", "input": 5, "output": 25, "cacheWrite5m": 6.25, "cacheWrite1h": 10, "cacheRead": 0.5, "heavy": true },
+    { "match": "sonnet-5", "input": 2, "output": 10, "cacheWrite5m": 2.5, "cacheWrite1h": 4, "cacheRead": 0.2, "heavy": false },
+    { "match": "sonnet-4-6", "input": 3, "output": 15, "cacheWrite5m": 3.75, "cacheWrite1h": 6, "cacheRead": 0.3, "heavy": false },
+    { "match": "haiku-5-5", "input": 0.1, "output": 0.5, "cacheWrite5m": 0.125, "cacheWrite1h": 0.2, "cacheRead": 0.01, "heavy": false },
+    { "match": "haiku-4-5", "input": 1, "output": 5, "cacheWrite5m": 1.25, "cacheWrite1h": 2, "cacheRead": 0.1, "heavy": false }
+  ]
+}

@@ -581,5 +581,6 @@
       }
     }
   ],
-  "waits": []
+  "waits": [],
+  "usage": null
 }

@@ -48,6 +48,7 @@
     habitsClear: () => invoke('habits_clear'), // "Xoá hết"
     habitsNote: what => invoke('habits_note', { what }), // standup | report opened
     showBoard: () => invoke('show_board'),
+    openPrices: () => invoke('usage_prices'), // the editable price table of the usage estimate, in the person's editor
     mySkills: () => invoke('skills_mine'), // your own skills, for Settings → My skills
     processStatus: () => invoke('process_status'), // per project: the repository's .bobix/skills.json and the imported process
     // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one

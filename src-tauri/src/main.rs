@@ -27,6 +27,7 @@ mod smoke;
 mod state;
 mod tray;
 mod update;
+mod usage;
 mod work;
 
 use serde_json::{json, Value};
@@ -54,6 +55,7 @@ pub struct Core {
     pub save_gen: u64,                     // settings saves are debounced: only the newest one writes
     pub habits: habits::Mem,               // the permission requests waiting, for the habit log (memory only)
     pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
+    pub usage: Value,                      // usage::Store::meta: the price table's date, how many past sessions make the normal
 }
 
 pub struct Bobix {
@@ -62,6 +64,7 @@ pub struct Bobix {
     pub token: String,
     pub port: u16,
     pub app: std::sync::OnceLock<AppHandle>,
+    pub usage: Mutex<usage::Store>,        // per-session usage tallies (their own lock: reading a transcript never holds the core)
 }
 
 // What the pages get on /events: the same JSON as snapshot() in the 0.1 (Electron) app's main.js.
@@ -87,7 +90,7 @@ fn snapshot_of(c: &Core) -> Value {
         v
     }).collect();
     let waiting: Vec<Value> = c.work.new_for.iter().map(|(dir, n)| json!({ "dir": dir, "path": n["path"], "iid": n["iid"] })).collect();
-    json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json(), "waits": c.waits })
+    json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json(), "waits": c.waits, "usage": c.usage })
 }
 
 impl Bobix {
@@ -363,6 +366,34 @@ fn tick(b: &Arc<Bobix>) {
     remember(lines, now);
     for (id, pid) in to_check { check_pid(b, id, pid); }
     if changed { b.broadcast(); }
+}
+
+// Usage per session (usage.rs): transcripts are read under the usage lock only; the core is locked briefly before
+// (which sessions, which files) and after (their views).
+fn usage_tick(b: &Arc<Bobix>) {
+    let (live, settings): (Vec<(String, String)>, Value) = {
+        let c = b.core.lock().unwrap();
+        (c.sessions.values().filter(|s| !s.transcript.is_empty()).map(|s| (s.id.clone(), s.transcript.clone())).collect(), c.settings.clone())
+    };
+    let (views, meta) = { let mut u = b.usage.lock().unwrap(); let v = u.tick(&live, &settings, state::now()); (v, u.meta()) };
+    let changed = {
+        let mut c = b.core.lock().unwrap();
+        let mut changed = c.usage != meta;
+        c.usage = meta;
+        for s in c.sessions.values_mut() {
+            let Some(v) = views.get(&s.id) else { continue };
+            if &s.usage != v { s.usage = v.clone(); changed = true; }
+        }
+        changed
+    };
+    if changed { b.broadcast(); }
+}
+
+// The price table, opened in the person's editor (written from the built-in one first if it isn't there).
+#[tauri::command]
+fn usage_prices(b: B) {
+    let f = { let mut u = b.usage.lock().unwrap(); u.prices(); usage::prices_file(&paths::data_dir()) };
+    if let Err(e) = tauri_plugin_opener::open_path(&f, None::<&str>) { b.log_err(format!("prices: {e}")); }
 }
 
 // ---------- work items: git status, GitLab issues ----------
@@ -1057,7 +1088,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_new_review", "skills_mine", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board"];
+    "work_brief", "work_new_review", "skills_mine", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1144,15 +1175,15 @@ fn main() {
     let (tx, _) = broadcast::channel(64);
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
-            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default() }),
-        tx, token: token.clone(), port, app: Default::default(),
+            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), usage: Value::Null }),
+        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())),
     });
 
     let rb = b.clone();
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, process_status, process_import, habits_read, habits_clear, habits_note, show_board,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -1196,6 +1227,8 @@ fn main() {
             thread::spawn(move || loop { thread::sleep(Duration::from_secs(5)); tick(&tb); });
             let lb = b.clone();
             thread::spawn(move || loop { thread::sleep(Duration::from_millis(400)); link_tick(&lb); });
+            let ub = b.clone(); // every 5 s: what each session's transcript added (usage.rs)
+            thread::spawn(move || loop { usage_tick(&ub); thread::sleep(Duration::from_secs(5)); });
             // Screens change (plugged, resolution): no event for it, so look every 5 s.
             let (pb, ph) = (b.clone(), handle.clone());
             thread::spawn(move || {
@@ -1280,7 +1313,7 @@ mod snapshot_tests {
         ];
         work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default() }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), usage: Value::Null }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");

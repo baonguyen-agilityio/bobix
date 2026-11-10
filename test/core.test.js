@@ -1070,3 +1070,31 @@ test('tour: every step has its words in both languages, NEWS is this version, an
   assert.deepEqual(TOUR.place({ left: 10, top: 100, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 688, width: 396 });
   assert.deepEqual(TOUR.place({ left: 10, top: 700, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 12, width: 396 });
 });
+
+test('usage: one line, details and warnings from the numbers the app sends', () => {
+  const U = require('../src/ui/usage');
+  const I18N = require('../src/ui/i18n');
+  const T = (k, v) => I18N.t('en', k, v);
+  assert.deepEqual(['claude-opus-5-5', 'claude-haiku-4-5-20251001', 'claude-fable-5-1', 'claude-sonnet-5', 'gpt-x'].map(U.modelName), ['Opus 5.5', 'Haiku 4.5', 'Fable 5.1', 'Sonnet 5', 'gpt-x']);
+  assert.deepEqual([999, 12_400, 3_450_000, 45_000_000].map(U.tokens), ['999', '12k', '3.5M', '45M']);
+  assert.deepEqual([U.dur(25 * 60e3), U.dur(130 * 60e3), U.usd(4.5), U.usd(1234.4)], ['25m', '2h 10m', '$4.50', '$1,234']);
+  const u = { turns: 40, mainTurns: 30, tokens: { input: 100, output: 20_000, cacheWrite: 50_000, cacheRead: 3_000_000 }, activeMs: 80 * 60e3, ctx: 320_000,
+    reread: 0.98, rereadCost: 0.78, times: 3.14, cost: { usd: 42.4, date: '2026-10-06', partial: false },
+    models: [{ model: 'claude-opus-5-5', side: false, turns: 29 }, { model: 'claude-sonnet-5-5', side: false, turns: 1 }, { model: 'claude-haiku-5-5', side: true, turns: 10 }],
+    warnings: [{ kind: 'long', why: 'context', ctx: 320_000, limit: 300_000 }, { kind: 'light', why: 'output', out: 150, turns: 10, model: 'claude-opus-5-5' }, { kind: 'explore', n: 9, model: 'claude-opus-5-5' }] };
+  assert.equal(U.line(u, T, {}), '3.1× your usual session · 1h 20m active · ≈ $42 API est.');
+  assert.equal(U.line(u, T, { usageCost: false }), '3.1× your usual session · 1h 20m active', 'cost hidden by the switch');
+  assert.equal(U.line({ ...u, times: null, cost: undefined }, T, {}), '30 turns · 1h 20m active', 'no normal yet, no cost');
+  const facts = Object.fromEntries(U.facts(u, T, {}));
+  assert.equal(facts.Models, 'Opus 5.5 97%, Sonnet 5.5 3%, Haiku 5.5 (subagents) 100%');
+  assert.equal(facts.Cost, '≈ $42 API-equivalent estimate, prices of 2026-10-06');
+  assert.equal(facts['Re-reading context'], '98% of input tokens, 78% of the estimate');
+  const w = U.warns(u, T);
+  assert.deepEqual(w.map(x => x.kind), ['long', 'light', 'explore']);
+  assert.match(w[0].text, /re-reads 320k tokens.*warns at 300k.*\/compact/);
+  assert.match(w[1].text, /^Opus 5\.5 on light work: the last 10 turns answered in about 150 tokens.*Sonnet/);
+  assert.match(w[2].text, /^Read-only exploration on Opus 5\.5: 9 reads in a row\. .*Haiku subagent/);
+  assert.equal(U.line(null, T, {}), '');
+  assert.deepEqual(U.facts(undefined, T, {}), []);
+  for (const k of Object.keys(I18N.STR.en).filter(k => k.startsWith('use.') || k.startsWith('set.warn') || k.startsWith('set.usage') || k.startsWith('set.prices'))) assert.ok(I18N.STR.vi[k], `vi ${k}`);
+});
