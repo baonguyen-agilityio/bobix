@@ -1,11 +1,10 @@
 # The installers: Bobix-mac-arm64.dmg, Bobix-mac-x64.dmg, Bobix-windows-x64.exe, bobix-linux-amd64.deb,
-# bobix-linux-arm64.deb. Built on every pull request and on develop as this run's artifacts (to try a build); a tag
-# like v0.2.0 also attaches them to a GitHub Release (a tag with "-" makes a pre-release). Each installed (or opened)
-# app runs the smoke check; Windows and Linux install the last Electron-based release first, so upgrading from it is
-# checked too.
+# bobix-linux-arm64.deb. Built on develop as this run's artifacts (to try a build; pull requests only run smoke.yml, and
+# this workflow can be started by hand on any branch); a tag like v0.2.0 also attaches them to a GitHub Release (a tag
+# with "-" makes a pre-release). Each installed (or opened) app runs the smoke check; Windows and Linux install the last
+# Electron-based release first, so upgrading from it is checked too.
 name: release
 on:
-  pull_request:
   push:
     branches: [develop]
     tags: ['v*']
