@@ -36,8 +36,8 @@
     },
     "publisher": "Bobix contributors",
     "category": "DeveloperTool",
-    "shortDescription": "Your Claude Code sessions as pixel pets on your desktop.",
-    "longDescription": "Your Claude Code sessions as pixel pets on your desktop, with a control panel and notifications.",
+    "shortDescription": "Your Claude Code sessions as pets on your desktop.",
+    "longDescription": "Your Claude Code sessions as pets on your desktop, with a control panel and notifications.",
     "homepage": "https://github.com/baonguyen-agilityio/bobix",
     "windows": {
       "nsis": {

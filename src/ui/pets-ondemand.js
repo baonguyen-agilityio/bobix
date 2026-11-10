@@ -48,7 +48,9 @@ function odSync(list) {
 // ---------- a pet under its balloon ----------
 function odRide(p) {
   const s = p.s, st = look(s), color = petColor(s, lastList || []), art = (s.parent && byId(s.parent)) || s;
-  const spr = fxSprite(art, st, color, () => { if (OD.pets.get(s.id) === p && !p.leaving) odRide(p); }) || fxSprite({ ...art, image: null }, st, color);
+  const again = () => { if (OD.pets.get(s.id) === p && !p.leaving) odRide(p); };
+  const spr = fxSprite(art, st, color, again) || fxSprite({ ...art, image: null }, st, color, again);
+  if (!spr) return; // drawn as soon as its picture is ready
   p.R?.el.remove();
   p.R = new PetRide.Ride(PetRide.look(spr, p.need, `${art.project || art.id}|${art.image || ''}|${st}|${color}`), cfg.size,
     { origin: () => [p.x, p.y], layer: document.body }, hashStr(s.id + s.since));
@@ -76,7 +78,7 @@ function odLeave(p, need) {
   if (p.leaving) return;
   p.leaving = true; p.card = p.open = null; p.el.classList.add('going'); p.el.style.pointerEvents = 'none';
   odSeen(p);
-  if (FX_ON) p.R.leave(need); else { p.el.classList.add('gone'); p.goneAt = performance.now() + 320; } // removed by odFrame once faded
+  if (FX_ON && p.R) p.R.leave(need); else { p.el.classList.add('gone'); p.goneAt = performance.now() + 320; } // removed by odFrame once faded
   wake();
 }
 function odSeen(p) {
@@ -196,7 +198,7 @@ function odFrame(t, dt) {
     const hover = over || t - (p.hoverAt ?? -1e9) < 300; // a short grace while moving between the pet and its card
     if (hover !== p.hover) { p.hover = hover; p.el.classList.toggle('hover', hover); if (hover) odCardPlace(p); else p.card = p.open = null; }
     if (p.hover && p.until !== Infinity) p.until = Math.max(p.until, now + 1500); // reading it: it stays
-    if (p.need === 'ctx') p.R.setLevel(Math.min(4, Math.floor((now - p.t0) / OD_SHOW.ctx * 5))); // the balloon leaks
+    if (p.need === 'ctx') p.R?.setLevel(Math.min(4, Math.floor((now - p.t0) / OD_SHOW.ctx * 5))); // the balloon leaks
     if (now > p.until) p.last = true;
     if (p.cross) { odCross(p, t, dt); if (!OD.pets.has(p.s.id)) continue; busy = true; }
     else if (p.last && !p.hover) odLeave(p, p.need);

@@ -129,7 +129,7 @@ function ses(id, o = {}) {
     hostSession: null, log: [], pet: 'auto', parent: null, linking: false, image: null, pixel: false, whole: false, issue: null, ...o };
 }
 
-async function run(b, url, settings, script, label) {
+async function run(b, url, settings, script, label, mayShowNone = false) {
   await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
   const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   await ev(`__apply(${JSON.stringify(settings)})`);
@@ -187,7 +187,7 @@ async function run(b, url, settings, script, label) {
   };
   const mouse = (type, x, y) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
   await script({ push, steps, ses, ev, mouse, fail: m => bad.push(`t=${(t / 1000).toFixed(2)}s ${m}`) });
-  if (!seen) bad.push('no effect was shown');
+  if (!seen && !mayShowNone) bad.push('no effect was shown');
   bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
   return bad;
 }
@@ -203,7 +203,7 @@ const fam = (n, top) => async ({ push, steps, ses }) => {
   await push(at({ p: { state: 'waiting' }, k: i => (i === 0 ? { state: 'done', xp: 1 } : i === 1 ? { state: 'waiting' } : i === 2 ? { state: 'working', tool: 'Grep', ctx: 18 } : { state: 'working', tool: tools[i % 4] }) }));
   await steps(5, 6);
 };
-// Low on context, so each plays its tool card (a pet with context left holds its tool in the costume instead).
+// Low on context, so each plays the low-context battery as it comes in.
 const separate = async ({ push, steps, ses }) => {
   const one = (id, tool) => ses(id, { cwd: `/tmp/${id}`, state: 'working', tool, ctx: 18 });
   await push([one('pa', 'Bash'), one('pb', 'Edit'), one('pc', 'Read'), one('pd', 'Grep')]);
@@ -367,39 +367,34 @@ const dragged = async ({ push, steps, ses, ev, mouse, fail }) => {
   await steps(2, 6);
 };
 
-// Costumes by state (costume.js) on the real overlay: every costume pixel of every pet in sight, as its picture shows
-// it now, stays in its own box, off every name tag, off its "z" and off every other pet's box; the XP and the battery
-// play on the undressed pet; a held tool takes the tool card's place; the held tools and the finish flag move (4 frames).
-const COSTUME_DOM = `(() => { const out = [], R = n => n.getBoundingClientRect(), hit = (a, b) => a.l < b.right && b.left < a.r && a.t < b.bottom && b.top < a.b;
+// Flat-icon pets (creature.js) on the real overlay: every pet in sight is a flat pet, stays drawn while an effect plays
+// round it, keeps its drawing inside its box sideways and off every name tag, and acts its state frame by frame: a
+// working pet walks the way the line goes, one waiting for you shows its ring, a finished one waves and then jumps.
+const POSE_DOM = `(() => { const out = [], R = n => n.getBoundingClientRect(), hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
   const shown = [...pets.values()].filter(q => !q.el.classList.contains('line-off') && +q.el.style.opacity > .05), F = window.__fr ||= {};
   const tags = [...document.querySelectorAll('.pet:not(.line-off) .tag:not(.ghost)')].map(R);
   for (const p of shown) {
-    const st = look(p.s), art = p.art?.[0] || p.s, kind = costumeOf(art, p.s, st), id = p.s.id; if (!kind) continue;
-    if (p.fx && COSTUME.after(p.fx.kind) && p.fxO.dress) out.push(id + ': dressed while its ' + p.fx.kind + ' plays');
-    if (p.fx?.kind === 'tool' && COSTUME.holdsTool(kind, p.s.tool)) out.push(id + ': a tool card and a held tool');
-    if (p.fx && p.fxO.dress === kind && !F[id]?.includes('fx')) (F[id] ||= []).push('fx'); // worn in its effect (the aura, a tool card)
-    const svg = p.el.querySelector('.spr>svg'); if (!svg || getComputedStyle(svg).visibility === 'hidden') continue;
+    const id = p.s.id, svg = p.el.querySelector('.spr>svg');
+    if (!svg?.classList.contains('flat')) { out.push(id + ': not a flat pet'); continue; }
+    if (getComputedStyle(svg).visibility === 'hidden') out.push(id + ': hidden while its ' + (p.fx?.kind || 'nothing') + ' plays');
     (F[id] ||= []).includes(p.fr) || F[id].push(p.fr);
-    const only = COSTUME.dress(fineSprite(art.project || art.id, st, p.art[1]), kind, { left: rtl(), tool: p.s.tool, frame: Math.max(0, p.fr), only: true });
-    const b = R(svg), u = b.width / 36, box = R(p.el.querySelector('.spr')), zz = p.el.querySelector('.zz'), z = zz && getComputedStyle(zz).visibility !== 'hidden' ? R(zz) : null;
-    const others = shown.filter(q => q !== p).map(q => R(q.el.querySelector('.spr'))), n = { box: 0, tag: 0, z: 0, pet: 0 };
-    for (let y = 0; y < 36; y++) for (let x = 0; x < 36; x++) if (only.data[y * 36 + x] >>> 24) {
-      const r = { l: b.left + x * u, t: b.top + y * u, r: b.left + (x + 1) * u, b: b.top + (y + 1) * u };
-      if (r.l < box.left - .5 || r.r > box.right + .5 || r.t < box.top - .5 || r.b > box.bottom + .5) n.box++;
-      if (tags.some(t => hit(r, t))) n.tag++; if (z && hit(r, z)) n.z++; if (others.some(o => hit(r, o))) n.pet++;
-    }
-    for (const [k, v] of Object.entries(n)) if (v) out.push(id + ' (' + kind + '): ' + v + ' costume px ' + { box: 'outside its box', tag: 'on a name tag', z: 'on its z', pet: 'on another pet' }[k]);
+    if (look(p.s) === 'waiting' && !svg.querySelector('.ring')) out.push(id + ': waiting without its ring');
+    const box = R(p.el.querySelector('.spr')), u = box.width / 36, d = R(svg.querySelector('g')); // the pet as drawn (its shadow aside)
+    if (d.left < box.left - u || d.right > box.right + u) out.push(id + ' (' + p.fr + '): drawn past its box sideways');
+    if (tags.some(t => hit(d, t))) out.push(id + ' (' + p.fr + '): drawn on a name tag');
   } return out; })()`;
-const costumes = async ({ push, steps, ses, ev, fail }) => {
+const poses = async ({ push, steps, ses, ev, fail }) => {
   const one = (id, o) => ses(id, { cwd: `/tmp/${id}`, state: 'working', tool: 'Bash', ctx: 60, ...o });
-  const all = (o = {}) => [one('edit', { tool: 'Edit' }), one('bash'), one('read', { tool: 'Read' }), one('web', { tool: 'WebSearch' }), one('wait', o.wait), one('done', o.done), one('ctx', o.ctx), one('sleep', o.sleep)];
+  const all = (o = {}) => [one('edit', { tool: 'Edit' }), one('bash'), one('wait', o.wait), one('done', o.done), one('ctx', o.ctx), one('sleep', o.sleep)];
   await push(all());
   await steps(1, 10);
   await push(all({ wait: { state: 'waiting', askTool: 'Bash' }, done: { state: 'done', xp: 1 }, ctx: { ctx: 18, tool: 'Grep' }, sleep: { state: 'idle' } }));
-  for (let i = 0; i < 28; i++) { await steps(.25, 4); for (const o of await ev(COSTUME_DOM)) fail(o); }
-  const fr = await ev('window.__fr');
-  for (const id of ['edit', 'bash', 'read', 'web', 'done']) if ((fr[id] || []).filter(f => f >= 0).length < 4) fail(`${id}: its costume showed frames ${JSON.stringify(fr[id])}, not all 4`);
-  for (const id of ['wait', 'ctx', 'sleep']) if (!fr[id]) fail(`${id}: its costume never showed`);
+  for (let i = 0; i < 28; i++) { await steps(.25, 4); for (const o of await ev(POSE_DOM)) fail(o); }
+  const fr = await ev('window.__fr'), dir = await ev("rtl() ? 'walkL' : 'walkR'"), of = (id, ps) => (fr[id] || []).filter(f => f.startsWith(ps + ','));
+  for (const id of ['edit', 'bash']) if (of(id, dir).length < 4) fail(`${id}: walked in frames ${JSON.stringify(fr[id])}, not all 4 of ${dir}`);
+  if (of('wait', 'waiting').length < 2) fail(`wait: frames ${JSON.stringify(fr.wait)}`);
+  if (!of('done', 'wave').length || !of('done', 'jump').length) fail(`done: frames ${JSON.stringify(fr.done)}, not a wave and a jump`);
+  if (!of('sleep', 'asleep').length) fail(`sleep: frames ${JSON.stringify(fr.sleep)}`);
 };
 
 const exe = chrome();
@@ -429,9 +424,10 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     }
     for (const edge of ['bottom', 'top']) cases.push([`${edge} 56 a pet dragged onto another and let go`, { edge, size: 56, zoneStart: 20, zoneEnd: 80 }, dragged]);
     for (const edge of ['bottom', 'top']) cases.push([`${edge} 56 family of 10, right to left`, { edge, size: 56, walkDir: 'rtl', zoneStart: 5, zoneEnd: 55 }, fam(10)]);
-    for (const edge of ['bottom', 'top']) for (const [size, walkDir] of [[32, 'ltr'], [56, 'ltr'], [56, 'rtl'], [128, 'ltr']]) cases.push([`${edge} ${size} costumes, ${walkDir}`, { edge, size, walkDir, zoneStart: 5, zoneEnd: 95 }, costumes]);
+    for (const edge of ['bottom', 'top']) for (const [size, walkDir] of [[32, 'ltr'], [56, 'ltr'], [56, 'rtl'], [128, 'ltr']]) cases.push([`${edge} ${size} poses, ${walkDir}`, { edge, size, walkDir, zoneStart: 5, zoneEnd: 95 }, poses]);
     for (const [name, s, script] of cases.filter(c => !process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(c[0]))) {
-      const found = await run(b, url, { ...s, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' }, script, name);
+      // A zone that holds one 128 px pet at a time: flat pets play no loop, and their one-shots may play out of sight.
+      const found = await run(b, url, { ...s, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' }, script, name, s.size === 128 && /narrow/.test(name));
       bad.push(...found.slice(0, 6).map(f => `${name}: ${f}`));
     }
   } finally { b.close(); srv.close(); }

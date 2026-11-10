@@ -15,7 +15,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .pet:not(.parent):not(.side){z-index:1} /* a pet on its own stays above a family it walks past, name tag included */
 .edge-top .pet{bottom:auto;top:var(--s1)}
 .spr{position:relative;width:var(--size);height:var(--size);display:grid;place-items:center}
-.spr svg{width:100%;height:100%;filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))}
+.spr svg{width:100%;height:100%}
+.spr svg:not(.flat){filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))} /* a flat pet draws its own shadow */
 .tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;padding:0 var(--s2);border-radius:var(--pill);background:var(--surface);border:1px solid var(--line-strong);font-size:var(--t-xs);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .st-waiting .tag{background:var(--coral);border-color:var(--coral);color:var(--n-900)}
 .pet.side .spr{transform:scale(.8);transform-origin:50% 100%}
@@ -64,10 +65,14 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 /* While an effect plays (pet-fx.js) its canvas draws the pet, so the pet's own art steps aside; an effect that draws
    over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and a pet saying goodbye keeps
    nothing but itself. */
-.pet.fx .spr>svg,.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
-/* Two pets too close: the effect waits, the pet shows as it is (one waiting for you with a thin orange outline); one
-   saying goodbye goes. A pet out of sight round the line's far end is hidden. */
-.pet.wait-ring .spr>svg{filter:drop-shadow(1px 0 0 #ff7a4d) drop-shadow(-1px 0 0 #ff7a4d) drop-shadow(0 1px 0 #ff7a4d) drop-shadow(0 -1px 0 #ff7a4d)}
+.pet.fx .spr>svg:not(.flat),.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
+/* A flat pet keeps its own SVG while an effect plays round it (it acts its state; its waiting ring is its own), and
+   melts from the feet up when it says goodbye. Two pets too close: the effect waits, the pet shows as it is (a picture
+   pet waiting for you with a thin orange outline); one saying goodbye goes. A pet out of sight round the line's far end
+   is hidden. */
+.pet.leaving .spr>svg.flat{animation:melt 1.4s linear forwards}
+@keyframes melt{0%,50%{clip-path:inset(-20% -20% 0 -20%)}100%{clip-path:inset(-20% -20% 100% -20%)}}
+.pet.wait-ring .spr>svg:not(.flat){filter:drop-shadow(1px 0 0 #ff7a4d) drop-shadow(-1px 0 0 #ff7a4d) drop-shadow(0 1px 0 #ff7a4d) drop-shadow(0 -1px 0 #ff7a4d)}
 .pet.line-off{visibility:hidden!important}
 .pet.fx.fx-hide:not(.leaving) .spr>svg{visibility:visible}.pet.fx-hide .fxc,.pet.fx-hide .fxs,.pet.leaving.fx-hide{visibility:hidden}
 .pet.leaving>:not(.spr){opacity:0;transition:opacity 600ms var(--ease)}
@@ -77,8 +82,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .fxs{overflow:hidden}.fxs img{display:block;image-rendering:pixelated;will-change:transform}
 .spr svg.faced{position:absolute;left:-5%;bottom:0;width:110%;height:110%}
 .edge-top .spr svg.faced{bottom:auto;top:0}
-.walking .spr svg{animation:step 320ms steps(2) infinite}
-.st-waiting .spr svg{animation:hop 900ms var(--ease) infinite}
+.walking .spr svg:not(.flat){animation:step 320ms steps(2) infinite} /* a picture pet steps and hops; a flat one acts its pose */
+.st-waiting .spr svg:not(.flat){animation:hop 900ms var(--ease) infinite}
 @keyframes step{to{transform:translateY(-3px)}}
 @keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
 @keyframes pop{from{opacity:0;translate:0 4px}}
@@ -125,7 +130,6 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 <script src="/ui/i18n.js"></script>
 <script src="/ui/creature.js"></script>
 <script src="/ui/pet-fx.js"></script>
-<script src="/ui/costume.js"></script>
 <script src="/ui/pet-ride.js"></script>
 <script src="/ui/pets-ondemand.js"></script>
 <script src="/ui/habits.js"></script>
@@ -197,18 +201,14 @@ function kidsText(s) {
   const w = k.filter(x => look(x) === 'waiting').length;
   return [w > 0, w ? T('pet.kidsWaiting', { n: k.length, w }) : T('pet.kids', { n: k.length })];
 }
-// Costumes by state (costume.js): a pet wears one for its state, and its effects draw the same dressed pet. A picture
-// pet keeps its picture as it is. The held tool and the finish flag move: 4 frames, about 4.5 a second (-1: still).
-const costumeOf = (art, s, st) => (art.image ? null : COSTUME.kindOf(s, st));
-const costumeFrame = (art, s, st) => { const k = costumeOf(art, s, st); return k && COSTUME.moves(k, s.tool) ? Math.floor(performance.now() / 220) % 4 : -1; };
-function petSVG(art, st, color, s, frame) {
-  const kind = costumeOf(art, s, st);
-  if (!kind) return petArt(art, st, color);
-  const id = art.project || art.id;
-  return spriteSVG(COSTUME.dress(fineSprite(id, st, color ?? hashStr(id + 'c') % BODY.length), kind, { left: rtl(), tool: s.tool, frame }));
+// A flat pet acts its state frame by frame (creature.js poseAt): walking while the line moves and it works, from the
+// time its state began; with reduced motion it holds the first frame. A picture pet has no poses (null).
+function poseOf(p, art, st) {
+  if (art.image) return null;
+  return poseAt(st, FX_ON ? Date.now() - (p.s.since || 0) : 0, p.stepping && st === 'working' ? (rtl() ? 'L' : 'R') : '');
 }
 function paint(p, now) {
-  const s = p.s, st = look(s), kid = attached(s), color = petColor(s, lastList || []), art = (s.parent && byId(s.parent)) || s, fr = costumeFrame(art, s, st);
+  const s = p.s, st = look(s), kid = attached(s), color = petColor(s, lastList || []), art = (s.parent && byId(s.parent)) || s, pose = poseOf(p, art, st), fr = pose ? pose.join() : '';
   p.art = [art, color]; // what the pet looks like, for its effects
   const fam = !kid && kidsOf(s).some(k => visible(k)), mine = reportOf(s, now);
   // Hovered: its own card, or its request and buttons while it waits for you (the card would cover them).
@@ -219,8 +219,8 @@ function paint(p, now) {
   const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
   const say = (habitSay && habitSay.id === s.id && !p.hover && Date.now() < habitSay.until ? ['habit', habitSay.text] : null) || (t && (p.hover || t[0] === '') ? t : null);
   const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, card && [s.usage, cfg.usageCost], s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
-  if (p.key === key) { // only its costume moved: swap the picture, keep the rest (a card being clicked, say)
-    if (fr !== p.fr) { p.fr = fr; const svg = p.el.querySelector('.spr>svg'); if (svg) svg.outerHTML = petSVG(art, st, color, s, fr); }
+  if (p.key === key) { // only its pose moved: swap the picture, keep the rest (a card being clicked, say)
+    if (fr !== p.fr) { p.fr = fr; const svg = p.el.querySelector('.spr>svg'); if (svg) svg.outerHTML = petArt(art, st, color, pose); }
     return;
   }
   p.key = key; p.fr = fr;
@@ -242,7 +242,7 @@ function paint(p, now) {
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon, cfg.edge === 'top')}</div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
-    <div class="spr">${petSVG(art, st, color, s, fr)}</div>
+    <div class="spr">${petArt(art, st, color, pose)}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>`}`;
   if (p.fx) p.el.querySelector('.spr').append(p.sheetShown ? p.sheetEl : p.cv);
 }
@@ -284,10 +284,8 @@ const FX_ON = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 const leaving = new Set(); // pets of ended sessions playing their goodbye
 const fxCell = () => cfg.size / 18; // CSS px per effect cell: half a pixel of the 9×9 creature (its box is the pet's)
 function fxStart(p, kind, o = {}) {
-  // Dressed as the pet is, except for an effect that plays before the costume goes on (XP, the low-context battery).
-  const [art, color] = p.art || [p.s, undefined], dress = !COSTUME.after(kind) && costumeOf(art, p.s, look(p.s));
-  const pet = st => COSTUME.dress(fxSprite(art, st, color, wake), dress, { left: rtl(), tool: p.s.tool });
-  if (!pet('done')) return false; // its picture is still loading
+  const [art, color] = p.art || [p.s, undefined], pet = st => fxSprite(art, st, color, wake);
+  if (!['done', 'working'].map(pet).every(Boolean)) return false; // its pictures are still loading (both asked for at once)
   if (!p.cv) {
     p.cv = Object.assign(document.createElement('canvas'), { width: GW * 2, height: GH * 2, className: 'fxc' });
     p.cg = p.cv.getContext('2d'); p.img = p.cg.createImageData(GW * 2, GH * 2); p.buf = new Buf();
@@ -295,7 +293,7 @@ function fxStart(p, kind, o = {}) {
   if (p.fx) { p.fx.done = true; sheetOff(p); }
   // On the top edge the effect is mirrored down (the screen's edge is its ground); a tool's prop is held in its hands.
   p.lay = fxRoom(p, fxScene([...pets.values()])); // drawn for its room from the first frame
-  o = { ...o, flipX: false, mini: kind === 'tool', flipY: cfg.edge === 'top' && kind !== 'tool', dress };
+  o = { ...o, flipX: false, mini: kind === 'tool', flipY: cfg.edge === 'top' && kind !== 'tool', flat: !art.image };
   const run = fxRun(kind, { pet, ...o }), at = fxPlace(cfg.size, run.ox, o.flipX, o.flipY);
   Object.assign(p.cv.style, { width: at.width + 'px', height: at.height + 'px', left: at.left + 'px', top: at.top + 'px', translate: '', clipPath: '' }); p.clip = '';
   p.fx = run; p.fxSeg = o.seg; p.fxO = o; p.fxArt = [art, color, pet]; p.sheet = null; p.sheetRoom = '';
@@ -370,7 +368,7 @@ function fxStop(p) { if (p.fx) p.fx.done = true; sheetOff(p); p.fx = p.sheet = n
 // Loops play from a sheet of frames drawn once (fxSheet) as soon as it is ready: a CSS animation, nothing drawn per frame.
 const SHEETS = new Map(); // kind|prop|look -> fxSheet, the 6 latest
 function sheetFor(kind, o, art, color, pet) {
-  const key = [kind, o.seg, o.flipX, o.flipY, o.badge, o.plain, o.mini, o.dress, o.room, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
+  const key = [kind, o.seg, o.flipX, o.flipY, o.badge, o.plain, o.mini, o.flat, o.room, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
   let sh = SHEETS.get(key);
   if (sh) SHEETS.delete(key); else sh = fxSheet(kind, { pet, ...o });
   SHEETS.set(key, sh);
@@ -402,8 +400,8 @@ function fxTick(p, dt) {
     const next = p.queue?.[0];
     if (next && fxStart(p, ...next)) p.queue.shift();
     else if (!p.leaving) {
-      let want = fxLoop(p.s, look(p.s));
-      if (want?.[0] === 'tool' && COSTUME.holdsTool(costumeOf(p.art?.[0] || p.s, p.s, look(p.s)), p.s.tool)) want = null; // the tool is in its hands
+      // The loops are a picture pet's: a flat pet shows waiting with its ring and working with its pose.
+      const want = (p.art?.[0] || p.s).image ? fxLoop(p.s, look(p.s)) : null;
       if (!want) { if (p.fx) fxStop(p); }
       else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1]) fxStart(p, want[0], { seg: want[1], first: true });
     }
@@ -661,7 +659,7 @@ function frame(t) {
   const busy = mouseMoved || !!drag || leaving.size > 0 || all.some(p => p.stepping || p.hover || p.fx);
   mouseMoved = false;
   if (busy && !document.hidden) raf = requestAnimationFrame(frame);
-  else timer = setTimeout(() => frame(performance.now()), all.some(p => p.fr >= 0) ? 220 : all.length ? 400 : 1000); // a moving costume's next frame
+  else timer = setTimeout(() => frame(performance.now()), FX_ON && all.some(p => p.fr) ? 150 : all.length ? 400 : 1000); // a pose's next frame
 }
 
 // Seconds left to answer a request, without redrawing its card.

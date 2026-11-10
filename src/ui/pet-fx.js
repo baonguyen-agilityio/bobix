@@ -3,7 +3,9 @@
 // and a light layer, Bayer dithering instead of transparency, 7-step colour ramps, particles with drag and gravity,
 // silhouette flashes and an aura grown from the sprite's outline. Grid: 1 cell = half a pixel of the 9×9 creature
 // = 2 pixels of the fine 36×36 pet); the canvas is drawn at twice the grid so the pet keeps its fine pixels.
-// Needs creature.js (fineSprite, bigHeadLook, packRGB).
+// A flat-icon pet (creature.js) is not drawn here: its own SVG stays on screen and keeps acting its state, and the
+// effect draws round it (o.flat). Its silhouette still marks the cells it covers, so light and effect pixels stay off it.
+// Needs creature.js (flatArt, bigHeadLook, packRGB).
 const GW = 88, GH = 60, FEET = 54, CX = 44, SIM = 1 / 60, TOP = FEET - 18, MID = FEET - 9;
 const XP_PER_LV = 3; // XP_PER_LV in src-tauri/src/state.rs: finished tasks per level
 
@@ -112,7 +114,7 @@ class Buf {
     if (!box) return [0, 0, 0, 0];
     for (let oy = box[1] >> 1; oy < box[3] >> 1; oy++) for (let ox = box[0] >> 1; ox < box[2] >> 1; ox++) {
       const i = (fy ? GH - 1 - oy : oy) * GW + (fx ? GW - 1 - ox : ox), ci = c[i], li = l[i];
-      const v = ci >>> 24 && !(this.m[i] && !this.f[i]) ? ci : li > .08 ? ((li > .55 ? 200 : li > .32 ? 150 : li > .18 ? 100 : 55) << 24 | (this.lc[i] & 0xffffff)) >>> 0 : 0;
+      const v = this.m[i] === 2 && !this.f[i] ? 0 : ci >>> 24 && !(this.m[i] && !this.f[i]) ? ci : li > .08 ? ((li > .55 ? 200 : li > .32 ? 150 : li > .18 ? 100 : 55) << 24 | (this.lc[i] & 0xffffff)) >>> 0 : 0;
       const o = oy * 2 * W2 + ox * 2; out[o] = out[o + 1] = out[o + W2] = out[o + W2 + 1] = v;
     }
     for (const p of this.pets) {
@@ -181,6 +183,7 @@ function bmp(b, rows, x0, y0, r, a = 1) { rows.forEach((row, j) => [...row].forE
 // power-up's silhouette flash). The cells it covers are marked so the aura can grow from them; its fine pixels are
 // painted by toImage. o.a: see-through (dithered), o.clip: the share of its height still drawn, from the top.
 function blit(b, spr, cx, feet, sx = 1, sy = 1, flash = null, fa = 0, o = {}) {
+  if (b.flat) return blitFlat(b, spr, cx, feet); // stays where its SVG stands: no hop, stretch or flash
   const SX = sx * spr.k / 2, SY = sy * spr.k / 2, hw = spr.w * SX / 2, h = spr.h * SY, top = feet - h, a = o.a ?? 1, clip = o.clip ?? 1;
   for (let y = Math.floor(top); y < Math.ceil(feet); y++) for (let x = Math.floor(cx - hw); x < Math.ceil(cx + hw); x++) {
     let u = Math.floor((x + .5 - cx) / SX + spr.w / 2), v = Math.floor((y + .5 - top) / SY);
@@ -192,7 +195,17 @@ function blit(b, spr, cx, feet, sx = 1, sy = 1, flash = null, fa = 0, o = {}) {
   }
   b.pets.push({ spr, cx, feet, sx, sy, flash, fa, a, clip });
 }
-const shadow = (b, cx, feet, w = 9) => { if (b.fy) return; /* no ground under a pet hanging from the top edge */ for (const [row, ww, k] of [[feet, w, .3], [feet + 1, w * .7, .2], [feet + 2, w * .4, .12]]) for (let x = Math.ceil(-ww); x <= ww; x++) { const i = b.at(cx + x, row); if (i >= 0 && !b.c[i] && b.l[i] < k) { b.l[i] = k; b.lc[i] = SHADOW; } } };
+// A flat pet: only the cells under it are marked (2: left empty unless an effect pixel is drawn over it).
+function blitFlat(b, spr, cx, feet) {
+  const S = spr.k / 2, hw = spr.w * S / 2, top = feet - spr.h * S;
+  for (let y = Math.floor(top); y < Math.ceil(feet); y++) for (let x = Math.floor(cx - hw); x < Math.ceil(cx + hw); x++) {
+    let u = Math.floor((x + .5 - cx) / S + spr.w / 2), v = Math.floor((y + .5 - top) / S);
+    if (u < 0 || v < 0 || u >= spr.w || v >= spr.h) continue;
+    if (b.fx) u = spr.w - 1 - u; if (b.fy) v = spr.h - 1 - v;
+    const i = b.at(x, y); if (i >= 0 && spr.data[v * spr.w + u] >>> 24) b.m[i] = 2;
+  }
+}
+const shadow = (b, cx, feet, w = 9) => { if (b.fy || b.flat) return; /* no ground under a pet hanging from the top edge; a flat pet draws its own */ for (const [row, ww, k] of [[feet, w, .3], [feet + 1, w * .7, .2], [feet + 2, w * .4, .12]]) for (let x = Math.ceil(-ww); x <= ww; x++) { const i = b.at(cx + x, row); if (i >= 0 && !b.c[i] && b.l[i] < k) { b.l[i] = k; b.lc[i] = SHADOW; } } };
 function hopPose(t, t0, h = 4, dur = .3) {
   if (t >= t0 - .09 && t < t0) return { dy: 0, sx: 1.18, sy: .82 };
   if (t >= t0 && t < t0 + dur) { const p = (t - t0) / dur, mid = p > .3 && p < .7; return { dy: -Math.round(h * Math.sin(Math.PI * p)), sx: mid ? 1 : .88, sy: mid ? 1 : 1.14 }; }
@@ -517,7 +530,7 @@ function fxRun(kind, o) {
         fx.update(SIM, k * SIM, steps * SIM);
       }
     },
-    draw(b, room = o.room) { b.fx = !!o.flipX; b.fy = !!o.flipY; b.room = room || null; b.clear(); fx.draw(b, k * SIM, steps * SIM); },
+    draw(b, room = o.room) { b.fx = !!o.flipX; b.fy = !!o.flipY; b.flat = !!o.flat; b.room = room || null; b.clear(); fx.draw(b, k * SIM, steps * SIM); },
   };
 }
 
@@ -557,22 +570,30 @@ function fxSheet(kind, o) {
   return sheet;
 }
 
-// Sprites for the effects: the pet as petArt draws it (creature.js). A picture pet is painted into a canvas once its
-// picture has loaded (onReady is called then); until then there is no sprite and no effect.
+// Sprites for the effects: the pet as petArt draws it (creature.js), painted into a canvas once its picture has loaded
+// (onReady is called then); until then there is no sprite and no effect. A flat pet's sprite is its first frame without
+// badge or ring, at the pet's 36×36 box: the cells it covers (blitFlat), the colours of its goodbye sparks, and the pet
+// a "show when needed" balloon carries (pet-ride.js).
 const FX_SPR = new Map();
 function fxSprite(s, st, color, onReady) {
-  const ci = color ?? hashStr((s.project || s.id) + 'c') % BODY.length;
-  if (!s.image) return { ...fineSprite(s.project || s.id, st, ci), k: 1 };
-  const whole = s.pixel && s.whole, key = `${s.image}|${whole ? 'w' : ci}|${s.project || s.id}`;
+  const ci = color ?? hashStr((s.project || s.id) + 'c') % BODY.length, id = s.project || s.id, whole = s.pixel && s.whole;
+  const key = s.image ? `${s.image}|${whole ? 'w' : ci}|${id}` : `flat|${id}|${st}|${ci}`;
   if (FX_SPR.has(key)) return FX_SPR.get(key);
   FX_SPR.set(key, null);
   const token = new URLSearchParams(location.search).get('t') || '', img = new Image();
-  img.onload = () => { FX_SPR.set(key, whole ? wholeSprite(img) : facedSprite(img, bigHeadLook(s.project || s.id, ci), s.pixel)); onReady?.(); };
-  img.src = `/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(token)}`;
+  img.onload = () => { FX_SPR.set(key, !s.image ? flatSprite(img) : whole ? wholeSprite(img) : facedSprite(img, bigHeadLook(id, ci), s.pixel)); onReady?.(); };
+  img.src = s.image ? `/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(token)}` : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(flatArt(id, st, ci));
   return null;
 }
 const canvas2d = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c.getContext('2d', { willReadFrequently: true }); };
 const spriteOf = (g, w, h, k) => ({ w, h, data: new Uint32Array(g.getImageData(0, 0, w, h).data.buffer.slice(0)), k });
+// A flat pet at its box: solid where it is mostly covered, empty elsewhere (its soft shadow, its smoothed edge).
+function flatSprite(img) {
+  const g = canvas2d(36, 36); g.drawImage(img, 0, 0, 36, 36);
+  const spr = spriteOf(g, 36, 36, 1);
+  spr.data.forEach((c, i) => { spr.data[i] = c >>> 24 < 128 ? 0 : (c | 0xff000000) >>> 0; });
+  return spr;
+}
 // The picture as the whole pet: the pet's box (36 fine pixels), standing on its bottom.
 function wholeSprite(img) {
   const g = canvas2d(36, 36), f = Math.min(36 / img.naturalWidth, 36 / img.naturalHeight), w = img.naturalWidth * f, h = img.naturalHeight * f;

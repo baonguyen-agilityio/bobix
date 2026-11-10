@@ -105,7 +105,7 @@ test('an uploaded picture becomes the big head of the same project\'s creature',
 });
 
 
-test('the pet is the fine 36×36 version of its creature: same shape and colours in every state, a face per state', () => {
+test('flat-icon pets: a design per project, its session colour, a pose and a badge per state', () => {
   const ctx = {};
   require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
   const theme = fs.readFileSync(path.join(__dirname, '../src/ui/theme.css'), 'utf8'), TOKENS = require('vm').runInContext('TOKENS', ctx);
@@ -113,22 +113,44 @@ test('the pet is the fine 36×36 version of its creature: same shape and colours
     const m = theme.match(new RegExp(`${name}:oklch\\(([\\d.]+)% ([\\d.]+) ([\\d.]+)\\)`));
     strict.deepEqual([+m[1] / 100, +m[2], +m[3]], [L, C, h], `${name} as in theme.css`);
   }
-  const states = ['working', 'waiting', 'done', 'idle'], sp = states.map(st => ctx.fineSprite('/p', st, 1));
-  for (const s of sp) strict.deepEqual([s.w, s.h, s.data.length], [36, 36, 1296]);
-  const silhouette = s => [...s.data].map(c => (c ? 1 : 0)).join('');
-  strict.ok(sp.every(s => silhouette(s) === silhouette(sp[0])), 'the face changes, never the shape');
-  strict.equal(new Set(sp.map(s => [...s.data].join())).size, 4, 'each state has its own face');
-  const d = sp[0].data, at = (x, y) => d[y * 36 + x], line = ctx.oklch(ctx.mixOklch(TOKENS['--mint'], TOKENS['--n-900'], 0.45));
-  strict.ok([...Array(36).keys()].every(y => [...Array(36).keys()].every(x => !at(x, y) || at(x, y) === line || [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b]) => at(x + a, y + b))))
-    , 'a 1-pixel outline closes the body: only outline pixels touch the outside');
-  strict.ok(d.includes(ctx.oklch(TOKENS['--mint'])) && d.includes(0xffffffff), 'its colour, and a white glint in the working eyes');
-  strict.equal(ctx.fineSprite('/p', 'idle', 1), ctx.fineSprite('/p', 'idle', 1), 'built once, then cached');
-  strict.match(ctx.creature('/p', 'done', null, 1), /^<svg viewBox="0 0 36 36" width="80%" height="80%" shape-rendering="crispEdges"[^>]*>(<path fill="#[0-9a-f]{6}" d="[M0-9 hvz-]+"\/>)+<\/svg>$/);
+  const V = x => JSON.parse(JSON.stringify(x));
+  const [designOf, flatArt] = require('vm').runInContext('[designOf, flatArt]', ctx);
+  strict.equal(designOf('bobix'), 'default', "Bobix's own mascot is the default design");
+  const designs = new Set(Array.from({ length: 60 }, (_, i) => designOf(`/code/p${i}`)));
+  strict.deepEqual([...designs].sort(), ['default', 'miso', 'nota', 'ship', 'tty'], 'every design is picked by some project');
+  // Every state is acted: its own pose loop, done waves then jumps, a working pet walks while the line moves.
+  strict.deepEqual(['working', 'waiting', 'idle', 'failed'].map(st => ctx.poseAt(st)[0]), ['typing', 'waiting', 'asleep', 'failed']);
+  strict.deepEqual([ctx.poseAt('working', 0, 'R')[0], ctx.poseAt('working', 0, 'L')[0], ctx.poseAt('waiting', 0, 'R')[0]], ['walkR', 'walkL', 'waiting'], 'only a working pet walks');
+  strict.deepEqual([0, 150, 450, 600, 1050, 1200].map(t => ctx.poseAt('done', t).join()), ['wave,0', 'wave,1', 'wave,3', 'jump,0', 'jump,3', 'wave,0']);
+  strict.deepEqual([0, 220, 880].map(t => ctx.poseAt('waiting', t)[1]), [0, 1, 0], '4 frames of 220 ms');
+  const R = V(ctx.flatPose('walkR', 0)), L = V(ctx.flatPose('walkL', 0));
+  strict.deepEqual([L.rot, L.look, L.hands[0][0], L.feet], [-R.rot, -R.look, 36 - R.hands[1][0], [R.feet[1], R.feet[0]]], 'walking left mirrors walking right');
+  // The pictures: whole SVGs with every colour written out (they also draw into a canvas), a gradient of their own (an
+  // id per picture), a badge per status, the coral ring only while it waits for you.
+  const svg = (st, pose) => ctx.creature('/code/web', st, null, 1, false, pose), plain = x => x.replace(/bx\d+/g, '');
+  for (const st of ['working', 'waiting', 'done', 'idle', 'failed']) {
+    const x = svg(st), id = x.match(/<linearGradient id="(bx\d+)"/)[1];
+    strict.match(x, /^<svg class="flat" xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 36 36"[^>]*>.*<\/svg>$/);
+    strict.doesNotMatch(x, /var\(--|crispEdges/, `${st}: colours written out`);
+    strict.ok(x.includes(`url(#${id})`), `${st}: the body takes its gradient`);
+    strict.equal(/class="ring"/.test(x), st === 'waiting', `${st}: the ring`);
+  }
+  const badge = st => (svg(st).match(/r="4\.7" fill="(#[0-9a-f]{6})"/) || [])[1];
+  strict.deepEqual(['working', 'waiting', 'done', 'failed', 'idle'].map(badge), ['#5b8def', '#ff7a4d', '#34c38f', '#e5484d', undefined], 'a badge per status, none asleep');
+  strict.notEqual(svg('working').match(/id="(bx\d+)"/)[1], svg('working').match(/id="(bx\d+)"/)[1], 'a gradient id per picture');
+  strict.equal(new Set(['working', 'waiting', 'done', 'idle'].map(st => plain(svg(st)))).size, 4, 'each state looks its own');
+  strict.notEqual(plain(svg('waiting', ['waiting', 0])), plain(svg('waiting', ['waiting', 1])), 'and moves from frame to frame');
+  strict.equal(plain(svg('working')), plain(svg('working', ['typing', 0])), 'without a pose: the first frame');
+  strict.doesNotMatch(flatArt('/code/web', 'waiting', 1), /class="ring"|r="4\.7"/, 'for a canvas: no badge, no ring');
+  strict.match(ctx.creature('/code/web', 'done', '/pet-image/a.png?t=x'), /class="faced"/, 'a picture is still worn as the face');
 });
 
 test('pixel effects start on the right changes, and nothing plays while nothing happens', () => {
   const ctx = {};
   require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
+  require('vm').runInContext(`globalThis.BLOB = (() => { // a stand-in pet: a body with a lighter face, not symmetric (so a mirror shows)
+    const d = new Uint32Array(36 * 36); for (let y = 6; y < 36; y++) for (let x = 6; x < 30; x++) d[y * 36 + x] = y < 16 && x < 14 ? packRGB(240, 240, 250) : packRGB(110, 170, 230);
+    return { w: 36, h: 36, data: d, k: 1 }; })()`, ctx);
   const run = (code) => require('vm').runInContext(code, ctx);
   ctx.EV = (prev, s) => JSON.parse(JSON.stringify(ctx.fxEvents(prev, s)));
   const s = (o) => ({ id: 'a', state: 'working', lv: 1, xp: 0, ctx: 80, parent: null, tool: '', ...o });
@@ -150,7 +172,7 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   strict.equal(loop('done'), null); strict.equal(loop('idle'), null);
   // Every effect runs and draws: one-shots end on time, loops keep going; the pet is drawn from its fine pixels.
   run(`globalThis.out = Object.keys(FX).map(kind => {
-    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, f0: 2 / 3, f1: 1, lv: 7, seg: 2 }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
+    const pet = () => BLOB, r = fxRun(kind, { pet, f0: 2 / 3, f1: 1, lv: 7, seg: 2 }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
     let painted = 0;
     for (let i = 0; i < 400 && !r.done; i++) { r.step(1 / 60); r.draw(b); b.toImage(img); painted = Math.max(painted, new Uint32Array(img.data.buffer).filter(Boolean).length); }
     return [kind, r.done, painted > 0];
@@ -158,7 +180,7 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   strict.deepEqual(JSON.parse(JSON.stringify(ctx.out)), [['aura', false, true], ['xp', true, true], ['tool', false, true], ['ctx', true, true], ['end', true, true]]);
   // From its second loop on, a loop repeats exactly every cycle, so the overlay draws one cycle once and replays it.
   run(`globalThis.rep = [['aura', {}], ...[0, 1, 2, 3].map(seg => ['tool', { seg, first: true }])].map(([kind, o]) => {
-    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), r = fxRun(kind, { pet, ...o }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
+    const pet = () => BLOB, r = fxRun(kind, { pet, ...o }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) };
     const lead = FX[kind].D, n = Math.round(FX[kind].cycle * 30), shots = [];
     for (let f = 0, sim = 0; f < 2 * n; f++) { for (const until = Math.round((lead + f / 30) / SIM); sim < until; sim++) r.step(SIM); r.draw(b); b.toImage(img); shots.push(img.data.join() + b.shake); }
     return shots.slice(0, n).every((x, i) => x === shots[i + n]);
@@ -170,7 +192,7 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
   strict.deepEqual(Q([['ctx']], null, 'xp', { f0: 0, f1: 1 / 3, lv: 1 }).map(e => e[0]), ['ctx', 'xp']);
   // Mirrored for the top edge (or a prop on the other side): the pet and the text come out upright, not upside down.
   run(`globalThis.flip = (() => {
-    const spr = { ...fineSprite('/p', 'working', 0), k: 1 }, W2 = GW * 2, H2 = GH * 2;
+    const spr = BLOB, W2 = GW * 2, H2 = GH * 2;
     const draw = (fx, fy) => { const b = new Buf(); b.fx = fx; b.fy = fy; b.clear(); blit(b, spr, CX, FEET); text(b, 'LV 2', CX, 10, WARM[3]); const im = { data: new Uint8ClampedArray(W2 * H2 * 4) }; b.toImage(im); return new Uint32Array(im.data.buffer); };
     const a = draw(false, false), m = draw(false, true), h = draw(true, false);
     const rows = (img, r0, n, x0 = 0, x1 = W2) => { const o = []; for (let j = 0; j < n; j++) o.push(img.slice((r0 + j) * W2 + x0, (r0 + j) * W2 + x1).join()); return o.join('|'); };
@@ -185,8 +207,11 @@ test('pixel effects start on the right changes, and nothing plays while nothing 
 test('an effect drawn for its room stays inside it; the aura hugs the pet and the prop stays in its hands', () => {
   const ctx = {};
   require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
+  require('vm').runInContext(`globalThis.BLOB = (() => { // a stand-in pet: a body with a lighter face, not symmetric (so a mirror shows)
+    const d = new Uint32Array(36 * 36); for (let y = 6; y < 36; y++) for (let x = 6; x < 30; x++) d[y * 36 + x] = y < 16 && x < 14 ? packRGB(240, 240, 250) : packRGB(110, 170, 230);
+    return { w: 36, h: 36, data: d, k: 1 }; })()`, ctx);
   const out = require('vm').runInContext(`(() => {
-    const pet = st => ({ ...fineSprite('/p', st, 0), k: 1 }), res = {};
+    const pet = () => BLOB, res = {};
     // A packed row: 10 cells either side of the pet's column, 20 above its feet (the top edge's name tag), 3 below.
     for (const [kind, o] of [['aura', {}], ['xp', { f0: 2 / 3, f1: 1, lv: 9 }], ['ctx', {}], ['end', {}], ['tool', { seg: 1, mini: true }], ['tool', { seg: 1, plain: true }]]) {
       const r = fxRun(kind, { pet, ...o }), room = [r.ox - 10, FEET - 20, r.ox + 10, FEET + 3], b = new Buf();
@@ -205,6 +230,21 @@ test('an effect drawn for its room stays inside it; the aura hugs the pet and th
   const r = JSON.parse(out);
   for (const k of ['aura', 'xp', 'ctx', 'end', 'tool', 'tool-plain']) { assert.equal(r[k].outside, 0, `${k} drew outside its room`); assert.ok(r[k].drawn > 0, `${k} drew nothing`); }
   for (const [l, rr] of r.span) assert.ok(l <= 12 && rr <= 12, `drawn within 3 cells of the pet: ${JSON.stringify(r.span)}`);
+  // A flat pet keeps its own SVG on screen: the effect leaves its cells empty (unless an effect pixel goes over it) and
+  // draws no shadow or stretched pet of its own.
+  const flat = JSON.parse(require('vm').runInContext(`JSON.stringify(['xp', 'ctx', 'end'].map(kind => {
+    const r = fxRun(kind, { pet: () => BLOB, f0: 0, f1: 1 / 3, lv: 2, flat: true }), b = new Buf(), img = { data: new Uint8ClampedArray(GW * GH * 16) }, px = new Uint32Array(img.data.buffer);
+    let marked = 0, onPet = 0, shade = 0;
+    for (let f = 0; f < 60; f++) {
+      r.step(1 / 30); r.draw(b); b.toImage(img);
+      for (let y = 0, i = 0; y < GH; y++) for (let x = 0; x < GW; x++, i++) {
+        if (b.m[i] === 2) { marked++; if (!b.f[i] && px[y * 2 * GW * 2 + x * 2]) onPet++; }
+        if (b.lc[i] === SHADOW && b.l[i] > 0) shade++;
+      }
+    }
+    return [kind, marked > 0, onPet, shade, b.pets.length];
+  }))`, ctx));
+  for (const [kind, marked, onPet, shade, drawn] of flat) assert.deepEqual([marked, onPet, shade, drawn], [true, 0, 0, 0], `${kind} round a flat pet`);
   // With effects on, pets show no status balloon (the effect tells the state); without them, as before.
   assert.equal(require('vm').runInContext("[statusBalloon(true, 'waiting'), statusBalloon(true, 'done'), statusBalloon(false, 'waiting')]", ctx).join(), ',,waiting');
   // The rect maths the clip is made of.
@@ -215,75 +255,11 @@ test('an effect drawn for its room stays inside it; the aura hugs the pet and th
   assert.equal(area(JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [], [[30, 50, 70, 70]])))), 40 * 20, 'a pet in front is cut out over its own pet too');
 });
 
-// Costumes by state (costume.js) are drawn into the pet's 36×36 sprite, so the effects draw the same dressed pet. No
-// costume pixel may meet a pixel of an effect that plays while it is worn (pets.html: the state's loop, unless the
-// tool is in its hands; the one-shots of fxEvents), at either edge, walking either way, in any frame of a moving prop;
-// the XP and the low-context battery play before the costume goes on (worn with them, the crown, flag and nightcap
-// were crossed). Each effect runs once with a "pet" made of the costume pixels
-// alone (Buf.m marks them, Buf.f an effect pixel drawn over one) and once with no pet (every pixel it draws).
-// Their place on screen (inside the pet's box, off its name tag and its "z") is checked in overlay.test.js.
-test('costumes: one per state, the tool in the hand it walks towards, never under an effect pixel', () => {
-  const ctx = {};
-  require('vm').runInNewContext(['creature.js', 'pet-fx.js', 'costume.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
-  const run = code => JSON.parse(require('vm').runInContext(`JSON.stringify((() => { ${code} })())`, ctx));
-  const kind = (st, o = {}) => run(`return COSTUME.kindOf(${JSON.stringify({ tool: '', ctx: 80, ...o })}, '${st}')`);
-  strict.deepEqual([kind('working', { tool: 'Edit' }), kind('working', { tool: 'Bash' }), kind('working'), kind('working', { tool: 'Grep' }), kind('working', { tool: 'WebSearch' }),
-    kind('waiting'), kind('done'), kind('idle'), kind('working', { ctx: 10 }), kind('waiting', { ctx: 10 })],
-  ['work', 'work', 'work', 'search', 'search', 'wait', 'done', 'sleep', 'ctx', 'wait']);
-  strict.deepEqual(run(`return ['Edit', 'Bash', 'Read', 'WebFetch', 'Task', ''].map(t => COSTUME.holdsTool('work', t))`), [true, true, true, true, false, false], 'a tool with no prop keeps its card');
-  strict.deepEqual(run(`return Object.keys(TOOL_PROP).filter(t => !COSTUME.holdsTool('work', t))`), [], 'every tool with a card has a prop');
-  strict.deepEqual(run(`return [COSTUME.after('xp'), COSTUME.after('ctx'), COSTUME.after('aura'), COSTUME.after('tool')]`), [true, true, false, false], 'XP and the battery play before the costume goes on');
-  const r = run(`
-    const PETS = ['/code/web', '/code/api', '/code/docs', '/code/bobix', '/code/shop', '/p'], FACE = { work: 'working', search: 'working', wait: 'waiting', done: 'done', error: 'working', ctx: 'working', sleep: 'idle' };
-    const only = (id, i, k, o) => COSTUME.dress(fineSprite(id, FACE[k], i % BODY.length), k, { ...o, only: true });
-    const px = d => [...d].map((c, j) => c >>> 24 ? j : -1).filter(j => j >= 0);
-    const res = { hits: {}, empty: [], frames: {}, flagPole: true, hand: {}, picture: false };
-    // Every costume drawn, every frame, both hands; a moving one changes from frame to frame.
-    for (const k of COSTUME.KINDS) for (const tool of k === 'work' || k === 'search' ? ['Edit', 'Bash', 'Read', 'WebFetch', 'Task'] : ['']) for (const left of [false, true]) {
-      const fr = [0, 1, 2, 3].map(f => only('/p', 0, k, { left, tool, frame: f }).data.join());
-      if (fr.some(f => !px(f.split(',').map(Number)).length)) res.empty.push(k + tool);
-      res.frames[k + tool] = new Set(fr).size;
-    }
-    // The flag's pole stays still while its cloth waves; the prop is in the hand on the side it walks to.
-    const flag = f => only('/p', 0, 'done', { frame: f }).data;
-    for (let y = 0; y < 36; y++) if (new Set([0, 1, 2, 3].map(f => flag(f)[y * 36 + 33])).size > 1) res.flagPole = false;
-    for (const tool of ['Edit', 'Bash', 'Read', 'WebFetch']) for (const left of [false, true]) {
-      const xs = px(only('/p', 0, 'work', { left, tool }).data).map(j => j % 36).filter(x => x < 7 || x > 28); // past the hat's brim and its outline: the prop
-      res.hand[tool + left] = xs.length ? (xs.every(x => x > 28) ? 'right' : xs.every(x => x < 7) ? 'left' : 'both') : 'none';
-    }
-    res.picture = COSTUME.dress({ w: 44, h: 44, data: new Uint32Array(44 * 44) }, 'work', { tool: 'Edit' }).data.every(c => !c);
-    // The effects each state can play while its costume is on, as pets.html plays them.
-    const cases = [], seen = new Set(); // one of each: what is drawn differs by costume, its moving prop and the effect
-    for (const state of ['working', 'waiting', 'done', 'idle']) for (const tool of [...Object.keys(TOOL_PROP), 'LS', 'Task', '']) for (const ctx of [80, 10]) {
-      const s = { state, tool, ctx, lv: 1, xp: 0 }, k = COSTUME.kindOf(s, state), fx = [];
-      const loop = fxLoop(s, state); if (loop && !(loop[0] === 'tool' && COSTUME.holdsTool(k, tool))) fx.push(loop[0] === 'tool' ? ['tool', { seg: loop[1], mini: true }] : [loop[0], {}]);
-      for (const [e, o] of fxEvents({ ...s, state: 'working', ctx: 80 }, s)) if (!COSTUME.after(e)) fx.push([e, o || {}]);
-      for (const f of fx) { const key = [k, COSTUME.moves(k, tool) ? tool : '', JSON.stringify(f)].join('|'); if (!seen.has(key)) { seen.add(key); cases.push([k, tool, f]); } }
-    }
-    for (const [k, tool, [e, o]] of cases) for (const flipY of [false, true]) PETS.forEach((id, i) => { for (const left of [false, true]) for (const frame of COSTUME.moves(k, tool) ? [0, 1, 2, 3] : [0]) {
-      const fy = flipY && e !== 'tool', costume = only(id, i, k, { left, tool, frame }), mk = pet => fxRun(e, { ...o, first: true, flipY: fy, pet: () => pet });
-      const C = mk({ ...costume, k: 1 }), E = mk(NOPET), bc = new Buf(), be = new Buf(), key = k + '/' + e;
-      for (let t = 0; t < (FX[e].D || 2.4); t += 1 / 30) {
-        C.step(1 / 30); E.step(1 / 30); C.draw(bc); E.draw(be);
-        let n = 0; for (let j = 0; j < GW * GH; j++) if (bc.m[j] && (bc.f[j] || be.c[j])) n++;
-        res.hits[key] = Math.max(res.hits[key] || 0, n);
-      }
-    } });
-    return res;`);
-  strict.deepEqual(r.empty, [], 'every costume draws something in every frame');
-  for (const [k, n] of Object.entries(r.frames)) strict.equal(n, k === 'done' || /^(work|search)(Edit|Bash|Read|WebFetch)$/.test(k) ? 4 : 1, `${k}: frames that differ`);
-  strict.ok(r.flagPole, "the flag's pole stays still");
-  for (const tool of ['Edit', 'Bash', 'Read', 'WebFetch']) strict.deepEqual([r.hand[tool + false], r.hand[tool + true]], ['right', 'left'], `${tool}: held on the side it walks to`);
-  strict.ok(r.picture, 'a picture pet is not dressed');
-  strict.deepEqual(Object.keys(r.hits).sort(), ['ctx/tool', 'wait/aura'], 'the effects worn costumes meet');
-  strict.deepEqual(r.hits, Object.fromEntries(Object.keys(r.hits).map(k => [k, 0])), 'costume pixels under an effect pixel');
-});
-
 test('sessions of one project share a shape; colours tell them apart', () => {
   const ctx = {};
   require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
-  const fill = svg => [...new Set((svg.match(/fill="#[0-9a-f]{6}"/g) || []))].join();
-  const shape = svg => svg.replace(/fill="[^"]*"/g, '');
+  const fill = svg => [...new Set((svg.match(/#[0-9a-f]{6}/g) || []))].sort().join();
+  const shape = svg => svg.replace(/(fill|stroke|stop-color)="[^"]*"/g, '').replace(/bx\d+/g, '');
   const list = [{ id: 'a', project: '/p' }, { id: 'b', project: '/p' }, { id: 'c', project: '/q' },
     ...['k1', 'k2', 'k3'].map(id => ({ id, project: '/p', parent: 'a' }))];
   const art = s => ctx.creature((list.find(x => x.id === s.parent) || s).project, 'working', null, ctx.petColor(s, list));

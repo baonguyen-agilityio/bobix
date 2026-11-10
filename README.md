@@ -2,7 +2,7 @@
 
 <h1 align="center">Bobix</h1>
 
-<p align="center"><b>Your Claude Code sessions as little pixel pets on your screen.</b><br>
+<p align="center"><b>Your Claude Code sessions as little pets on your screen.</b><br>
 See who is working, who needs you and who is done, without opening a single window.</p>
 
 <p align="center">
@@ -26,9 +26,9 @@ Run a few Claude Code sessions at once and you spend your day clicking through t
 
 | The pet… | means |
 |----------|-------|
-| walks around, bubble like *running a command* | Claude is working |
-| hops, red bubble *Needs you: Bash* | Claude is waiting for your approval |
-| smiles, green bubble *Done!* | the session finished its turn |
+| walks around, blue "…" badge, bubble like *running a command* | Claude is working |
+| taps a foot in a coral ring, "!" badge | Claude is waiting for your approval |
+| waves and jumps, green tick badge | the session finished its turn |
 | sleeps | nothing happening; after a while it leaves the screen |
 
 **Click a pet to jump into that session.** Hover to see its task, status and how much context is left.
