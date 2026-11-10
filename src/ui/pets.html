@@ -45,21 +45,36 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .answer button:hover{filter:brightness(1.1)}
 .answer .left{font-weight:500;color:var(--ink-3)}
 .card .answer{display:flex;flex-wrap:wrap;margin:0 0 var(--s2)}
-.card{width:272px;padding:var(--s3) var(--s4);z-index:2;animation:pop 150ms var(--ease)}
-.card h2{font:700 var(--t-lg)/1.15 var(--f-display);margin:0;overflow-wrap:anywhere}
-.card .sub{font-size:var(--t-xs);color:var(--ink-3);margin:0 0 var(--s2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card .q{color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:0 0 var(--s2)}
-.card .row{display:flex;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3)}
-.card .row+.row{margin-top:var(--s1)}
-.card .row.ctx{margin-top:var(--s2)}
-.card .st{font-weight:600;color:var(--ink)}
-.st-waiting .card .st{color:var(--coral-ink)}
-.meter{height:6px;border-radius:var(--pill);background:var(--n-200);overflow:hidden;margin:var(--s1) 0 var(--s2)}
-.meter i{display:block;height:100%;background:var(--ink-2);transform-origin:left;transform:scaleX(var(--v))}
-.meter.low i{background:var(--coral)}
-.card .hint{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--line);padding-top:var(--s2);margin-top:var(--s1)}
-.card .hide{flex:none;font:600 var(--t-xs) var(--f-body);color:var(--ink-2);background:var(--n-100);border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2);cursor:pointer}
-.card .hide:hover{background:var(--n-200);color:var(--ink)}
+.card{width:272px;padding:var(--s3) var(--s3) var(--s2);z-index:2;animation:pop 150ms var(--ease)}
+.card.still,.say.still{animation:none} /* redrawn while shown: no second entrance */
+/* Who, what it is doing right now, what it was asked (only once it was), then context and actions in one row.
+   The rows that change while a session runs (the activity line, the meter) hold one line each, so the card stays still. */
+.card h2{font:700 var(--t-md)/1.25 var(--f-display);margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.card .meta{display:flex;gap:.4em;font-size:var(--t-xs);line-height:1.5;color:var(--ink-3);margin-top:2px;white-space:nowrap}
+.card .meta>*{flex:none}
+.card .meta .where{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.card .meta .hot{color:var(--coral-ink);font-weight:600}
+.card .now{display:flex;align-items:center;gap:6px;margin-top:var(--s2);font-size:var(--t-xs);font-weight:600;line-height:1.6;white-space:nowrap}
+.card .now::before{content:"";flex:none;width:7px;height:7px;margin:0 2px;border-radius:50%;background:var(--n-500);box-shadow:0 0 0 3px var(--n-100)}
+.st-working .card .now::before{background:var(--go);box-shadow:0 0 0 3px var(--mint-soft)}
+.card .now code{flex:1;min-width:0;font:500 var(--t-xs)/1.6 var(--f-mono);color:var(--ink-2);background:var(--n-100);border-radius:6px;padding:0 6px;overflow:hidden;text-overflow:ellipsis}
+.card .q{margin:var(--s2) 0 0;padding-left:var(--s2);border-left:2px solid var(--line-strong);color:var(--ink-2);font-size:.8125rem;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.card .bar{display:flex;align-items:center;gap:var(--s2);margin-top:var(--s2);padding-top:var(--s2);border-top:1px solid var(--line);font-size:var(--t-xs);color:var(--ink-3)}
+.card .bar .ctx{flex:1;display:flex}
+.card .bar .meter{flex:1}
+.card .bar .pct{min-width:2.6em;text-align:right}
+.card .bar .acts{display:flex;gap:var(--s1);margin-left:var(--s1)}
+.meter{display:flex;gap:3px;height:7px;padding:0 2px}
+.meter i{flex:1;border:1px solid var(--line-strong);border-radius:1px;transform:skewX(-20deg)}
+.meter i.on{background:var(--go);border-color:var(--go)}
+.meter.mid i.on{background:var(--warn);border-color:var(--warn)}
+.meter.high i.on{background:var(--coral);border-color:var(--coral)}
+.meter.unk i{background:var(--n-200);border-color:var(--n-200)}
+.card .bar button{position:relative;font:600 var(--t-xs)/1.4 var(--f-body);color:var(--ink-2);background:var(--n-100);border:1px solid var(--line-strong);border-radius:var(--pill);padding:2px var(--s2) 1px;min-width:4.25em;text-align:center;cursor:pointer}
+.card .bar button::after{content:"";position:absolute;inset:-3px -2px} /* a 24px tall target around the small pill */
+.card .bar button:hover{background:var(--n-200);color:var(--ink)}
+.card .bar .go{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.card .bar .go:hover{background:var(--ink);color:var(--surface);filter:brightness(1.25)}
 .zz{position:absolute;left:70%;top:-6px;font:700 var(--t-sm) var(--f-display);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
 /* While an effect plays (pet-fx.js) its canvas draws the pet, so the pet's own art steps aside; an effect that draws
    over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and a pet saying goodbye keeps
@@ -129,6 +144,13 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 <script src="/ui/habits.js"></script>
 <script>
 const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
+// context used as ten cells: full only at 100%, any use lights at least one; green, then amber from 50%, coral from 75%
+const meter = used => {
+  const lit = used > 0 ? Math.max(1, Math.floor(used / 10)) : 0, tier = used == null ? 'unk' : used >= 75 ? 'high' : used >= 50 ? 'mid' : '';
+  return `<span class="meter ${tier}" aria-hidden="true">${Array.from({ length: 10 }, (_, k) => `<i${k < lit ? ' class="on"' : ''}></i>`).join('')}</span>`;
+};
+// A file path keeps its last folders, where the name is; a command keeps its start (the card cuts its end).
+const argText = a => (/^[~/.…]/.test(a) && !/\s/.test(a) && a.split('/').length > 4 ? '…/' + a.split('/').slice(-3).join('/') : a);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 const bridge = window.bobix; // present inside the app (src-tauri/bridge.js); absent in a plain browser tab
@@ -215,28 +237,27 @@ function paint(p, now) {
   // A bubble: its request when hovered; the tool it just picked up, for a pet on its own.
   const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
   const say = (habitSay && habitSay.id === s.id && !p.hover && Date.now() < habitSay.until ? ['habit', habitSay.text] : null) || (t && (p.hover || t[0] === '') ? t : null);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, s.tool, s.toolArg, card && now - s.since >= 60e3 && I18N.ago(lang, s.since), s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
   if (p.key === key) { // only its costume moved: swap the picture, keep the rest (a card being clicked, say)
     if (fr !== p.fr) { p.fr = fr; const svg = p.el.querySelector('.spr>svg'); if (svg) svg.outerHTML = petSVG(art, st, color, s, fr); }
     return;
   }
   p.key = key; p.fr = fr;
-  const hp = s.ctx;
+  const used = s.ctx == null ? null : 100 - s.ctx; // s.ctx is what's left
   const keep = ['line-off', 'fx-hide', 'wait-ring', 'leaving'].filter(c => p.el.classList.contains(c)).map(c => ' ' + c).join(''); // set by the line and the effects
   p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''}${keep} ${p.edge}`;
-  const kids = kidsText(s), parent = s.parent && byId(s.parent);
+  const kids = kidsText(s), parent = s.parent && byId(s.parent), result = st === 'done' && s.summary;
+  const shown = { card: card && p.cardOn, say: !!(say && say[1]) && p.sayOn }; // already on screen before this redraw
+  p.cardOn = !!card; p.sayOn = !!(say && say[1]);
   p.el.innerHTML = `
-    ${card ? `<div class="card">
-        <h2>${esc(s.title || s.name)}</h2>
-        <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
-        <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
-        <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
-        ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
-        <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
-        <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
-        <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
+    ${card ? `<div class="card${shown.card ? ' still' : ''}" title="${esc(T('card.drag'))}">
+        <h2 title="${esc(s.title || s.name)}">${esc(s.title || s.name)}</h2>
+        <div class="meta" title="${esc(s.cwd)}"><span class="where">${esc(parent ? T('pet.from', { name: parent.title || parent.name }) : s.name)}</span><span>·</span><span>${T('pet.lv', { n: s.lv })}</span>${now - s.since >= 60e3 ? `<span>·</span><span>${I18N.ago(lang, s.since)}</span>` : ''}${kids ? `<span>·</span><span${kids[0] ? ' class="hot"' : ''}>${esc(kids[1])}</span>` : ''}</div>
+        <div class="now"><span>${esc(statusText(s, st))}</span>${st === 'working' && s.toolArg ? `<code title="${esc(s.toolArg)}">${esc(argText(s.toolArg))}</code>` : ''}</div>
+        ${result || s.quest ? `<p class="q" title="${esc(result || s.quest)}">${esc(result || s.quest)}</p>` : ''}
+        <div class="bar"><span class="ctx" title="${esc(T('ctx'))}">${meter(used)}</span><span class="pct">${used == null ? '?' : used + '%'}</span><span class="acts">${bridge ? `<button type="button" data-hide>${T('pet.hide')}</button>` : ''}<button class="go" type="button" data-open="${esc(s.id)}">${T(cfg.clickAction === 'focus' ? 'card.openFocus' : 'card.openPanel')}</button></span></div></div>` : ''}
     ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon, cfg.edge === 'top')}</div>` : ''}
-    ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
+    ${say && say[1] ? `<div class="say ${say[0]}${shown.say ? ' still' : ''}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petSVG(art, st, color, s, fr)}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>`}`;

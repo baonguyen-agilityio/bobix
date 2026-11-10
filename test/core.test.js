@@ -1070,3 +1070,9 @@ test('tour: every step has its words in both languages, NEWS is this version, an
   assert.deepEqual(TOUR.place({ left: 10, top: 100, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 688, width: 396 });
   assert.deepEqual(TOUR.place({ left: 10, top: 700, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 12, width: 396 });
 });
+
+test('i18n: ago says how long ago in minutes, hours, then days', () => {
+  const I = require('../src/ui/i18n'), now = Date.UTC(2026, 10, 10, 12), min = 60e3;
+  assert.deepEqual([now - 30e3, now - 3 * min, now - 125 * min, now - 3 * 1440 * min].map(t => I.ago('vi', t, now)), ['vừa xong', '3 phút', '2 giờ', '3 ngày']);
+  assert.equal(I.ago('en', now - 3 * min, now), '3 min');
+});

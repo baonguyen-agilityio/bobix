@@ -113,10 +113,12 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.2;margin:0;t
 .dg>[data-area=doing]{grid-area:doing}.dg>[data-area=verify]{grid-area:verify}.dg>[data-area=done]{grid-area:done}.dg>[data-area=loose]{grid-area:loose}.dg>[data-area=todo]{grid-area:todo}
 .sprite{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:var(--sunk)}
 .ctx{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-xs);color:var(--ink-3)}
-.meter{width:64px;height:6px;border-radius:var(--pill);background:var(--line);overflow:hidden}
-.meter i{display:block;height:100%;background:var(--ink-3);transform-origin:left;transform:scaleX(var(--v));transition:transform 250ms var(--ease)}
-.meter.low i{background:var(--coral)}
-.meter.unk i{background:var(--n-300)}
+.meter{width:64px;display:flex;gap:3px;height:6px;padding:0 2px}
+.meter i{flex:1;border:1px solid var(--line-strong);border-radius:1px;transform:skewX(-20deg)}
+.meter i.on{background:var(--go);border-color:var(--go)}
+.meter.mid i.on{background:var(--warn);border-color:var(--warn)}
+.meter.high i.on{background:var(--coral);border-color:var(--coral)}
+.meter.unk i{background:var(--n-200);border-color:var(--n-200)}
 .pill{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px var(--s3);border-radius:var(--pill);font-size:var(--t-sm);font-weight:600;background:var(--line);color:var(--ink-2)}
 .st-waiting .pill{background:var(--coral);color:var(--on-pop)}
 .sprite.sm{width:36px;height:36px;border-radius:10px}
@@ -647,6 +649,11 @@ input[type=number]{width:104px}
 setTimeout(() => document.body.classList.remove('boot'), 1000);
 const IDLE_AFTER = 10 * 60e3;
 const $ = s => document.querySelector(s);
+// context used as ten cells: full only at 100%, any use lights at least one; green, then amber from 50%, coral from 75%
+const meter = used => {
+  const lit = used > 0 ? Math.max(1, Math.floor(used / 10)) : 0, tier = used == null ? 'unk' : used >= 75 ? 'high' : used >= 50 ? 'mid' : '';
+  return `<span class="meter ${tier}" aria-hidden="true">${Array.from({ length: 10 }, (_, k) => `<i${k < lit ? ' class="on"' : ''}></i>`).join('')}</span>`;
+};
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Side sessions started from a Claude desktop session (parent = that session's id in Bobix).
 const kidsOf = s => list.filter(x => x.parent === s.id);
@@ -701,10 +708,7 @@ function showTab(name) {
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
 // ---------- sessions board ----------
-function ago(t) {
-  const m = Math.floor((Date.now() - t) / 60e3);
-  return m < 1 ? T('ago.now') : m < 60 ? T('ago.min', { n: m }) : m < 1440 ? T('ago.h', { n: Math.floor(m / 60) }) : T('ago.d', { n: Math.floor(m / 1440) });
-}
+const ago = t => I18N.ago(lang, t);
 function statusText(s, st) {
   if (st === 'working') return s.tool ? T('status.working', { tool: I18N.toolLabel(lang, s.tool) }) : T('status.thinking');
   if (st === 'waiting') return s.askTool ? T('status.waitingTool', { tool: s.askTool }) : T('status.waiting');
@@ -744,7 +748,7 @@ const opened = new Set(); // lists opened past their cap ('aq', 'verify', 'done'
 let query = '', proj = 'all', nextFocus = null, st = BOARD.stages(null, []);
 const flip = k => (opened.has(k) ? opened.delete(k) : opened.add(k));
 const pet = (s, cls = 'sm') => `<span class="sprite ${cls}">${petArt(list.find(x => x.id === s.parent) || s, look(s), petColor(s, list))}</span>`;
-const lowCtx = hp => (hp != null && hp < 25 ? `<span class="low" title="${esc(T('ctx'))}">${esc(T('ctx'))} ${hp}%</span>` : ''); // context only when low
+const lowCtx = hp => (hp != null && hp < 25 ? `<span class="low" title="${esc(T('ctx'))}">${esc(T('ctx'))} ${100 - hp}%</span>` : ''); // context only when nearly full (hp: what is left), said as used
 const head = (k, title, n, tools = '') => `<div class="dh">${k === 'aq' ? '<i class="dot"></i>' : ''}<h2 id="h-${k}">${esc(title)}</h2>${n != null ? `<span class="n">${n}</span>` : ''}${tools ? `<span class="tools">${tools}</span>` : ''}</div>`;
 const moreBtn = (k, rest, label) => `<button class="more" type="button" data-flag="${esc(k)}" data-f="flag:${esc(k)}">${esc(opened.has(k) ? T('day.less') + ' ▴' : (label || T('day.more', { n: rest })) + ' ▾')}</button>`;
 const webBtn = i => (bridge && i.url ? `<button class="ib" type="button" data-url="${esc(i.url)}" aria-label="${esc(T('work.open'))} #${i.iid}" title="${esc(T('work.open'))}">↗</button>` : '');
@@ -1058,7 +1062,7 @@ function renderPane() {
       <div><h2 id="pane-h">${esc(s.title || s.name)}</h2><span class="lv">${esc(s.name)} · ${T('pet.lv', { n: s.lv })}</span></div>
       <button class="icon-btn" type="button" data-act="close" aria-label="${esc(T('pane.close'))}" title="${esc(T('pane.close'))}">✕</button>
     </div>
-    <div class="pane-line st-${st}"><span class="pill">${esc(statusText(s, st))}</span><span class="ctx"><span class="meter ${s.ctx == null ? 'unk' : s.ctx < 25 ? 'low' : ''}"><i style="--v:${(s.ctx ?? 100) / 100}"></i></span>${s.ctx == null ? T('ctx.unknown') : `${T('ctx')} ${s.ctx}%`}</span><span class="note" data-t-ago="${s.since}">${ago(s.since)}</span></div>
+    <div class="pane-line st-${st}"><span class="pill">${esc(statusText(s, st))}</span><span class="ctx">${meter(s.ctx == null ? null : 100 - s.ctx)}${s.ctx == null ? T('ctx.unknown') : `${T('ctx')} ${100 - s.ctx}%`}</span><span class="note" data-t-ago="${s.since}">${ago(s.since)}</span></div>
     <div class="pane-acts">
       <div>${bridge ? `<button class="btn pri" type="button" data-act="open">${T('pane.open')}</button>
         <button class="btn" type="button" data-act="pet"><span>${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</span><span class="alt" aria-hidden="true">${T(offScreen(s) ? 'pane.hidePet' : 'pane.showPet')}</span></button>` : ''}</div>

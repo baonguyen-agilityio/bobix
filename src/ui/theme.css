@@ -7,6 +7,8 @@
   --sky:oklch(84% 0.075 235);--mint:oklch(86% 0.085 162);--lilac:oklch(83% 0.075 300);
   --peach:oklch(86% 0.075 55);--butter:oklch(90% 0.095 98);--rose:oklch(84% 0.075 5);
   --sky-soft:oklch(95.5% 0.028 235);--mint-soft:oklch(95.5% 0.032 162);
+  /* context meter: green with room to spare, amber filling up (coral below when nearly full); 3:1 on --surface */
+  --go:oklch(62% 0.16 150);--warn:oklch(64% 0.14 72);
   /* the one pop: "needs you" */
   --coral:oklch(66% 0.175 33);--coral-ink:oklch(46% 0.14 33);--coral-soft:oklch(95% 0.035 33);
 

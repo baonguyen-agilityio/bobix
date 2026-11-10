@@ -30,6 +30,16 @@ pub fn round(n: f64) -> f64 { (n + 0.5).floor() }
 // String length as JavaScript counts it (UTF-16 code units).
 pub fn len16(s: &str) -> usize { s.encode_utf16().count() }
 
+// s.slice(-n) in UTF-16 units, never splitting a character.
+pub fn tail16(s: &str, n: usize) -> &str {
+    let mut units = 0;
+    for (i, c) in s.char_indices().rev() {
+        units += c.len_utf16();
+        if units > n { return &s[i + c.len_utf8()..]; }
+    }
+    s
+}
+
 // s.slice(0, n) in UTF-16 units, never splitting a character.
 pub fn head16(s: &str, n: usize) -> &str {
     let mut units = 0;

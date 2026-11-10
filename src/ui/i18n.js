@@ -49,7 +49,7 @@
       'tool.WebFetch': 'reading the web', 'tool.WebSearch': 'searching the web', 'tool.Task': 'calling a teammate', 'tool.Agent': 'calling a teammate',
       'tool.TodoWrite': 'planning', 'tool.other': 'using {tool}',
       'pet.waiting': 'Needs you: {tool}', 'pet.waitingPlain': 'Needs you', 'pet.done': 'Done!',
-      'pet.clickFocus': 'Click to open this session · drag to move', 'pet.clickPanel': 'Click for details · drag to move', 'pet.lv': 'Lv.{n}',
+      'card.openFocus': 'Open session', 'card.openPanel': 'Details', 'card.drag': 'Drag the pet to move it', 'pet.lv': 'Lv.{n}',
       'notify.waiting': '{name} needs you', 'notify.done': '{name} finished',
       'tray.feedback': 'Feedback', 'tray.panel': 'Open Bobix', 'tray.hide': 'Hide pets', 'tray.show': 'Show pets', 'tray.pause': 'Pause notifications', 'tray.quit': 'Quit',
       'set.section.place': 'Where pets walk',
@@ -401,7 +401,7 @@
       'tool.WebFetch': 'đọc trang web', 'tool.WebSearch': 'tìm trên web', 'tool.Task': 'gọi đồng đội', 'tool.Agent': 'gọi đồng đội',
       'tool.TodoWrite': 'lập kế hoạch', 'tool.other': 'dùng {tool}',
       'pet.waiting': 'Cần bạn duyệt: {tool}', 'pet.waitingPlain': 'Cần bạn duyệt', 'pet.done': 'Xong nhiệm vụ!',
-      'pet.clickFocus': 'Bấm để mở phiên này · kéo để dời chỗ', 'pet.clickPanel': 'Bấm để xem chi tiết · kéo để dời chỗ', 'pet.lv': 'Lv.{n}',
+      'card.openFocus': 'Mở phiên', 'card.openPanel': 'Chi tiết', 'card.drag': 'Kéo thú cưng để dời chỗ', 'pet.lv': 'Lv.{n}',
       'notify.waiting': '{name} cần bạn duyệt', 'notify.done': '{name} xong nhiệm vụ',
       'tray.feedback': 'Góp ý', 'tray.panel': 'Mở Bobix', 'tray.hide': 'Ẩn thú cưng', 'tray.show': 'Hiện thú cưng', 'tray.pause': 'Tạm dừng thông báo', 'tray.quit': 'Thoát',
       'set.section.place': 'Thú cưng đi ở đâu',
@@ -720,6 +720,11 @@
     return t(lang, 'tool.other', { tool: mcp ? mcp[1].replace(/_/g, ' ') : tool });
   };
   const NEWS = '0.2.0'; // the release the tour (tour.js, strings tour.*) shows what is new in; change both when a release ships new things (see docs/development.md)
-  const api = { STR, t, pick, toolLabel, NEWS };
+  // How long ago a time was, as the panel and the pets' cards both say it.
+  const ago = (lang, at, now = Date.now()) => {
+    const m = Math.floor((now - at) / 60e3);
+    return m < 1 ? t(lang, 'ago.now') : m < 60 ? t(lang, 'ago.min', { n: m }) : m < 1440 ? t(lang, 'ago.h', { n: Math.floor(m / 60) }) : t(lang, 'ago.d', { n: Math.floor(m / 1440) });
+  };
+  const api = { STR, t, pick, toolLabel, ago, NEWS };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.I18N = api;
 })(this);

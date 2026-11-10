@@ -341,6 +341,40 @@ async function oneCard(b, url) {
   return out.map(o => 'one card at a time: ' + o);
 }
 
+// A hovered card while its session runs tool after tool: it stays put (same height, no entrance replayed), its activity line
+// names the file or command, and the meter shows context used (ten cells, green / amber from 50 % / coral from 75 %).
+async function liveCard(b, url) {
+  const out = [];
+  await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+  const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
+  await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, zoneStart: 30, zoneEnd: 70, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })})`);
+  const n = await ev('__now()'), step = async k => { for (let i = 0; i < k; i++) await ev('__step(33.4)'); };
+  const long = '/home/dev/' + 'deep/'.repeat(8) + 'src/ui/pets.html';
+  const push = o => ev(`__push(${JSON.stringify([ses('w0', { state: 'working', since: n, title: 'Fix the card', quest: 'Make the card say what it does', ...o })])})`);
+  await push({ tool: 'Edit', toolArg: long, ctx: 60 }); await step(60);
+  const r = await ev(`(() => { const b = pets.get('w0').el.querySelector('.spr').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r[0], y: r[1] }); await step(6);
+  const look = () => ev(`(() => { const c = pets.get('w0').el.querySelector('.card'); if (!c) return null;
+    return { h: Math.round(c.getBoundingClientRect().height * 10) / 10, still: c.classList.contains('still'), arg: c.querySelector('.now code')?.textContent || '',
+      lit: c.querySelectorAll('.meter i.on').length, tier: (c.querySelector('.meter')?.className || '').replace('meter', '').trim(), pct: c.querySelector('.pct')?.textContent ?? '' }; })()`);
+  const first = await look();
+  if (!first) return ['live card: no card on the hovered pet'];
+  if (!first.arg.endsWith('pets.html')) out.push(`the activity line lost the file name: "${first.arg}"`);
+  if (first.lit !== 4 || first.tier !== '' || first.pct !== '40%') out.push(`ctx 60 left: want 4 green cells and 40%, got ${JSON.stringify(first)}`);
+  const steps = [[{ tool: 'Bash', toolArg: 'npm test', ctx: 45 }, 5, 'mid', '55%'], [{ tool: 'Read', toolArg: long, ctx: 20 }, 8, 'high', '80%'],
+    [{ tool: 'Grep', toolArg: '', ctx: 3 }, 9, 'high', '97%'], [{ tool: 'Bash', toolArg: 'git status', ctx: 0 }, 10, 'high', '100%']];
+  for (const [o, lit, tier, pct] of steps) {
+    await push(o); await step(2);
+    const c = await look();
+    if (!c) { out.push(`${o.tool}: the card closed`); continue; }
+    if (!c.still) out.push(`${o.tool}: the card played its entrance again`);
+    if (c.h !== first.h) out.push(`${o.tool}: the card's height moved ${first.h} → ${c.h}`);
+    if (c.lit !== lit || c.tier !== tier || c.pct !== pct) out.push(`${o.tool} ctx ${o.ctx} left: want ${lit} cells ${tier || 'green'} ${pct}, got ${c.lit} ${c.tier || 'green'} ${c.pct}`);
+  }
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
+  return out.map(o => 'live card: ' + o);
+}
+
 // A pet dragged onto its neighbour and let go: no overlap after it, and 1.5 s after the drop the line is evenly spaced
 // again (every gap the line's own gap, nothing still sliding).
 // Every frame right after a drop: no two pets in sight overlap and no two name tags touch, sliding or not.
@@ -420,6 +454,7 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     if (r.fxOn || r.effects || r.balloons.join() !== 'bb done,bb waiting') bad.push(`reduced motion: want no effect and a balloon on the waiting and the done pet, got ${JSON.stringify(r)}`);
     await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 one card')) bad.push(...await oneCard(b, url), ...b.errors.splice(0).map(e => `one card: page error: ${e}`));
+    if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 live card')) bad.push(...await liveCard(b, url), ...b.errors.splice(0).map(e => `live card: page error: ${e}`));
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 show when needed')) for (const rm of [false, true]) bad.push(...await onDemand(b, url, rm), ...b.errors.splice(0).map(e => `show when needed: page error: ${e}`));
     const cases = [];
     for (const edge of ['bottom', 'top']) for (const size of [32, 56, 128]) {

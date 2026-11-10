@@ -1,6 +1,6 @@
 // Session state machine fed by Claude Code hook events. apply() is pure so it can be unit-tested.
 // Port of the 0.1 (Electron) app's core/state.js: same fields, same rules, same JSON for the pages.
-use crate::js::{head16, len16, now_ms, round};
+use crate::js::{head16, len16, now_ms, round, tail16};
 use fancy_regex::{Captures, Regex};
 use serde::Serialize;
 use serde_json::Value;
@@ -113,6 +113,11 @@ pub fn short(s: &str, n: usize) -> String {
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if len16(&s) > n { format!("{}…", head16(&s, n - 1)) } else { s }
 }
+// Like short, but keeps the end.
+pub fn short_tail(s: &str, n: usize) -> String {
+    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if len16(&s) > n { format!("…{}", tail16(&s, n - 1)) } else { s }
+}
 
 // Like short, but keeps the lines (the prompt and the final report are Markdown): only blank-line runs and trailing
 // spaces go. A longer text is cut at a line end when one is near, an open code block is closed, and "[…]" on its own
@@ -172,7 +177,11 @@ fn arg_of(input: Option<&Value>) -> String {
     ["file_path", "command", "pattern", "url", "query", "description"].iter()
         .find_map(|k| i.get(*k).filter(|v| truthy(v))).map(|v| js_string(Some(v))).unwrap_or_default()
 }
-fn tool_arg(input: Option<&Value>) -> String { short(&arg_of(input), 60) }
+// A file path keeps its end, where the file name is; anything else keeps its start.
+fn tool_arg(input: Option<&Value>) -> String {
+    let a = arg_of(input);
+    if input.and_then(|i| i.get("file_path")).is_some_and(truthy) { short_tail(&a, 60) } else { short(&a, 60) }
+}
 
 // Claude Code also sends its own messages through UserPromptSubmit (a background task ended, a reminder…). They are
 // not something the user asked: returns a short line for the log, or None for a real prompt. Only these exact tags.
@@ -417,6 +426,19 @@ mod tests {
 
     // The timing side sessions really have (9 measured): the first hook events come up to 4.6 s before the Claude
     // app writes the session file, and the file carries the link from the start.
+    #[test]
+    fn a_long_file_path_keeps_its_file_name() {
+        let path = format!("/home/dev/{}src/ui/pets.html", "deep/".repeat(20));
+        let mut m = Sessions::new();
+        ap(&mut m, json!({ "session_id": "f1", "cwd": "/x/app", "hook_event_name": "PreToolUse", "tool_name": "Edit", "tool_input": { "file_path": path } }));
+        let a = m.get("f1").unwrap().tool_arg.clone();
+        assert!(a.starts_with('…') && a.ends_with("src/ui/pets.html") && len16(&a) == 60, "{a}");
+        let cmd = format!("npm test -- {}", "x".repeat(80));
+        ap(&mut m, json!({ "session_id": "f1", "cwd": "/x/app", "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": cmd } }));
+        let a = m.get("f1").unwrap().tool_arg.clone();
+        assert!(a.starts_with("npm test -- x") && a.ends_with('…') && len16(&a) == 60, "{a}");
+    }
+
     #[test]
     fn side_session_held_until_linked_then_shown_once() {
         let t0 = 1_000_000;
