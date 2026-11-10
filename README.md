@@ -2,8 +2,8 @@
 
 <h1 align="center">Bobix</h1>
 
-<p align="center"><b>Your Claude Code sessions as little pets on your screen.</b><br>
-See who is working, who needs you and who is done, without opening a single window.</p>
+<p align="center"><b>A personal assistant for working well with Claude Code.</b><br>
+Every session is a pet on your screen. Answer approvals without switching windows, see what each session uses against your normal, keep your skills lean, and run your tickets.</p>
 
 <p align="center">
   <a href="https://github.com/baonguyen-agilityio/bobix/releases"><img src="https://img.shields.io/github/v/release/baonguyen-agilityio/bobix?include_prereleases&label=release" alt="Latest release"></a>
@@ -14,44 +14,58 @@ See who is working, who needs you and who is done, without opening a single wind
 
 <p align="center"><b>English</b> · <a href="README.vi.md">Tiếng Việt</a></p>
 
-<p align="center"><img src="docs/media/demo.gif" alt="Pets walking along the bottom of the screen: one hops with a red 'Needs you: Bash' bubble, one shows 'Done!', and the control panel lists each session grouped by what needs attention." width="860"></p>
-
-<p align="center"><a href="docs/media/demo.mp4">Watch the demo in full quality (16 s)</a></p>
+<p align="center"><img src="docs/media/demo.gif" alt="The Bobix panel shows one approval waiting and three usage warnings. Below it, pets walk along the edge of the screen: one finishes its task and earns XP, and one walks in with a coral ring and a red tag because it waits for your approval." width="860"></p>
 
 ---
 
 ## Why
 
-Run a few Claude Code sessions at once and you spend your day clicking through them: still working? stuck on a permission prompt? finished? Bobix gives each session a pet that walks along the edge of your screen and answers that at a glance.
+Run a few Claude Code sessions at once and the day goes to clicking through them: still working? stuck on a permission prompt? done? Is this one getting expensive? Bobix answers that at a glance, and helps you use Claude well while you work.
 
 | The pet… | means |
 |----------|-------|
-| walks around, blue "…" badge, bubble like *running a command* | Claude is working |
-| taps a foot in a coral ring, "!" badge | Claude is waiting for your approval |
-| waves and jumps, green tick badge | the session finished its turn |
+| walks along the edge, blue "…" badge | Claude is working |
+| taps its foot in a coral ring, "!" badge | Claude waits for your approval |
+| waves and jumps, green tick | the session finished its turn |
 | sleeps | nothing happening; after a while it leaves the screen |
 
-**Click a pet to jump into that session.** Hover to see its task, status and how much context is left.
+**Click a pet to jump into its session.** Point at it to see its task, how much context is left, its usage and any warning, or its request with Allow / Deny.
 
 ## Features
 
-- **A pet per session, shaped by its project**: every session of a project (git worktrees included) has the same creature in its own colour, named after the session's title. Give a project your own picture as the pet's face from the panel (Change pet); Bobix turns it into pixel art and lets you tune it, as the pet's face or as the whole pet. Side sessions walk right behind the session they came from.
-- **Pixel effects**, each kept to its own pet: a pulsing orange outline while a session waits for your approval, the tool it runs held in its hands (pen, terminal, book, magnifier), XP and a level-up when it finishes a task (3 tasks make a level), a battery alarm under 25% context, and a goodbye when it ends. With reduced motion on there are none, and a balloon on each pet says what needs you instead.
-- **One line of pets**: every pet walks the same way (left to right, or right to left in Settings), evenly spaced, out at one end of its stretch of the edge and back in at the other; a family walks as one, the parent first. More pets than fit take turns. Point at a pet and the whole line stops: it shows that pet's own card, or its request with Allow / Deny. Drag a pet out of the way and it slides back into the line where you let go.
-- **Or only when needed** (Settings → Pet mode → Show when needed): nothing walks along the edge. A session that needs you (waiting for your approval, a task just done, context running low) sends its pet up under a balloon, from below the screen to past the top, again and again until it is answered or seen; it never stops on the way unless you point at it, and then it shows its card with Allow / Deny. A pill in the corner counts the sessions and lists them, with Allow / Deny. With reduced motion the pet stands near the bottom edge instead.
-- **Do not disturb** for 30 or 60 minutes (Settings): no pets and no notifications meanwhile; requests still wait on the Board, and the pill can end it early.
-- **Click to open** the session: straight to it in the Claude desktop app, or brings its Terminal, iTerm or VS Code window forward.
-- **Side sessions** (Claude desktop app): a session started from another one walks right behind it, and the panel shows which session it came from and how many side sessions are still busy or need you.
-- **Approve from Bobix**: when Claude asks for permission, answer Allow or Deny on the pet, in the panel or on the notification (macOS); a request that deletes or overwrites data is marked in the panel. Bobix sets no standing rules: for that, use Claude's own auto mode. By default Bobix holds the request until you answer it there; Claude still asks in the terminal at the same time, so you can answer in either place. A time limit in Settings makes Bobix let go of the request when it runs out. Nothing is held while pets are hidden or notifications are paused.
-- **Work items** (opt-in): each session's git status (branch, changes, what isn't pushed), and a board that follows your day: the GitLab and GitHub issues assigned to you to do, those in progress with their sessions, those waiting for review (an open pull request or merge request of yours closes them) and those done today, any GitLab or GitHub host, read through your own `glab` and `gh`. An opened ticket shows its step (To do › In progress › Needs approval › Waiting for review › Done) and why; two sessions on one issue or one branch get a warning. An end-of-day report per project and a stand-up (done on the last working day, in progress today, stuck), as plain text to copy (the report also adds up how long Claude waited for your approval today); Bobix sends nothing. Stuck work gets one line each with the next step (a finished session with no PR, a PR nobody reviewed, a branch with commits and no PR, an issue's sessions resting for hours); the limits are in Settings. A session on an issue's branch (`29-…`) shows `#29`, and the issue shows that session. One button per issue resumes its session (also one you started earlier from Bobix, found by its name), or opens a new Claude desktop session in the project's folder with an editable prompt (the issue's title, description and link) filled in and copied; To do suggests the issue to start next, and the box suggests one of the Claude skills you have for that repository (from the issue's labels and your role in Settings). The first session you then create there is named after the issue (`[SHA-27] …`, with a short code per project you can change in Settings). Off by default, one switch each for GitLab and GitHub; Bobix keeps no token and writes nothing to either.
-- **Habits** (opt-in, Settings → What Bobix remembers): Bobix keeps a local log of your activity with Claude (times, repo, issue, branch, approvals and how long they waited, skills; never what you write) for 30 days, shows it to you day by day with Delete all, and after a few days suggests up to 3 next steps under the approvals: an issue left unfinished, an approval you always allow (a line to add to Claude's own permission settings yourself), something you open at the same time each week, the skill you usually use in a repo. Simple local rules, no AI, nothing sent.
-- **Control panel**: what needs your approval first, the request that has waited longest on top with how long it has waited (past a limit you set it stands out), every session with its last answer and a log of the tools it used.
-- **Notifications** when a session needs approval or finishes, with optional sound.
-- **Stays out of your way**: pick the screen, the top or bottom edge, the part of the edge pets may use, their size and opacity. Pets fade when the cursor comes near, everything that isn't a pet lets clicks through, and sleeping pets leave the screen after a time you choose.
-- **Light on your machine**: nothing redrawn while no pet is out, no disk writes besides your settings.
+### Pets for your sessions
+- **One pet per session.** A project's sessions (git worktrees too) share one of five flat-icon designs, each session in a colour of its own, named after the session's title. Want your own picture? **Change pet** turns it into pixel art for the pet's face or the whole pet.
+- **One line along the edge** of the screen you choose, top or bottom, walking one way; side sessions walk right behind the session they came from. Or **Show when needed**: only a session that needs you rises up the screen until you answer it.
+- **Small signals**: a level-up when a session finishes a task, a low battery when its context runs low. With reduced motion, a balloon says what needs you instead.
+
+### Answer approvals without switching windows
+- When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked.
+- Claude still asks in the terminal at the same time, so you can answer in either place. Bobix sets no standing rules; for that, use Claude's own auto mode.
+
+### See what each session uses
+- For every live session: tokens, the share spent **re-reading context**, the models it used (subagents too) and its active time, read from the transcripts Claude Code writes on your machine.
+- Measured **against your normal**: "3.7× your usual session", learned from your own past sessions. A dollar figure is only an API-equivalent estimate, labelled as such, and can be turned off; your real limits stay in Claude's `/usage`.
+- **Warnings with the reason and the fix**: a session that is too long (run `/compact` or start fresh), a heavy model on light work (`/model sonnet`), or a long run of read-only exploration (ask for a Haiku subagent).
+
+### Keep your skills lean, and route models
+- **Skills audit per project**: every skill Claude loads there, what its descriptions cost in every turn, those unused for 30 days and duplicate sets (`ak:cook` and `ck:cook`).
+- **Disable or remove** a personal or project skill in one click; each change keeps a backup and can be undone.
+- **Model rules for `CLAUDE.md`**: a short "when to split, which model" block, shown before it is added, and undone byte for byte.
+
+### Run your tickets
+- **Your GitHub and GitLab issues** (opt-in, through your own `gh` and `glab`): to do, in progress with their sessions, waiting for review, done today. Bobix suggests the next one, warns when two sessions work on one issue, and flags stuck work with its next step.
+- **Start** a session on an issue with a prompt you can edit, and a skill suggested for that repository; the session is named `[CODE-27] …`.
+- **Stand-up and today's report** as plain text to copy. Bobix sends nothing.
+
+### The panel
+- One window with a search field and screens: **Overview** (what needs you, warnings, today's usage), **Sessions** (sessions and issues), **Skills** and **Settings**. **Work** and **Room** are coming.
+- Every action has a key, and ⌘K / Ctrl+K finds any action, session or screen.
+
+### And
+- **Notifications** when a session needs approval or finishes, **Do not disturb** for 30 or 60 minutes, an optional local log of your habits with Claude (opt-in, 30 days, never what you write), and a notification when a new version is out.
+- **Stays out of your way**: pick the screen, edge, area, size and visibility; pets fade near the cursor and let clicks through.
 - **macOS, Windows and Linux**, in English and Vietnamese.
-- **Private by design**: runs locally, no account, nothing about you or your sessions sent anywhere. The only request it makes on its own is a daily check on GitHub for a new version, which you can turn off; GitLab issues are read only if you turn them on. See [Privacy](docs/privacy.md).
-- **Tells you about updates**: when a new version is out, a notification and the tray menu link to it.
+- **Private by design**: runs locally, no account, nothing about you or your sessions sent anywhere. The only request it makes on its own is a daily check on GitHub for a new version, which you can turn off. See [Privacy](docs/privacy.md).
 
 ## Install
 
@@ -68,7 +82,7 @@ Download the installer for your computer. The links always give the newest versi
 Then:
 
 1. Open the app. The builds are not code-signed yet, so the first launch shows a warning; the [install guide](docs/install.md) shows how to get past it on each system.
-2. In the control panel, go to **Setup → Install hooks**.
+2. The panel opens on **Settings → Connect Claude Code**. Click **Install hooks**.
 3. Send a prompt in any Claude Code session. Its pet appears.
 
 The [install guide](docs/install.md) also covers troubleshooting and uninstalling.
@@ -102,12 +116,18 @@ curl -fL -o /tmp/bobix.deb https://github.com/baonguyen-agilityio/bobix/releases
 
 <table>
 <tr>
-<td width="50%"><img src="docs/media/settings.png" alt="Settings: a live preview of where pets walk, and options for edge, area, size, visibility and which pets to show."></td>
-<td width="50%"><img src="docs/media/setup.png" alt="Setup: connection status and three steps to get started."></td>
+<td colspan="2"><img src="docs/media/overview.png" alt="Overview: today's sessions, one Bash request waiting for approval, three usage warnings with their reasons, and each live session's usage against the usual session."></td>
 </tr>
 <tr>
-<td><b>Settings</b> with a live preview of where pets walk.</td>
-<td><b>Setup</b> connects Claude Code in one click.</td>
+<td colspan="2"><b>Overview</b>: what needs you first, then warnings and today's usage.</td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/media/session.png" alt="A session's details: 3.7 times the usual session, 77 turns, 99% of input tokens spent re-reading context, Opus 5.5, an API-equivalent estimate and a long-session warning."></td>
+<td width="50%"><img src="docs/media/skills.png" alt="Skills audit for a project: 16 skills installed, 11 unused for 30 days, 3 duplicate sets, and the tokens their descriptions add to every session."></td>
+</tr>
+<tr>
+<td><b>A session's usage</b> against your normal, with the reason for a warning.</td>
+<td><b>Skills audit</b>: unused skills and duplicate sets, each change undoable.</td>
 </tr>
 </table>
 
@@ -115,13 +135,15 @@ curl -fL -o /tmp/bobix.deb https://github.com/baonguyen-agilityio/bobix/releases
 
 ```
 Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1──▶ Bobix ──▶ pets · panel · notifications
-                                                                              └─ reads the session transcript for the title, last answer and context left
+                                                                              ├─ reads the session transcript: title, last answer, context left, usage
+                                                                              └─ reads your skill folders and transcripts for the skills audit
 ```
 
 - Uses Claude Code's documented hooks: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Notification, Stop, SessionEnd. They run asynchronously, so Claude never waits for them.
 - Installing adds entries to `~/.claude/settings.json`, keeps every other hook and setting, and saves a backup first. Removing takes out only Bobix's entries.
 - The forwarder sends what the pets show (tool name, file path or command, your prompt), never file contents or tool output.
 - An Esc or a denied permission ends a turn without a hook; Bobix notices it in the transcript and puts the pet to rest.
+- Bobix changes Claude's skill folders or a project's `CLAUDE.md` only when you click, always with a backup and an undo. It never reads your Claude login.
 
 ## FAQ
 
