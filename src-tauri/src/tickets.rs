@@ -96,7 +96,8 @@ pub fn main_model(models: &Value) -> String {
 // The same start in a terminal, where the model and plan mode can be preset (the desktop link can't): one line to paste.
 pub fn cli_command(dir: &str, model: &str, prompt: &str) -> String {
     let q = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
-    format!("cd {} && claude --model {} --permission-mode plan {}", q(dir), q(model), q(prompt))
+    let p = if prompt.is_empty() { String::new() } else { format!(" {}", q(prompt)) };
+    format!("cd {} && claude --model {} --permission-mode plan{p}", q(dir), q(model))
 }
 
 // What the log says, section by section. Assumptions are the `- ` / `* ` lines under "## Assumptions".
