@@ -215,6 +215,70 @@ test('an effect drawn for its room stays inside it; the aura hugs the pet and th
   assert.equal(area(JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [], [[30, 50, 70, 70]])))), 40 * 20, 'a pet in front is cut out over its own pet too');
 });
 
+// Costumes by state (costume.js) are drawn into the pet's 36×36 sprite, so the effects draw the same dressed pet. No
+// costume pixel may meet a pixel of an effect that plays while it is worn (pets.html: the state's loop, unless the
+// tool is in its hands; the one-shots of fxEvents), at either edge, walking either way, in any frame of a moving prop;
+// the XP and the low-context battery play before the costume goes on (worn with them, the crown, flag and nightcap
+// were crossed). Each effect runs once with a "pet" made of the costume pixels
+// alone (Buf.m marks them, Buf.f an effect pixel drawn over one) and once with no pet (every pixel it draws).
+// Their place on screen (inside the pet's box, off its name tag and its "z") is checked in overlay.test.js.
+test('costumes: one per state, the tool in the hand it walks towards, never under an effect pixel', () => {
+  const ctx = {};
+  require('vm').runInNewContext(['creature.js', 'pet-fx.js', 'costume.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);
+  const run = code => JSON.parse(require('vm').runInContext(`JSON.stringify((() => { ${code} })())`, ctx));
+  const kind = (st, o = {}) => run(`return COSTUME.kindOf(${JSON.stringify({ tool: '', ctx: 80, ...o })}, '${st}')`);
+  strict.deepEqual([kind('working', { tool: 'Edit' }), kind('working', { tool: 'Bash' }), kind('working'), kind('working', { tool: 'Grep' }), kind('working', { tool: 'WebSearch' }),
+    kind('waiting'), kind('done'), kind('idle'), kind('working', { ctx: 10 }), kind('waiting', { ctx: 10 })],
+  ['work', 'work', 'work', 'search', 'search', 'wait', 'done', 'sleep', 'ctx', 'wait']);
+  strict.deepEqual(run(`return ['Edit', 'Bash', 'Read', 'WebFetch', 'Task', ''].map(t => COSTUME.holdsTool('work', t))`), [true, true, true, true, false, false], 'a tool with no prop keeps its card');
+  strict.deepEqual(run(`return Object.keys(TOOL_PROP).filter(t => !COSTUME.holdsTool('work', t))`), [], 'every tool with a card has a prop');
+  strict.deepEqual(run(`return [COSTUME.after('xp'), COSTUME.after('ctx'), COSTUME.after('aura'), COSTUME.after('tool')]`), [true, true, false, false], 'XP and the battery play before the costume goes on');
+  const r = run(`
+    const PETS = ['/code/web', '/code/api', '/code/docs', '/code/bobix', '/code/shop', '/p'], FACE = { work: 'working', search: 'working', wait: 'waiting', done: 'done', error: 'working', ctx: 'working', sleep: 'idle' };
+    const only = (id, i, k, o) => COSTUME.dress(fineSprite(id, FACE[k], i % BODY.length), k, { ...o, only: true });
+    const px = d => [...d].map((c, j) => c >>> 24 ? j : -1).filter(j => j >= 0);
+    const res = { hits: {}, empty: [], frames: {}, flagPole: true, hand: {}, picture: false };
+    // Every costume drawn, every frame, both hands; a moving one changes from frame to frame.
+    for (const k of COSTUME.KINDS) for (const tool of k === 'work' || k === 'search' ? ['Edit', 'Bash', 'Read', 'WebFetch', 'Task'] : ['']) for (const left of [false, true]) {
+      const fr = [0, 1, 2, 3].map(f => only('/p', 0, k, { left, tool, frame: f }).data.join());
+      if (fr.some(f => !px(f.split(',').map(Number)).length)) res.empty.push(k + tool);
+      res.frames[k + tool] = new Set(fr).size;
+    }
+    // The flag's pole stays still while its cloth waves; the prop is in the hand on the side it walks to.
+    const flag = f => only('/p', 0, 'done', { frame: f }).data;
+    for (let y = 0; y < 36; y++) if (new Set([0, 1, 2, 3].map(f => flag(f)[y * 36 + 33])).size > 1) res.flagPole = false;
+    for (const tool of ['Edit', 'Bash', 'Read', 'WebFetch']) for (const left of [false, true]) {
+      const xs = px(only('/p', 0, 'work', { left, tool }).data).map(j => j % 36).filter(x => x < 7 || x > 28); // past the hat's brim and its outline: the prop
+      res.hand[tool + left] = xs.length ? (xs.every(x => x > 28) ? 'right' : xs.every(x => x < 7) ? 'left' : 'both') : 'none';
+    }
+    res.picture = COSTUME.dress({ w: 44, h: 44, data: new Uint32Array(44 * 44) }, 'work', { tool: 'Edit' }).data.every(c => !c);
+    // The effects each state can play while its costume is on, as pets.html plays them.
+    const cases = [], seen = new Set(); // one of each: what is drawn differs by costume, its moving prop and the effect
+    for (const state of ['working', 'waiting', 'done', 'idle']) for (const tool of [...Object.keys(TOOL_PROP), 'LS', 'Task', '']) for (const ctx of [80, 10]) {
+      const s = { state, tool, ctx, lv: 1, xp: 0 }, k = COSTUME.kindOf(s, state), fx = [];
+      const loop = fxLoop(s, state); if (loop && !(loop[0] === 'tool' && COSTUME.holdsTool(k, tool))) fx.push(loop[0] === 'tool' ? ['tool', { seg: loop[1], mini: true }] : [loop[0], {}]);
+      for (const [e, o] of fxEvents({ ...s, state: 'working', ctx: 80 }, s)) if (!COSTUME.after(e)) fx.push([e, o || {}]);
+      for (const f of fx) { const key = [k, COSTUME.moves(k, tool) ? tool : '', JSON.stringify(f)].join('|'); if (!seen.has(key)) { seen.add(key); cases.push([k, tool, f]); } }
+    }
+    for (const [k, tool, [e, o]] of cases) for (const flipY of [false, true]) PETS.forEach((id, i) => { for (const left of [false, true]) for (const frame of COSTUME.moves(k, tool) ? [0, 1, 2, 3] : [0]) {
+      const fy = flipY && e !== 'tool', costume = only(id, i, k, { left, tool, frame }), mk = pet => fxRun(e, { ...o, first: true, flipY: fy, pet: () => pet });
+      const C = mk({ ...costume, k: 1 }), E = mk(NOPET), bc = new Buf(), be = new Buf(), key = k + '/' + e;
+      for (let t = 0; t < (FX[e].D || 2.4); t += 1 / 30) {
+        C.step(1 / 30); E.step(1 / 30); C.draw(bc); E.draw(be);
+        let n = 0; for (let j = 0; j < GW * GH; j++) if (bc.m[j] && (bc.f[j] || be.c[j])) n++;
+        res.hits[key] = Math.max(res.hits[key] || 0, n);
+      }
+    } });
+    return res;`);
+  strict.deepEqual(r.empty, [], 'every costume draws something in every frame');
+  for (const [k, n] of Object.entries(r.frames)) strict.equal(n, k === 'done' || /^(work|search)(Edit|Bash|Read|WebFetch)$/.test(k) ? 4 : 1, `${k}: frames that differ`);
+  strict.ok(r.flagPole, "the flag's pole stays still");
+  for (const tool of ['Edit', 'Bash', 'Read', 'WebFetch']) strict.deepEqual([r.hand[tool + false], r.hand[tool + true]], ['right', 'left'], `${tool}: held on the side it walks to`);
+  strict.ok(r.picture, 'a picture pet is not dressed');
+  strict.deepEqual(Object.keys(r.hits).sort(), ['ctx/tool', 'wait/aura'], 'the effects worn costumes meet');
+  strict.deepEqual(r.hits, Object.fromEntries(Object.keys(r.hits).map(k => [k, 0])), 'costume pixels under an effect pixel');
+});
+
 test('sessions of one project share a shape; colours tell them apart', () => {
   const ctx = {};
   require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
