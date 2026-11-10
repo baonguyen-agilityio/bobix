@@ -134,6 +134,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         }
         thread::sleep(Duration::from_millis(500)); // the 300 ms save
         report["settingsSaved"] = json!(crate::settings::load(&paths::settings_file())["size"] == 64);
+        report["skills"] = skills_audit(&app, &cwd);
         report["tray"] = json!(app.tray_by_id("main").is_some());
         // Start at login, on and off again (macOS / Linux: files under BOBIX_HOME; Windows: the runner's own registry).
         if std::env::var_os("BOBIX_HOME").is_some() {
@@ -158,6 +159,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
             && (report.get("drag").is_none() || (report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0 && report["drag"]["held"] == false))
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
+            && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
             && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
         write(&report);
@@ -165,6 +167,24 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         let _ = fs::write(dir.join("done"), ""); // CI waits for this, then stops the app itself
         app.exit(if pass { 0 } else { 1 });
     });
+}
+
+// The skills audit through the panel's bridge, on a scratch skill under BOBIX_HOME (never the person's own): listed
+// with its use, removed, undone; and the CLAUDE.md rule block of the session's folder, read only.
+fn skills_audit(app: &AppHandle, cwd: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let c = paths::home().join(".claude");
+    let _ = fs::create_dir_all(c.join("skills/smoke-skill"));
+    let _ = fs::write(c.join("skills/smoke-skill/SKILL.md"), "---\nname: smoke-skill\ndescription: A skill for the smoke run\n---\n");
+    let _ = fs::create_dir_all(c.join("projects/smoke"));
+    let line = json!({ "type": "assistant", "timestamp": hooks::iso(crate::skill_audit::now_ms()), "message": { "content": [{ "type": "tool_use", "name": "Skill", "input": { "skill": "smoke-skill" } }] } });
+    let _ = fs::write(c.join("projects/smoke/s.jsonl"), line.to_string() + "\n");
+    ask(app, panel::LABEL, &format!("(async () => {{ const r = {{}}, row = a => a.skills.find(s => s.name === 'smoke-skill'); \
+        const a = await bobix.skillsAudit(null), s = row(a); r.uses = s?.uses; \
+        const rm = await bobix.changeSkill(null, s.key, 'remove'); r.removed = rm.ok && !row(await bobix.skillsAudit(null)); \
+        r.undone = (await bobix.undoSkill(rm.id)).ok && !!row(await bobix.skillsAudit(null)); \
+        const rules = await bobix.routingRules({cwd}); r.rules = typeof rules.text === 'string' && rules.text.startsWith('## When to split'); \
+        return r; }})()", cwd = json!(cwd)))
 }
 
 // The value of a page expression (awaited), through the bridge like the pets' own calls.

@@ -50,6 +50,14 @@
     showBoard: () => invoke('show_board'),
     openPrices: () => invoke('usage_prices'), // the editable price table of the usage estimate, in the person's editor
     mySkills: () => invoke('skills_mine'), // your own skills, for Settings → My skills
+    // Skills audit (src-tauri/src/skill_audit.rs). dir: a folder a session here works in, or null for your own skills only.
+    skillsAudit: dir => invoke('skills_audit', { dir: typeof dir === 'string' ? dir : null }),
+    // act: disable | remove, key: a skill's key from the audit. Only on the person's click: backed up first, undoable.
+    changeSkill: (dir, key, act) => invoke('skills_change', { dir: typeof dir === 'string' ? dir : null, key: String(key), act: String(act) }),
+    skillBackups: () => invoke('skills_backups'),
+    undoSkill: id => invoke('skills_undo', { id: String(id) }), // a skill change or the CLAUDE.md rule block
+    routingRules: dir => invoke('skills_rules', { dir: String(dir), add: false }), // { file, present, text, block, undo }
+    addRoutingRules: dir => invoke('skills_rules', { dir: String(dir), add: true }), // only after showing the exact text
     processStatus: () => invoke('process_status'), // per project: the repository's .bobix/skills.json and the imported process
     // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one
     importProcess: (project, v) => (typeof project === 'string' ? invoke('process_import', { project, text: v?.text ?? null, url: v?.url ?? null, remove: v?.remove ?? null }) : Promise.resolve(null)),

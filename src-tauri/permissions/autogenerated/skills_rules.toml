@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-skills-rules"
+description = "Enables the skills_rules command without any pre-configured scope."
+commands.allow = ["skills_rules"]
+
+[[permission]]
+identifier = "deny-skills-rules"
+description = "Denies the skills_rules command without any pre-configured scope."
+commands.deny = ["skills_rules"]

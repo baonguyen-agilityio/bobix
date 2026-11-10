@@ -22,6 +22,7 @@ mod process;
 mod project;
 mod server;
 mod settings;
+mod skill_audit;
 mod skills;
 mod smoke;
 mod state;
@@ -868,6 +869,62 @@ async fn skills_mine() -> Result<Value, ()> {
     tauri::async_runtime::spawn_blocking(|| json!(skills::mine(&paths::home()))).await.map_err(|_| ())
 }
 
+// The skills audit (skill_audit.rs). `dir`: a folder a session here works in (or its repository root); none: your own
+// skills only. Every change needs the person's click, is backed up first and can be undone (skills_undo).
+fn audit_dir(b: &Arc<Bobix>, dir: Option<String>) -> Result<Option<std::path::PathBuf>, Value> {
+    let Some(d) = dir else { return Ok(None) };
+    let p = std::path::PathBuf::from(&d);
+    let known = b.core.lock().unwrap().sessions.values().any(|s| !s.cwd.is_empty() && (std::path::Path::new(&s.cwd) == p || skills::repo_root(std::path::Path::new(&s.cwd)) == p));
+    if known && p.is_dir() { Ok(Some(p)) } else { Err(json!({ "ok": false, "error": "not a folder a session here works in" })) }
+}
+
+// { days, slashCounted, skills: [{ key, name, source, plugin, description, size, hidden, uses, lastUsed, unused, dup, change }],
+//   duplicates: [{ why, names }], summary }
+#[tauri::command]
+async fn skills_audit(dir: Option<String>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let d = match audit_dir(&b, dir) { Ok(d) => d, Err(e) => return e };
+        let slash = b.core.lock().unwrap().settings["usageContent"] == true;
+        skill_audit::audit(&paths::home(), d.as_deref(), skill_audit::now_ms(), slash)
+    }).await.map_err(|_| ())
+}
+
+// act: disable | remove, on the skill whose `key` the audit gave. { ok, id } or { ok: false, error, plan? }.
+#[tauri::command]
+async fn skills_change(dir: Option<String>, key: String, act: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, dir) {
+        Ok(d) => skill_audit::apply(&paths::home(), d.as_deref(), &paths::data_dir(), &key, &act),
+        Err(e) => e,
+    }).await.map_err(|_| ())
+}
+
+// The changes that can be undone, newest first: [{ id, kind: disable | remove | rules, name, source, path, at }].
+#[tauri::command]
+async fn skills_backups() -> Result<Value, ()> {
+    tauri::async_runtime::spawn_blocking(|| skill_audit::backups(&paths::data_dir())).await.map_err(|_| ())
+}
+
+// Undoes one change. { ok, exact? } or { ok: false, error }.
+#[tauri::command]
+async fn skills_undo(id: String) -> Result<Value, ()> {
+    tauri::async_runtime::spawn_blocking(move || skill_audit::undo(&paths::data_dir(), &id)).await.map_err(|_| ())
+}
+
+// The "When to split, which model" block of the project's CLAUDE.md: { file, present, text, block, undo } (add: false),
+// or added now after a backup (add: true): { ok, id }.
+#[tauri::command]
+async fn skills_rules(dir: String, add: Option<bool>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, Some(dir)) {
+        Ok(Some(d)) if add == Some(true) => skill_audit::rules_add(&d, &paths::data_dir()),
+        Ok(Some(d)) => skill_audit::rules_status(&d, &paths::data_dir()),
+        Ok(None) => Value::Null,
+        Err(e) => e,
+    }).await.map_err(|_| ())
+}
+
 // The Skills tab, per project with a folder here: the process Bobix uses for it (the repository's .bobix/skills.json,
 // or why it is not valid, and the one imported by hand), the project's and team's skills in that folder, and the
 // skills the process names that Claude doesn't have there (names only).
@@ -1088,7 +1145,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_new_review", "skills_mine", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices"];
+    "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1183,7 +1240,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
