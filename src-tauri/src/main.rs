@@ -981,6 +981,13 @@ fn project_of(b: &Bobix, id: &str) -> Option<String> {
     b.core.lock().unwrap().sessions.get(id).and_then(|s| s.project.clone()).filter(|p| !p.is_empty())
 }
 
+// The size the page draws an SVG at (it has no reliable size of its own); null for other kinds.
+fn svg_size(x: &[u8]) -> Value {
+    if petstore::kind_of(x) != Some("svg") { return Value::Null; }
+    let (width, height) = petstore::draw_size(x, petstore::SVG_SIDE);
+    json!({ "width": width, "height": height })
+}
+
 #[tauri::command]
 async fn pet_choose(id: String, b: B<'_>, app: AppHandle) -> Result<Value, ()> {
     use base64::Engine;
@@ -988,7 +995,7 @@ async fn pet_choose(id: String, b: B<'_>, app: AppHandle) -> Result<Value, ()> {
     let Some(project) = project_of(&b, &id) else { return Ok(json!({ "ok": false })) };
     let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "pane.petPick", &[]);
     tauri::async_runtime::spawn_blocking(move || {
-        let mut d = app.dialog().file().set_title(title).add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"]);
+        let mut d = app.dialog().file().set_title(title).add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "svg"]);
         if let Some(w) = app.get_webview_window(panel::LABEL) { d = d.set_parent(&w); }
         let Some(path) = d.blocking_pick_file().and_then(|f| f.into_path().ok()) else { return json!({ "ok": false }) };
         let bytes = match std::fs::metadata(&path) {
@@ -997,7 +1004,7 @@ async fn pet_choose(id: String, b: B<'_>, app: AppHandle) -> Result<Value, ()> {
             Err(_) => None, // gone or unreadable since the dialog closed
         };
         match bytes.as_deref().and_then(|x| petstore::kind_of(x).map(|k| (x, k))) {
-            Some((x, kind)) => json!({ "ok": true, "project": project, "kind": kind, "data": base64::engine::general_purpose::STANDARD.encode(x) }),
+            Some((x, kind)) => json!({ "ok": true, "project": project, "kind": kind, "data": base64::engine::general_purpose::STANDARD.encode(x), "size": svg_size(x) }),
             None => json!({ "ok": false, "reason": "bad" }),
         }
     }).await.map_err(|_| ())
@@ -1010,7 +1017,7 @@ fn pet_original(id: String, b: B) -> Value {
     let Some(project) = project_of(&b, &id) else { return json!({ "ok": false, "reason": "gone" }) };
     let entry = b.core.lock().unwrap().settings["petImages"][&project].clone();
     match petstore::read_original(&petstore::dir(), &entry) {
-        Some((x, opts)) => json!({ "ok": true, "project": project, "kind": petstore::kind_of(&x), "data": base64::engine::general_purpose::STANDARD.encode(&x), "opts": opts }),
+        Some((x, opts)) => json!({ "ok": true, "project": project, "kind": petstore::kind_of(&x), "data": base64::engine::general_purpose::STANDARD.encode(&x), "size": svg_size(&x), "opts": opts }),
         None => json!({ "ok": false, "reason": "gone" }),
     }
 }

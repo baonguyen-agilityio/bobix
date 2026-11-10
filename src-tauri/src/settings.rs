@@ -64,7 +64,7 @@ fn hashed_name(s: &str, exts: &[&str]) -> bool {
     s.split_once('.').is_some_and(|(h, e)| is_hex(h, 24) && exts.contains(&e))
 }
 pub fn pet_file(s: &str) -> bool { hashed_name(s, &["png", "gif"]) }
-fn pet_src(s: &str) -> bool { hashed_name(s, &["png", "jpg", "gif", "webp"]) }
+fn pet_src(s: &str) -> bool { hashed_name(s, &["png", "jpg", "gif", "webp", "svg"]) }
 
 // A GitLab project path: "group/name", segments of [\w.-], no "." or ".." segment.
 fn project_path(p: &str) -> bool {
@@ -466,10 +466,12 @@ mod tests {
             "/badsrc": { "src": format!("{a}.bmp"), "file": format!("{b}.png"), "opts": opts },
             "/traversal": { "src": format!("../{a}.png"), "file": format!("{b}.png"), "opts": opts }, "/nums": 5, "/null": null,
             "/gifresult-as-jpg": { "src": format!("{a}.png"), "file": format!("{b}.jpg"), "opts": opts },
+            "/svg": { "src": format!("{a}.svg"), "file": format!("{b}.png"), "opts": opts },
+            "/svgresult": { "src": format!("{a}.svg"), "file": format!("{b}.svg"), "opts": opts },
         } }))["petImages"].clone();
         let mut keys: Vec<&String> = out.as_object().unwrap().keys().collect();
         keys.sort();
-        assert_eq!(keys, ["/legacy", "/new"]);
+        assert_eq!(keys, ["/legacy", "/new", "/svg"], "an SVG original is kept, an SVG result never");
         assert_eq!(out["/new"], good);
         let e = s(json!({ "petImages": { "/p": { "src": format!("{a}.png"), "file": format!("{a}.png"), "opts": { "size": 9999, "colors": 1000, "accents": -4, "clean": "yes", "outline": 0, "removeBg": 1, "whole": 1 } } } }));
         assert_eq!(e["petImages"]["/p"]["opts"], json!({ "size": 64, "colors": 32, "accents": 0, "clean": true, "outline": true, "removeBg": false, "whole": false }));

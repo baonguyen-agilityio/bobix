@@ -35,13 +35,21 @@ window.__bobixPetImport = invoke => {
   });
   const endImport = () => { importing = null; if (worker) stop(worker, new Error('import ended')); };
 
-  // What the worker needs: a GIF as it is, a still picture as straight RGBA, drawn at no more than DECODE_SIDE.
-  async function decode(bytes, kind) {
+  // An SVG, drawn as an image the way an <img> is: its scripts never run and it loads nothing it links to. Never
+  // added to the page. createImageBitmap does not take an SVG Blob.
+  async function svgImage(bytes) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'image/svg+xml' }));
+    try { const img = new Image(); img.src = url; await img.decode(); return img; } finally { URL.revokeObjectURL(url); }
+  }
+
+  // What the worker needs: a GIF as it is, a still picture as straight RGBA, drawn at no more than DECODE_SIDE. An SVG
+  // is drawn at `size`, from the app (petstore::draw_size): its own shape with the long side DECODE_SIDE.
+  async function decode(bytes, kind, size) {
     if (kind === 'gif') return { kind: 'gif', data: bytes };
     const work = (async () => {
-      const bmp = await createImageBitmap(new Blob([bytes], { type: `image/${kind === 'jpg' ? 'jpeg' : kind}` }));
+      const bmp = kind === 'svg' ? await svgImage(bytes) : await createImageBitmap(new Blob([bytes], { type: `image/${kind === 'jpg' ? 'jpeg' : kind}` }));
       const k = Math.min(1, DECODE_SIDE / Math.max(bmp.width, bmp.height));
-      const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+      const w = size?.width || Math.max(1, Math.round(bmp.width * k)), h = size?.height || Math.max(1, Math.round(bmp.height * k));
       const c = document.createElement('canvas');
       c.width = w; c.height = h;
       const g = c.getContext('2d');
@@ -71,17 +79,17 @@ window.__bobixPetImport = invoke => {
   }
 
   // choose and edit: make `original` the import in progress and answer with its first preview.
-  async function startImport(project, original, kind, opts) {
+  async function startImport(project, original, kind, opts, size) {
     let input = null;
-    try { input = await decode(original, kind); } catch (err) { console.warn('[bobix] pet picture:', err.message); }
-    if (!input) return { ok: false, reason: 'bad' };
+    try { input = await decode(original, kind, size); } catch (err) { console.warn('[bobix] pet picture:', err.message); }
+    if (!input) return { ok: false, reason: kind === 'svg' ? 'svg' : 'bad' };
     endImport();
     const p = importing = { project, original, kind, input, token: Math.random().toString(36).slice(2) };
     const { reply } = await runImport(p, opts);
     if (!reply.ok && importing === p) endImport();
     return reply;
   }
-  const fromApp = async (call, opts) => { const r = await call; return r?.ok ? startImport(r.project, fromB64(r.data), r.kind, opts ?? r.opts) : r; };
+  const fromApp = async (call, opts) => { const r = await call; return r?.ok ? startImport(r.project, fromB64(r.data), r.kind, opts ?? r.opts, r.size) : r; };
 
   const acts = {
     choose: id => fromApp(invoke('pet_choose', { id })),
@@ -101,6 +109,7 @@ window.__bobixPetImport = invoke => {
   };
   const petImage = (id, act, opts) => (typeof id === 'string' && Object.hasOwn(acts, act) ? acts[act](id, opts && typeof opts === 'object' ? opts : undefined) : Promise.resolve(null));
   petImage.startImport = startImport; // the smoke run imports a picture it drew, without the file dialog
+  petImage.decode = decode; // test/overlay.test.js draws SVGs with it
   window.__bobixPetImage = petImage;
   return petImage;
 };

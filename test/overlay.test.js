@@ -437,3 +437,39 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
   } finally { b.close(); srv.close(); }
   assert.deepEqual(bad, []);
 });
+
+// An SVG pet picture, decoded the way the panel does it (src/ui/pet-import.js): drawn at the size the app gives, its
+// scripts never run and nothing it links to (another local server here) is ever requested.
+test('an SVG pet picture is drawn as an image: right size and colours, no script run, nothing loaded', { skip: !exe && 'no Chrome', timeout: 60e3 }, async () => {
+  const hits = [], links = http.createServer((q, r) => { hits.push(q.url); r.end(); });
+  await new Promise(ok => links.listen(0, '127.0.0.1', ok));
+  const srv = await server(), b = await browser(exe), origin = `http://127.0.0.1:${links.address().port}`;
+  const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8').replaceAll('ORIGIN', origin);
+  let out;
+  try {
+    await b.send('Page.enable');
+    await b.send('Page.navigate', { url: `http://127.0.0.1:${srv.address().port}/ui/pet-import.js` }); await b.once('Page.loadEventFired');
+    const r = await b.send('Runtime.evaluate', { returnByValue: true, awaitPromise: true, expression: `(async () => {
+      await new Promise((ok, no) => document.head.append(Object.assign(document.createElement('script'), { src: '/ui/pet-import.js', onload: ok, onerror: no })));
+      const pi = window.__bobixPetImport(() => Promise.resolve(null)), bytes = s => new TextEncoder().encode(s);
+      const px = (d, x, y) => [...d.data.subarray((y * d.width + x) * 4, (y * d.width + x) * 4 + 4)];
+      const draw = (s, size) => pi.decode(bytes(s), 'svg', size).then(d => ({ width: d.width, height: d.height, d }), e => ({ error: String(e) }));
+      const v = await draw(${JSON.stringify(fixture('viewbox.svg'))}, { width: 64, height: 32 });
+      const s = await draw(${JSON.stringify(fixture('script.svg'))}, { width: 64, height: 64 });
+      const f = await draw(${JSON.stringify(fixture('foreign.svg'))}, { width: 64, height: 64 });
+      const broken = await pi.startImport('/p', bytes('<svg xmlns="http://www.w3.org/2000/svg"><rect'), 'svg', undefined, { width: 64, height: 64 });
+      await new Promise(ok => setTimeout(ok, 300)); // late requests, if any, still land in hits
+      return { viewbox: v.d ? { width: v.width, height: v.height, left: px(v.d, 2, 16), right: px(v.d, 61, 16) } : v,
+        script: s.d ? { width: s.width, height: s.height, middle: px(s.d, 32, 32) } : s,
+        foreign: f.d ? { middle: px(f.d, 32, 32) } : f.error, broken };
+    })()` });
+    out = r.exceptionDetails ? { error: r.exceptionDetails.exception?.description } : r.result.value;
+  } finally { b.close(); srv.close(); links.close(); }
+  console.log(`# SVG decode: ${JSON.stringify(out)}`);
+  assert.deepEqual(out.viewbox, { width: 64, height: 32, left: [255, 0, 0, 255], right: [0, 0, 255, 255] });
+  assert.deepEqual(out.script, { width: 64, height: 64, middle: [0, 255, 0, 255] }, 'its script and onload did not run');
+  // Chrome (and WebKit) won't let a canvas an SVG with a <foreignObject> was drawn on be read: it gets the SVG message.
+  assert.ok(/SecurityError/.test(out.foreign) || out.foreign.middle?.join() === '0,255,0,255', JSON.stringify(out.foreign));
+  assert.deepEqual(out.broken, { ok: false, reason: 'svg' });
+  assert.deepEqual(hits, [], 'nothing the SVGs link to was requested');
+});

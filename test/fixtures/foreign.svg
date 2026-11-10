@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+  <!-- an HTML frame inside the SVG: it must not load. Chrome and WebKit refuse to read back a canvas such a picture was drawn on -->
+  <rect width="20" height="20" fill="#0f0"/>
+  <foreignObject width="1" height="1"><iframe xmlns="http://www.w3.org/1999/xhtml" src="ORIGIN/frame"></iframe></foreignObject>
+</svg>

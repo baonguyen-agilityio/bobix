@@ -2,7 +2,8 @@
 // and a real one delivered by the installed hook.js, answer a permission request it holds, check the pets overlay is
 // on screen, open the panel and use its bridge (state, a settings change that is saved, feedback), check the tray, the
 // session's git status and a second start, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke()
-// in the 0.1 (Electron) app's main.js. The panel also imports a picture it draws (decode, pixel art in the worker, save, served, reset).
+// in the 0.1 (Electron) app's main.js. The panel also imports a picture it draws (decode, pixel art in the worker, save, served, reset),
+// and an SVG (saved with its SVG original, edited again from it, reset).
 use crate::{answers, hooks, overlay, panel, paths, Bobix};
 use serde_json::{json, Value};
 use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
@@ -126,6 +127,10 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
                     const file = (await bobix.getState()).settings.petImages[project]?.file; \
                     pic.served = !!file && (await fetch('/pet-image/' + file + '?t=' + new URLSearchParams(location.search).get('t'))).status === 200; \
                     pic.reset = !!(await bobix.petImage(sid, 'reset'))?.ok; \
+                    const svg = new TextEncoder().encode('<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 2 1\"><rect width=\"2\" height=\"1\" fill=\"#e04040\"/></svg>'); \
+                    const si = await window.__bobixPetImage.startImport(project, svg, 'svg', undefined, {{ width: 1024, height: 512 }}); \
+                    pic.svg = !!si.ok && !!(await bobix.petImage(sid, 'save', si.opts))?.ok && !!(await bobix.getState()).settings.petImages[project]?.src?.endsWith('.svg') \
+                      && !!(await bobix.petImage(sid, 'edit'))?.ok && !!(await bobix.petImage(sid, 'cancel'))?.ok && !!(await bobix.petImage(sid, 'reset'))?.ok; \
                     }} catch (e) {{ r.error = String(e); }} window.__TAURI_INTERNALS__.invoke('smoke_page', {{ data: {{ panel: r }} }}); }})()", project = json!(project)));
                 let until = Instant::now() + Duration::from_secs(10);
                 while PAGE.lock().unwrap().is_none() && Instant::now() < until { thread::sleep(Duration::from_millis(100)); }
@@ -155,7 +160,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object()
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 4 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
-            && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
+            && ["preview", "save", "served", "reset", "svg"].iter().all(|k| report["panel"]["picture"][k] == true)
             && (report.get("drag").is_none() || (report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0 && report["drag"]["held"] == false))
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;

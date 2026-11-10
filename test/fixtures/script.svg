@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="20" height="20" onload="document.getElementById('r').setAttribute('fill', '#f00')">
+  <!-- ORIGIN is the test's own HTTP server: none of these may reach it, and the rect must stay green -->
+  <style>@import url("ORIGIN/import.css"); rect { stroke: none; } svg { background: url("ORIGIN/bg.png"); }</style>
+  <script>document.getElementById('r').setAttribute('fill', '#f00'); fetch('ORIGIN/script'); new Image().src = 'ORIGIN/img';</script>
+  <rect id="r" width="20" height="20" fill="#0f0"/>
+  <image href="ORIGIN/image.png" x="0" y="0" width="1" height="1"/>
+  <use xlink:href="ORIGIN/sprite.svg#a"/>
+</svg>
