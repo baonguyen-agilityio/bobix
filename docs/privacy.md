@@ -2,6 +2,8 @@
 
 Bobix runs entirely on your computer. It has no account and no analytics. Its only network request on its own asks GitHub, once a day, whether a newer version exists; you can turn that off. The panel can also read your GitLab issues, only if you turn it on (off by default).
 
+> **Planned changes (not built yet).** Everything below is how Bobix works today. The [product direction](product-direction.md) plans to change some of it, each time with your consent and only when the matching step ships: reading what you write in sessions becomes an opt-in, Bobix may edit Claude skills and a project's `CLAUDE.md` when you click (with a backup and an undo), it may ask Haiku through your own `claude -p`, and a war room adds a port on your Tailscale network. This page will change with each of them.
+
 ## What it reads
 
 | Source | What | Why |
