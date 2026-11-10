@@ -150,7 +150,7 @@ pub struct Url { pub url: String }
 #[serde(rename_all = "camelCase")]
 pub struct Repo { pub path: String, pub key: String, pub auto_key: String, pub forge: &'static str, pub host: String, pub dirs: Vec<Via<Path>> }
 
-// An open issue assigned to you. stage: see stage_of. resume: a Claude desktop session named after it, in its repository's folder.
+// An open issue assigned to you, or one a session here works on (read on its own, see Forge::issue). stage: see stage_of. resume: a Claude desktop session named after it, in its repository's folder.
 #[derive(Serialize, Clone, PartialEq, Debug)]
 pub struct Issue { pub project: String, pub iid: i64, pub title: Value, pub url: Value, pub stage: &'static str,
     pub sessions: Vec<Via<Id>>, pub reviews: Vec<Via<Url>>, pub resume: Option<Via<Id>> }
@@ -267,6 +267,16 @@ impl Model {
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionLinks> { self.sessions.iter().find(|s| s.id == id) }
+    // The issues sessions here work on, with their repository's host: (host, project, iid), each once.
+    pub fn linked(&self) -> Vec<(String, String, i64)> {
+        let mut out = vec![];
+        for i in self.sessions.iter().filter_map(|s| s.issue.as_ref()) {
+            let Some(r) = self.repos.iter().find(|r| r.path == i.to.project && !r.host.is_empty()) else { continue };
+            let x = (r.host.clone(), i.to.project.clone(), i.to.iid);
+            if !out.contains(&x) { out.push(x); }
+        }
+        out
+    }
     pub fn issue(&self, project: &str, iid: i64) -> Option<&Issue> { self.issues.iter().find(|i| i.project == project && i.iid == iid) }
 
     // The read-only view the pages get (snapshot "model").

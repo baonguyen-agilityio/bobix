@@ -1,23 +1,23 @@
 // The guided tour of what is new: its steps, and where its bubble goes next to the element a step points at.
 // Works in the browser (window.TOUR) and in Node (require). The panel draws it (see "tour" in panel.html); it opens
-// by itself with the steps not seen yet (settings.tourSeen: a new install counts today's as seen), and whole from Settings.
+// by itself with the steps not seen yet (settings.tourSeen: a new install counts today's as seen), and whole from Setup.
 (function (root) {
   // Each step: the tab it shows, the elements it points at (the first one on screen wins; none: the bubble stands in
   // the middle), and its strings tour.<key>.title / tour.<key>.body. open: what the panel opens first: a ticket (one with a ⚠ if there is one), or the Start box of the issue Next up suggests.
-  // section: the board's section a narrow window must show (it shows one at a time). alt: where to point instead when
-  // none of `at` is there (another tab).
+  // alt: where to point instead when none of `at` is there (another tab).
   const STEPS = [
     { key: 'pets', tab: 'settings', at: ['#preview'], art: true },
     { key: 'ondemand', tab: 'settings', at: ['[data-row="petMode"]'] },
     { key: 'dnd', tab: 'settings', at: ['[data-row="dnd"]'] },
-    { key: 'board', tab: 'sessions', at: ['.flow'] },
-    { key: 'stages', tab: 'sessions', section: 'doing', at: ['#d-doing .tr:has(.stg)', '#d-doing'], open: 'ticket' },
+    { key: 'board', tab: 'sessions', at: ['.dg'] },
+    { key: 'stages', tab: 'sessions', at: ['#d-doing .tr:has(.stg)', '#d-doing'], open: 'ticket' },
     { key: 'stuck', tab: 'sessions', at: ['#d-stuck'], alt: { tab: 'settings', at: ['[data-row="stuckOn"]'] } },
-    { key: 'next', tab: 'sessions', section: 'todo', at: ['.nx', '#d-todo'] },
-    { key: 'skill', tab: 'sessions', section: 'todo', at: ['#st-skills'], open: 'start', alt: { tab: 'settings', at: ['[data-row="role"]'] } },
+    { key: 'next', tab: 'sessions', at: ['.nx', '#d-todo'] },
+    { key: 'skill', tab: 'sessions', at: ['#st-skills'], open: 'start', alt: { tab: 'skills', at: ['#sk-role'] } },
+    { key: 'skills', tab: 'skills', at: ['#sk-projects', '#sk-mine'] },
     { key: 'standup', tab: 'sessions', at: ['[data-standup]'] },
     { key: 'wait', tab: 'sessions', at: ['#d-aq .ap-who'], alt: { tab: 'settings', at: ['[data-row="longWait"]'] } },
-    { key: 'allow', tab: 'sessions', at: ['#d-aq', '.flow'] },
+    { key: 'allow', tab: 'sessions', at: ['#d-aq', '#d-doing'] },
   ];
 
   const GAP = 12, EDGE = 12, NARROW = 560;

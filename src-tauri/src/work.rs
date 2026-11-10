@@ -121,6 +121,14 @@ impl Forge {
         }
     }
     fn env(self) -> &'static [(&'static str, &'static str)] { if self == Forge::GitHub { GH_ENV } else { &[] } }
+    // One open issue, read on its own (GET), marked `linked`: one a session here works on (its branch or its start
+    // names it) that is not assigned to you, so the session shows under its ticket. None when closed, a pull request,
+    // or the read fails.
+    pub fn issue(self, bin: &str, host: &str, path: &str, iid: i64) -> Option<Value> {
+        let api = match self { Forge::GitHub => format!("repos/{path}/issues/{iid}"), Forge::GitLab => format!("projects/{}/issues/{iid}", enc(path)) };
+        let r = procs::exec(bin, &["api", "--hostname", host, &api], 30, self.env());
+        linked_issue(self, &serde_json::from_str(&r.out).ok()?)
+    }
     // Your open pull requests (GitHub) / merge requests (GitLab), with the issues they close: those wait for review.
     // Read-only (GitHub's is a GraphQL query, no mutation); a failed read gives none, the issue list still shows.
     pub fn reviews(self, bin: &str, host: &str) -> Vec<Review> {
@@ -211,6 +219,14 @@ pub fn slim_gh_issue(i: &Value) -> Option<Value> {
     let labels: Vec<Value> = i["labels"].as_array().map(|a| a.iter().take(10).filter_map(|l| l["name"].as_str().or(l.as_str()).map(|n| json!(n))).collect()).unwrap_or_default();
     Some(json!({ "iid": i["number"], "title": head16(i["title"].as_str().unwrap_or(""), 300), "url": i["html_url"],
         "project": project, "labels": labels, "due": Value::Null }))
+}
+
+// An issue read on its own (Forge::issue): kept while open, marked `linked`.
+fn linked_issue(f: Forge, v: &Value) -> Option<Value> {
+    if !matches!(v["state"].as_str(), Some("open" | "opened")) { return None; }
+    let mut i = if f == Forge::GitHub { slim_gh_issue(v)? } else { slim_issue(v) };
+    i["linked"] = json!(true);
+    Some(i)
 }
 
 // One session as the Work tab sees it: { id, path (GitLab project), dir, iid }.
@@ -306,11 +322,13 @@ pub struct Work {
     // New on an issue opens a new session in the project's folder and waits here: the first session created in exactly
     // that folder afterwards takes the issue and its name (see take_issue).
     pub new_for: indexmap::IndexMap<String, Value>, // project folder -> { path, iid, title }
+    // "project#iid" of the issues sessions worked on that were read on their own (Forge::issue), so each is asked once
+    pub asked: std::collections::HashSet<String>,
 }
 
 impl Default for Work {
     fn default() -> Self {
-        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default() }
+        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default() }
     }
 }
 
@@ -332,6 +350,11 @@ impl Work {
 
     fn list(&self, settings: &Value) -> Vec<&Value> {
         self.on(settings).into_iter().flat_map(|f| f.issues["list"].as_array().into_iter().flatten()).collect()
+    }
+
+    // A session works on an issue Bobix has not read and has not asked for yet (a new session on an issue not assigned to you).
+    pub fn unread_link(&self, settings: &Value, m: &Model) -> bool {
+        m.linked().iter().any(|(_, p, iid)| self.find_issue(settings, p, *iid).is_none() && !self.asked.contains(&format!("{p}#{iid}")))
     }
 
     pub fn find_issue(&self, settings: &Value, path: &str, iid: i64) -> Option<&Value> {
@@ -375,7 +398,9 @@ impl Work {
         if !any_on(settings) { return json!({ "status": "off" }); }
         let live: Vec<Live> = m.sessions.iter().filter_map(|s| Some(Live { id: s.id.clone(), path: s.repo.as_ref().map(|r| r.to.path.clone()),
             dir: s.dir.as_ref()?.to.path.clone(), iid: s.issue.as_ref().map(|i| i.to.iid) })).collect();
-        let all: Vec<Value> = self.list(settings).into_iter().cloned().collect();
+        // an issue read only because a session worked on it leaves with its last session
+        let all: Vec<Value> = self.list(settings).into_iter().filter(|i| i["linked"] != true
+            || live.iter().any(|s| s.path.as_deref() == i["project"].as_str() && s.iid.is_some() && s.iid == i["iid"].as_i64())).cloned().collect();
         let (mut local, mut away) = group_issues(&all, &live);
         for (g, here) in local.iter_mut().map(|g| (g, true)).chain(away.iter_mut().map(|g| (g, false))) {
             let p = g["path"].as_str().unwrap_or("").to_string();
@@ -530,6 +555,32 @@ mod tests {
         assert_eq!(v["closed"][0]["iid"], 50);
         assert!(w.open_issue_ok(&on, "https://github.com/Acme/Shop/pull/70") && w.open_issue_ok(&on, "https://github.com/acme/shop/issues/50"));
         assert!(!w.open_issue_ok(&on, "https://evil.example/pull/1"));
+    }
+
+    #[test]
+    fn an_issue_a_session_works_on_is_read_while_open_and_leaves_with_its_last_session() {
+        let gh = json!({ "number": 91, "title": "Pet costumes", "html_url": "https://github.com/o/bobix/issues/91", "repository_url": "https://api.github.com/repos/O/Bobix", "labels": [], "state": "open" });
+        assert_eq!(linked_issue(Forge::GitHub, &gh), Some(json!({ "iid": 91, "title": "Pet costumes", "url": "https://github.com/o/bobix/issues/91", "project": "o/bobix", "labels": [], "due": null, "linked": true })));
+        assert_eq!(linked_issue(Forge::GitHub, &json!({ "state": "closed", "number": 91 })), None);
+        assert_eq!(linked_issue(Forge::GitHub, &json!({ "state": "open", "number": 9, "pull_request": {}, "repository_url": "https://api.github.com/repos/o/b" })), None, "a pull request");
+        assert_eq!(linked_issue(Forge::GitLab, &json!({ "iid": 4, "state": "opened", "title": "T", "web_url": "u", "references": { "full": "g/p#4" } }))
+            .map(|i| (i["project"].clone(), i["linked"].clone())), Some((json!("g/p"), json!(true))));
+        // in the view: shown only while a session works on it
+        let mut w = Work::default();
+        w.feeds[Forge::GitHub as usize].issues = json!({ "status": "ok", "hosts": ["github.com"], "at": 1,
+            "list": [{ "iid": 5, "project": "o/bobix", "title": "mine", "labels": [], "due": null, "url": "u5" }, linked_issue(Forge::GitHub, &gh).unwrap()] });
+        let v = view(&w, &json!({ "github": true }), &Sessions::default());
+        assert_eq!(v["away"][0]["issues"].as_array().unwrap().iter().map(|i| i["iid"].as_i64().unwrap()).collect::<Vec<_>>(), [5]);
+        let m = Model { repos: vec![model::Repo { path: "o/bobix".into(), key: "BOB".into(), auto_key: "BOB".into(), forge: "github", host: "github.com".into(), dirs: vec![] }],
+            sessions: vec![model::SessionLinks { id: "s".into(), status: "working".into(), since: 0, last_activity: 0, approvals: vec![], pet: "auto".into(), dir: None, repo: None, parent: None,
+                issue: Some(model::Via { to: model::IssueRef { project: "o/bobix".into(), iid: 91 }, why: model::Why::Branch }) }], ..Default::default() };
+        assert_eq!(m.linked(), [("github.com".to_string(), "o/bobix".to_string(), 91)]);
+        let mut w = Work::default();
+        w.feeds[Forge::GitHub as usize].issues = json!({ "status": "ok", "hosts": ["github.com"], "list": [] });
+        let on = json!({ "github": true });
+        assert!(w.unread_link(&on, &m), "a session on an issue the board has not read");
+        w.asked.insert("o/bobix#91".into());
+        assert!(!w.unread_link(&on, &m), "asked once only (closed, or not readable)");
     }
 
     #[test]
