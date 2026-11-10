@@ -14,7 +14,7 @@ Every session is a pet on your screen. Answer approvals without switching window
 
 <p align="center"><b>English</b> · <a href="README.vi.md">Tiếng Việt</a></p>
 
-<p align="center"><img src="docs/media/demo.gif" alt="The Bobix panel shows one approval waiting and three usage warnings. Below it, pets walk along the edge of the screen: one finishes its task and earns XP, and one walks in with a coral ring and a red tag because it waits for your approval." width="860"></p>
+<p align="center"><img src="docs/media/demo.gif" alt="The Bobix panel shows one approval waiting and three usage warnings. Below it, pets walk along the edge of the screen: pointing at one shows its card with its task, context and usage; pointing at the pet with a coral ring shows its request with Allow and Deny, and Allow sends it back to work." width="860"></p>
 
 ---
 
