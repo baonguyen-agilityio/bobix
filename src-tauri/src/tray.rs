@@ -1,22 +1,40 @@
-// The tray / menu bar icon and its menu (buildTray in the 0.1 (Electron) app's main.js): same items, same order. The icon is the app's
-// pixel creature drawn from pixels (as in the 0.1 app), 32 px for a 16 pt slot.
+// The tray / menu bar icon and its menu (buildTray in the 0.1 (Electron) app's main.js): same items, same order. The icon is
+// Bobix's default flat pet (FLAT.default in src/ui/creature.js), drawn here from the same shapes.
 use crate::{i18n::t, panel, settings, Bobix};
 use serde_json::json;
 use std::sync::Arc;
 use tauri::{image::Image, menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem}, tray::TrayIconBuilder, AppHandle, Manager};
 
-const ICON: [&str; 8] = [".o....o.", "obo..obo", "obboobbo", "obbbbbbo", "obebbebo", "obbbbbbo", ".obbbbo.", ".oo..oo."];
-
-// size×size RGBA pixels, the creature centered with `pad` pixels around it.
-pub fn bitmap(size: usize, pad: usize) -> Vec<u8> {
+// size×size RGBA pixels of the pet (ears to feet), 4×4 samples a pixel. template: black with the eyes cut out, a macOS
+// template image that follows the menu bar's light or dark look; otherwise the sky pet with dark eyes.
+pub fn bitmap(size: usize, template: bool) -> Vec<u8> {
+    let rr = |x: f64, y: f64, l: f64, t: f64, w: f64, h: f64, r: f64| ((x - l - w / 2.0).abs() - w / 2.0 + r).max(0.0).hypot(((y - t - h / 2.0).abs() - h / 2.0 + r).max(0.0)) <= r;
+    let dot = |x: f64, y: f64, cx: f64, cy: f64, r: f64| (x - cx).hypot(y - cy) <= r;
+    let (hi, lo, ink) = ([154.0, 211.0, 245.0], [98.0, 181.0, 228.0], [31.0, 34.0, 48.0]);
+    // a point of the pet's 36-unit box: its colour, or None outside it
+    let at = |x: f64, y: f64| -> Option<[f64; 3]> {
+        let body = rr(x, y, 6.5, 7.0, 23.0, 22.0, 8.5) || dot(x, y, 11.5, 8.6, 3.3) || dot(x, y, 24.5, 8.6, 3.3);
+        let limb = dot(x, y, 6.5, 21.0, 2.3) || dot(x, y, 29.5, 21.0, 2.3) || rr(x, y, 10.3, 28.4, 5.6, 3.2, 1.6) || rr(x, y, 20.1, 28.4, 5.6, 3.2, 1.6);
+        let eye = dot(x, y, 14.5, 16.0, 2.0) || dot(x, y, 21.5, 16.0, 2.0);
+        if limb { return Some(if template { [0.0; 3] } else { lo }); }
+        if !body { return None; }
+        if eye { return if template { None } else { Some(ink) }; }
+        if template { return Some([0.0; 3]); }
+        let k = ((y - 5.3) / 23.7).clamp(0.0, 1.0);
+        Some([0, 1, 2].map(|i| hi[i] + (lo[i] - hi[i]) * k))
+    };
+    let (x0, y0, span) = (4.0, 4.6, 28.0); // ears at the top to feet at the bottom, centred across
     let mut buf = vec![0u8; size * size * 4];
-    let cell = (size - 2 * pad) as f64 / 8.0;
-    for y in 0..size {
-        for x in 0..size {
-            let (gx, gy) = (((x as f64 - pad as f64) / cell).floor(), ((y as f64 - pad as f64) / cell).floor());
-            if !(0.0..8.0).contains(&gx) || !(0.0..8.0).contains(&gy) { continue; }
-            let rgb = match ICON[gy as usize].as_bytes()[gx as usize] { b'o' => [90, 50, 70], b'b' => [200, 190, 236], b'e' => [30, 30, 40], _ => continue };
-            buf[(y * size + x) * 4..][..4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+    for py in 0..size {
+        for px in 0..size {
+            let (mut sum, mut n) = ([0.0; 3], 0.0);
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let u = |p: usize, s: usize| (p as f64 + (s as f64 + 0.5) / 4.0) / size as f64 * span;
+                    if let Some(c) = at(x0 + u(px, sx), y0 + u(py, sy)) { for i in 0..3 { sum[i] += c[i]; } n += 1.0; }
+                }
+            }
+            if n > 0.0 { buf[(py * size + px) * 4..][..4].copy_from_slice(&[(sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8, (n / 16.0 * 255.0).round() as u8]); }
         }
     }
     buf
@@ -74,7 +92,8 @@ pub fn build(app: &AppHandle, b: &Arc<Bobix>) {
         let app = app2;
         let m = match menu(&app, &b) { Ok(m) => m, Err(e) => return eprintln!("[bobix] tray menu: {e}") };
         if let Some(tray) = app.tray_by_id("main") { let _ = tray.set_menu(Some(m)); return; }
-        let made = TrayIconBuilder::with_id("main").icon(Image::new_owned(bitmap(32, 0), 32, 32)).tooltip("Bobix").menu(&m)
+        let mac = cfg!(target_os = "macos");
+        let made = TrayIconBuilder::with_id("main").icon(Image::new_owned(bitmap(32, mac), 32, 32)).icon_as_template(mac).tooltip("Bobix").menu(&m)
             .on_menu_event(|app, e| on_menu(app, e.id().as_ref())).build(&app);
         if let Err(e) = made { eprintln!("[bobix] tray: {e}"); }
     });
@@ -83,11 +102,16 @@ pub fn build(app: &AppHandle, b: &Arc<Bobix>) {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn the_creature_fills_the_icon() {
-        let px = super::bitmap(32, 0);
-        let at = |x: usize, y: usize| &px[(y * 32 + x) * 4..][..4];
-        assert_eq!(at(0, 0), [0, 0, 0, 0], "corner: transparent");
-        assert_eq!(at(4, 0), [90, 50, 70, 255], "ear outline");
-        assert_eq!(at(9, 17), [30, 30, 40, 255], "eye");
+    fn the_pet_fills_the_icon() {
+        for template in [false, true] {
+            let px = super::bitmap(32, template);
+            let at = |x: usize, y: usize| &px[(y * 32 + x) * 4..][..4];
+            assert_eq!(at(0, 0)[3], 0, "corner: transparent");
+            assert_eq!(at(16, 26)[3], 255, "body: solid");
+            assert_eq!(at(8, 3)[3], 255, "ear: solid");
+            // the left eye, at (14.5, 16) of the pet's box
+            let eye = at(12, 13);
+            if template { assert_eq!(eye[3], 0, "eye: cut out of the template"); } else { assert_eq!(eye, [31, 34, 48, 255], "eye: dark"); }
+        }
     }
 }
