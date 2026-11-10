@@ -22,8 +22,9 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                thread::sleep(Duration::from_secs(90));
-                let _ = fs::write(dir.join("report.json"), json!({ "watchdog": "gave up after 90 s" }).to_string());
+                let extra = ticket_secs();
+                thread::sleep(Duration::from_secs(90 + extra));
+                let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
                 app.exit(2);
             });
@@ -157,6 +158,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             report["drag"] = drag(&app, &rest);
             report["hover"] = hover(&app);
         }
+        if let Ok(key) = std::env::var("BOBIX_SMOKE_TICKET") { report["ticket"] = ticket(&app, &b, &dir, &key); }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
@@ -166,6 +168,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
             && ["audit", "disable", "undoDisable", "remove", "undoRemove", "lines", "rulesAdd", "rulesRemove"].iter().all(|k| report["skillsPanel"][k] == true)
+            && (report.get("ticket").is_none() || report["ticket"]["pass"] == true)
             && report["settingsSaved"] == true && report["tray"] == true
             && report["badge"]["held"].as_u64().unwrap_or(0) >= 1 && report["badge"]["answered"].as_u64() < report["badge"]["held"].as_u64() && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
@@ -174,6 +177,72 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         let _ = fs::write(dir.join("done"), ""); // CI waits for this, then stops the app itself
         app.exit(if pass { 0 } else { 1 });
     });
+}
+
+// BOBIX_SMOKE_TICKET=<project>#<number> (with BOBIX_HOME set; not in CI): the ticket flow end to end on an issue the
+// person's glab (a stand-in, in the e2e run; read with the panel's Refresh, smoke mode reads nothing by itself) lists for a project a session here works in. Clicks the Work screen's own
+// buttons: Prepare start, then Copy terminal command; writes <dir>/ticket-start.json ({ dir, cmd }) for whoever runs
+// that session (a real Claude session); waits for its plan and clicks Approve plan; watches for the pet's mark of a
+// new assumption (Work not on screen meanwhile); waits for done or blocked; clicks Fill gaps with Haiku, then Clean up.
+fn ticket_secs() -> u64 { if std::env::var_os("BOBIX_SMOKE_TICKET").is_some() { std::env::var("BOBIX_SMOKE_TICKET_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(900) } else { 0 } }
+fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let mut r = json!({});
+    let flow = || serde_json::from_str::<Value>(&b.snapshot()).ok().and_then(|v| v["tickets"]["list"].as_array()?.iter().find(|f| f["key"] == key).cloned()).unwrap_or(Value::Null);
+    let wait = |secs: u64, f: &dyn Fn(&Value) -> bool| { let until = Instant::now() + Duration::from_secs(secs); loop { let x = flow(); if f(&x) || Instant::now() > until { return x; } thread::sleep(Duration::from_millis(500)); } };
+    let k = json!(key);
+    r["start"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), k = {k}; \
+        const until = async f => {{ for (let t = 0; t < 30000; t += 100) {{ if (f()) return true; await w(100); }} return false; }}; \
+        navigator.clipboard.writeText = async () => {{}}; const go = bridge.ticketStart; bridge.ticketStart = async (...a) => (window.__tkStart = await go(...a)); await bridge.refreshWork(); showTab('work'); \
+        if (!await until(() => items.some(x => x.id === 'n:' + k))) return {{ error: 'issue not listed', items: items.map(x => x.id), work: work.status, local: (work.local || []).map(g => g.path + ' ' + g.issues.length), todo: st.todo.length, problems: work.problems }}; \
+        bsel.work = 'n:' + k; render(); document.querySelector('#b-dyn [data-tk-prep]').click(); \
+        if (!await until(() => document.querySelector('#b-dyn .tk-prompt'))) return {{ error: 'no Start box' }}; \
+        const prompt = tkPrep[k].prompt, disk = document.querySelector('#b-dyn .note, #b-dyn .risk') && tkPrep[k].prep.room; \
+        document.querySelector('#b-dyn [data-tk-cli]').click(); \
+        if (!await until(() => tickets.list.some(f => f.key === k))) return {{ error: 'not started' }}; \
+        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work }}; }})()"), 40);
+    let f = flow();
+    let fdir = f["dir"].as_str().unwrap_or("").to_string();
+    r["worktree"] = json!(std::path::Path::new(&fdir).join(".bobix-log/work-log.md").is_file());
+    // the line to paste, with the prompt (the panel copied it; here it is written for the e2e driver)
+    let p = ask(app, panel::LABEL, "window.__tkStart && window.__tkStart.cmd");
+    let _ = fs::write(dir.join("ticket-start.json"), json!({ "dir": fdir, "cmd": p, "key": key, "start": r["start"] }).to_string());
+    let f = wait(ticket_secs() / 2, &|f| f["status"] == "approve");
+    r["plan"] = json!(f["plan"].as_str().map_or(0, |p| p.len()));
+    r["planHasAssumptions"] = json!(f["plan"].as_str().is_some_and(|p| p.to_lowercase().contains("assum")));
+    r["approve"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)); showTab('work'); bsel.work = 'f:' + k; render(); await w(300); \
+        const b = document.querySelector('#b-dyn [data-tk-ok]'); if (!b) return {{ error: 'no Approve button' }}; b.click(); await w(800); showTab('overview'); return true; }})()"), 10);
+    // running: a new assumption puts the mark on the pet (the overlay draws it) while Work is not on screen
+    let (until, mut marked, mut drawn) = (Instant::now() + Duration::from_secs(ticket_secs() / 2), false, Value::Null);
+    let f = loop {
+        let f = flow();
+        let sid = f["session"].as_str().unwrap_or("").to_string();
+        if !marked && serde_json::from_str::<Value>(&b.snapshot()).ok().is_some_and(|v| v["sessions"].as_array().is_some_and(|a| a.iter().any(|s| s["id"] == sid.as_str() && s["mark"] == true))) {
+            marked = true;
+            thread::sleep(Duration::from_millis(600));
+            drawn = ask(app, overlay::LABEL, "document.querySelectorAll('.pet .mk').length");
+        }
+        if matches!(f["status"].as_str(), Some("done" | "blocked")) || Instant::now() > until { break f; }
+        thread::sleep(Duration::from_millis(500));
+    };
+    r["status"] = f["status"].clone();
+    r["parsed"] = f["parsed"].clone();
+    r["marked"] = json!(marked);
+    r["markDrawn"] = drawn;
+    r["session"] = f["session"].clone();
+    // the log's own view, then Haiku's summary and the cleanup, clicked in Work
+    r["finish"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
+        const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
+        showTab('work'); bsel.work = 'f:' + k; render(); await w(500); const r = {{ assumptionsShown: document.querySelectorAll('#b-dyn .tk-as li').length }}; \
+        q('[data-tk-sum]')?.click(); r.summary = await until(() => tickets.list.find(f => f.key === k)?.summary, 150000); \
+        q('[data-tk-clean]')?.click(); r.cleaned = await until(() => tickets.list.find(f => f.key === k)?.cleaned, 20000); \
+        r.toast = [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '); return r; }})()"), 200);
+    let after = flow();
+    r["kept"] = json!(after["log"].as_str().is_some_and(|l| !l.is_empty()));
+    r["worktreeGone"] = json!(!std::path::Path::new(&fdir).exists());
+    r["pass"] = json!(r["start"]["rules"] == true && r["worktree"] == true && r["plan"].as_u64().unwrap_or(0) > 0 && r["approve"] == true
+        && r["status"] == "done" && r["parsed"]["steps"].as_array().is_some_and(|a| !a.is_empty()) && r["finish"]["summary"] == true);
+    r
 }
 
 // The skills audit through the panel's bridge, on a scratch skill under BOBIX_HOME (never the person's own): listed

@@ -21,9 +21,12 @@ process.stdin.on('end', () => {
   try { e = JSON.parse(raw); } catch { return; }
   // Big payloads (file contents, tool output) are never needed: send only what the app reads.
   delete e.tool_response;
-  if (e.tool_input && typeof e.tool_input === 'object') {
+  const input = e.tool_input && typeof e.tool_input === 'object' ? e.tool_input : null;
+  const plan = e.tool_name === 'ExitPlanMode'; // a plan Claude asks you to approve: Bobix shows it whole
+  if (input) {
     const t = {};
-    for (const k of KEEP_INPUT) if (typeof e.tool_input[k] === 'string') t[k] = e.tool_input[k].slice(0, 300);
+    for (const k of KEEP_INPUT) if (typeof input[k] === 'string') t[k] = input[k].slice(0, 300);
+    if (plan && typeof input.plan === 'string') t.plan = input.plan.slice(0, 20000);
     e.tool_input = t;
   }
   // Where the session lives, so a click on its pet can open it: Claude desktop's own session id,
@@ -53,7 +56,13 @@ process.stdin.on('end', () => {
     res.on('data', c => { out += c; });
     res.on('end', () => {
       if (!(ask || titled) || res.statusCode !== 200) return;
-      try { const d = JSON.parse(out).hookSpecificOutput; if (d?.hookEventName === e.hook_event_name) process.stdout.write(JSON.stringify({ hookSpecificOutput: d })); } catch {}
+      try {
+        const d = JSON.parse(out).hookSpecificOutput;
+        if (d?.hookEventName !== e.hook_event_name) return;
+        // Claude approves a plan only with its input given back (a bare allow is ignored): the whole one, kept here.
+        if (plan && input && d.decision?.behavior === 'allow' && !d.decision.updatedInput) d.decision.updatedInput = input;
+        process.stdout.write(JSON.stringify({ hookSpecificOutput: d }));
+      } catch {}
     });
   });
   req.on('error', () => {});

@@ -27,6 +27,7 @@ mod habit_skills;
 mod skills;
 mod smoke;
 mod state;
+mod tickets;
 mod tray;
 mod update;
 mod usage;
@@ -57,6 +58,7 @@ pub struct Core {
     pub save_gen: u64,                     // settings saves are debounced: only the newest one writes
     pub habits: habits::Mem,               // the permission requests waiting, for the habit log (memory only)
     pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
+    pub tickets: tickets::Flows,           // the ticket flow (#112): kept in the data folder, this machine only
     pub usage: Value,                      // usage::Store::meta: the price table's date, how many past sessions make the normal
 }
 
@@ -85,6 +87,8 @@ fn snapshot_of(c: &Core) -> Value {
         v["image"] = json!(petstore::served(pic));
         v["pixel"] = json!(pic.is_object());
         v["whole"] = json!(pic["opts"]["whole"] == true);
+        v["mark"] = json!(c.tickets.marked(&s.id)); // a new assumption in its work log (the ticket flow)
+        v["flow"] = json!(c.tickets.by_session(&s.id).map(|f| &f.key));
         v["issue"] = x.issue.as_ref().map(|i| {
             let it = m.issue(&i.to.project, i.to.iid);
             json!({ "iid": i.to.iid, "title": it.map_or(json!(""), |it| it.title.clone()), "url": it.map_or(json!(""), |it| it.url.clone()) })
@@ -92,7 +96,8 @@ fn snapshot_of(c: &Core) -> Value {
         v
     }).collect();
     let waiting: Vec<Value> = c.work.new_for.iter().map(|(dir, n)| json!({ "dir": dir, "path": n["path"], "iid": n["iid"] })).collect();
-    json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json(), "waits": c.waits, "usage": c.usage })
+    let tickets = c.tickets.view(tickets::free_bytes(&paths::home()));
+    json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json(), "waits": c.waits, "usage": c.usage, "tickets": tickets })
 }
 
 impl Bobix {
@@ -114,7 +119,7 @@ impl Bobix {
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, settings, work, waits, habits: mem, .. } = &mut *c;
+            let Core { sessions, pending, settings, work, waits, habits: mem, tickets: flows, .. } = &mut *c;
             let gitlab = work::any_on(settings);
             let remember = habits::on(settings);
             let before = if remember { habits::before(sessions, &e) } else { None };
@@ -138,7 +143,10 @@ impl Bobix {
                     }
                     find_parent(s, now);
                     let git_dir = git_due(work, s, ev == "Stop" || start, now);
-                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e) }
+                    let tool = e["tool_name"].as_str().unwrap_or("");
+                    if flows.on_event(&id, &s.cwd, &ev, tool, e["tool_input"]["plan"].as_str(), now) { flows.save(); }
+                    let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
+                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e, plan) }
                         // A session that starts on an issue (New in the Work tab, or its branch) gets its name from Bobix,
                         // the way /rename names it; one that has a name keeps it.
                         else if start && source == "startup" && untitled && work.new_for.contains_key(&s.cwd) { Some(take_issue(work, settings, s)) }
@@ -901,6 +909,136 @@ async fn work_start(path: String, iid: i64, prompt: Option<String>, dir: Option<
     tauri::async_runtime::spawn_blocking(move || start_issue(&b, &path, iid, prompt.as_deref().unwrap_or(""), dir.as_deref())).await.map_err(|_| ())
 }
 
+// ---------- the ticket flow (#112): Start in a worktree, approve the plan, the work log ----------
+// An issue of a project a session here works in (its folder known), as Start reads it.
+fn local_issue(c: &Core, path: &str, iid: i64) -> Option<(String, Value)> {
+    let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
+    let g = view["local"].as_array()?.iter().find(|g| g["path"] == path)?;
+    let i = g["issues"].as_array()?.iter().find(|i| i["iid"].as_i64() == Some(iid))?.clone();
+    Some((g["dir"].as_str()?.to_string(), i))
+}
+// The repository's top folder (a session may work in a subfolder), its worktree for the issue, the branch, the disk.
+fn ticket_place(b: &Bobix, path: &str, iid: i64) -> Result<(String, Value, std::path::PathBuf, String), Value> {
+    let (dir, i) = { let c = b.core.lock().unwrap(); local_issue(&c, path, iid) }.ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
+    let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
+    let wt = tickets::worktree_dir(&repo, iid);
+    let branch = tickets::branch_for(iid, i["title"].as_str().unwrap_or(""));
+    Ok((repo, i, wt, branch))
+}
+
+// For the Start box: where it will work and how the session is told to work. { ok, repo, dir, branch, rules, free, room, need, exists }
+#[tauri::command]
+async fn ticket_prep(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (repo, _, wt, branch) = match ticket_place(&b, &path, iid) { Ok(x) => x, Err(e) => return e };
+        let free = tickets::free_bytes(std::path::Path::new(&repo));
+        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::key_of(&path, iid)).is_some_and(|f| !f.cleaned);
+        json!({ "ok": true, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+    }).await.map_err(|_| ())
+}
+
+// Start: a worktree on a new branch, the log's template in it, then a new Claude desktop session there with the prompt
+// (how: desktop), or the line to paste in a terminal with the model and plan mode preset (how: cli). The first session
+// created in that folder takes the issue (its name, as New does) and the flow.
+#[tauri::command]
+async fn ticket_start(path: String, iid: i64, prompt: String, models: Value, how: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (repo, i, wt, branch) = match ticket_place(&b, &path, iid) { Ok(x) => x, Err(e) => return e };
+        let key = tickets::key_of(&path, iid);
+        if b.core.lock().unwrap().tickets.list.get(&key).is_some_and(|f| !f.cleaned) { return json!({ "ok": false, "reason": "exists" }); }
+        let free = tickets::free_bytes(std::path::Path::new(&repo));
+        if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) { return json!({ "ok": false, "reason": "disk", "free": free }); }
+        let title = i["title"].as_str().unwrap_or("").to_string();
+        let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
+        let dir = wt.to_string_lossy().to_string();
+        let models = if models.is_object() { models } else { json!({ "size": "small" }) };
+        let cmd = tickets::cli_command(&dir, &tickets::main_model(&models), &prompt);
+        {
+            let mut c = b.core.lock().unwrap();
+            c.tickets.list.shift_remove(&key);
+            c.tickets.list.insert(key.clone(), tickets::Flow { key, path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
+                dir: dir.clone(), branch, base, status: "starting".into(), models, at: state::now(), ..Default::default() });
+            c.tickets.save();
+            c.work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": title }));
+        }
+        b.broadcast();
+        if how == "cli" { return json!({ "ok": true, "mode": "cli", "dir": dir, "cmd": cmd }); }
+        match tauri_plugin_opener::open_url(work::new_session_link(&dir, &prompt), None::<&str>) {
+            Ok(_) => json!({ "ok": true, "mode": "new", "dir": dir, "cmd": cmd }),
+            Err(e) => json!({ "ok": false, "mode": "new", "reason": e.to_string(), "dir": dir, "cmd": cmd }),
+        }
+    }).await.map_err(|_| ())
+}
+
+// Only on your click: Haiku classifies the ticket through your own `claude -p` (no tools, no hooks). { ok, size, why, steps } | { ok: false, error }
+#[tauri::command]
+async fn ticket_classify(title: String, body: String) -> Result<Value, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(claude) = find_bin("claude") else { return json!({ "ok": false, "error": "claude is not installed" }) };
+        match tickets::classify(&claude, &title, &body) { Ok(mut v) => { v["ok"] = json!(true); v["text"] = json!(tickets::models_text(&v)); v["model"] = json!(tickets::main_model(&v)); v }, Err(e) => json!({ "ok": false, "error": e }) }
+    }).await.map_err(|_| ())
+}
+
+// Approve the flow's plan (its session goes on in auto mode) or send it back with what to change.
+#[tauri::command]
+fn ticket_answer(key: String, approve: bool, change: Option<String>, b: B) -> bool {
+    let id = {
+        let c = b.core.lock().unwrap();
+        c.tickets.list.get(&key).and_then(|f| c.sessions.get(f.session.as_deref()?)).and_then(|s| s.answer.as_ref()?["id"].as_str().map(String::from))
+    };
+    id.is_some_and(|id| answers::answer_with(&b, &id, if approve { "allow" } else { "deny" }, change.as_deref().unwrap_or("")))
+}
+
+// You looked at the flow: its assumptions so far are seen, the pet's mark goes.
+#[tauri::command]
+fn ticket_seen(key: String, b: B) {
+    let changed = {
+        let mut c = b.core.lock().unwrap();
+        let Some(f) = c.tickets.list.get_mut(&key) else { return };
+        let n = tickets::assumptions(&f.log);
+        let ch = f.seen != n;
+        f.seen = n;
+        if ch { c.tickets.save(); }
+        ch
+    };
+    if changed { b.broadcast(); }
+}
+
+// Only on your click: Haiku sums up what the log leaves out, from the log and the branch's commits. Kept with the flow.
+#[tauri::command]
+async fn ticket_summary(key: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
+        let Some(claude) = find_bin("claude") else { return json!({ "ok": false, "error": "claude is not installed" }) };
+        match tickets::summarize(&claude, &f) {
+            Ok(t) => {
+                { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.summary = t; } c.tickets.save(); }
+                b.broadcast();
+                json!({ "ok": true })
+            }
+            Err(e) => json!({ "ok": false, "error": e }),
+        }
+    }).await.map_err(|_| ())
+}
+
+// Clean up a finished flow's worktree (git refuses when work is not committed; Bobix never forces). The log is kept.
+#[tauri::command]
+async fn ticket_clean(key: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
+        if !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
+        tickets::keep_log(&paths::data_dir(), &f);
+        if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir) { return json!({ "ok": false, "error": e }); }
+        { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.new_for.shift_remove(&f.dir); }
+        b.broadcast();
+        json!({ "ok": true })
+    }).await.map_err(|_| ())
+}
+
 // Settings → My skills: your own skills (names and descriptions, read-only), to pin the ones to offer.
 #[tauri::command]
 async fn skills_mine() -> Result<Value, ()> {
@@ -1184,7 +1322,8 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices"];
+    "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1271,7 +1410,7 @@ fn main() {
     let (tx, _) = broadcast::channel(64);
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
-            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), usage: Value::Null }),
+            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
         tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())),
     });
 
@@ -1280,6 +1419,7 @@ fn main() {
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
             settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -1409,7 +1549,7 @@ mod snapshot_tests {
         ];
         work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), usage: Value::Null }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");
@@ -1421,6 +1561,13 @@ mod snapshot_tests {
         let c = fixture();
         let mut got = snapshot_of(&c);
         let added = got.as_object_mut().unwrap().shift_remove("model").expect("the model goes along");
+        // the ticket flow's view (free disk differs per machine) and each session's flow and mark: none in this fixture
+        let flows = got.as_object_mut().unwrap().shift_remove("tickets").expect("the ticket flow goes along");
+        assert_eq!((&flows["list"], &flows["need"]), (&json!([]), &json!(tickets::WORKTREE_BYTES)));
+        for s in got["sessions"].as_array_mut().unwrap() {
+            let o = s.as_object_mut().unwrap();
+            assert_eq!((o.shift_remove("mark"), o.shift_remove("flow")), (Some(json!(false)), Some(Value::Null)));
+        }
         let mut stages = vec![];
         for side in ["local", "away"] {
             for i in got["work"][side].as_array_mut().unwrap().iter_mut().flat_map(|g| g["issues"].as_array_mut().unwrap()) {

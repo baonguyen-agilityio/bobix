@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ticket-seen"
+description = "Enables the ticket_seen command without any pre-configured scope."
+commands.allow = ["ticket_seen"]
+
+[[permission]]
+identifier = "deny-ticket-seen"
+description = "Denies the ticket_seen command without any pre-configured scope."
+commands.deny = ["ticket_seen"]

@@ -1093,3 +1093,12 @@ test('habits become skills: every string in both languages, and every one the pa
   assert.ok(used.size > 50, `${used.size}`);
   for (const k of used) assert.ok(I18N.STR.en[k], `missing ${k}`);
 });
+
+test('ticket flow: steps, the Start prompt, disk sizes', () => {
+  const B = require('../src/ui/board');
+  assert.deepStrictEqual(['starting', 'planning', 'approve', 'running', 'done', 'blocked', 'x'].map(B.flowStep), ['plan', 'plan', 'approve', 'run', 'done', 'done', 'plan']);
+  const p = B.flowPrompt({ iid: 7, title: 'Add subtract', url: 'https://gitlab.example.test/demo/shop/-/issues/7' }, ' Next to add. ', 'Models: small.', 'How to work: plan first.');
+  assert.strictEqual(p, '#7 Add subtract\n\nNext to add.\n\nhttps://gitlab.example.test/demo/shop/-/issues/7\n\nModels: small.\n\nHow to work: plan first.');
+  assert.strictEqual(B.flowPrompt({ iid: 8, title: 't' }, '', '', 'r'), '#8 t\n\nr');
+  assert.deepStrictEqual([B.gb(5 * 1024 ** 3), B.gb(123 * 1024 ** 3), B.gb(null)], ['5.0', '123', '?']);
+});

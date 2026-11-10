@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 use std::{sync::{Arc, LazyLock}, time::Duration};
 use tokio::sync::oneshot;
 
-pub struct Pending { pub sid: String, tx: oneshot::Sender<Option<Value>> }
+// plan: a ticket flow's plan (ExitPlanMode), held until answered; approving it puts that one session in auto mode.
+pub struct Pending { pub sid: String, pub plan: bool, tx: oneshot::Sender<Option<Value>> }
 
 // Allow or Deny, this request only: Bobix never sets standing permission rules (Claude's own auto mode does that).
 fn decision(choice: &str) -> Option<Value> {
@@ -15,6 +16,14 @@ fn decision(choice: &str) -> Option<Value> {
         "deny" => json!({ "behavior": "deny", "message": "Denied from Bobix." }),
         _ => return None,
     })
+}
+// A ticket flow's plan: approved, the session runs on in Claude's own auto mode (this session only, as Claude's "Yes, and
+// use auto mode"; nothing is written to any settings); sent back, Claude gets what to change. hook.js adds the plan
+// itself (updatedInput), which Claude needs to take an approval.
+fn plan_decision(approve: bool, change: &str) -> Value {
+    if approve { return json!({ "behavior": "allow", "updatedPermissions": [{ "type": "setMode", "mode": "auto", "destination": "session" }] }); }
+    let t = change.trim();
+    json!({ "behavior": "deny", "message": if t.is_empty() { "Not approved from Bobix. Revise the plan and its assumptions, then ask again.".to_string() } else { format!("Change the plan, then ask again: {}", crate::js::head16(t, 2000)) } })
 }
 // What the hook prints for Claude Code.
 fn output(d: Value) -> Value { json!({ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": d } }) }
@@ -41,7 +50,7 @@ pub fn risky(tool: &str, input: &Value) -> bool {
 // The request's main text, whole (the session keeps a short one): the command, file, address… else its input.
 fn full_text(e: &Value) -> String {
     let i = &e["tool_input"];
-    let t = ["command", "file_path", "url", "pattern", "query"].iter().find_map(|k| i[*k].as_str().filter(|s| !s.is_empty()))
+    let t = ["command", "file_path", "url", "pattern", "query", "plan"].iter().find_map(|k| i[*k].as_str().filter(|s| !s.is_empty()))
         .map(String::from).unwrap_or_else(|| if i.is_object() { i.to_string() } else { String::new() });
     crate::js::head16(&t, 2000).to_string()
 }
@@ -53,8 +62,9 @@ fn new_id() -> String {
 }
 
 // Holds session `s`'s request when the person can see it (settings::hold_secs). Called with the core locked.
-pub fn wait(b: &Arc<Bobix>, pending: &mut std::collections::HashMap<String, Pending>, settings: &Value, s: &mut Session, e: &Value) -> Option<Reply> {
-    let secs = settings::hold_secs(settings, &s.pet);
+// plan: a ticket flow's plan, held until you answer whatever the pets show (it is the flow's one gate).
+pub fn wait(b: &Arc<Bobix>, pending: &mut std::collections::HashMap<String, Pending>, settings: &Value, s: &mut Session, e: &Value, plan: bool) -> Option<Reply> {
+    let secs = if plan { f64::INFINITY } else { settings::hold_secs(settings, &s.pet) };
     if secs == 0.0 { return None; }
     // one open request per session
     if let Some(old) = s.answer.as_ref().and_then(|a| a["id"].as_str()).and_then(|id| pending.remove(id)) { let _ = old.tx.send(None); }
@@ -65,8 +75,8 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut std::collections::HashMap<String, Pend
     let forever = secs.is_infinite();
     // until: null = no countdown. risky: it deletes or overwrites (the panel warns). full: the request's text, whole.
     s.answer = Some(json!({ "id": id, "until": if forever { Value::Null } else { json!(crate::state::now() + (secs * 1000.0) as u64) },
-        "risky": risky, "full": full_text(e) }));
-    pending.insert(id.clone(), Pending { sid: s.id.clone(), tx });
+        "risky": risky, "full": full_text(e), "plan": plan }));
+    pending.insert(id.clone(), Pending { sid: s.id.clone(), plan, tx });
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
     let (b1, id1) = (b.clone(), id.clone());
     tauri::async_runtime::spawn(async move {
@@ -83,6 +93,7 @@ pub fn done(b: &Arc<Bobix>, id: &str, decision: Option<Value>) {
     {
         let mut c = b.core.lock().unwrap();
         let Some(p) = c.pending.remove(id) else { return };
+        if p.plan && decision.is_some() { let ok = decision.as_ref().is_some_and(|d| d["behavior"] == "allow"); c.tickets.answered(&p.sid, ok, crate::state::now()); c.tickets.save(); }
         if let Some(s) = c.sessions.get_mut(&p.sid) {
             if s.answer.as_ref().is_some_and(|a| a["id"] == id) { s.answer = None; }
             if decision.is_some() { s.ask.clear(); s.ask_tool.clear(); s.state = "working".into(); s.since = crate::state::now(); }
@@ -92,9 +103,11 @@ pub fn done(b: &Arc<Bobix>, id: &str, decision: Option<Value>) {
     b.broadcast();
 }
 
-// An answer from a page or a notification: allow | deny.
-pub fn answer(b: &Arc<Bobix>, id: &str, choice: &str) -> bool {
-    let d = { let c = b.core.lock().unwrap(); c.pending.get(id).and_then(|_| decision(choice)) };
+// An answer from a page or a notification: allow | deny. On a ticket flow's plan, allow approves it (auto mode) and
+// deny sends it back; `change`: what to change, from the Work screen.
+pub fn answer(b: &Arc<Bobix>, id: &str, choice: &str) -> bool { answer_with(b, id, choice, "") }
+pub fn answer_with(b: &Arc<Bobix>, id: &str, choice: &str, change: &str) -> bool {
+    let d = { let c = b.core.lock().unwrap(); c.pending.get(id).and_then(|p| if p.plan && matches!(choice, "allow" | "deny") { Some(plan_decision(choice == "allow", change)) } else { decision(choice) }) };
     let Some(d) = d else { return false };
     done(b, id, Some(d));
     true
@@ -104,7 +117,7 @@ pub fn answer(b: &Arc<Bobix>, id: &str, choice: &str) -> bool {
 pub fn release_unseen(b: &Arc<Bobix>) {
     let ids: Vec<String> = {
         let c = b.core.lock().unwrap();
-        c.sessions.values().filter(|s| s.answer.is_some() && settings::hold_secs(&c.settings, &s.pet) == 0.0)
+        c.sessions.values().filter(|s| s.answer.as_ref().is_some_and(|a| a["plan"] != true) && settings::hold_secs(&c.settings, &s.pet) == 0.0)
             .filter_map(|s| s.answer.as_ref()?["id"].as_str().map(String::from)).collect()
     };
     for id in ids { done(b, &id, None); }
@@ -118,9 +131,15 @@ mod tests {
         assert_eq!(super::decision("deny").unwrap()["message"], "Denied from Bobix.");
         assert!(super::decision("always").is_none(), "no standing rules");
         assert!(super::decision("maybe").is_none());
+        let ok = super::plan_decision(true, "");
+        assert_eq!(ok["updatedPermissions"], serde_json::json!([{ "type": "setMode", "mode": "auto", "destination": "session" }]), "this session's mode only");
+        assert!(ok.get("updatedInput").is_none(), "hook.js gives the whole plan back");
+        assert_eq!(super::plan_decision(false, " use ints ")["message"], "Change the plan, then ask again: use ints");
+        assert_eq!(super::plan_decision(false, "")["behavior"], "deny");
         let e = serde_json::json!({ "tool_input": { "command": "npm test", "description": "d" } });
         assert_eq!(super::full_text(&e), "npm test");
         assert_eq!(super::full_text(&serde_json::json!({ "tool_input": { "a": 1 } })), "{\"a\":1}");
+        assert_eq!(super::full_text(&serde_json::json!({ "tool_input": { "plan": "1. add it" } })), "1. add it", "a plan reads as itself");
         assert_eq!(super::new_id().len(), 32);
     }
 

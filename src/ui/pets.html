@@ -28,6 +28,9 @@ button{font:inherit;color:inherit}
 .st-waiting .tag .iss{color:inherit;opacity:.8}
 @keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-4px) rotate(2deg)}}
 .st-idle .spr{opacity:.75}
+/* A new assumption in the session's work log (the ticket flow): a small amber "?" on the pet's other corner from its status
+   badge (a question the session answered by itself); the session does not stop. */
+.mk{position:absolute;top:2%;left:2%;width:calc(var(--size) * .3);height:calc(var(--size) * .3);min-width:14px;min-height:14px;border-radius:50%;display:grid;place-items:center;background:var(--warn);color:var(--surface);font:700 var(--t-xs)/1 var(--f-ui);box-shadow:0 0 0 2px var(--surface);pointer-events:none}
 .say,.card{position:absolute;bottom:calc(100% + var(--s2) + var(--lane, 0) * 36px);left:50%;transform:translateX(-50%);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--pop)}
 .edge-top .say,.edge-top .card{bottom:auto;top:calc(100% + var(--s2) + var(--lane, 0) * 36px)}
 .edge-l .say,.edge-l .card{left:0;transform:none}
@@ -193,7 +196,7 @@ function paint(p, now) {
   // A bubble: its request when hovered; the tool it just picked up, for a pet on its own.
   const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
   const say = (habitSay && habitSay.id === s.id && !p.hover && Date.now() < habitSay.until ? ['habit', habitSay.text] : null) || (t && (p.hover || t[0] === '') ? t : null);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, card && [s.usage, cfg.usageCost], s.tool, s.title, s.name, card, say, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, card && [s.usage, cfg.usageCost], s.tool, s.title, s.name, s.mark, card, say, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
   if (p.key === key) { // only its pose moved: swap the picture, keep the rest (a card being clicked, say)
     if (fr !== p.fr) { p.fr = fr; const svg = p.el.querySelector('.spr>svg'); if (svg) svg.outerHTML = petArt(art, st, color, pose); }
     return;
@@ -216,7 +219,7 @@ function paint(p, now) {
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="btn sm ghost" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
-    <div class="spr">${petArt(art, st, color, pose)}</div>
+    <div class="spr">${petArt(art, st, color, pose)}${s.mark ? `<span class="mk" title="${esc(T('pet.assume'))}" aria-label="${esc(T('pet.assume'))}">?</span>` : ''}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>`}`;
   if (p.fx) p.el.querySelector('.spr').append(p.fl);
 }
