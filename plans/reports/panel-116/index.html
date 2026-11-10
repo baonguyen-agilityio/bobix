@@ -1,0 +1,1174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bobix Panel Prototype</title>
+<style>
+/* ===== Tokens. Light is the base; dark follows the system, or data-theme forces either. ===== */
+:root, .theme-light {
+  color-scheme: light;
+  --bg: oklch(97.4% 0.004 262);
+  --glow: oklch(66% 0.175 33 / .07);
+  --sidebar: oklch(94.6% 0.006 262 / .72);
+  --surface: oklch(99.6% 0.001 262);
+  --surface-2: oklch(96.6% 0.004 262);
+  --surface-3: oklch(93.6% 0.007 262);
+  --line: oklch(25% 0.02 262 / .10);
+  --line-strong: oklch(25% 0.02 262 / .17);
+  --ink: oklch(22% 0.02 264);
+  --ink-2: oklch(40% 0.02 264);
+  --ink-3: oklch(51% 0.018 264);
+  --accent: oklch(66% 0.175 33);          /* Bobix coral, the same value as src/ui/theme.css --coral */
+  --accent-ink: oklch(50% 0.16 33);
+  --accent-bg: oklch(66% 0.175 33 / .12);
+  --accent-solid: oklch(55% 0.17 33);
+  --on-accent: oklch(99% 0.005 33);
+  --ok: oklch(52% 0.13 155);   --ok-bg: oklch(60% 0.13 155 / .13);
+  --warn: oklch(52% 0.12 70);  --warn-bg: oklch(78% 0.14 80 / .20); --warn-line: oklch(72% 0.14 75);
+  --info: oklch(52% 0.15 255); --info-bg: oklch(60% 0.14 255 / .12);
+  --err: oklch(52% 0.19 15);   --err-bg: oklch(60% 0.19 15 / .11);
+  --c-ctx: oklch(68% 0.07 255);
+  --c-in: oklch(84% 0.035 255);
+  --c-out: var(--accent);
+  --c-usual: oklch(40% 0.02 264);
+  --pop: 0 1px 2px oklch(20% 0.02 262 / .06), 0 16px 48px oklch(20% 0.02 262 / .16);
+  --scrim: oklch(25% 0.02 262 / .28);
+}
+:root[data-theme="dark"], .theme-dark {
+  color-scheme: dark;
+  --bg: oklch(16.4% 0.006 265);
+  --glow: oklch(66% 0.175 33 / .06);
+  --sidebar: oklch(19% 0.008 265 / .66);
+  --surface: oklch(20.4% 0.007 265);
+  --surface-2: oklch(23.8% 0.008 265);
+  --surface-3: oklch(27.4% 0.01 265);
+  --line: oklch(100% 0 0 / .075);
+  --line-strong: oklch(100% 0 0 / .13);
+  --ink: oklch(95% 0.004 265);
+  --ink-2: oklch(80% 0.008 265);
+  --ink-3: oklch(66% 0.012 265);
+  --accent-ink: oklch(77% 0.13 33);
+  --accent-bg: oklch(66% 0.175 33 / .16);
+  --accent-solid: oklch(68% 0.17 33);
+  --on-accent: oklch(17% 0.03 33);
+  --ok: oklch(76% 0.14 155);   --ok-bg: oklch(70% 0.14 155 / .14);
+  --warn: oklch(84% 0.13 82);  --warn-bg: oklch(80% 0.14 80 / .13); --warn-line: oklch(78% 0.14 78);
+  --info: oklch(75% 0.12 255); --info-bg: oklch(70% 0.12 255 / .15);
+  --err: oklch(72% 0.17 18);   --err-bg: oklch(70% 0.17 18 / .14);
+  --c-ctx: oklch(60% 0.08 255);
+  --c-in: oklch(42% 0.04 255);
+  --c-usual: oklch(82% 0.01 265);
+  --pop: 0 0 0 1px oklch(100% 0 0 / .06), 0 24px 64px oklch(0% 0 0 / .55);
+  --scrim: oklch(0% 0 0 / .45);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: oklch(16.4% 0.006 265); --glow: oklch(66% 0.175 33 / .06); --sidebar: oklch(19% 0.008 265 / .66);
+    --surface: oklch(20.4% 0.007 265); --surface-2: oklch(23.8% 0.008 265); --surface-3: oklch(27.4% 0.01 265);
+    --line: oklch(100% 0 0 / .075); --line-strong: oklch(100% 0 0 / .13);
+    --ink: oklch(95% 0.004 265); --ink-2: oklch(80% 0.008 265); --ink-3: oklch(66% 0.012 265);
+    --accent-ink: oklch(77% 0.13 33); --accent-bg: oklch(66% 0.175 33 / .16); --accent-solid: oklch(68% 0.17 33); --on-accent: oklch(17% 0.03 33);
+    --ok: oklch(76% 0.14 155); --ok-bg: oklch(70% 0.14 155 / .14);
+    --warn: oklch(84% 0.13 82); --warn-bg: oklch(80% 0.14 80 / .13); --warn-line: oklch(78% 0.14 78);
+    --info: oklch(75% 0.12 255); --info-bg: oklch(70% 0.12 255 / .15);
+    --err: oklch(72% 0.17 18); --err-bg: oklch(70% 0.17 18 / .14);
+    --c-ctx: oklch(60% 0.08 255); --c-in: oklch(42% 0.04 255); --c-usual: oklch(82% 0.01 265);
+    --pop: 0 0 0 1px oklch(100% 0 0 / .06), 0 24px 64px oklch(0% 0 0 / .55); --scrim: oklch(0% 0 0 / .45);
+  }
+}
+:root {
+  --f-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, Roboto, sans-serif;
+  --f-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --t-11: 11px; --t-12: 12px; --t-13: 13px; --t-15: 15px; --t-20: 20px; --t-28: 28px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+  --r-sm: 5px; --r-md: 8px; --r-lg: 12px;
+  --row: 36px;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --side: 220px;
+}
+
+/* ===== Base ===== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font: var(--t-13)/1.45 var(--f-ui); color: var(--ink); -webkit-font-smoothing: antialiased;
+  background: radial-gradient(900px 500px at 0% 0%, var(--glow), transparent 70%), var(--bg);
+  background-attachment: fixed; min-height: 100vh;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+code, .mono { font-family: var(--f-mono); font-size: .92em; }
+.num { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.005em; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ===== Shell ===== */
+.app { display: grid; grid-template-columns: var(--side) minmax(0, 1fr); min-height: 100vh; }
+.side {
+  position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: var(--s1);
+  padding: var(--s3) var(--s2); border-right: 1px solid var(--line);
+  background: var(--sidebar); backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+}
+.brand { display: flex; align-items: center; gap: var(--s2); padding: var(--s1) var(--s2) var(--s3); font-weight: 600; }
+.brand .av { width: 22px; height: 22px; }
+.brand small { margin-left: auto; font-weight: 500; }
+.find {
+  display: flex; align-items: center; gap: var(--s2); width: 100%; height: 30px; padding: 0 var(--s2);
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink-3); text-align: left;
+  margin-bottom: var(--s2);
+}
+.find .lab { flex: 1; white-space: nowrap; }
+.nav-h { padding: var(--s3) var(--s2) var(--s1); font-size: var(--t-11); color: var(--ink-3); font-weight: 500; }
+.nav a {
+  display: flex; align-items: center; gap: var(--s2); height: 30px; padding: 0 var(--s2); border-radius: var(--r-md);
+  color: var(--ink-2); text-decoration: none; font-weight: 500;
+}
+.nav a:hover { background: var(--surface-3); color: var(--ink); }
+.nav a[aria-current="page"] { background: var(--surface-3); color: var(--ink); }
+.nav a[aria-current="page"] svg { color: var(--accent); }
+.nav a .cnt { margin-left: auto; font-size: var(--t-11); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.nav a .cnt.hot { color: var(--on-accent); background: var(--accent-solid); border-radius: 999px; padding: 0 6px; line-height: 17px; font-weight: 600; }
+.nav a.later { color: var(--ink-3); }
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2); }
+.seg { display: flex; padding: 2px; gap: 2px; border-radius: var(--r-md); background: var(--surface-3); }
+.seg button { flex: 1; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); font-size: var(--t-12); display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px oklch(0% 0 0 / .12); }
+
+.main { min-width: 0; display: flex; flex-direction: column; }
+.top {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: var(--s3); height: 48px; padding: 0 var(--s6);
+  border-bottom: 1px solid var(--line); background: color-mix(in oklch, var(--bg) 78%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
+}
+.crumb { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; font-size: var(--t-13); }
+.crumb a { color: var(--ink-3); text-decoration: none; font-weight: 500; }
+.crumb a:hover { color: var(--ink); }
+.crumb .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top .sp { flex: 1; }
+.sample { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px; border: 1px dashed var(--line-strong); color: var(--ink-3); font-size: var(--t-11); font-weight: 500; white-space: nowrap; }
+.top .mini { display: none; }
+.content { width: 100%; max-width: 1120px; margin: 0 auto; padding: var(--s6) var(--s6) 64px; display: flex; flex-direction: column; gap: var(--s6); }
+
+/* ===== Components ===== */
+.kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--line-strong); border-bottom-width: 2px; color: var(--ink-3); font: 500 var(--t-11)/1 var(--f-ui); background: var(--surface); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-weight: 500; font-size: var(--t-12); white-space: nowrap; transition: background .15s var(--ease); }
+.btn:hover { background: var(--surface-2); }
+.btn.pri { background: var(--accent-solid); border-color: transparent; color: var(--on-accent); }
+.btn.pri:hover { background: color-mix(in oklch, var(--accent-solid) 88%, var(--ink)); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
+.btn.ghost:hover { background: var(--surface-3); color: var(--ink); }
+.btn.danger { color: var(--err); }
+.btn.sm { height: 24px; padding: 0 8px; }
+.btn .kbd { height: 16px; min-width: 16px; font-size: 10px; border-bottom-width: 1px; background: transparent; }
+.btn.pri .kbd { color: inherit; border-color: color-mix(in oklch, var(--on-accent) 40%, transparent); }
+.lnk { border: 0; background: none; padding: 0; color: var(--accent-ink); font-weight: 500; text-decoration: none; cursor: pointer; }
+.lnk:hover { text-decoration: underline; }
+
+.badge { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--t-11); font-weight: 500; white-space: nowrap; background: var(--surface-3); color: var(--ink-2); }
+.badge.accent { background: var(--accent-bg); color: var(--accent-ink); }
+.badge.ok { background: var(--ok-bg); color: var(--ok); }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.info { background: var(--info-bg); color: var(--info); }
+.badge.err { background: var(--err-bg); color: var(--err); }
+.badge.line { background: transparent; border: 1px solid var(--line-strong); }
+.model { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line-strong); font-size: var(--t-11); font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+.model i { width: 6px; height: 6px; border-radius: 2px; background: var(--m); }
+.model.opus { --m: oklch(62% 0.13 300); } .model.sonnet { --m: oklch(64% 0.11 230); } .model.haiku { --m: oklch(70% 0.11 160); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.working { background: var(--info); }
+.dot.waiting { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.dot.done { background: var(--ok); }
+.dot.idle { background: transparent; border: 1.5px solid var(--ink-3); }
+.st { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-12); color: var(--ink-2); white-space: nowrap; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); min-width: 0; }
+.card-h { display: flex; align-items: center; gap: var(--s2); min-height: 40px; padding: var(--s2) var(--s3) var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
+.card-h h2 { font-size: var(--t-13); }
+.card-h .meta { margin-left: auto; color: var(--ink-3); font-size: var(--t-12); display: flex; align-items: center; gap: var(--s2); }
+.card-b { padding: var(--s4); }
+.sec-h { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+.sec-h h1 { font-size: var(--t-20); }
+.sec-h p { margin: 0; color: var(--ink-3); }
+.note { color: var(--ink-3); font-size: var(--t-12); margin: 0; }
+
+/* list rows: avatar · text · meta (right-aligned) */
+.list { list-style: none; margin: 0; padding: var(--s1); }
+.row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3);
+  min-height: var(--row); padding: 6px var(--s2); border-radius: var(--r-md); color: inherit; text-decoration: none;
+}
+a.row:hover, .row.sel { background: var(--surface-2); }
+.row .ttl { display: flex; align-items: center; gap: var(--s2); min-width: 0; font-weight: 500; }
+.row .ttl span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .sub { color: var(--ink-3); font-size: var(--t-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .rmeta { display: flex; align-items: center; gap: var(--s3); justify-content: flex-end; color: var(--ink-3); font-size: var(--t-12); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row .rmeta .w { min-width: 56px; text-align: right; }
+.av { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; background: var(--surface-3); flex: none; }
+.av svg { image-rendering: pixelated; }
+.av.lg { width: 48px; height: 48px; border-radius: 12px; }
+.av.xs { width: 20px; height: 20px; border-radius: 5px; }
+.hot { color: var(--accent-ink); font-weight: 600; }
+
+/* approvals */
+.ask { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.ask .cmd { font-family: var(--f-mono); font-size: var(--t-12); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask .acts { display: flex; gap: 6px; }
+
+/* stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.tile { background: var(--surface); padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: 2px; min-width: 0; color: inherit; text-decoration: none; }
+a.tile:hover { background: var(--surface-2); }
+.tile .k { color: var(--ink-3); font-size: var(--t-12); display: flex; align-items: center; gap: 6px; }
+.tile .v { font-size: var(--t-28); font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.tile .v small { font-size: var(--t-13); font-weight: 500; color: var(--ink-3); letter-spacing: 0; }
+.tile .d { color: var(--ink-3); font-size: var(--t-12); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--s4); align-items: start; }
+.col { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+
+/* warnings */
+.warn-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s3); padding: var(--s3) var(--s4); border-top: 1px solid var(--line); }
+.warn-row:first-child { border-top: 0; }
+.warn-row .ic { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; background: var(--warn-bg); color: var(--warn); }
+.warn-row .ic.info { background: var(--info-bg); color: var(--info); }
+.warn-row p { margin: 0; }
+.warn-row .why { color: var(--ink-3); font-size: var(--t-12); margin-top: 2px; }
+.warn-row .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--s2); }
+.warn-row .x { margin-left: auto; }
+
+/* usage */
+.big { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.big b { font-size: 34px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+.big span { color: var(--ink-2); }
+.split { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; margin: var(--s3) 0 var(--s2); }
+.split i { display: block; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); font-size: var(--t-12); color: var(--ink-2); list-style: none; margin: 0; padding: 0; }
+.legend li { display: inline-flex; align-items: center; gap: 6px; }
+.legend li b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sw { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex: none; }
+.sw.dash { height: 0; width: 12px; border-top: 2px dashed var(--c-usual); border-radius: 0; }
+.chart { position: relative; margin-top: var(--s3); }
+.chart svg { display: block; width: 100%; height: 120px; overflow: visible; }
+.chart .ax { display: flex; justify-content: space-between; color: var(--ink-3); font-size: var(--t-11); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.chart .mark { position: absolute; top: 0; bottom: 18px; border-left: 1px dashed var(--c-usual); }
+.chart .mark span { position: absolute; left: 6px; top: -2px; font-size: var(--t-11); color: var(--ink-2); white-space: nowrap; background: var(--surface); padding: 0 4px; border-radius: 3px; }
+.hr { height: 1px; background: var(--line); margin: var(--s4) 0; border: 0; }
+
+/* session detail */
+.head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--s4); align-items: start; }
+.head h1 { font-size: var(--t-20); }
+.head .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--s3); margin-top: 6px; color: var(--ink-3); font-size: var(--t-12); }
+.head .facts > span { display: inline-flex; align-items: center; gap: 6px; }
+.head .acts { display: flex; gap: 6px; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; gap: 0 var(--s4); margin: 0; }
+.kv > * { padding: 7px 0; border-top: 1px solid var(--line); min-width: 0; }
+.kv > :nth-child(-n+3) { border-top: 0; }
+.kv dt { color: var(--ink-3); }
+.kv dd { margin: 0; display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.kv .r { text-align: right; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+.log { list-style: none; margin: 0; padding: 0; position: relative; }
+.log li { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--s3); padding: 7px 0; }
+.log li::before { content: ""; position: absolute; left: 9.5px; top: 26px; bottom: -7px; width: 1px; background: var(--line-strong); }
+.log li:last-child::before { display: none; }
+.log .mk { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--line-strong); background: var(--surface); color: var(--ink-3); position: relative; z-index: 1; }
+.log .mk svg { width: 12px; height: 12px; stroke-width: 2.2; }
+.log .done .mk { background: var(--ok-bg); border-color: transparent; color: var(--ok); }
+.log .now .mk { border-color: var(--info); color: var(--info); }
+.log .now .mk::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--info); }
+.log .assume .mk { background: var(--warn-bg); border-color: transparent; color: var(--warn); }
+.log .plan .mk { background: var(--surface-3); border-color: transparent; color: var(--ink-2); }
+.log .t { min-width: 0; }
+.log .t p { margin: 0; }
+.log .t .why { color: var(--ink-3); font-size: var(--t-12); margin-top: 2px; }
+.log .when { color: var(--ink-3); font-size: var(--t-12); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log .assume .t { background: var(--warn-bg); border-left: 2px solid var(--warn-line); border-radius: 0 var(--r-md) var(--r-md) 0; padding: 6px var(--s3); margin: -4px 0; }
+.log .todo .t p { color: var(--ink-3); }
+.log .lbl { font-size: var(--t-11); font-weight: 600; color: var(--ink-3); letter-spacing: .02em; text-transform: uppercase; margin-bottom: 2px; }
+.log .assume .lbl { color: var(--warn); }
+.result { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--s3); align-items: center; padding: var(--s3) var(--s4); border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); margin-top: var(--s3); }
+.result.blocked { background: var(--err-bg); border-color: transparent; }
+.result.blocked .ic { color: var(--err); }
+.result.done { background: var(--ok-bg); border-color: transparent; }
+.result.done .ic { color: var(--ok); }
+.result p { margin: 0; }
+
+/* skills */
+.toolbar { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); }
+.chip { height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2); font-size: var(--t-12); font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: transparent; }
+.chip .n { color: inherit; opacity: .7; font-variant-numeric: tabular-nums; }
+.search { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-3); margin-left: auto; min-width: 0; }
+.search input { border: 0; outline: 0; background: transparent; width: 160px; min-width: 0; color: var(--ink); font-size: var(--t-12); }
+select.sel { height: 28px; padding: 0 28px 0 10px; border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--surface); font-weight: 500; font-size: var(--t-12); appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%); background-position: calc(100% - 13px) 12px, calc(100% - 9px) 12px; background-size: 4px 4px; background-repeat: no-repeat; }
+table.t { width: 100%; border-collapse: collapse; font-size: var(--t-12); }
+.t th { text-align: left; font-weight: 500; color: var(--ink-3); padding: 0 var(--s3); height: 32px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.t td { padding: 0 var(--s3); height: 38px; white-space: nowrap; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.t tr:last-child td { border-bottom: 0; }
+.t tbody tr:hover td { background: var(--surface-2); }
+.t tr.off td { opacity: .5; }
+.t .r { text-align: right; font-variant-numeric: tabular-nums; }
+.t .nm { font-family: var(--f-mono); font-weight: 500; color: var(--ink); }
+.t .ds { color: var(--ink-3); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t .fl { display: flex; gap: 4px; }
+.t .fl-n { display: none; margin-top: 4px; }
+.t .acts { display: flex; gap: 4px; justify-content: flex-end; }
+.t input[type=checkbox], .bulk input[type=checkbox] { accent-color: var(--accent-solid); width: 14px; height: 14px; margin: 0; }
+.bar { display: inline-block; vertical-align: middle; height: 4px; border-radius: 2px; background: var(--surface-3); width: 48px; overflow: hidden; margin-right: 6px; }
+.bar i { display: block; height: 100%; background: var(--ink-3); }
+.bar.big i { background: var(--warn-line); }
+.bulk { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); background: var(--accent-bg); border-bottom: 1px solid var(--line); font-weight: 500; }
+.more-row { padding: var(--s2) var(--s3); color: var(--ink-3); font-size: var(--t-12); border-top: 1px solid var(--line); display: flex; align-items: center; gap: var(--s2); }
+.dup { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s2) var(--s4); align-items: center; padding: var(--s3) var(--s4); border-top: 1px solid var(--line); }
+.dup:first-of-type { border-top: 0; }
+.dup p { margin: 0; }
+.dup .pairs { color: var(--ink-3); font-size: var(--t-12); margin-top: 4px; font-family: var(--f-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dup .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+pre.rules { margin: 0; padding: var(--s4); font: var(--t-12)/1.6 var(--f-mono); color: var(--ink-2); background: var(--surface-2); border-radius: var(--r-md); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.rules b { color: var(--ink); font-weight: 600; }
+pre.rules .add { display: block; color: var(--ok); }
+
+/* empty state */
+.empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--s2); padding: var(--s8) var(--s4); color: var(--ink-3); }
+.empty .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-3); color: var(--ink-2); margin-bottom: var(--s1); }
+.empty h3 { color: var(--ink); font-size: var(--t-15); }
+.empty p { margin: 0; max-width: 360px; }
+
+/* command bar */
+.cmdk-scrim { position: fixed; inset: 0; z-index: 50; background: var(--scrim); display: none; align-items: flex-start; justify-content: center; padding: 12vh var(--s4) var(--s4); }
+.cmdk-scrim.open { display: flex; animation: fade .12s var(--ease); }
+.cmdk { width: min(640px, 100%); border-radius: 14px; overflow: hidden; background: color-mix(in oklch, var(--surface) 88%, transparent); backdrop-filter: blur(28px) saturate(1.6); -webkit-backdrop-filter: blur(28px) saturate(1.6); box-shadow: var(--pop); border: 1px solid var(--line); animation: rise .16s var(--ease); }
+.cmdk .in { display: flex; align-items: center; gap: var(--s3); height: 52px; padding: 0 var(--s4); border-bottom: 1px solid var(--line); color: var(--ink-3); }
+.cmdk .in input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: var(--t-15); color: var(--ink); }
+.cmdk .res { max-height: min(420px, 56vh); overflow: auto; padding: var(--s1) var(--s2) var(--s2); }
+.cmdk .grp { padding: var(--s2) var(--s2) var(--s1); font-size: var(--t-11); color: var(--ink-3); font-weight: 500; }
+.cmdk .it { display: flex; align-items: center; gap: var(--s3); height: 38px; padding: 0 var(--s2); border-radius: var(--r-md); cursor: pointer; }
+.cmdk .it .lab { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdk .it .lab small { color: var(--ink-3); margin-left: 6px; }
+.cmdk .it .hint { color: var(--ink-3); font-size: var(--t-12); display: flex; gap: 3px; }
+.cmdk .it[aria-selected="true"] { background: var(--accent-bg); }
+.cmdk .it[aria-selected="true"] .lab { color: var(--ink); }
+.cmdk .it > svg { color: var(--ink-3); }
+.cmdk .ft { display: flex; align-items: center; gap: var(--s4); height: 38px; padding: 0 var(--s4); border-top: 1px solid var(--line); color: var(--ink-3); font-size: var(--t-12); }
+.cmdk .ft span { display: inline-flex; align-items: center; gap: 4px; }
+.cmdk .ft .av { margin-right: auto; }
+.cmdk.static { animation: none; box-shadow: none; width: 100%; }
+.cmdk.static .res { max-height: none; }
+
+/* sheet (confirm) */
+.sheet-scrim { position: fixed; inset: 0; z-index: 60; background: var(--scrim); display: none; align-items: center; justify-content: center; padding: var(--s4); }
+.sheet-scrim.open { display: flex; animation: fade .12s var(--ease); }
+.sheet { width: min(480px, 100%); background: var(--surface); border-radius: 14px; box-shadow: var(--pop); border: 1px solid var(--line); padding: var(--s5); display: flex; flex-direction: column; gap: var(--s3); animation: rise .16s var(--ease); }
+.sheet h2 { font-size: var(--t-15); }
+.sheet .acts { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: var(--s2); }
+
+/* toasts */
+.toasts { position: fixed; z-index: 70; right: var(--s5); bottom: var(--s5); display: flex; flex-direction: column; gap: var(--s2); align-items: flex-end; }
+.toast { display: flex; align-items: center; gap: var(--s3); min-height: 40px; padding: 6px 6px 6px var(--s4); border-radius: 10px; background: var(--ink); color: var(--bg); box-shadow: var(--pop); font-weight: 500; max-width: min(440px, calc(100vw - 32px)); animation: rise .18s var(--ease); }
+.toast .btn { background: transparent; color: inherit; border-color: color-mix(in oklch, var(--bg) 30%, transparent); }
+.toast .btn .kbd { color: inherit; border-color: color-mix(in oklch, var(--bg) 35%, transparent); }
+.toast.static { animation: none; box-shadow: none; }
+
+/* design system page */
+.ds-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s4); align-items: start; }
+.tok { display: grid; grid-template-columns: minmax(0, 1fr) 64px 64px; gap: 0 var(--s2); align-items: center; font-size: var(--t-12); }
+.tok > * { padding: 5px 0; border-top: 1px solid var(--line); }
+.tok > :nth-child(-n+3) { border-top: 0; color: var(--ink-3); }
+.tok code { color: var(--ink); }
+.tok .s { height: 22px; border-radius: 5px; border: 1px solid var(--line); background: var(--v); }
+.types > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: baseline; gap: var(--s3); padding: 6px 0; border-top: 1px solid var(--line); }
+.types > div:first-child { border-top: 0; }
+.types code { color: var(--ink-3); font-size: var(--t-11); }
+.space { display: flex; flex-direction: column; gap: 6px; }
+.space div { display: flex; align-items: center; gap: var(--s3); font-size: var(--t-12); color: var(--ink-3); }
+.space i { display: block; height: 10px; background: var(--accent); border-radius: 2px; opacity: .8; }
+.specimen { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--line); }
+.pair > div { background: var(--bg); color: var(--ink); padding: var(--s3); }
+
+/* bottom tab bar (narrow only) */
+.tabbar { display: none; }
+
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px) scale(.99); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+@media (max-width: 1400px) { .t .c-ds { display: none; } }
+@media (max-width: 1000px) {
+  .grid2, .ds-grid { grid-template-columns: minmax(0, 1fr); }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .t .c-set, .t .c-uses { display: none; }
+}
+/* narrow: no sidebar, a bottom tab bar, rows stack their meta, touch-size targets */
+@media (max-width: 720px) {
+  :root { --row: 44px; }
+  body { font-size: 14px; }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { display: none; }
+  .top { padding: 0 var(--s4); height: 52px; }
+  .top .mini { display: inline-flex; }
+  .top .sample .long { display: none; }
+  .content { padding: var(--s4) var(--s4) calc(76px + env(safe-area-inset-bottom)); gap: var(--s4); }
+  .btn { height: 34px; padding: 0 12px; font-size: 13px; }
+  .btn.sm { height: 30px; }
+  .btn .kbd, .find .kbd, .cmdk .it .hint, .cmdk .ft span:not(.keep) { display: none; }
+  .row { grid-template-columns: auto minmax(0, 1fr); }
+  .row .rmeta { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; gap: var(--s2); }
+  .row .rmeta .w { min-width: 0; text-align: left; }
+  .ask { grid-template-columns: auto minmax(0, 1fr); }
+  .ask .acts { grid-column: 2; }
+  .tile .v { font-size: 24px; }
+  .tile .d { white-space: normal; }
+  .head { grid-template-columns: auto minmax(0, 1fr); }
+  .head .acts { grid-column: 1 / -1; flex-wrap: wrap; }
+  .kv { grid-template-columns: max-content minmax(0, 1fr); }
+  .kv .r { display: none; }
+  .kv > :nth-child(-n+3) { border-top: 1px solid var(--line); }
+  .kv > :nth-child(-n+2) { border-top: 0; }
+  .log li { grid-template-columns: 20px minmax(0, 1fr); }
+  .log .when { grid-column: 2; }
+  .result { grid-template-columns: auto minmax(0, 1fr); }
+  .result .btn { grid-column: 2; justify-self: start; }
+  .search { margin-left: 0; width: 100%; }
+  .search input { width: 100%; }
+  .t .c-ds, .t .c-last, .t .c-size { display: none; }
+  .t td { height: 48px; padding: 8px 6px; }
+  .t th { padding: 0 6px; }
+  .t .c-fl { display: none; }
+  .t .fl-n { display: flex; }
+  .t .nm { overflow-wrap: anywhere; white-space: normal; }
+  .t .fl { flex-wrap: wrap; }
+  .dup { grid-template-columns: minmax(0, 1fr); }
+  .dup .acts { justify-content: flex-start; }
+  .tok { grid-template-columns: minmax(0, 1fr) 48px 48px; }
+  .pair { grid-template-columns: 1fr; }
+  .toasts { left: var(--s4); right: var(--s4); bottom: calc(72px + env(safe-area-inset-bottom)); align-items: stretch; }
+  .tabbar {
+    display: grid; grid-template-columns: repeat(6, 1fr); position: fixed; z-index: 20; left: 0; right: 0; bottom: 0;
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line);
+    background: color-mix(in oklch, var(--bg) 82%, transparent); backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  }
+  .tabbar a { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; height: 52px; border-radius: var(--r-md); color: var(--ink-3); text-decoration: none; font-size: 11px; font-weight: 500; }
+  .tabbar a[aria-current="page"] { color: var(--ink); }
+  .tabbar a[aria-current="page"] svg { color: var(--accent); }
+  .tabbar svg.i { width: 20px; height: 20px; }
+  .tabbar .cnt { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent-solid); color: var(--on-accent); font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Bobix">
+    <div class="brand"><span class="av xs" id="logo"></span>Bobix</div>
+    <button class="find" type="button" data-cmdk><svg class="i"><use href="#i-search"/></svg><span class="lab">Search or run…</span><span class="kbd">⌘</span><span class="kbd">K</span></button>
+    <nav class="nav" id="nav" aria-label="Screens"></nav>
+    <div class="side-foot">
+      <div class="seg" role="group" aria-label="Theme" id="themeSeg"></div>
+      <a class="lnk" href="#/design" style="font-size:12px;padding:0 4px">Design system</a>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <span class="av xs mini" id="logo2"></span>
+      <div class="crumb" id="crumb"></div>
+      <span class="sp"></span>
+      <span class="sample" title="Every figure here is made up for the prototype"><svg class="i" style="width:12px;height:12px"><use href="#i-flask"/></svg>Sample<span class="long">&nbsp;data</span></span>
+      <button class="btn ghost mini" type="button" data-cmdk aria-label="Search or run"><svg class="i"><use href="#i-search"/></svg></button>
+      <button class="btn ghost mini" type="button" id="themeBtn" aria-label="Switch theme"><svg class="i"><use href="#i-moon"/></svg></button>
+    </header>
+    <main class="content" id="view" tabindex="-1"></main>
+  </div>
+</div>
+<nav class="tabbar" id="tabbar" aria-label="Screens"></nav>
+
+<div class="cmdk-scrim" id="cmdk" aria-hidden="true">
+  <div class="cmdk" role="dialog" aria-modal="true" aria-label="Command bar">
+    <div class="in"><svg class="i"><use href="#i-search"/></svg><input id="cmdk-q" placeholder="Search sessions, skills, actions…" aria-label="Search" autocomplete="off" spellcheck="false" role="combobox" aria-controls="cmdk-res" aria-expanded="true"><span class="kbd">esc</span></div>
+    <div class="res" id="cmdk-res" role="listbox"></div>
+    <div class="ft"><span class="av xs" id="logo3"></span><span><span class="kbd">↑</span><span class="kbd">↓</span> move</span><span class="keep"><span class="kbd">↵</span> run</span></div>
+  </div>
+</div>
+<div class="sheet-scrim" id="sheet" aria-hidden="true"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-h" id="sheet-box"></div></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<!-- Icons: drawn for this prototype, 16×16, 1.5 stroke -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-overview" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></symbol>
+  <symbol id="i-sessions" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M5 7l2 1.5L5 10M8.5 10H11"/></symbol>
+  <symbol id="i-work" viewBox="0 0 16 16"><path d="M6 4h7M6 8h7M6 12h7"/><path d="M2.5 4l.8.8L4.6 3.3M2.5 8l.8.8 1.3-1.5"/><circle cx="3.5" cy="12" r=".9"/></symbol>
+  <symbol id="i-skills" viewBox="0 0 16 16"><path d="M8 2l1.6 3.6L13.5 6l-2.9 2.6.8 3.9L8 10.6l-3.4 1.9.8-3.9L2.5 6l3.9-.4z"/></symbol>
+  <symbol id="i-room" viewBox="0 0 16 16"><path d="M2.5 4.5a2 2 0 012-2h5a2 2 0 012 2v3a2 2 0 01-2 2H6l-2.5 2v-2a2 2 0 01-1-1.7z"/><path d="M11.5 6.5h0.5a1.5 1.5 0 011.5 1.5v2.5a1.5 1.5 0 01-.8 1.3V13.5l-2-1.5H8.5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 16 16"><path d="M3 4.5h6M12 4.5h1M3 11.5h1M7 11.5h6"/><circle cx="10.5" cy="4.5" r="1.5"/><circle cx="5.5" cy="11.5" r="1.5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 16 16"><path d="M13.5 9.5A5.5 5.5 0 016.5 2.5a5.5 5.5 0 107 7z"/></symbol>
+  <symbol id="i-auto" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11" /><path d="M8 2.5a5.5 5.5 0 010 11z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2.5l6 10.5H2z"/><path d="M8 6.5v3M8 11.3v.2"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7.5V11M8 5v.2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M3 8h10M9 4l4 4-4 4"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 16 16"><path d="M5 3L2.5 5.5 5 8"/><path d="M2.5 5.5H10a3.5 3.5 0 010 7H6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M11 5V3.5A1 1 0 0010 2.5H3.5a1 1 0 00-1 1V10a1 1 0 001 1H5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 1.5h5.5L12.5 4.5v10h-8.5z"/><path d="M9.5 1.5v3h3M6 8h4.5M6 11h4.5"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 16 16"><path d="M3.5 14V2.5M3.5 3h8l-1.8 3 1.8 3h-8"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 16 16"><path d="M8 2l6 3.5L8 9 2 5.5z"/><path d="M2 8.5L8 12l6-3.5"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><path d="M5.5 3.5v9M10.5 3.5v9"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 16 16"><path d="M6 2h4M6.5 2v4.5L3 13a1 1 0 00.9 1.5h8.2A1 1 0 0013 13L9.5 6.5V2"/></symbol>
+  <symbol id="i-git" viewBox="0 0 16 16"><circle cx="4.5" cy="4" r="1.5"/><circle cx="4.5" cy="12" r="1.5"/><circle cx="11.5" cy="6.5" r="1.5"/><path d="M4.5 5.5v5M11.5 8c0 2.5-3 2.5-7 2.5"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.5V4M9.5 1.5V4M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5"/></symbol>
+</svg>
+
+<script>
+'use strict';
+/* ===== Pets: copied from src/ui/creature.js (fine 36×36 sprite + session colour), so each row shows its real pet ===== */
+function hashStr(str) { let h = 2166136261; for (const c of str) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
+const BODY = ['--sky', '--mint', '--lilac', '--peach', '--butter', '--rose'];
+const TOKENS = { '--n-900': [.24, .035, 266], '--sky': [.84, .075, 235], '--mint': [.86, .085, 162], '--lilac': [.83, .075, 300], '--peach': [.86, .075, 55], '--butter': [.90, .095, 98], '--rose': [.84, .075, 5] };
+const packRGB = (r, g, b) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0;
+function oklch([L, C, h]) {
+  const a = C * Math.cos(h * Math.PI / 180), b = C * Math.sin(h * Math.PI / 180);
+  const l = (L + .3963377774 * a + .2158037573 * b) ** 3, m = (L - .1055613458 * a - .0638541728 * b) ** 3, s = (L - .0894841775 * a - 1.291485548 * b) ** 3;
+  const g = x => Math.round(255 * Math.min(1, Math.max(0, x <= .0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - .055)));
+  return packRGB(g(4.0767416621 * l - 3.3077115913 * m + .2309699292 * s), g(-1.2684380046 * l + 2.6097574011 * m - .3413193965 * s), g(-.0041960863 * l - .7034186147 * m + 1.707614701 * s));
+}
+function mixOklch(a, b, p) { let dh = b[2] - a[2]; if (dh > 180) dh -= 360; if (dh < -180) dh += 360; return [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] + dh * (1 - p)]; }
+const WHITE32 = packRGB(255, 255, 255);
+const mix32 = (a, b, t) => { const m = s => Math.round(((a >>> s) & 255) * (1 - t) + ((b >>> s) & 255) * t); return packRGB(m(0), m(8), m(16)); };
+const hex32 = c => '#' + [0, 8, 16].map(s => ((c >>> s) & 255).toString(16).padStart(2, '0')).join('');
+function scale2x(src, w, h) {
+  const W = w * 2, out = new Uint32Array(W * h * 2), at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : src[y * w + x]);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const P = at(x, y), A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+    out[2 * y * W + 2 * x] = C === A && C !== D && A !== B ? A : P; out[2 * y * W + 2 * x + 1] = A === B && A !== C && B !== D ? B : P;
+    out[(2 * y + 1) * W + 2 * x] = D === C && D !== B && C !== A ? C : P; out[(2 * y + 1) * W + 2 * x + 1] = B === D && B !== A && D !== C ? D : P;
+  }
+  return out;
+}
+function creatureCells(id) {
+  let r = hashStr(id) || 1;
+  const bit = () => (r = Math.imul(r ^ (r >>> 15), 2246822507) >>> 0, r & 1);
+  const on = new Set(), put = (x, y) => { on.add(`${x},${y}`); on.add(`${6 - x},${y}`); };
+  for (let y = 1; y <= 5; y++) for (let x = 1; x <= 3; x++) put(x, y);
+  if (bit()) put(1, 0); if (bit()) put(2, 0);
+  for (let y = 2; y <= 4; y++) if (bit()) put(0, y);
+  if (bit()) put(1, 6); else put(2, 6);
+  if (bit()) { on.delete('1,1'); on.delete('5,1'); }
+  return on;
+}
+const FINE = new Map();
+function fineSprite(id, st, ci) {
+  const key = `${id}|${st}|${ci}`;
+  if (FINE.has(key)) return FINE.get(key);
+  const tone = TOKENS[BODY[ci]], body = oklch(tone), line = oklch(mixOklch(tone, TOKENS['--n-900'], .45)), W = 36;
+  const d9 = new Uint32Array(81);
+  for (const k of creatureCells(id)) { const [x, y] = k.split(',').map(Number); d9[(y + 1) * 9 + x + 1] = body; }
+  const d = scale2x(scale2x(d9, 9, 9), 18, 18), o = d.slice();
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    if (d[y * W + x]) continue;
+    outer: for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const xx = x + i, yy = y + j; if (xx >= 0 && yy >= 0 && xx < W && yy < W && d[yy * W + xx]) { o[y * W + x] = line; break outer; } }
+  }
+  const get = (x, y) => (x < 0 || y < 0 || x >= W || y >= W ? 0 : o[y * W + x]), rim = c => !c || c === line;
+  const near = (x, y, dx, dy) => rim(get(x + dx, y + dy)) || rim(get(x + 2 * dx, y + 2 * dy));
+  const light = mix32(body, WHITE32, .38), dark = mix32(body, line, .32), out = o.slice();
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    if (o[y * W + x] !== body) continue;
+    if (near(x, y, 0, -1) || near(x, y, -1, 0)) out[y * W + x] = light; else if (near(x, y, 0, 1) || near(x, y, 1, 0)) out[y * W + x] = dark;
+  }
+  face36(out, st, oklch(TOKENS['--n-900']), oklch(TOKENS['--rose']));
+  const spr = { w: W, h: W, data: out };
+  FINE.set(key, spr);
+  return spr;
+}
+function face36(o, st, ink, rose) {
+  const P = (x, y, c) => { o[y * 36 + x] = c; }, R = (x, y, w, h, c) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) P(x + i, y + j, c); };
+  const eye = (x, y, w, h, glint) => {
+    R(x, y, w, h, ink);
+    for (const [cx, cy] of [[x, y], [x + w - 1, y], [x, y + h - 1], [x + w - 1, y + h - 1]]) P(cx, cy, o[cy * 36 + (cx === x ? cx - 1 : cx + 1)] || 0);
+    R(x + 1, y + 1, glint, glint, WHITE32);
+  };
+  if (st === 'idle') { R(12, 18, 4, 1, ink); R(20, 18, 4, 1, ink); return; }
+  if (st === 'done') {
+    for (const x of [12, 20]) { P(x, 19, ink); P(x + 1, 18, ink); P(x + 2, 18, ink); P(x + 3, 19, ink); P(x, 20, ink); P(x + 3, 20, ink); }
+    P(15, 23, ink); P(16, 24, ink); R(17, 25, 2, 1, ink); P(19, 24, ink); P(20, 23, ink); R(16, 23, 4, 1, ink); R(17, 24, 2, 1, packRGB(0xff, 0x8f, 0xa3));
+    R(8, 21, 3, 2, rose); R(25, 21, 3, 2, rose); return;
+  }
+  if (st === 'waiting') { eye(12, 15, 4, 5, 2); eye(20, 15, 4, 5, 2); R(17, 23, 2, 3, ink); return; }
+  eye(12, 16, 4, 4, 1); eye(20, 16, 4, 4, 1);
+}
+function spriteSVG(spr) {
+  const runs = new Map();
+  for (let y = 0; y < spr.h; y++) for (let x = 0; x < spr.w;) {
+    const c = spr.data[y * spr.w + x];
+    let n = 1; while (x + n < spr.w && spr.data[y * spr.w + x + n] === c) n++;
+    if (c >>> 24) runs.set(c, (runs.get(c) || '') + `M${x} ${y}h${n}v1h-${n}z`);
+    x += n;
+  }
+  return `<svg viewBox="0 0 ${spr.w} ${spr.h}" width="80%" height="80%" shape-rendering="crispEdges" aria-hidden="true">${[...runs].map(([c, d]) => `<path fill="${hex32(c)}" d="${d}"/>`).join('')}</svg>`;
+}
+function creature(id, st, color) { return spriteSVG(fineSprite(id, st, color ?? hashStr(id + 'c') % BODY.length)); }
+function petColor(s, list) {
+  const n = BODY.length, proj = x => x.project || x.id, ids = xs => xs.map(x => x.id);
+  const top = x => !(x.parent && list.some(y => y.id === x.parent));
+  const par = s.parent && list.find(x => x.id === s.parent);
+  if (par) {
+    const taken = new Set(list.filter(x => top(x) && proj(x) === proj(par)).map(x => petColor(x, list)));
+    const free = [...Array(n).keys()].map(i => (petColor(par, list) + 1 + i) % n).filter(i => !taken.has(i));
+    const k = ids(list.filter(x => x.parent === s.parent)).indexOf(s.id);
+    return free.length ? free[k % free.length] : (petColor(par, list) + 1 + (k % (n - 1))) % n;
+  }
+  const mates = ids(list.filter(x => top(x) && proj(x) === proj(s)));
+  return (hashStr(proj(s) + 'c') % n + Math.max(0, mates.indexOf(s.id))) % n;
+}
+const pet = (s, cls = '') => `<span class="av ${cls}" aria-hidden="true">${creature(s.project || s.id, s.state, petColor(s, SESSIONS))}</span>`;
+
+/* ===== Sample data (made up; shapes follow the panel's session list: id, title, project, issue, state, parent) ===== */
+const SESSIONS = [
+  { id: 's2', title: 'Measure usage per session', project: 'bobix', issue: '#84', state: 'waiting', since: '1h 05m', models: [['Sonnet 5.5', 'lead']], ctx: 44, usual: 0.9, tokens: 2.1,
+    ask: { tool: 'Bash', cmd: 'cargo test -p bobix-core usage::per_turn', wait: 372 } },
+  { id: 's3', title: 'Skills audit spike', project: 'bobix', issue: '#111', state: 'waiting', since: '38m', models: [['Opus 5.5', 'lead']], ctx: 29, usual: 0.6, tokens: 1.3,
+    ask: { tool: 'Edit', cmd: 'CLAUDE.md  +14 lines', wait: 128 } },
+  { id: 's4', title: 'Fix checkout rounding on totals', project: 'web-shop', issue: 'GL-482', state: 'working', tool: 'Editing pricing/total.ts', since: '2h 41m', models: [['Sonnet 5.5', 'lead'], ['Haiku 5.5', 'explore ×2']], ctx: 88, usual: 3.1, tokens: 6.4 },
+  { id: 's1', title: 'Panel redesign prototype', project: 'bobix', issue: '#116', state: 'working', tool: 'Writing index.html', since: '48m', models: [['Opus 5.5', 'lead'], ['Haiku 5.5', 'explore']], ctx: 61, usual: 1.4, tokens: 3.0 },
+  { id: 's5', title: 'Map the auth middleware', project: 'web-shop', issue: 'GL-479', state: 'working', tool: 'Reading auth/session.ts', since: '52m', models: [['Opus 5.5', 'lead']], ctx: 37, usual: 1.1, tokens: 2.4 },
+  { id: 's6', title: 'Release notes for 0.2.0', project: 'bobix', issue: '', state: 'done', since: '12m ago', models: [['Haiku 5.5', 'lead']], ctx: 18, usual: 0.3, tokens: 0.4 },
+  { id: 's7', title: 'Tidy the flaky e2e job', project: 'web-shop', issue: 'GL-470', state: 'idle', since: '1h 20m ago', models: [['Sonnet 5.5', 'lead']], ctx: 52, usual: 1.2, tokens: 1.9 },
+];
+const byId = id => SESSIONS.find(s => s.id === id);
+const STATE_LABEL = { working: 'Working', waiting: 'Needs you', done: 'Done', idle: 'Idle' };
+
+// Today, tokens per hour (millions), and the median of the last 14 workdays at the same hour.
+const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+const TODAY = [0.4, 1.1, 1.6, 1.9, 0.8, 0.3, 1.2, 2.0, 2.4, 1.9, 1.7, 1.5, 1.2, 0.9];
+const USUAL = [0.3, 0.8, 1.0, 1.0, 0.5, 0.2, 0.8, 1.0, 1.0, 0.9, 0.7, 0.5, 0.3, 0.1];
+const SHARE = { ctx: .91, in: .06, out: .03 };
+
+const WARNINGS = [
+  { id: 'w1', s: 's4', kind: 'warn', text: '“Fix checkout rounding on totals” is 3.1× your usual session length.', why: 'Each turn now re-reads 171k tokens of context. Compact it, or start fresh with a summary.', acts: [['Compact now', 'compact'], ['Start fresh', 'fresh']] },
+  { id: 'w2', s: 's5', kind: 'warn', text: 'Opus is doing read-only work in “Map the auth middleware”.', why: '58 reads and searches, no edits in 52 min. A Haiku subagent does this for a fraction of the usage.', acts: [['Use a Haiku subagent', 'haiku'], ['Switch to Sonnet', 'sonnet']] },
+  { id: 'w3', s: null, kind: 'info', text: '138 skills in bobix were not used in 30 days.', why: 'Their descriptions load in every session and make picking the right skill harder.', acts: [['Review skills', 'skills']] },
+];
+
+const LOGS = {
+  s4: { plan: 'Totals are off by 1¢ when a cart has three or more discounted lines. Round each line to cents before summing, and keep tax on the rounded lines.',
+    steps: [
+      ['done', 'Reproduce with a failing test', 'cart.spec.ts: 3 × 19.99 at −15% gives 50.97, invoice says 50.98', '19:02'],
+      ['done', 'Find where rounding happens', 'pricing/total.ts sums unrounded line totals, rounds once at the end', '19:21'],
+      ['assume', 'Tax is computed on rounded line totals', 'Matches the three ERP invoices in fixtures/. Not confirmed by finance.', '19:30'],
+      ['assume', 'Half-up rounding, not banker’s rounding', 'The ERP export shows half-up on 0.005 cases. Changes 4 old snapshots.', '19:34'],
+      ['done', 'Round per line in pricing/total.ts', '+18 −6 lines, failing test passes', '20:05'],
+      ['now', 'Update snapshot tests', '12 of 31 updated', 'now'],
+      ['todo', 'Run the full checkout suite', '', ''],
+    ],
+    result: ['pending', 'Not finished yet. Next: the full checkout suite.'] },
+  s1: { plan: 'A clickable prototype of the new panel: tokens, shell, Overview, Session detail and Skills. No app code changes.',
+    steps: [
+      ['done', 'Read the issue, product direction and today’s panel', '', '20:54'],
+      ['assume', 'Plan usage shown against your normal only', 'No quota numbers: /usage in Claude stays the source of the real limits.', '21:02'],
+      ['now', 'Build index.html', '', 'now'],
+      ['todo', 'Screenshots and contact sheet', '', ''],
+    ], result: ['pending', 'Not finished yet.'] },
+  s3: { plan: 'List installed skills per project, flag unused and duplicate sets, and draft the model-routing rule block.',
+    steps: [
+      ['done', 'Count skills per project from ~/.claude and plugins', '214 in bobix, 96 in web-shop', '21:05'],
+      ['assume', '“Unused” means no call in transcripts for 30 days', 'Transcripts older than 30 days are not read.', '21:12'],
+      ['done', 'Draft the rule block', '', '21:28'],
+    ], result: ['blocked', 'Blocked: waiting for you to allow an edit to CLAUDE.md.'] },
+  s2: { plan: 'Read per-turn usage from local transcripts and compare it with your own median.',
+    steps: [
+      ['done', 'Parse usage fields from the transcript tail', '', '20:41'],
+      ['assume', 'Your normal = median of the last 14 workdays', 'Weekends left out.', '20:50'],
+      ['done', 'Add per-turn totals', '', '21:20'],
+    ], result: ['blocked', 'Blocked: waiting for you to allow cargo test.'] },
+  s5: { plan: 'Map how a request is authenticated, from the cookie to the route guard.',
+    steps: [['done', 'List the middleware chain', '', '20:52'], ['now', 'Read session refresh logic', '', 'now']], result: ['pending', 'Not finished yet.'] },
+  s6: { plan: 'Draft release notes for 0.2.0 from merged PRs.', steps: [['done', 'Collect merged PRs since 0.1.9', '', '21:10'], ['done', 'Write the notes', '', '21:26']], result: ['done', 'Done: docs/release-notes/0.2.0.md, 41 lines.'] },
+  s7: { plan: 'Find why the e2e job fails one run in five.', steps: [['done', 'Collect 20 failed runs', '', '19:40'], ['assume', 'The failure is a race on the seed data', 'Not proven yet.', '19:58']], result: ['pending', 'Paused for 1h 20m.'] },
+};
+
+// Skills per project: [name, set, last used (days ago, null = never in 30d), uses in 30 days, description chars]
+const SKILLS = {
+  bobix: { installed: 214, unused: 138, descK: 38.2, rows: [
+    ['ak:cook', 'ak', 1, 41, 212], ['ck:cook', 'ck', null, 0, 218], ['ak:plan', 'ak', 2, 22, 640], ['ck:plan', 'ck', null, 0, 652],
+    ['ak:ui-ux-pro-max', 'ak', 0, 6, 1980], ['ui-ux-pro-max', 'plugin', null, 0, 1964], ['ak:git', 'ak', 0, 57, 180], ['ck:git', 'ck', 41, 0, 186],
+    ['ak:frontend-design', 'ak', 6, 3, 230], ['anthropic:frontend-design', 'anthropic', null, 0, 410], ['ak:debug', 'ak', 3, 9, 520], ['ak:shopify', 'ak', null, 0, 260],
+    ['ak:threejs', 'ak', null, 0, 1480], ['ak:remotion', 'ak', null, 0, 1220], ['ak:payment-integration', 'ak', null, 0, 980], ['ak:mobile-development', 'ak', null, 0, 860],
+    ['ak:mermaidjs-v11', 'ak', null, 0, 1610], ['ak:docs-seeker', 'ak', 12, 2, 330],
+  ] },
+  'web-shop': { installed: 96, unused: 51, descK: 17.4, rows: [
+    ['ak:cook', 'ak', 0, 18, 212], ['ak:test', 'ak', 1, 14, 300], ['ak:databases', 'ak', 4, 6, 420], ['ak:shopify', 'ak', 9, 2, 260],
+    ['ck:test', 'ck', null, 0, 296], ['ak:threejs', 'ak', null, 0, 1480], ['ak:remotion', 'ak', null, 0, 1220], ['ak:payment-integration', 'ak', 2, 5, 980],
+  ] },
+  personal: { installed: 22, unused: 9, descK: 4.1, rows: [
+    ['standup-notes', 'user', 1, 9, 140], ['pr-describe', 'user', 0, 31, 210], ['old-jira-sync', 'user', null, 0, 520], ['commit-msg', 'user', 0, 64, 120],
+  ] },
+};
+const DUPS = {
+  bobix: [
+    { title: 'Two full kits: ak: and ck:', pairs: 'ak:cook / ck:cook · ak:plan / ck:plan · ak:git / ck:git · +34', note: '37 skills share a name. ck: had 0 uses in 30 days.', keep: 'ak:', drop: 'ck:', n: 37 },
+    { title: 'ui-ux-pro-max twice', pairs: 'ak:ui-ux-pro-max / ui-ux-pro-max (plugin)', note: 'Same skill from a kit and a plugin.', keep: 'ak:', drop: 'plugin copy', n: 1 },
+    { title: 'Two frontend-design skills', pairs: 'ak:frontend-design / anthropic:frontend-design', note: 'Similar descriptions; the model may pick either.', keep: 'ak:', drop: 'anthropic:', n: 1 },
+  ],
+  'web-shop': [{ title: 'ak:test and ck:test', pairs: 'ak:test / ck:test', note: 'ck:test had 0 uses in 30 days.', keep: 'ak:', drop: 'ck:', n: 1 }],
+  personal: [],
+};
+const RULES = `## When to split, which model
+- Read-only exploration (search, read, map code): a Haiku subagent.
+- Edits and tests: Sonnet.
+- A risky change to review, or a design choice: Opus.
+- Small task (one area, under ~30 min): one Sonnet session, no split.
+- Keep the lead session thin: hand out work, collect results,
+  /compact when context passes 60%.
+- One session per ticket. Past 2× your usual length, start fresh
+  with a summary.`;
+
+/* ===== State ===== */
+const ui = { skillsProject: 'bobix', filter: 'all', q: '', sel: new Set(), off: new Set(), gone: new Set(), dupDone: new Set(), rulesAdded: false, warnGone: new Set(), asked: new Set(), undo: null };
+const NAV = [
+  ['overview', 'Overview', 'i-overview', '1'], ['sessions', 'Sessions', 'i-sessions', '2'], ['work', 'Work', 'i-work', '3'],
+  ['skills', 'Skills', 'i-skills', '4'], ['room', 'Room', 'i-room', '5'], ['settings', 'Settings', 'i-settings', '6'],
+];
+const $ = s => document.querySelector(s);
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ic = (id, extra = '') => `<svg class="i" ${extra}><use href="#${id}"/></svg>`;
+const mmss = s => `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+const modelCls = m => m.split(' ')[0].toLowerCase();
+const modelTag = ([m, role]) => `<span class="model ${modelCls(m)}" title="${esc(role)}"><i></i>${esc(m.replace(' 5.5', ''))}${role && role !== 'lead' ? ` <span style="color:var(--ink-3)">· ${esc(role)}</span>` : ''}</span>`;
+const waiting = () => SESSIONS.filter(s => s.state === 'waiting' && !ui.asked.has(s.id)).sort((a, b) => b.ask.wait - a.ask.wait);
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+
+/* ===== Theme: system / light / dark ===== */
+function getTheme() { const q = new URLSearchParams(location.search).get('theme'); if (q) return q; try { return localStorage.getItem('bx-theme') || 'system'; } catch { return 'system'; } }
+function setTheme(t) {
+  if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('bx-theme', t); } catch { }
+  $('#themeSeg').innerHTML = [['system', 'i-auto', 'Auto'], ['light', 'i-sun', 'Light'], ['dark', 'i-moon', 'Dark']]
+    .map(([k, i, l]) => `<button type="button" data-theme-set="${k}" aria-pressed="${t === k}">${ic(i, 'style="width:13px;height:13px"')}${l}</button>`).join('');
+  const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  $('#themeBtn').innerHTML = ic(dark ? 'i-sun' : 'i-moon');
+  $('#themeBtn').setAttribute('aria-label', dark ? 'Use light theme' : 'Use dark theme');
+}
+const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+
+/* ===== Charts (inline SVG) ===== */
+// Stacked bars (context re-read, new input, output) with a dashed "usual" line, scaled to the box.
+function hourChart() {
+  const W = 280, H = 100, max = Math.max(...TODAY, ...USUAL) * 1.1, bw = W / TODAY.length;
+  let bars = '', usual = '';
+  TODAY.forEach((v, i) => {
+    const x = i * bw + 2, w = bw - 4; let y = H;
+    for (const [k, c] of [['ctx', 'var(--c-ctx)'], ['in', 'var(--c-in)'], ['out', 'var(--c-out)']]) {
+      const h = v * SHARE[k] / max * H; y -= h; bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(2)}" fill="${c}" rx="1"/>`;
+    }
+  });
+  usual = USUAL.map((v, i) => `${i ? 'L' : 'M'}${(i * bw + bw / 2).toFixed(1)} ${(H - v / max * H).toFixed(1)}`).join(' ');
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Tokens per hour today against your usual day. Today is above usual from 9:00 on.">
+    <line x1="0" y1="${H}" x2="${W}" y2="${H}" stroke="var(--line-strong)" vector-effect="non-scaling-stroke"/>${bars}
+    <path d="${usual}" fill="none" stroke="var(--c-usual)" stroke-width="1.5" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/></svg>
+    <div class="ax"><span>08:00</span><span>12:00</span><span>16:00</span><span>21:00</span></div></div>`;
+}
+// Per-turn usage for a session: context re-read grows each turn; output stays small. Marker where your usual session ends.
+function turnSeries(s) {
+  const n = Math.max(6, Math.round(12 * s.usual)), out = [];
+  let r = hashStr(s.id);
+  const rnd = () => ((r = Math.imul(r ^ (r >>> 13), 1274126177) >>> 0) % 1000) / 1000;
+  for (let i = 0; i < n; i++) out.push({ ctx: 16 + i * 4.1 + rnd() * 5, inp: 1 + rnd() * 3, out: .6 + rnd() * 4.8 });
+  return out;
+}
+function turnChart(s) {
+  const T = turnSeries(s), W = 400, H = 120, max = Math.max(...T.map(t => t.ctx + t.inp + t.out)) * 1.08, bw = W / T.length;
+  let bars = '', outs = '';
+  T.forEach((t, i) => {
+    const x = i * bw + bw * .12, w = bw * .76; let y = H;
+    for (const [v, c] of [[t.ctx, 'var(--c-ctx)'], [t.inp, 'var(--c-in)'], [t.out, 'var(--c-out)']]) { const h = v / max * H; y -= h; bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(2)}" fill="${c}"/>`; }
+  });
+  const omax = Math.max(...T.map(t => t.out)) * 1.15;
+  outs = T.map((t, i) => `${i ? 'L' : 'M'}${(i * bw + bw / 2).toFixed(1)} ${(40 - t.out / omax * 40).toFixed(1)}`).join(' ');
+  const usualAt = Math.min(100, 12 / T.length * 100);
+  const totCtx = T.reduce((a, t) => a + t.ctx, 0), totIn = T.reduce((a, t) => a + t.inp, 0), totOut = T.reduce((a, t) => a + t.out, 0), all = totCtx + totIn + totOut;
+  const pct = v => Math.round(v / all * 100);
+  const k = v => v >= 1000 ? (v / 1000).toFixed(1) + 'M' : Math.round(v) + 'k';
+  return `<ul class="legend"><li><span class="sw" style="background:var(--c-ctx)"></span>Re-reading context <b>${pct(totCtx)}%</b> · ${k(totCtx)}</li>
+      <li><span class="sw" style="background:var(--c-in)"></span>New input <b>${pct(totIn)}%</b></li>
+      <li><span class="sw" style="background:var(--c-out)"></span>Output <b>${pct(totOut)}%</b> · ${k(totOut)}</li></ul>
+    <div class="chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Tokens per turn over ${T.length} turns; context re-read grows each turn.">
+      <line x1="0" y1="${H}" x2="${W}" y2="${H}" stroke="var(--line-strong)" vector-effect="non-scaling-stroke"/>${bars}</svg>
+      ${s.usual > 1 ? `<div class="mark" style="left:${usualAt}%"><span>Your usual session ends here</span></div>` : ''}
+      <div class="ax"><span>Turn 1</span><span>${s.id === 's4' ? '19:00' : ''}</span><span>Turn ${T.length} · now</span></div></div>
+    <p class="note" style="margin-top:var(--s4)">Output per turn (k tokens)</p>
+    <div class="chart" style="margin-top:6px"><svg viewBox="0 0 ${W} 40" preserveAspectRatio="none" style="height:40px" role="img" aria-label="Output per turn stays between 0.6k and 5k tokens.">
+      <path d="${outs}" fill="none" stroke="var(--c-out)" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg></div>`;
+}
+const spark = (vals, cls = '') => { const max = Math.max(...vals, 1), W = 60, H = 16; return `<svg viewBox="0 0 ${W} ${H}" width="60" height="16" class="${cls}" aria-hidden="true"><path d="${vals.map((v, i) => `${i ? 'L' : 'M'}${(i / (vals.length - 1) * W).toFixed(1)} ${(H - 1 - v / max * (H - 2)).toFixed(1)}`).join(' ')}" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`; };
+
+/* ===== Shared pieces ===== */
+function sessionRow(s, opts = {}) {
+  const meta = s.state === 'waiting' ? `<span class="hot num w">${mmss(s.ask.wait)}</span>` : `<span class="num w">${esc(s.since)}</span>`;
+  return `<li><a class="row" href="#/session/${s.id}">${pet(s)}
+    <div style="min-width:0"><div class="ttl"><span>${esc(s.title)}</span></div>
+      <div class="sub">${esc(s.project)}${s.issue ? ` · ${esc(s.issue)}` : ''}${s.tool ? ` · ${esc(s.tool)}` : ''}</div></div>
+    <div class="rmeta">${s.models.slice(0, opts.allModels ? 9 : 1).map(modelTag).join('')}
+      <span class="num ${s.usual >= 2 ? 'hot' : ''}" title="Length against your usual session">${s.usual.toFixed(1)}×</span>
+      <span class="st"><span class="dot ${s.state}"></span>${STATE_LABEL[s.state]}</span>${meta}</div></a></li>`;
+}
+function askRow(s, i) {
+  return `<li class="row ask${i === 0 ? ' sel' : ''}">${pet(s)}
+    <div style="min-width:0"><div class="ttl"><span class="badge accent">${esc(s.ask.tool)}</span><span class="cmd">${esc(s.ask.cmd)}</span></div>
+      <div class="sub"><a class="lnk" style="color:var(--ink-3);font-weight:400" href="#/session/${s.id}">${esc(s.title)}</a> · waiting <span class="num ${i === 0 ? 'hot' : ''}">${mmss(s.ask.wait)}</span></div></div>
+    <div class="acts"><button class="btn sm pri" type="button" data-allow="${s.id}">Allow${i === 0 ? ' <span class="kbd">↵</span>' : ''}</button>
+      <button class="btn sm" type="button" data-deny="${s.id}">Deny</button><a class="btn sm ghost" href="#/session/${s.id}" aria-label="Open ${esc(s.title)}">${ic('i-chev')}</a></div></li>`;
+}
+function warnRow(w) {
+  return `<div class="warn-row"><span class="ic ${w.kind === 'info' ? 'info' : ''}">${ic(w.kind === 'info' ? 'i-info' : 'i-alert')}</span>
+    <div style="min-width:0"><div style="display:flex;gap:var(--s2);align-items:flex-start"><p>${esc(w.text)}</p>
+      <button class="btn sm ghost x" type="button" data-dismiss="${w.id}" aria-label="Dismiss">${ic('i-x')}</button></div>
+      <p class="why">${esc(w.why)}</p>
+      <div class="acts">${w.acts.map(([l, a], i) => `<button class="btn sm ${i === 0 ? 'pri' : ''}" type="button" data-act="${a}" data-s="${w.s || ''}">${esc(l)}</button>`).join('')}</div></div></div>`;
+}
+const empty = (icon, h, p, act = '') => `<div class="empty"><span class="ic">${ic(icon)}</span><h3>${esc(h)}</h3><p>${p}</p>${act}</div>`;
+
+/* ===== Screens ===== */
+function overview() {
+  const run = SESSIONS.filter(s => s.state === 'working'), asks = waiting(), warns = WARNINGS.filter(w => !ui.warnGone.has(w.id));
+  const tot = TODAY.reduce((a, b) => a + b, 0), usual = USUAL.reduce((a, b) => a + b, 0), x = tot / usual;
+  return `<div class="sec-h"><h1>Overview</h1><p>Tuesday 10 November · 21:40</p></div>
+  <div class="tiles">
+    <a class="tile" href="#/sessions"><span class="k"><span class="dot working"></span>Running now</span><span class="v">${run.length}<small> of ${SESSIONS.length}</small></span><span class="d">2 projects · 3 subagents</span></a>
+    <a class="tile" href="#needs"><span class="k"><span class="dot waiting"></span>Needs you</span><span class="v">${asks.length}</span><span class="d">${asks.length ? `longest ${mmss(asks[0].ask.wait)}` : 'nothing waiting'}</span></a>
+    <a class="tile" href="#usage"><span class="k">${ic('i-layers', 'style="width:13px;height:13px"')}Usage today</span><span class="v">${x.toFixed(1)}×<small> your usual day</small></span><span class="d">${tot.toFixed(1)}M tokens · usual ${usual.toFixed(1)}M</span></a>
+    <a class="tile" href="#warns"><span class="k">${ic('i-alert', 'style="width:13px;height:13px"')}Warnings</span><span class="v">${warns.length}</span><span class="d">${warns.length ? '1 long session · 1 model' : 'all clear'}</span></a>
+  </div>
+  <div class="grid2">
+    <div class="col">
+      <section class="card" id="needs" aria-labelledby="h-needs"><div class="card-h"><span class="dot waiting"></span><h2 id="h-needs">Needs you</h2><span class="meta">Longest wait first</span></div>
+        ${asks.length ? `<ul class="list">${asks.map(askRow).join('')}</ul>` : empty('i-check', 'Nothing needs you', 'Approvals show up here, the longest wait on top.')}</section>
+      <section class="card" id="warns" aria-labelledby="h-warn"><div class="card-h">${ic('i-alert')}<h2 id="h-warn">Live warnings</h2><span class="meta num">${warns.length}</span></div>
+        ${warns.length ? warns.map(warnRow).join('') : empty('i-check', 'No warnings', 'Long sessions and heavy models on light work show up here.')}</section>
+    </div>
+    <div class="col">
+      <section class="card" aria-labelledby="h-run"><div class="card-h"><span class="dot working"></span><h2 id="h-run">Running now</h2><span class="meta"><a class="lnk" href="#/sessions">All sessions</a></span></div>
+        <ul class="list">${run.map(s => sessionRow(s)).join('')}</ul></section>
+      <section class="card" id="usage" aria-labelledby="h-use"><div class="card-h"><h2 id="h-use">Usage today</h2><span class="meta">vs median of 14 workdays</span></div>
+        <div class="card-b">
+          <div class="big"><b>${x.toFixed(1)}×</b><span>your usual day</span></div>
+          <div class="split" aria-hidden="true"><i style="flex:${SHARE.ctx};background:var(--c-ctx)"></i><i style="flex:${SHARE.in};background:var(--c-in)"></i><i style="flex:${SHARE.out};background:var(--c-out)"></i></div>
+          <ul class="legend"><li><span class="sw" style="background:var(--c-ctx)"></span>Re-reading context <b>${SHARE.ctx * 100}%</b></li><li><span class="sw" style="background:var(--c-in)"></span>New input <b>${SHARE.in * 100}%</b></li><li><span class="sw" style="background:var(--c-out)"></span>Output <b>${SHARE.out * 100}%</b></li></ul>
+          ${hourChart()}
+          <ul class="legend" style="margin-top:var(--s2)"><li><span class="sw" style="background:var(--c-ctx)"></span>Today</li><li><span class="sw dash"></span>Your usual day</li></ul>
+          <hr class="hr"><p class="note">Measured from local transcripts. Your plan’s real limits: <code>/usage</code> in Claude.</p>
+        </div></section>
+    </div>
+  </div>`;
+}
+
+function sessions() {
+  const groups = [['waiting', 'Needs you'], ['working', 'Working'], ['done', 'Done'], ['idle', 'Idle']];
+  return `<div class="sec-h"><h1>Sessions</h1><p>${SESSIONS.length} today · click one for its detail</p></div>
+  ${groups.map(([st, h]) => { const xs = SESSIONS.filter(s => s.state === st); return xs.length ? `<section class="card"><div class="card-h"><span class="dot ${st}"></span><h2>${h}</h2><span class="meta num">${xs.length}</span></div><ul class="list">${xs.map(s => sessionRow(s, { allModels: true })).join('')}</ul></section>` : ''; }).join('')}`;
+}
+
+function sessionDetail(id) {
+  const s = byId(id) || byId('s4'), L = LOGS[s.id], warns = WARNINGS.filter(w => w.s === s.id && !ui.warnGone.has(w.id));
+  const extra = s.id === 's4' ? [{ id: 'w4', s: 's4', kind: 'warn', text: 'Exploration on Sonnet: 23 reads and searches in the last hour.', why: 'A Haiku subagent can map the remaining snapshot files and report back.', acts: [['Use a Haiku subagent', 'haiku']] }].filter(w => !ui.warnGone.has(w.id)) : [];
+  const allWarns = [...warns, ...extra];
+  const mark = { done: ic('i-check'), now: '', todo: '', assume: ic('i-flag'), plan: ic('i-file') };
+  const steps = [['plan', 'Plan', L.plan, ''], ...L.steps];
+  const res = L.result;
+  return `<div class="head">${pet(s, 'lg')}
+    <div style="min-width:0"><h1>${esc(s.title)}</h1>
+      <div class="facts"><span class="st"><span class="dot ${s.state}"></span>${STATE_LABEL[s.state]}</span>
+        <span>${ic('i-git', 'style="width:13px;height:13px"')}${esc(s.project)}</span>${s.issue ? `<a class="lnk" href="#/session/${s.id}">${esc(s.issue)}</a>` : ''}
+        <span class="num">${ic('i-clock', 'style="width:13px;height:13px"')}${esc(s.since)}</span>
+        <span class="badge ${s.usual >= 2 ? 'accent' : ''} num">${s.usual.toFixed(1)}× your usual length</span></div></div>
+    <div class="acts">${s.state === 'waiting' ? `<button class="btn pri" type="button" data-allow="${s.id}">Allow ${esc(s.ask.tool)} <span class="kbd">↵</span></button>` : ''}
+      <button class="btn" type="button" data-act="open" data-s="${s.id}">Open in Claude</button><button class="btn ghost" type="button" data-act="pause" data-s="${s.id}" aria-label="Pause">${ic('i-pause')}</button></div></div>
+  ${allWarns.length ? `<section class="card" aria-label="Warnings">${allWarns.map(warnRow).join('')}</section>` : ''}
+  <div class="grid2">
+    <div class="col">
+      <section class="card" aria-labelledby="h-log"><div class="card-h"><h2 id="h-log">Work log</h2><span class="meta"><span class="badge warn">${ic('i-flag', 'style="width:11px;height:11px"')}${L.steps.filter(x => x[0] === 'assume').length} assumptions</span></span></div>
+        <div class="card-b"><ol class="log">${steps.map(([k, t, why, when]) => `<li class="${k}"><span class="mk">${mark[k]}</span>
+          <div class="t">${k === 'assume' ? '<div class="lbl">Assumption</div>' : k === 'plan' ? '<div class="lbl">Plan</div>' : ''}<p>${esc(k === 'plan' ? why : t)}</p>${k !== 'plan' && why ? `<p class="why">${esc(why)}</p>` : ''}</div>
+          <span class="when">${esc(when)}</span></li>`).join('')}</ol>
+          <div class="result ${res[0]}"><span class="ic">${ic(res[0] === 'blocked' ? 'i-alert' : res[0] === 'done' ? 'i-check' : 'i-clock')}</span><p>${esc(res[1])}</p>
+            ${res[0] === 'blocked' && s.ask ? `<button class="btn sm pri" type="button" data-allow="${s.id}">Allow ${esc(s.ask.tool)}</button>` : ''}</div></div></section>
+    </div>
+    <div class="col">
+      <section class="card" aria-labelledby="h-mod"><div class="card-h"><h2 id="h-mod">Models</h2><span class="meta">${s.models.length > 1 ? 'lead + subagents' : 'one session'}</span></div>
+        <div class="card-b"><dl class="kv">${s.models.map(([m, role], i) => `<dt>${i ? 'Subagent' : 'Lead'}</dt><dd>${modelTag([m, ''])}<span style="color:var(--ink-3)">${esc(role === 'lead' ? '' : role)}</span></dd><span class="r">${i ? `${(s.tokens * .08).toFixed(1)}M` : `${(s.tokens * (s.models.length > 1 ? .84 : 1)).toFixed(1)}M`}</span>`).join('')}
+          <dt>Context</dt><dd><span class="bar ${s.ctx > 75 ? 'big' : ''}" style="width:80px"><i style="width:${s.ctx}%"></i></span><span class="num">${s.ctx}%</span></dd><span class="r">of window</span></dl></div></section>
+      <section class="card" aria-labelledby="h-u"><div class="card-h"><h2 id="h-u">Usage over time</h2><span class="meta num">${s.tokens.toFixed(1)}M tokens</span></div>
+        <div class="card-b">${turnChart(s)}</div></section>
+    </div>
+  </div>`;
+}
+
+function skills() {
+  const P = SKILLS[ui.skillsProject], dups = DUPS[ui.skillsProject].filter(d => !ui.dupDone.has(ui.skillsProject + d.title));
+  const key = n => ui.skillsProject + ':' + n;
+  const rows = P.rows.filter(r => !ui.gone.has(key(r[0])));
+  const isDup = n => DUPS[ui.skillsProject].some(d => d.pairs.includes(n));
+  const f = { all: () => true, unused: r => r[2] === null || r[3] === 0, dup: r => isDup(r[0]), big: r => r[4] >= 1000 };
+  const shown = rows.filter(f[ui.filter]).filter(r => !ui.q || r[0].includes(ui.q.toLowerCase()));
+  const cnt = k => rows.filter(f[k]).length;
+  const sel = [...ui.sel].filter(n => n.startsWith(ui.skillsProject + ':'));
+  const flags = r => [(r[2] === null || r[3] === 0) && '<span class="badge">Unused 30d</span>', isDup(r[0]) && '<span class="badge info">Duplicate</span>', r[4] >= 1000 && '<span class="badge warn">Large</span>'].filter(Boolean).join('');
+  const usesSpark = r => { let h = hashStr(r[0]); return Array.from({ length: 8 }, () => (h = Math.imul(h ^ (h >>> 11), 2654435761) >>> 0) % (r[3] + 1)); };
+  return `<div class="sec-h"><h1>Skills</h1><p>Audit per project. Every change keeps a backup and can be undone.</p>
+    <label class="sr" for="proj">Project</label><select class="sel" id="proj" style="margin-left:auto">${[['bobix', 'bobix'], ['web-shop', 'web-shop'], ['personal', 'Personal (~/.claude)']].map(([k, l]) => `<option value="${k}"${ui.skillsProject === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+  <div class="tiles">
+    <div class="tile"><span class="k">Installed</span><span class="v">${P.installed - (P.rows.length - rows.length)}</span><span class="d">kits, plugins and your own</span></div>
+    <div class="tile"><span class="k">Unused 30 days</span><span class="v">${P.unused}</span><span class="d">${Math.round(P.unused / P.installed * 100)}% of installed</span></div>
+    <div class="tile"><span class="k">Duplicate sets</span><span class="v">${dups.length}</span><span class="d">${dups.reduce((a, d) => a + d.n, 0)} skills with a twin</span></div>
+    <div class="tile"><span class="k">Descriptions</span><span class="v">${P.descK}k<small> chars</small></span><span class="d">≈ ${(P.descK / 4).toFixed(1)}k tokens in every session</span></div>
+  </div>
+  ${dups.length ? `<section class="card" aria-labelledby="h-dup"><div class="card-h">${ic('i-layers')}<h2 id="h-dup">Duplicate sets</h2><span class="meta">Keep one of each</span></div>
+    ${dups.map(d => `<div class="dup"><div style="min-width:0"><p><b style="font-weight:600">${esc(d.title)}</b> <span class="note">· ${esc(d.note)}</span></p><p class="pairs">${esc(d.pairs)}</p></div>
+      <div class="acts"><button class="btn sm pri" type="button" data-dup="${esc(d.title)}">Keep ${esc(d.keep)}, disable ${esc(d.drop)}</button><button class="btn sm ghost" type="button" data-dup-skip="${esc(d.title)}">Not now</button></div></div>`).join('')}</section>` : ''}
+  <section class="card" aria-labelledby="h-sk"><div class="card-h"><h2 id="h-sk">Installed skills</h2><span class="meta">${P.installed} · showing ${shown.length}</span></div>
+    <div class="toolbar">${[['all', 'All'], ['unused', 'Unused'], ['dup', 'Duplicates'], ['big', 'Large descriptions']].map(([k, l]) => `<button class="chip" type="button" data-filter="${k}" aria-pressed="${ui.filter === k}">${l}<span class="n">${cnt(k)}</span></button>`).join('')}
+      <label class="search">${ic('i-search', 'style="width:13px;height:13px"')}<span class="sr">Filter skills</span><input id="skq" value="${esc(ui.q)}" placeholder="Filter"></label></div>
+    ${sel.length ? `<div class="bulk"><span class="num">${sel.length} selected</span><span style="flex:1"></span><button class="btn sm" type="button" data-bulk="off">Disable</button><button class="btn sm danger" type="button" data-bulk="rm">${ic('i-trash', 'style="width:13px;height:13px"')}Remove</button><button class="btn sm ghost" type="button" data-bulk="clear">Clear</button></div>` : ''}
+    ${shown.length ? `<table class="t"><thead><tr><th style="width:28px"><span class="sr">Select</span></th><th>Skill</th><th class="c-set">Set</th><th class="c-last">Last used</th><th class="c-uses r">Uses 30d</th><th class="c-ds">Description</th><th class="c-size r">Size</th><th class="c-fl">Flags</th><th class="r"><span class="sr">Actions</span></th></tr></thead><tbody>
+      ${shown.map(r => { const k = key(r[0]), off = ui.off.has(k); return `<tr class="${off ? 'off' : ''}"><td><input type="checkbox" data-sel="${esc(k)}" aria-label="Select ${esc(r[0])}"${ui.sel.has(k) ? ' checked' : ''}></td>
+        <td class="nm">${esc(r[0])}${off ? ' <span class="badge line">Disabled</span>' : ''}<div class="fl fl-n">${flags(r)}</div></td><td class="c-set"><span class="badge line">${esc(r[1])}</span></td>
+        <td class="c-last num" style="color:var(--ink-3)">${r[2] === null ? 'Over 30d' : r[2] === 0 ? 'Today' : r[2] + 'd ago'}</td>
+        <td class="c-uses r" style="color:var(--ink-3)">${r[3] ? spark(usesSpark(r)) : ''} <span class="num" style="display:inline-block;min-width:20px">${r[3]}</span></td>
+        <td class="c-ds ds">Use when the task needs ${esc(r[0].replace(/^.*:/, '').replace(/-/g, ' '))}…</td>
+        <td class="c-size r num"><span class="bar ${r[4] >= 1000 ? 'big' : ''}"><i style="width:${Math.min(100, r[4] / 20)}%"></i></span>${(r[4] / 1000).toFixed(1)}k</td>
+        <td class="c-fl"><div class="fl">${flags(r)}</div></td>
+        <td><div class="acts">${off ? `<button class="btn sm" type="button" data-on="${esc(k)}">Enable</button>` : `<button class="btn sm" type="button" data-off="${esc(k)}">Disable</button>`}<button class="btn sm ghost" type="button" data-rm="${esc(k)}" aria-label="Remove ${esc(r[0])}">${ic('i-trash')}</button></div></td></tr>`; }).join('')}
+      </tbody></table>` : empty('i-search', 'No skills match', 'Try another filter, or clear the search.', `<button class="btn sm" type="button" data-filter="all">Show all</button>`)}
+    ${P.installed > P.rows.length ? `<div class="more-row">${ic('i-layers', 'style="width:13px;height:13px"')}<span class="num">${P.installed - P.rows.length} more</span><span style="flex:1"></span><button class="btn sm ghost" type="button" data-act="soon">Show all</button></div>` : ''}
+  </section>
+  <section class="card" aria-labelledby="h-rule"><div class="card-h">${ic('i-cpu')}<h2 id="h-rule">When to split, which model</h2>
+      <span class="meta">${ui.rulesAdded ? '<span class="badge ok">' + ic('i-check', 'style="width:11px;height:11px"') + 'In CLAUDE.md</span>' : 'Not in CLAUDE.md yet'}</span></div>
+    <div class="card-b"><p class="note" style="margin-bottom:var(--s3)">A short rule block for this project’s <code>CLAUDE.md</code>, so each session splits work and picks a model the same way. Tuned later from your usage.</p>
+      <pre class="rules">${ui.rulesAdded ? esc(RULES).split('\n').map(l => `<span class="add">+ ${l}</span>`).join('') : esc(RULES).replace(/^(## .*)$/m, '<b>$1</b>')}</pre>
+      <div style="display:flex;gap:var(--s2);margin-top:var(--s3);flex-wrap:wrap">${ui.rulesAdded
+        ? `<button class="btn" type="button" data-rules="undo">${ic('i-undo')}Remove from CLAUDE.md</button><span class="note" style="align-self:center">Backup: .bobix/backup/CLAUDE.md.2026-11-10T21-40</span>`
+        : `<button class="btn pri" type="button" data-rules="add">Add to CLAUDE.md</button><button class="btn" type="button" data-act="copyRules">${ic('i-copy')}Copy</button>`}</div></div>
+  </section>`;
+}
+
+const later = (h, issue, p) => `<div class="sec-h"><h1>${h}</h1><p>Not part of this prototype</p></div><section class="card">${empty(NAV.find(n => n[1] === h)[2], `${h} moves here when ${issue} ships`, p, '<a class="btn sm" href="#/overview">Back to Overview</a>')}</section>`;
+
+function designSystem() {
+  const toks = [['--bg', 'Window'], ['--surface', 'Panel'], ['--surface-2', 'Hover'], ['--surface-3', 'Selected'], ['--line', 'Hairline'], ['--ink', 'Text'], ['--ink-2', 'Text 2'], ['--ink-3', 'Text 3, meta'],
+    ['--accent', 'Accent (Bobix coral)'], ['--accent-solid', 'Primary button'], ['--ok', 'Done'], ['--warn', 'Warning, assumption'], ['--info', 'Working'], ['--err', 'Blocked'], ['--c-ctx', 'Chart: re-read context'], ['--c-in', 'Chart: new input']];
+  const sample = SESSIONS.slice(0, 4);
+  return `<div class="sec-h"><h1>Design system</h1><p>Tokens and parts every screen is built from</p></div>
+  <div class="ds-grid">
+    <section class="card"><div class="card-h"><h2>Colour tokens</h2><span class="meta">light · dark</span></div><div class="card-b"><div class="tok"><span>Token</span><span>Light</span><span>Dark</span>
+      ${toks.map(([t, l]) => `<span><code>${t}</code> <span style="color:var(--ink-3)">${l}</span></span><span class="s theme-light" style="--v:var(${t})"></span><span class="s theme-dark" style="--v:var(${t})"></span>`).join('')}</div>
+      <p class="note" style="margin-top:var(--s3)">One accent: the coral the pets already use for “needs you”. Status colours appear only as small dots and badges, always with a word.</p></div></section>
+    <div class="col">
+      <section class="card"><div class="card-h"><h2>Type</h2><span class="meta">system font · tabular figures</span></div><div class="card-b types">
+        <div><code>28 / 600</code><span style="font-size:28px;font-weight:600;letter-spacing:-.02em" class="num">2.2×</span></div>
+        <div><code>20 / 600</code><span style="font-size:20px;font-weight:600">Screen title</span></div>
+        <div><code>15 / 600</code><span style="font-size:15px;font-weight:600">Dialog title</span></div>
+        <div><code>13 / 500</code><span style="font-weight:500">Row title, body text</span></div>
+        <div><code>12 / 400</code><span style="font-size:12px;color:var(--ink-3)">Meta, captions · 01:23 · 4.1M</span></div>
+        <div><code>11 / 500</code><span style="font-size:11px;font-weight:500;color:var(--ink-3)">Badges, nav headings</span></div>
+        <div><code>mono 12</code><code style="font-size:12px;color:var(--ink)">cargo test -p bobix-core</code></div></div></section>
+      <section class="card"><div class="card-h"><h2>Spacing · radius</h2><span class="meta">4-pt grid</span></div><div class="card-b space">
+        ${[4, 8, 12, 16, 24, 32].map(v => `<div><i style="width:${v * 3}px"></i>${v}px</div>`).join('')}
+        <p class="note" style="margin-top:var(--s2)">Radius 5 badges · 8 buttons and rows · 12 panels · 14 dialogs. Rows 36px, 44px when narrow.</p></div></section>
+    </div>
+    <section class="card"><div class="card-h"><h2>List rows</h2><span class="meta">pet · title · right-aligned meta</span></div><ul class="list">${sample.map(s => sessionRow(s)).join('')}</ul></section>
+    <section class="card"><div class="card-h"><h2>Badges · buttons · keys</h2></div><div class="card-b" style="display:flex;flex-direction:column;gap:var(--s3)">
+      <div class="specimen"><span class="st"><span class="dot working"></span>Working</span><span class="st"><span class="dot waiting"></span>Needs you</span><span class="st"><span class="dot done"></span>Done</span><span class="st"><span class="dot idle"></span>Idle</span></div>
+      <div class="specimen">${modelTag(['Opus 5.5', ''])}${modelTag(['Sonnet 5.5', ''])}${modelTag(['Haiku 5.5', 'explore ×2'])}</div>
+      <div class="specimen"><span class="badge">Unused 30d</span><span class="badge info">Duplicate</span><span class="badge warn">Large</span><span class="badge accent">Bash</span><span class="badge ok">In CLAUDE.md</span><span class="badge err">Blocked</span><span class="badge line">ak</span></div>
+      <div class="specimen"><button class="btn pri" type="button">Allow <span class="kbd">↵</span></button><button class="btn" type="button">Deny</button><button class="btn ghost" type="button">Ghost</button><button class="btn danger" type="button">${ic('i-trash')}Remove</button><span class="kbd">⌘</span><span class="kbd">K</span></div></div></section>
+    <section class="card"><div class="card-h"><h2>Table</h2></div><table class="t"><thead><tr><th>Skill</th><th class="r">Uses 30d</th><th class="r">Size</th><th>Flags</th></tr></thead><tbody>
+      ${SKILLS.bobix.rows.slice(0, 4).map(r => `<tr><td class="nm">${r[0]}</td><td class="r num">${r[3]}</td><td class="r num"><span class="bar ${r[4] >= 1000 ? 'big' : ''}"><i style="width:${Math.min(100, r[4] / 20)}%"></i></span>${(r[4] / 1000).toFixed(1)}k</td><td>${r[3] ? '' : '<span class="badge">Unused 30d</span>'}</td></tr>`).join('')}</tbody></table></section>
+    <section class="card"><div class="card-h"><h2>Charts</h2><span class="meta">bars, split bar, spark</span></div><div class="card-b">
+      <div class="split" style="margin-top:0" aria-hidden="true"><i style="flex:.91;background:var(--c-ctx)"></i><i style="flex:.06;background:var(--c-in)"></i><i style="flex:.03;background:var(--c-out)"></i></div>
+      <ul class="legend"><li><span class="sw" style="background:var(--c-ctx)"></span>Re-reading context</li><li><span class="sw" style="background:var(--c-in)"></span>New input</li><li><span class="sw" style="background:var(--c-out)"></span>Output</li><li><span class="sw dash"></span>Usual</li></ul>
+      ${hourChart()}<p class="note" style="margin-top:var(--s3);display:flex;align-items:center;gap:var(--s2)">Spark <span style="color:var(--ink-2)">${spark([2, 5, 3, 8, 6, 9, 4, 7])}</span> uses per day</p></div></section>
+    <section class="card"><div class="card-h"><h2>Empty state</h2></div>${empty('i-check', 'Nothing needs you', 'Approvals show up here, the longest wait on top.')}</section>
+    <section class="card"><div class="card-h"><h2>Command bar</h2><span class="meta"><span class="kbd">⌘</span><span class="kbd">K</span> anywhere</span></div><div class="card-b">
+      <div class="cmdk static"><div class="in">${ic('i-search')}<span style="color:var(--ink);font-size:15px">comp</span></div><div class="res">
+        <div class="grp">Actions</div><div class="it" aria-selected="true">${pet(byId('s4'), 'xs')}<span class="lab">Compact “Fix checkout rounding on totals”<small>/compact</small></span><span class="hint"><span class="kbd">↵</span></span></div>
+        <div class="it">${ic('i-overview')}<span class="lab">Go to Overview</span><span class="hint"><span class="kbd">⌘</span><span class="kbd">1</span></span></div></div></div></div></section>
+    <section class="card"><div class="card-h"><h2>Toast with undo</h2></div><div class="card-b"><div class="toast static"><span style="flex:1">Disabled 12 skills in bobix</span><button class="btn sm" type="button">${ic('i-undo')}Undo <span class="kbd">⌘Z</span></button></div></div></section>
+  </div>`;
+}
+
+/* ===== Router ===== */
+function route() {
+  const h = location.hash.replace(/^#\/?/, '') || 'overview';
+  const [page, arg] = h.split('/');
+  const known = ['overview', 'sessions', 'session', 'work', 'skills', 'room', 'settings', 'design'];
+  return known.includes(page) ? [page, arg] : null;
+}
+function render(keepScroll) {
+  const r = route(); if (!r) return; // in-page anchors (#needs) keep the current screen
+  const [page, arg] = r, y = scrollY;
+  const navKey = page === 'session' ? 'sessions' : page;
+  const s = page === 'session' && (byId(arg) || byId('s4'));
+  const title = { overview: 'Overview', sessions: 'Sessions', work: 'Work', skills: 'Skills', room: 'Room', settings: 'Settings', design: 'Design system' }[page];
+  $('#crumb').innerHTML = s ? `<a href="#/sessions">Sessions</a>${ic('i-chev', 'style="width:12px;height:12px;color:var(--ink-3)"')}<span class="t">${esc(s.title)}</span>` : `<span class="t">${title}</span>`;
+  const asks = waiting().length;
+  const counts = { overview: '', sessions: SESSIONS.length, work: '', skills: SKILLS.bobix.unused, room: '', settings: '' };
+  $('#nav').innerHTML = NAV.map(([k, l, i, n]) => `<a href="#/${k}"${navKey === k ? ' aria-current="page"' : ''} class="${['work', 'room', 'settings'].includes(k) ? 'later' : ''}">${ic(i)}${l}${k === 'overview' && asks ? `<span class="cnt hot" title="${asks} need you">${asks}</span>` : counts[k] ? `<span class="cnt">${counts[k]}</span>` : `<span class="cnt">${isMac ? '⌘' : '^'}${n}</span>`}</a>`).join('');
+  $('#tabbar').innerHTML = NAV.map(([k, l, i]) => `<a href="#/${k}"${navKey === k ? ' aria-current="page"' : ''}>${ic(i)}${l}${k === 'overview' && asks ? `<span class="cnt">${asks}</span>` : ''}</a>`).join('');
+  $('#view').innerHTML = page === 'overview' ? overview() : page === 'sessions' ? sessions() : page === 'session' ? sessionDetail(arg) : page === 'skills' ? skills() : page === 'design' ? designSystem()
+    : page === 'work' ? later('Work', 'the ticket flow (#112)', 'Pick an issue, approve a plan, and follow its run and log.')
+    : page === 'room' ? later('Room', 'the war room (#114)', 'One room per problem: frame, options, pros and cons, decision.')
+    : later('Settings', 'each feature', 'Today’s settings and setup move here one by one, with the same switches.');
+  document.title = `${s ? s.title : title} · Bobix`;
+  if (keepScroll) scrollTo(0, y);
+}
+addEventListener('hashchange', () => { if (route()) { render(); scrollTo(0, 0); $('#view').focus({ preventScroll: true }); } });
+
+/* ===== Toasts and undo ===== */
+function toast(text, undo) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span style="flex:1">${esc(text)}</span>${undo ? `<button class="btn sm" type="button">${ic('i-undo')}Undo <span class="kbd">${isMac ? '⌘' : 'Ctrl+'}Z</span></button>` : ''}`;
+  if (undo) { ui.undo = () => { undo(); el.remove(); ui.undo = null; toast('Undone'); }; el.querySelector('button').onclick = ui.undo; }
+  $('#toasts').prepend(el);
+  setTimeout(() => { el.remove(); if (ui.undo && !document.body.contains(el)) ui.undo = null; }, undo ? 8000 : 3500);
+}
+function copy(text) { try { navigator.clipboard?.writeText(text); } catch { } }
+
+/* ===== Sheet (confirm before writing CLAUDE.md) ===== */
+function sheet(html) { $('#sheet-box').innerHTML = html; $('#sheet').classList.add('open'); $('#sheet').setAttribute('aria-hidden', 'false'); $('#sheet-box').querySelector('.btn.pri')?.focus(); }
+function closeSheet() { $('#sheet').classList.remove('open'); $('#sheet').setAttribute('aria-hidden', 'true'); }
+
+/* ===== Actions ===== */
+const ACTS = {
+  compact: s => { copy('/compact'); toast(`Copied /compact. Paste it in “${byId(s).title}”.`); },
+  fresh: s => { copy(`Continue “${byId(s).title}” from this summary: …`); toast('Copied a summary prompt for a new session.'); },
+  haiku: s => { copy('Use a Haiku subagent for the read-only exploration, and report back a short map.'); toast('Copied a prompt that hands exploration to a Haiku subagent.'); },
+  sonnet: s => toast('Copied: claude --model sonnet --resume'),
+  skills: () => { location.hash = '#/skills'; },
+  open: s => toast(`Opening “${byId(s).title}” in Claude…`),
+  pause: s => toast('Pausing is a later step (prototype).'),
+  soon: () => toast('The full list is not part of this prototype.'),
+  copyRules: () => { copy(RULES); toast('Copied the rule block.'); },
+};
+function allow(id, deny) {
+  const s = byId(id); ui.asked.add(id); render(true);
+  toast(`${deny ? 'Denied' : 'Allowed'} ${s.ask.tool} in “${s.title}”`);
+}
+function setOff(keys, on) {
+  const before = new Set(ui.off); keys.forEach(k => on ? ui.off.delete(k) : ui.off.add(k)); ui.sel.clear(); render(true);
+  if (!on) toast(`Disabled ${keys.length === 1 ? keys[0].split(':').slice(1).join(':') : keys.length + ' skills'}`, () => { ui.off = before; render(true); });
+}
+function remove(keys) {
+  const before = new Set(ui.gone); keys.forEach(k => ui.gone.add(k)); ui.sel.clear(); render(true);
+  toast(`Removed ${keys.length === 1 ? keys[0].split(':').slice(1).join(':') : keys.length + ' skills'}. Backup kept.`, () => { ui.gone = before; render(true); });
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('button, [data-cmdk]'); if (!t) return;
+  const d = t.dataset;
+  if ('cmdk' in d) return openCmdk();
+  if (d.themeSet) return setTheme(d.themeSet);
+  if (t.id === 'themeBtn') return setTheme(isDark() ? 'light' : 'dark');
+  if (d.allow) return allow(d.allow);
+  if (d.deny) return allow(d.deny, true);
+  if (d.dismiss) { ui.warnGone.add(d.dismiss); render(true); return toast('Warning dismissed', () => { ui.warnGone.delete(d.dismiss); render(true); }); }
+  if (d.act) return ACTS[d.act]?.(d.s);
+  if (d.filter) { ui.filter = d.filter; return render(true); }
+  if (d.off) return setOff([d.off]);
+  if (d.on) return setOff([d.on], true);
+  if (d.rm) return remove([d.rm]);
+  if (d.bulk) { const sel = [...ui.sel]; if (d.bulk === 'clear') { ui.sel.clear(); return render(true); } return d.bulk === 'off' ? setOff(sel) : remove(sel); }
+  if (d.dup) {
+    const k = ui.skillsProject + d.dup; ui.dupDone.add(k); render(true);
+    return toast(`Kept one set: ${d.dup}. ${DUPS[ui.skillsProject].find(x => x.title === d.dup).n} skills disabled.`, () => { ui.dupDone.delete(k); render(true); });
+  }
+  if (d.dupSkip) { ui.dupDone.add(ui.skillsProject + d.dupSkip); return render(true); }
+  if (d.rules === 'add') return sheet(`<h2 id="sheet-h">Add the rule block to CLAUDE.md?</h2>
+    <p class="note">Bobix appends 9 lines to <code>~/code/bobix/CLAUDE.md</code> and keeps a backup. You can remove them again here.</p>
+    <pre class="rules">${esc(RULES).split('\n').slice(0, 4).map(l => `<span class="add">+ ${l}</span>`).join('')}<span style="color:var(--ink-3)">  … 5 more lines</span></pre>
+    <div class="acts"><button class="btn" type="button" data-sheet="no">Cancel</button><button class="btn pri" type="button" data-sheet="yes">Add to CLAUDE.md</button></div>`);
+  if (d.rules === 'undo') { ui.rulesAdded = false; render(true); return toast('Removed the rule block. CLAUDE.md is back as it was.'); }
+  if (d.sheet) { closeSheet(); if (d.sheet === 'yes') { ui.rulesAdded = true; render(true); toast('Added to CLAUDE.md. Backup kept.', () => { ui.rulesAdded = false; render(true); }); } }
+});
+document.addEventListener('change', e => {
+  if (e.target.dataset.sel) { const k = e.target.dataset.sel; e.target.checked ? ui.sel.add(k) : ui.sel.delete(k); render(true); }
+  if (e.target.id === 'proj') { ui.skillsProject = e.target.value; ui.filter = 'all'; ui.q = ''; render(true); }
+});
+document.addEventListener('input', e => {
+  if (e.target.id === 'skq') { ui.q = e.target.value; render(true); const q = $('#skq'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+});
+$('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+
+/* ===== Command bar ===== */
+let cmdItems = [], cmdIdx = 0, lastFocus = null;
+function commands() {
+  const go = NAV.map(([k, l, i, n]) => ({ g: 'Go to', label: l, icon: ic(i), keys: [isMac ? '⌘' : 'Ctrl', n], run: () => location.hash = '#/' + k }));
+  go.push({ g: 'Go to', label: 'Design system', icon: ic('i-layers'), run: () => location.hash = '#/design' });
+  const ss = SESSIONS.map(s => ({ g: 'Sessions', label: s.title, sub: `${s.project}${s.issue ? ' · ' + s.issue : ''}`, icon: pet(s, 'xs'), run: () => location.hash = '#/session/' + s.id }));
+  const acts = [
+    ...waiting().map(s => ({ g: 'Actions', label: `Allow ${s.ask.tool}: ${s.ask.cmd}`, sub: s.title, icon: pet(s, 'xs'), run: () => allow(s.id) })),
+    { g: 'Actions', label: 'Compact “Fix checkout rounding on totals”', sub: '/compact', icon: pet(byId('s4'), 'xs'), run: () => ACTS.compact('s4') },
+    { g: 'Actions', label: 'Add model rules to CLAUDE.md', sub: 'bobix', icon: ic('i-cpu'), run: () => { location.hash = '#/skills'; setTimeout(() => $('[data-rules="add"]')?.click(), 0); } },
+    { g: 'Actions', label: 'Show unused skills', sub: 'bobix', icon: ic('i-skills'), run: () => { ui.skillsProject = 'bobix'; ui.filter = 'unused'; location.hash = '#/skills'; render(); } },
+    { g: 'Actions', label: isDark() ? 'Switch to light theme' : 'Switch to dark theme', icon: ic(isDark() ? 'i-sun' : 'i-moon'), run: () => setTheme(isDark() ? 'light' : 'dark') },
+  ];
+  return [...acts, ...ss, ...go];
+}
+function drawCmdk() {
+  const q = $('#cmdk-q').value.trim().toLowerCase();
+  cmdItems = commands().filter(c => !q || (c.label + ' ' + (c.sub || '') + ' ' + c.g).toLowerCase().includes(q));
+  cmdIdx = Math.min(cmdIdx, Math.max(0, cmdItems.length - 1));
+  let g = '', html = '';
+  cmdItems.forEach((c, i) => {
+    if (c.g !== g) { g = c.g; html += `<div class="grp">${g}</div>`; }
+    html += `<div class="it" role="option" id="ci-${i}" data-ci="${i}" aria-selected="${i === cmdIdx}">${c.icon}<span class="lab">${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</span>${c.keys ? `<span class="hint">${c.keys.map(k => `<span class="kbd">${k}</span>`).join('')}</span>` : ''}</div>`;
+  });
+  $('#cmdk-res').innerHTML = html || `<div class="empty" style="padding:var(--s6)"><p>No match for “${esc(q)}”</p></div>`;
+  $('#cmdk-q').setAttribute('aria-activedescendant', cmdItems.length ? 'ci-' + cmdIdx : '');
+  document.getElementById('ci-' + cmdIdx)?.scrollIntoView({ block: 'nearest' });
+}
+function openCmdk() { lastFocus = document.activeElement; $('#cmdk').classList.add('open'); $('#cmdk').setAttribute('aria-hidden', 'false'); $('#cmdk-q').value = ''; cmdIdx = 0; drawCmdk(); $('#cmdk-q').focus(); }
+function closeCmdk() { $('#cmdk').classList.remove('open'); $('#cmdk').setAttribute('aria-hidden', 'true'); lastFocus?.focus?.(); }
+function runCmd(i) { const c = cmdItems[i]; if (!c) return; closeCmdk(); c.run(); }
+$('#cmdk-q').addEventListener('input', () => { cmdIdx = 0; drawCmdk(); });
+$('#cmdk-res').addEventListener('click', e => { const it = e.target.closest('[data-ci]'); if (it) runCmd(+it.dataset.ci); });
+$('#cmdk').addEventListener('click', e => { if (e.target.id === 'cmdk') closeCmdk(); });
+
+/* ===== Keyboard ===== */
+document.addEventListener('keydown', e => {
+  const mod = e.metaKey || e.ctrlKey, open = $('#cmdk').classList.contains('open');
+  if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); return open ? closeCmdk() : openCmdk(); }
+  if (open) {
+    if (e.key === 'Escape') { e.preventDefault(); return closeCmdk(); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); cmdIdx = (cmdIdx + (e.key === 'ArrowDown' ? 1 : -1) + cmdItems.length) % cmdItems.length; return drawCmdk(); }
+    if (e.key === 'Enter') { e.preventDefault(); return runCmd(cmdIdx); }
+    return;
+  }
+  if ($('#sheet').classList.contains('open') && e.key === 'Escape') return closeSheet();
+  if (mod && /^[1-6]$/.test(e.key)) { e.preventDefault(); location.hash = '#/' + NAV[+e.key - 1][0]; return; }
+  if (mod && e.key.toLowerCase() === 'z' && ui.undo && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); return ui.undo(); }
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  // ↵ allows the top approval, only when focus is on the page itself (not on a button or field)
+  if (e.key === 'Enter' && !mod && [document.body, $('#view')].includes(document.activeElement)) {
+    const [page, arg] = route() || [];
+    const top = page === 'overview' ? waiting()[0] : page === 'session' && byId(arg)?.state === 'waiting' && !ui.asked.has(arg) ? byId(arg) : null;
+    if (top) { e.preventDefault(); allow(top.id); }
+  }
+  if (!typing && e.key === '/') { e.preventDefault(); openCmdk(); }
+});
+
+/* ===== Boot ===== */
+const logo = creature('bobix', 'working', 0);
+['#logo', '#logo2', '#logo3'].forEach(s => $(s).innerHTML = logo);
+setTheme(getTheme());
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => setTheme(getTheme()));
+render();
+if (new URLSearchParams(location.search).has('cmdk')) openCmdk();
+</script>
+</body>
+</html>
