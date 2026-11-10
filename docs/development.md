@@ -61,4 +61,4 @@ It exits by itself and `report.json` must say `"pass": true` with empty `pageErr
 
 ## Demo and screenshots
 
-The media in `docs/media/` were recorded from the 0.1 app; the recording script went with it. Record new ones by hand when the pages change.
+The screenshots and `demo.gif` in `docs/media/` were taken from a debug build in a scratch world (its own port, data folder and `BOBIX_HOME`, made-up repositories and transcripts), capturing only Bobix's own windows. Keep them few and small (about 0.7 MB in all), and take new ones when the pages change. The app icon comes from one 1024 px picture: `npx tauri icon <png>` writes `src-tauri/icons/`; the tray icon is drawn in `src-tauri/src/tray.rs`.

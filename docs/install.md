@@ -52,7 +52,7 @@ Other Linux distributions aren't packaged yet.
 
 ## 3. Connect Claude Code
 
-The control panel opens on **Setup** the first time.
+The control panel opens on **Settings → Connect Claude Code** the first time.
 
 1. Click **Install hooks**. Bobix adds its hooks to `~/.claude/settings.json`. Your other hooks and settings are kept, and a backup of the file is saved next to it.
 2. Send a prompt in any Claude Code session. Its pet appears along the bottom of your screen. Sessions that were already open show up with their next prompt.
@@ -72,22 +72,22 @@ Open the panel (click the tray / menu bar icon → **Open Bobix**) → **Setting
 
 ## Without Node.js
 
-The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl` (macOS/Linux) or PowerShell (Windows) instead. Everything works except one thing: clicking a pet opens its details in the panel instead of the session window. Install Node.js and click **Reinstall** in Setup to get it back.
+The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl` (macOS/Linux) or PowerShell (Windows) instead. Everything works except one thing: clicking a pet opens its details in the panel instead of the session window. Install Node.js and click **Reinstall** in Settings → Connect Claude Code to get it back.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| No pets appear | Setup must say **Connected**. Then send a prompt in a session (open sessions report on their next prompt). Try **Send a test event**. |
+| No pets appear | Settings → Connect Claude Code must say **Connected**. Then send a prompt in a session (open sessions report on their next prompt). Try **Send a test event**. |
 | "Port 4747 is busy" at launch | Another program uses that port, or Bobix is already running (check the tray). Quit the other copy, or change the port in Settings → Advanced. |
-| Pets stopped reacting after a Node.js update | Setup shows **Node.js moved**. Click **Reinstall**. (The app also repairs this itself at launch when it can.) |
-| Setup says settings.json is invalid | The file has a JSON syntax error. Bobix never overwrites a file it cannot read; fix the file (or restore a backup), then click **Install hooks**. |
+| Pets stopped reacting after a Node.js update | Settings → Connect Claude Code shows **Node.js moved**. Click **Reinstall**. (The app also repairs this itself at launch when it can.) |
+| Connect Claude Code says settings.json is invalid | The file has a JSON syntax error. Bobix never overwrites a file it cannot read; fix the file (or restore a backup), then click **Install hooks**. |
 | Nothing at all on a company laptop | Your organization may allow only managed hooks (`allowManagedHooksOnly`). User hooks don't run there, so Bobix receives nothing. Ask your admin. |
 | A click doesn't open the session | In Claude desktop the session opens directly. For Terminal / iTerm / VS Code the app is brought forward, not a specific tab. On Linux install xdotool. Where Bobix can't bring it forward (a terminal on Wayland), the panel opens on the session and says where it runs. |
 
 ## Uninstall
 
-1. Setup → **Remove hooks**. Only Bobix's hooks are removed.
+1. Settings → Connect Claude Code → **Remove hooks**. Only Bobix's hooks are removed.
 2. Settings → turn off **Start when I log in**.
 3. Quit from the tray / menu bar icon and delete the app (macOS: drag it to the Trash; Windows: Settings → Apps → Bobix → Uninstall; Linux: `sudo apt remove bobix`).
 4. Optional cleanup: delete `~/.claude/bobix/`, the backups `~/.claude/settings.json.bak-bobix-*`, and the settings folder:

@@ -2,8 +2,8 @@
 
 <h1 align="center">Bobix</h1>
 
-<p align="center"><b>Mỗi session Claude Code là một chú thú nhỏ trên màn hình của bạn.</b><br>
-Liếc xuống là biết session nào đang làm, session nào cần bạn, session nào đã xong, không phải mở cửa sổ nào.</p>
+<p align="center"><b>Trợ lý cá nhân giúp bạn làm việc tốt với Claude Code.</b><br>
+Mỗi session là một chú thú trên màn hình. Duyệt yêu cầu mà không phải chuyển cửa sổ, xem mỗi session dùng bao nhiêu so với mức thường ngày của bạn, giữ bộ skill gọn gàng, và chạy ticket của bạn.</p>
 
 <p align="center">
   <a href="https://github.com/baonguyen-agilityio/bobix/releases"><img src="https://img.shields.io/github/v/release/baonguyen-agilityio/bobix?include_prereleases&label=release" alt="Bản phát hành mới nhất"></a>
@@ -14,43 +14,58 @@ Liếc xuống là biết session nào đang làm, session nào cần bạn, ses
 
 <p align="center"><a href="README.md">English</a> · <b>Tiếng Việt</b></p>
 
-<p align="center"><img src="docs/media/demo.gif" alt="Các chú thú đi dọc mép dưới màn hình: một con nhảy với bong bóng đỏ 'Cần bạn duyệt: Bash', một con hiện 'Xong nhiệm vụ!', bảng điều khiển liệt kê các session theo mức cần chú ý." width="860"></p>
-
-<p align="center"><a href="docs/media/demo.mp4">Xem video demo chất lượng đầy đủ (16 giây)</a></p>
+<p align="center"><img src="docs/media/demo.gif" alt="Bảng điều khiển Bobix có một yêu cầu đang chờ duyệt và ba cảnh báo mức dùng. Bên dưới, các chú thú đi dọc mép màn hình: một con xong việc và nhận XP, một con đi vào với vòng viền cam và nhãn đỏ vì đang chờ bạn duyệt." width="860"></p>
 
 ---
 
 ## Vì sao có Bobix
 
-Chạy vài session Claude Code cùng lúc thì bạn sẽ phải bấm qua từng cái để xem: còn đang làm không? có kẹt ở bước xin quyền không? xong chưa? Bobix cho mỗi session một chú thú đi dọc mép màn hình để trả lời ngay những câu đó.
+Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc bấm qua từng cái: còn đang làm không? có kẹt ở bước xin quyền không? xong chưa? Session này có đang tốn quá không? Bobix trả lời ngay những câu đó, và giúp bạn dùng Claude hiệu quả trong lúc làm việc.
 
 | Chú thú… | nghĩa là |
 |----------|----------|
-| đi lại, bong bóng kiểu *đang chạy lệnh* | Claude đang làm |
+| đi dọc mép màn hình, huy hiệu "…" xanh | Claude đang làm |
 | gõ chân trong vòng viền cam, huy hiệu "!" | Claude đang chờ bạn duyệt |
-| vẫy tay rồi nhảy, huy hiệu dấu tích xanh | session đã xong lượt |
-| ngủ | không có gì xảy ra; ngủ lâu thì tạm rời màn hình |
+| vẫy tay rồi nhảy, dấu tích xanh | session đã xong lượt |
+| ngủ | không có gì xảy ra; ngủ lâu thì rời màn hình |
 
-**Bấm vào chú thú để mở đúng session đó.** Rê chuột lên để xem việc đang làm, trạng thái và lượng context còn lại.
+**Bấm vào chú thú để vào đúng session đó.** Chỉ chuột vào để xem việc đang làm, context còn lại, mức dùng và cảnh báo nếu có, hoặc yêu cầu của nó với Cho phép / Từ chối.
 
 ## Tính năng
 
-- **Mỗi session một chú thú, dáng theo project**: mọi session của cùng một project (kể cả git worktree) có chung dáng nhưng mỗi session một màu, tên lấy theo tiêu đề session. Có thể đặt ảnh riêng làm mặt thú cưng cho từng project trong bảng điều khiển (Đổi thú cưng); Bobix biến ảnh thành pixel art và cho bạn chỉnh lại, dùng làm mặt thú cưng hoặc thay cả thú cưng. Session phụ đi ngay sau session đã tách ra nó.
-- **Một hàng thú cưng**: mọi chú thú đi cùng một chiều (trái sang phải, hoặc phải sang trái trong Cài đặt), cách đều nhau, ra ở một đầu đoạn mép rồi vào lại ở đầu kia; cả gia đình đi liền nhau, con gốc đi trước. Đông hơn chỗ thì lần lượt thay phiên. Chỉ chuột vào một chú thú thì cả hàng dừng lại, hiện thẻ của chính nó, hoặc yêu cầu của nó với nút Cho phép / Từ chối. Kéo một chú thú sang chỗ khác, thả ra thì nó trượt vào hàng ở chỗ đó. Hiệu ứng pixel gọn trong chỗ của từng con; khi bật giảm chuyển động thì không có hiệu ứng, mỗi con cầm một quả bóng bay báo việc cần bạn.
-- **Hoặc chỉ hiện khi có việc** (Cài đặt → Kiểu hiện pet → Hiện khi có việc): mép màn hình để trống. Phiên nào cần bạn (chờ duyệt, vừa xong việc, sắp hết ngữ cảnh) thì chú thú của nó treo dưới một quả bóng bay, bay từ dưới mép màn hình lên quá mép trên, lặp lại tới khi bạn trả lời hoặc đã xem; nó không dừng giữa chừng, trừ khi bạn chỉ chuột vào, khi đó hiện thẻ của nó với nút Cho phép / Từ chối. Một nút ở góc màn hình đếm số phiên và liệt kê chúng, có Cho phép / Từ chối. Khi bật giảm chuyển động, chú thú đứng yên gần mép dưới.
-- **Đừng làm phiền** 30 hoặc 60 phút (Cài đặt): không có thú cưng và không có thông báo trong lúc đó; yêu cầu duyệt vẫn chờ ở Bảng, và nút ở góc cho phép tắt sớm.
-- **Bấm để mở** session: vào thẳng session trong app Claude desktop, hoặc đưa cửa sổ Terminal, iTerm, VS Code lên trước.
-- **Phiên phụ** (app Claude desktop): session tách ra từ một session khác đi ngay sau session gốc, và bảng điều khiển cho biết nó tách từ đâu, còn bao nhiêu session phụ đang chạy hay cần bạn.
-- **Duyệt ngay trên Bobix**: khi Claude xin quyền, bấm Cho phép hoặc Từ chối trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS); yêu cầu xoá hoặc ghi đè dữ liệu có cảnh báo trong bảng điều khiển. Bobix không đặt luật cho phép lâu dài: muốn vậy thì dùng auto mode của Claude. Mặc định Bobix giữ yêu cầu cho tới khi bạn trả lời ở đó; Claude vẫn hỏi song song trong terminal, nên trả lời ở đâu cũng được. Đặt giới hạn thời gian trong Cài đặt thì Bobix sẽ thôi giữ yêu cầu khi hết giờ. Khi các chú thú đang ẩn hoặc thông báo đang tạm dừng thì Bobix không giữ yêu cầu.
-- **Công việc** (tự bật): trạng thái git của từng session (nhánh, file đã đổi, commit chưa push), và bảng theo ngày làm việc: issue GitLab và GitHub được giao cho bạn cần làm, đang làm (kèm các phiên), chờ kiểm tra (có pull request hoặc merge request đang mở của bạn đóng nó) và xong hôm nay, GitLab hay GitHub nào cũng được, đọc qua `glab` và `gh` của chính bạn. Mở một ticket thấy bước của nó (Cần làm › Đang làm › Chờ duyệt › Chờ kiểm tra › Xong) và vì sao; hai phiên cùng một issue hay cùng một nhánh có cảnh báo. Báo cáo cuối ngày theo dự án và standup (xong ngày làm việc trước, đang làm hôm nay, đang kẹt), dạng chữ để sao chép (báo cáo kèm tổng thời gian Claude chờ bạn duyệt hôm nay); Bobix không gửi gì đi. Việc đang kẹt có một dòng riêng kèm bước làm tiếp (phiên xong mà chưa có PR, PR chưa ai review, nhánh có commit mà chưa có PR, phiên của issue nghỉ nhiều giờ); ngưỡng chỉnh trong Cài đặt. Session đang ở nhánh của một issue (`29-…`) hiện `#29`, và issue đó hiện session đang làm. Mỗi issue có một nút: mở lại session đang làm nó (kể cả session đã mở từ Bobix trước đó, tìm theo tên), hoặc mở session Claude desktop mới trong thư mục project với prompt sửa được (tiêu đề, mô tả và link issue) điền sẵn và chép vào clipboard; cột Cần làm gợi ý việc tiếp theo, và hộp Bắt đầu gợi ý một skill Claude bạn có cho repo đó (theo nhãn issue và vai trò của bạn trong Cài đặt). Session đầu tiên bạn tạo ở đó được đặt tên theo issue (`[SHA-27] …`, mỗi project một mã ngắn, sửa được trong Cài đặt). Mặc định tắt, GitLab và GitHub mỗi bên một công tắc; Bobix không giữ token và không ghi gì lên cả hai.
-- **Thói quen** (tự bật, Cài đặt → Bobix nhớ gì về bạn): Bobix ghi lại trên máy việc bạn làm với Claude (giờ, repo, issue, nhánh, số lần và thời gian chờ duyệt, skill; không bao giờ nhớ nội dung bạn viết) trong 30 ngày, cho bạn xem theo từng ngày và Xoá hết, rồi sau vài ngày gợi ý tối đa 3 bước tiếp theo ngay dưới phần cần duyệt: issue còn dở, lệnh lần nào bạn cũng cho phép (một dòng để bạn tự thêm vào cài đặt quyền của Claude), việc bạn mở cùng giờ mỗi tuần, skill bạn hay dùng ở một repo. Quy tắc đơn giản trên máy, không dùng AI, không gửi gì đi.
-- **Bảng điều khiển** liệt kê mọi session theo mức cần bạn chú ý, kèm câu trả lời cuối và nhật ký các tool đã dùng. Yêu cầu chờ duyệt lâu nhất đứng đầu, ghi đã chờ bao lâu (quá ngưỡng bạn đặt thì tô đậm).
-- **Thông báo** khi session cần duyệt hoặc đã xong, có âm thanh nếu muốn.
-- **Không che việc của bạn**: chọn màn hình, mép trên hoặc dưới, đoạn mép được đi, kích thước và độ rõ. Chú thú mờ đi khi chuột lại gần, mọi chỗ không phải chú thú đều cho click xuyên qua, con ngủ quá lâu sẽ rời màn hình sau khoảng thời gian bạn chọn.
-- **Nhẹ máy**: không vẽ gì khi không có con nào, không ghi ổ đĩa ngoài file cài đặt.
+### Thú cưng cho các session
+- **Mỗi session một chú thú.** Các session của cùng một project (kể cả git worktree) dùng chung một trong năm mẫu thú kiểu icon phẳng, mỗi session một màu riêng, tên lấy theo tiêu đề session.
+- **Một hàng dọc mép** màn hình bạn chọn, mép trên hoặc mép dưới, đi cùng một chiều; session phụ đi ngay sau session đã tạo ra nó. Hoặc **Hiện khi có việc**: chỉ session cần bạn mới bay lên màn hình cho tới khi bạn trả lời.
+- **Tín hiệu nhỏ**: lên cấp khi session xong một việc, pin yếu khi context sắp hết. Khi bật giảm chuyển động, một quả bóng cho biết việc gì cần bạn.
+
+### Duyệt yêu cầu mà không chuyển cửa sổ
+- Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu.
+- Claude vẫn hỏi trong terminal cùng lúc nên bạn trả lời ở đâu cũng được. Bobix không đặt quy tắc cho phép lâu dài; muốn vậy hãy dùng chế độ auto của chính Claude.
+
+### Xem mỗi session dùng bao nhiêu
+- Với mỗi session đang chạy: token, phần dành để **đọc lại ngữ cảnh**, các model đã dùng (cả subagent) và thời gian làm việc, đọc từ transcript mà Claude Code ghi trên máy bạn.
+- So **với mức thường ngày của bạn**: "3,7× phiên thường ngày", học từ chính các session trước của bạn. Số đô chỉ là ước tính theo giá API, có ghi rõ, và tắt được; hạn mức thật vẫn xem bằng `/usage` trong Claude.
+- **Cảnh báo kèm lý do và cách xử lý**: session quá dài (chạy `/compact` hoặc mở session mới), model nặng cho việc nhẹ (`/model sonnet`), hay đọc khám phá liên tục (nhờ một subagent Haiku).
+
+### Giữ bộ skill gọn gàng, chọn đúng model
+- **Rà soát skill theo project**: mọi skill Claude nạp ở đó, phần mô tả của chúng tốn bao nhiêu token mỗi lượt, skill không dùng trong 30 ngày và các bộ trùng nhau (`ak:cook` và `ck:cook`).
+- **Tắt hoặc xoá** một skill cá nhân hay của project bằng một cú bấm; mỗi thay đổi đều có bản sao lưu và hoàn tác được.
+- **Quy tắc chọn model cho `CLAUDE.md`**: một khối ngắn "khi nào tách phiên, dùng model nào", hiện cho bạn xem trước khi thêm, và gỡ trả lại đúng từng byte.
+
+### Chạy ticket của bạn
+- **Issue GitHub và GitLab của bạn** (tự bật, qua chính `gh` và `glab` của bạn): cần làm, đang làm cùng các session của nó, chờ review, xong hôm nay. Bobix gợi ý việc làm tiếp, cảnh báo khi hai session cùng làm một issue, và chỉ ra việc bị kẹt kèm bước tiếp theo.
+- **Bắt đầu** một session trên issue với prompt bạn sửa được, kèm skill gợi ý cho repo đó; session được đặt tên `[CODE-27] …`.
+- **Stand-up và báo cáo hôm nay** dạng văn bản để chép. Bobix không gửi gì đi.
+
+### Bảng điều khiển
+- Một cửa sổ có ô tìm kiếm và các màn hình: **Tổng quan** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session và issue), **Skill** và **Cài đặt**. **Công việc** và **Phòng** sắp có.
+- Mọi thao tác đều có phím tắt, và ⌘K / Ctrl+K tìm bất kỳ thao tác, session hay màn hình nào.
+
+### Và
+- **Thông báo** khi session cần duyệt hoặc xong việc, **Đừng làm phiền** 30 hoặc 60 phút, nhật ký thói quen làm việc với Claude lưu trên máy (tự bật, 30 ngày, không bao giờ lưu nội dung bạn viết), và thông báo khi có bản mới.
+- **Không vướng víu**: chọn màn hình, mép, vùng, kích thước và độ rõ; chú thú mờ đi khi chuột tới gần và để cú bấm đi xuyên qua.
 - **macOS, Windows và Linux**, tiếng Anh và tiếng Việt.
-- **Riêng tư**: chạy hoàn toàn trên máy bạn, không cần tài khoản, không gửi gì về bạn hay các session ra ngoài. Yêu cầu mạng duy nhất Bobix tự làm là mỗi ngày hỏi GitHub có bản mới chưa, và bạn tắt được; issue GitLab chỉ được đọc khi bạn bật. Xem [Quyền riêng tư](docs/privacy.md).
-- **Báo khi có bản mới**: có phiên bản mới thì hiện thông báo và mục trong khay để tải về.
+- **Riêng tư từ thiết kế**: chạy trên máy bạn, không tài khoản, không gửi gì về bạn hay các session đi đâu. Yêu cầu mạng duy nhất Bobix tự làm là mỗi ngày hỏi GitHub có bản mới không, và bạn tắt được. Xem [Quyền riêng tư](docs/privacy.md).
 
 ## Cài đặt
 
@@ -67,7 +82,7 @@ Tải file cài cho máy của bạn. Các link luôn trỏ tới phiên bản m
 Sau đó:
 
 1. Mở app. Bản build chưa được ký số nên lần đầu mở sẽ có cảnh báo; [hướng dẫn cài đặt](docs/install.md) chỉ cách mở trên từng hệ điều hành.
-2. Trong bảng điều khiển, vào **Kết nối → Cài hooks**.
+2. Bảng điều khiển mở ở **Cài đặt → Kết nối Claude Code**. Bấm **Cài hooks**.
 3. Gửi một prompt trong session Claude Code bất kỳ. Chú thú của nó sẽ xuất hiện.
 
 [Hướng dẫn cài đặt](docs/install.md) (tiếng Anh) có thêm phần xử lý sự cố và gỡ cài đặt.
@@ -101,12 +116,18 @@ curl -fL -o /tmp/bobix.deb https://github.com/baonguyen-agilityio/bobix/releases
 
 <table>
 <tr>
-<td width="50%"><img src="docs/media/settings.png" alt="Cài đặt: xem trước chỗ chú thú đi, cùng các tuỳ chọn mép, vùng, kích thước, độ rõ và những con được hiện."></td>
-<td width="50%"><img src="docs/media/setup.png" alt="Kết nối: trạng thái kết nối và ba bước bắt đầu."></td>
+<td colspan="2"><img src="docs/media/overview.png" alt="Tổng quan: các session hôm nay, một yêu cầu Bash đang chờ duyệt, ba cảnh báo mức dùng kèm lý do, và mức dùng của từng session so với phiên thường ngày."></td>
 </tr>
 <tr>
-<td><b>Cài đặt</b> có xem trước chỗ chú thú đi.</td>
-<td><b>Kết nối</b> Claude Code chỉ với một cú bấm.</td>
+<td colspan="2"><b>Tổng quan</b>: việc cần bạn lên trước, rồi tới cảnh báo và mức dùng hôm nay.</td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/media/session.png" alt="Chi tiết một session: gấp 3,7 lần phiên thường ngày, 77 lượt, 99% token đầu vào là đọc lại ngữ cảnh, Opus 5.5, ước tính theo giá API và cảnh báo session dài."></td>
+<td width="50%"><img src="docs/media/skills.png" alt="Rà soát skill của một project: 16 skill đã cài, 11 skill không dùng trong 30 ngày, 3 bộ trùng nhau, và số token phần mô tả thêm vào mỗi session."></td>
+</tr>
+<tr>
+<td><b>Mức dùng của một session</b> so với mức thường ngày, kèm lý do cảnh báo.</td>
+<td><b>Rà soát skill</b>: skill không dùng và bộ trùng nhau, thay đổi nào cũng hoàn tác được.</td>
 </tr>
 </table>
 
@@ -114,13 +135,15 @@ curl -fL -o /tmp/bobix.deb https://github.com/baonguyen-agilityio/bobix/releases
 
 ```
 Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1──▶ Bobix ──▶ chú thú · bảng điều khiển · thông báo
-                                                                              └─ đọc transcript của session để lấy tiêu đề, câu trả lời cuối và context còn lại
+                                                                              ├─ đọc transcript của session: tiêu đề, câu trả lời cuối, context còn lại, mức dùng
+                                                                              └─ đọc thư mục skill và transcript để rà soát skill
 ```
 
 - Dùng các hook có trong tài liệu của Claude Code: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Notification, Stop, SessionEnd. Hook chạy bất đồng bộ nên Claude không bao giờ phải chờ.
 - Khi cài, Bobix thêm mục vào `~/.claude/settings.json`, giữ nguyên mọi hook và cài đặt khác, và lưu bản backup trước. Khi gỡ, chỉ các mục của Bobix bị xoá.
 - Bộ chuyển tiếp chỉ gửi những gì chú thú hiển thị (tên tool, đường dẫn file hoặc lệnh, prompt của bạn), không bao giờ gửi nội dung file hay kết quả tool.
 - Bấm Esc hoặc từ chối quyền sẽ kết thúc lượt mà không có hook nào; Bobix nhận ra điều đó trong transcript và cho chú thú nghỉ.
+- Bobix chỉ sửa thư mục skill của Claude hay file `CLAUDE.md` của project khi bạn bấm, luôn có bản sao lưu và hoàn tác được. Bobix không bao giờ đọc thông tin đăng nhập Claude của bạn.
 
 ## Câu hỏi thường gặp
 
