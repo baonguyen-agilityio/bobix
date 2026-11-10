@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bobix new pets</title>
+<!-- Prototype for issue #106: original Bobix pets, with Petdex (petdex.dev) as a style reference only. Self-contained:
+     today's pets come from src/ui/creature.js (copied in below), the new ones are drawn in code the same way. -->
+<style>
+:root{--bg:#eef1f6;--surface:#fbfcfe;--line:#d9dee8;--ink:#1f2433;--ink-2:#4b5263;--ink-3:#7a8194;--accent:#4b63d8;--sel:#e3e8fb;--tile:#e7ebf2}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171a22;--surface:#1f232d;--line:#333948;--ink:#e9ecf3;--ink-2:#b7bdcb;--ink-3:#8b92a3;--accent:#8ea2ff;--sel:#2a3150;--tile:#272c38}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}
+.lead{color:var(--ink-2);margin:0 0 16px;max-width:760px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+/* the state viewer */
+.picker{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.picker button{display:flex;align-items:center;gap:6px;padding:4px 12px 4px 4px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);font:600 13px system-ui,sans-serif;cursor:pointer}
+.picker button[aria-pressed="true"]{border-color:var(--accent);background:var(--sel)}
+.picker .ico{width:28px;height:28px}
+.viewer{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:16px}
+.big .eyebrow{font:700 11px system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.big h3{font-size:22px;margin:2px 0 10px}
+.stage{aspect-ratio:1;border:1px solid var(--line);border-radius:10px;display:grid;place-items:center;background:repeating-conic-gradient(var(--tile) 0 25%,var(--surface) 0 50%) 0 0/20px 20px}
+.stage svg{width:72%;height:72%}
+.big p{color:var(--ink-2);margin:10px 0 0}
+.states{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-content:start}
+.states button{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);cursor:pointer;font:inherit}
+.states button[aria-pressed="true"]{border-color:var(--accent);background:var(--sel)}
+.states b{display:block;font-size:14px}.states small{color:var(--ink-3)}
+.states .mini{flex:none;width:64px;height:64px;border-radius:8px;background:var(--tile);display:grid;place-items:center}
+.states .mini svg{width:56px;height:56px}
+@media (max-width:720px){.viewer{grid-template-columns:1fr}.states{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* the comparison tables: each cell is a pet box as the overlay draws it (pets.html: .spr) */
+.wrap{overflow-x:auto}
+table{border-collapse:collapse}
+th,td{padding:6px 8px;text-align:center;vertical-align:bottom}
+thead th{font:600 12px system-ui,sans-serif;color:var(--ink-2);vertical-align:bottom}
+thead th small{display:block;font-weight:400;color:var(--ink-3)}
+tbody th{text-align:left;font:600 12px system-ui,sans-serif;color:var(--ink-2);white-space:nowrap;vertical-align:middle}
+td.sep,th.sep{border-left:2px dashed var(--line)}
+tbody tr+tr td,tbody tr+tr th{border-top:1px solid var(--line)}
+.box{position:relative;width:var(--size);height:var(--size);margin:6px auto 0;display:grid;place-items:center}
+.box .sp{display:contents}
+.box svg{width:100%;height:100%;filter:drop-shadow(0 2px 0 rgb(40 44 70 / .25))}
+.none{display:grid;place-items:center;width:var(--size);height:var(--size);margin:6px auto 0;color:var(--ink-3);font-size:11px}
+/* today's pets move as the overlay moves them: a step while walking, a hop while waiting, dim and "z" asleep */
+.walking svg{animation:step 320ms steps(2) infinite}
+.hop svg{animation:hop 900ms ease infinite}
+.dim{opacity:.75}
+.zz{position:absolute;left:70%;top:-6px;font:700 13px system-ui,sans-serif;color:var(--ink-3);animation:zz 2.4s ease infinite}
+@keyframes step{to{transform:translateY(-3px)}}
+@keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
+@keyframes zz{0%{opacity:0;translate:0 0}40%{opacity:1}100%{opacity:0;translate:8px -12px}}
+.note{color:var(--ink-3);font-size:12px;margin:8px 0 0}
+</style>
+</head>
+<body>
+<main>
+  <h1>New Bobix pets: prototype</h1>
+  <p class="lead">Five original pets drawn the way Bobix draws pets today: a 36×36 pixel grid in code, one SVG path per colour, a 1-pixel outline. Each acts every state with its whole body. Petdex was only the style reference; no Petdex pet or known character is copied.</p>
+
+  <section class="card" aria-labelledby="sv">
+    <div class="picker" id="picker" role="group" aria-label="Pet"></div>
+    <div class="viewer">
+      <div class="big"><div class="eyebrow" id="sv">State viewer</div><h3 id="bigName"></h3><div class="stage" id="bigStage"></div><p id="bigNote"></p></div>
+      <div class="states" id="states" role="group" aria-label="State"></div>
+    </div>
+  </section>
+
+  <div id="compare">
+  <h2>Next to today's pets: real size (56 px, the default)</h2>
+  <div class="card wrap"><table id="t56" style="--size:56px"></table></div>
+  <h2>One size up: 84 px (1.5×)</h2>
+  <div class="card wrap"><table id="t84" style="--size:84px"></table></div>
+  <p class="note">Today's pets have no "failed" look (the app has no failed state yet). Their walk and waiting motion is the overlay's CSS step and hop, copied here.</p>
+  </div>
+</main>
+<script>
+// --- copied from src/ui/creature.js (today's pets) ---
+function hashStr(str) { let h = 2166136261; for (const c of str) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
+
+// Sinh "sinh vật" pixel 7x7 đối xứng từ session_id, có viền tối 1px. Mắt/miệng đổi theo trạng thái.
+const BODY = ['--sky', '--mint', '--lilac', '--peach', '--butter', '--rose'];
+// color: an index into BODY (see petColor); by default the colour that goes with id.
+// pixel: the face is pixel art, so it is scaled without smoothing.
+// Without a picture the pet is the fine 36×36 version of the 7×7 creature (fineSprite), drawn as one path per colour.
+function creature(id, st, face, color, pixel) {
+  let r = hashStr(id) || 1;
+  const bit = () => (r = Math.imul(r ^ (r >>> 15), 2246822507) >>> 0, r & 1);
+  const ci = color ?? hashStr(id + 'c') % BODY.length;
+  if (face) return bigHead(`var(${BODY[ci]})`, bit, face, pixel);
+  return spriteSVG(fineSprite(id, st, ci));
+}
+
+// ---- the fine pet (36×36) ------------------------------------------------------------------------------------------
+// Built from the 7×7 creature: Scale2x twice rounds the body's diagonal steps (ears, arms and legs stay apart), then
+// a fresh 1-pixel outline, a light top-left and a dark bottom-right band, and a face redrawn per state. Colours are
+// packed like ImageData (0xAABBGGRR) so the pets overlay's effects can draw the same pixels into a canvas.
+// The design tokens the pets are made of (oklch L, C, h), the same values as ui/theme.css (a test keeps them equal).
+const TOKENS = { '--n-900': [.24, .035, 266], '--sky': [.84, .075, 235], '--mint': [.86, .085, 162], '--lilac': [.83, .075, 300], '--peach': [.86, .075, 55], '--butter': [.90, .095, 98], '--rose': [.84, .075, 5] };
+const packRGB = (r, g, b) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0;
+function oklch([L, C, h]) {
+  const a = C * Math.cos(h * Math.PI / 180), b = C * Math.sin(h * Math.PI / 180);
+  const l = (L + .3963377774 * a + .2158037573 * b) ** 3, m = (L - .1055613458 * a - .0638541728 * b) ** 3, s = (L - .0894841775 * a - 1.291485548 * b) ** 3;
+  const g = x => Math.round(255 * Math.min(1, Math.max(0, x <= .0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - .055)));
+  return packRGB(g(4.0767416621 * l - 3.3077115913 * m + .2309699292 * s), g(-1.2684380046 * l + 2.6097574011 * m - .3413193965 * s), g(-.0041960863 * l - .7034186147 * m + 1.707614701 * s));
+}
+// color-mix(in oklch, a p, b): lightness and chroma blend, the hue takes the shorter way round.
+function mixOklch(a, b, p) { let dh = b[2] - a[2]; if (dh > 180) dh -= 360; if (dh < -180) dh += 360; return [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] + dh * (1 - p)]; }
+const WHITE32 = packRGB(255, 255, 255);
+const mix32 = (a, b, t) => { const m = s => Math.round(((a >>> s) & 255) * (1 - t) + ((b >>> s) & 255) * t); return packRGB(m(0), m(8), m(16)); };
+const hex32 = c => '#' + [0, 8, 16].map(s => ((c >>> s) & 255).toString(16).padStart(2, '0')).join('');
+// Scale2x (EPX): doubles a picture and rounds its diagonal steps without blurring.
+function scale2x(src, w, h) {
+  const W = w * 2, out = new Uint32Array(W * h * 2), at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : src[y * w + x]);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const P = at(x, y), A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+    out[2 * y * W + 2 * x] = C === A && C !== D && A !== B ? A : P; out[2 * y * W + 2 * x + 1] = A === B && A !== C && B !== D ? B : P;
+    out[(2 * y + 1) * W + 2 * x] = D === C && D !== B && C !== A ? C : P; out[(2 * y + 1) * W + 2 * x + 1] = B === D && B !== A && D !== C ? D : P;
+  }
+  return out;
+}
+// The 7×7 creature's cells (ears, arms, legs, rounded head) for a project: the same bits in the same order as always.
+function creatureCells(id) {
+  let r = hashStr(id) || 1;
+  const bit = () => (r = Math.imul(r ^ (r >>> 15), 2246822507) >>> 0, r & 1);
+  const on = new Set(), put = (x, y) => { on.add(`${x},${y}`); on.add(`${6 - x},${y}`); };
+  for (let y = 1; y <= 5; y++) for (let x = 1; x <= 3; x++) put(x, y);
+  if (bit()) put(1, 0); if (bit()) put(2, 0);          // tai / sừng
+  for (let y = 2; y <= 4; y++) if (bit()) put(0, y);    // tay
+  if (bit()) put(1, 6); else put(2, 6);                 // chân
+  if (bit()) { on.delete('1,1'); on.delete('5,1'); }    // đầu tròn
+  return on;
+}
+const FINE = new Map();
+function fineSprite(id, st, ci) {
+  const key = `${id}|${st}|${ci}`;
+  if (FINE.has(key)) return FINE.get(key);
+  const tone = TOKENS[BODY[ci]], body = oklch(tone), line = oklch(mixOklch(tone, TOKENS['--n-900'], .45)), W = 36;
+  const d9 = new Uint32Array(81); // the body on the 9×9 grid (the old outline ring stays empty)
+  for (const k of creatureCells(id)) { const [x, y] = k.split(',').map(Number); d9[(y + 1) * 9 + x + 1] = body; }
+  const d = scale2x(scale2x(d9, 9, 9), 18, 18), o = d.slice();
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) { // the new outline: every empty pixel touching the body (8 ways)
+    if (d[y * W + x]) continue;
+    outer: for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const xx = x + i, yy = y + j; if (xx >= 0 && yy >= 0 && xx < W && yy < W && d[yy * W + xx]) { o[y * W + x] = line; break outer; } }
+  }
+  // Shading: body pixels within 2 of the rim get light on the top and left, dark on the bottom and right.
+  const get = (x, y) => (x < 0 || y < 0 || x >= W || y >= W ? 0 : o[y * W + x]), rim = c => !c || c === line;
+  const near = (x, y, dx, dy) => rim(get(x + dx, y + dy)) || rim(get(x + 2 * dx, y + 2 * dy));
+  const light = mix32(body, WHITE32, .38), dark = mix32(body, line, .32), out = o.slice();
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    if (o[y * W + x] !== body) continue;
+    if (near(x, y, 0, -1) || near(x, y, -1, 0)) out[y * W + x] = light; else if (near(x, y, 0, 1) || near(x, y, 1, 0)) out[y * W + x] = dark;
+  }
+  face36(out, st, oklch(TOKENS['--n-900']), oklch(TOKENS['--rose']));
+  const spr = { w: W, h: W, data: out };
+  FINE.set(key, spr);
+  return spr;
+}
+// The face where the 7×7 creature has it (eyes on its pixels 2 and 4 of row 3): round eyes with a glint while working,
+// wide eyes and an "o" while waiting, happy arcs, a U smile and pink cheeks when done, closed lines when idle.
+function face36(o, st, ink, rose) {
+  const P = (x, y, c) => { o[y * 36 + x] = c; }, R = (x, y, w, h, c) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) P(x + i, y + j, c); };
+  const eye = (x, y, w, h, glint) => { // a rectangle with its corners taken off, and a white glint top-left
+    R(x, y, w, h, ink);
+    for (const [cx, cy] of [[x, y], [x + w - 1, y], [x, y + h - 1], [x + w - 1, y + h - 1]]) P(cx, cy, o[cy * 36 + (cx === x ? cx - 1 : cx + 1)] || 0);
+    R(x + 1, y + 1, glint, glint, WHITE32);
+  };
+  if (st === 'idle') { R(12, 18, 4, 1, ink); R(20, 18, 4, 1, ink); return; }
+  if (st === 'done') {
+    for (const x of [12, 20]) { P(x, 19, ink); P(x + 1, 18, ink); P(x + 2, 18, ink); P(x + 3, 19, ink); P(x, 20, ink); P(x + 3, 20, ink); }
+    P(15, 23, ink); P(16, 24, ink); R(17, 25, 2, 1, ink); P(19, 24, ink); P(20, 23, ink); R(16, 23, 4, 1, ink); R(17, 24, 2, 1, packRGB(0xff, 0x8f, 0xa3));
+    R(8, 21, 3, 2, rose); R(25, 21, 3, 2, rose); return;
+  }
+  if (st === 'waiting') { eye(12, 15, 4, 5, 2); eye(20, 15, 4, 5, 2); R(17, 23, 2, 3, ink); return; }
+  eye(12, 16, 4, 4, 1); eye(20, 16, 4, 4, 1);
+}
+// A sprite as SVG: one path per colour, each run of pixels in a row one rectangle. Same box as the 9×9 creature had.
+function spriteSVG(spr) {
+  const runs = new Map();
+  for (let y = 0; y < spr.h; y++) for (let x = 0; x < spr.w;) {
+    const c = spr.data[y * spr.w + x];
+    let n = 1; while (x + n < spr.w && spr.data[y * spr.w + x + n] === c) n++;
+    if (c >>> 24) runs.set(c, (runs.get(c) || '') + `M${x} ${y}h${n}v1h-${n}z`);
+    x += n;
+  }
+  return `<svg viewBox="0 0 ${spr.w} ${spr.h}" width="80%" height="80%" shape-rendering="crispEdges" aria-hidden="true">${[...runs].map(([c, d]) => `<path fill="${hex32(c)}" d="${d}"/>`).join('')}</svg>`;
+}
+
+// A creature wearing an uploaded picture: the picture (13 of 22 units) sits in the creature's body, and the outline around the
+// body is drawn last, so it trims only the picture's corners into pixel steps. Ears, arms and legs come from the same project's creature (same bits,
+// same order).
+function bigHead(color, bit, face, pixel) {
+  const px = (x, y, fill) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}"/>`;
+  const line = `color-mix(in oklch, ${color} 45%, var(--n-900))`, { limbLine, limbs, body, ring } = bigHeadCells(bit);
+  const cells = (set, fill) => [...set].map(k => { const [x, y] = k.split(',').map(Number); return px(x, y, fill); }).join('');
+  return `<svg class="faced" viewBox="0 0 22 22" width="100%" height="100%" shape-rendering="crispEdges" aria-hidden="true">`
+    + `${cells(limbLine, line)}${cells(limbs, color)}${cells(body, color)}`
+    + `<image href="${face}" x="4.5" y="4.5" width="13" height="13"${pixel ? ' style="image-rendering:pixelated"' : ''} preserveAspectRatio="xMidYMid slice"/>${cells(ring, line)}</svg>`;
+}
+// The cells of a big-head creature on its 22×22 grid: limbs and their outline, the body (under the picture) and the
+// outline ring drawn over the picture's corners. The pets overlay paints the same cells into its effects.
+function bigHeadCells(bit) {
+  const limbs = new Set(), put = (x, y) => { limbs.add(`${x},${y}`); limbs.add(`${21 - x},${y}`); };
+  const block = (x, y, w, h) => { for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) put(x + i, y + j); };
+  if (bit()) block(6, 1, 2, 2); if (bit()) block(8, 1, 2, 2); // ears / horns
+  for (const y of [7, 10, 13]) if (bit()) block(1, y, 2, 2);  // arms
+  block(bit() ? 6 : 8, 19, 2, 2);                             // legs
+  const body = new Set();
+  for (let x = 4; x <= 17; x++) for (let y = 4; y <= 17; y++) body.add(`${x},${y}`);
+  const cut = bit() ? [[4, 4], [5, 4], [4, 5]] : [[4, 4]];    // the corners of the body: rounder or squarer
+  for (const [x, y] of cut) for (const [a, b] of [[x, y], [21 - x, y], [x, 21 - y], [21 - x, 21 - y]]) body.delete(`${a},${b}`);
+  const around = (set, skip) => {
+    const out = new Set();
+    for (const k of set) { const [x, y] = k.split(',').map(Number); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const n = `${x + dx},${y + dy}`; if (!skip.has(n)) out.add(n); } }
+    return out;
+  };
+  return { limbLine: around(limbs, new Set([...limbs, ...body])), limbs, body, ring: around(body, body) };
+}
+// The picture pet's look for drawing in a canvas: big-head cells, and its colours as packed pixels (see fineSprite).
+function bigHeadLook(id, color) {
+  let r = hashStr(id) || 1;
+  const bit = () => (r = Math.imul(r ^ (r >>> 15), 2246822507) >>> 0, r & 1);
+  const tone = TOKENS[BODY[color ?? hashStr(id + 'c') % BODY.length]];
+  return { ...bigHeadCells(bit), body32: oklch(tone), line32: oklch(mixOklch(tone, TOKENS['--n-900'], .45)) };
+}
+
+// A pixel-art picture that is the whole pet: it stands on the bottom of the pet's box, scaled without smoothing.
+function picturePet(href) {
+  return `<svg class="pic" viewBox="0 0 1 1" width="100%" height="100%" aria-hidden="true">`
+    + `<image href="${href}" width="1" height="1" preserveAspectRatio="xMidYMax meet" style="image-rendering:pixelated"/></svg>`;
+}
+
+// Where to answer a permission request Bobix can't answer: the Claude app asks in its own card for its sessions.
+const approveWhere = s => (s.hostSession ? 'ask.whereApp' : 'pane.askHint');
+
+// The pet of a session: its project's creature, wearing the picture chosen for that project if there is one, or the
+// picture itself when the person chose it to be the whole pet.
+function petArt(s, st, color) {
+  const token = new URLSearchParams(location.search).get('t') || '';
+  const pic = s.image && `/pet-image/${encodeURIComponent(s.image)}?t=${encodeURIComponent(token)}`;
+  return pic && s.pixel && s.whole ? picturePet(pic) : creature(s.project || s.id, st, pic, color, s.pixel);
+}
+
+// A session's colour. Its project gives the shape; the colour tells sessions apart: sessions of one project take the
+// project's colour and the next ones in turn, and a side session never has its parent's colour or its neighbour's.
+function petColor(s, list) {
+  // In the order sessions came (the list keeps it), so one that arrives later never shifts the colour of one already out.
+  const n = BODY.length, proj = x => x.project || x.id, ids = xs => xs.map(x => x.id);
+  const top = x => !(x.parent && list.some(y => y.id === x.parent)); // stands on its own (no parent on screen)
+  const par = s.parent && list.find(x => x.id === s.parent);
+  if (par) { // side sessions avoid the colours of their project's own sessions, so a kid never looks like one of them
+    const taken = new Set(list.filter(x => top(x) && proj(x) === proj(par)).map(x => petColor(x, list)));
+    const free = [...Array(n).keys()].map(i => (petColor(par, list) + 1 + i) % n).filter(i => !taken.has(i));
+    const k = ids(list.filter(x => x.parent === s.parent)).indexOf(s.id);
+    return free.length ? free[k % free.length] : (petColor(par, list) + 1 + (k % (n - 1))) % n;
+  }
+  const mates = ids(list.filter(x => top(x) && proj(x) === proj(s)));
+  return (hashStr(proj(s) + 'c') % n + Math.max(0, mates.indexOf(s.id))) % n;
+}
+
+// A party balloon in the pets' pixel style: orange with "!" waits for you, green with a tick is done. Its string hangs to the pet.
+// On the top edge it floats below the pet: balloon and string are flipped, the "!" / tick and the shine are not.
+function balloonSVG(kind, down = false) {
+  const W = 11, rows = ['...xxxxx...', '..xxxxxxx..', '.xxxxxxxxx.', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx', 'xxxxxxxxxxx',
+    '.xxxxxxxxx.', '.xxxxxxxxx.', '..xxxxxxx..', '...xxxxx...', '....xxx....', '.....x.....'];
+  const on = new Set(); rows.forEach((r, y) => [...r].forEach((c, x) => c === 'x' && on.add(`${x},${y}`)));
+  const fill = kind === 'waiting' ? 'var(--coral)' : 'var(--mint)', line = `color-mix(in oklch, ${fill} 45%, var(--n-900))`;
+  const icon = kind === 'waiting' ? [[5, 3], [5, 4], [5, 5], [5, 6], [5, 8]] : [[3, 5], [4, 6], [5, 7], [6, 6], [7, 5], [8, 4]];
+  const shine = [[3, 2], [2, 3], [2, 4]], px = (x, y, f) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${f}"/>`;
+  let out = '';
+  for (const k of on) { const [x, y] = k.split(',').map(Number); const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => !on.has(`${x + a},${y + b}`)); out += px(x, y, edge ? line : fill); }
+  out += [5, 5, 6, 6, 5, 5, 4, 4, 5].map((x, i) => px(x, 13 + i, 'var(--ink-3)')).join(''); // the string
+  // Flipped, body row y shows at 21 - y; the upright marks shift by 11 so they land on the same part of the body.
+  const marks = shine.map(([x, y]) => px(x, y + (down ? 11 : 0), 'oklch(98% 0.01 90 / .85)')).join('') + icon.map(([x, y]) => px(x, y + (down ? 11 : 0), 'var(--n-900)')).join('');
+  return `<svg viewBox="0 0 ${W} 22" shape-rendering="crispEdges" aria-hidden="true">${down ? `<g transform="matrix(1 0 0 -1 0 22)">${out}</g>` : out}${marks}</svg>`;
+}
+</script>
+<script>
+// ---- New pets: 36×36 pixel grids drawn in code, the same box and the same SVG output (spriteSVG) as today's pets ----
+// Each pet draws its body for a pose; limbs and faces are shared, so every pet acts the same states the same way.
+const N = 36, GROUND = 33; // feet stand on row 33; the outline takes row 34
+const hex = s => { const n = parseInt(s.slice(1), 16); return packRGB(n >> 16 & 255, n >> 8 & 255, n & 255); };
+const C = new Proxy({}, { get: (m, k) => (m[k] ??= hex(k)) }); // C['#ffcc00'] -> packed colour, cached
+
+function grid() {
+  const d = new Uint32Array(N * N);
+  const g = {
+    d, ox: 0, oy: 0,
+    P(x, y, c) { x = Math.round(x + g.ox); y = Math.round(y + g.oy); if (x >= 0 && y >= 0 && x < N && y < N) d[y * N + x] = c; },
+    R(x, y, w, h, c) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) g.P(x + i, y + j, c); },
+    E(cx, cy, rx, ry, c) {
+      for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+        const a = (x - cx) / (rx + .5), b = (y - cy) / (ry + .5); if (a * a + b * b <= 1) g.P(x, y, c);
+      }
+    },
+    L(x0, y0, x1, y1, c, t = 1) {
+      const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) || 1;
+      for (let i = 0; i <= n; i++) g.R(Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n), t, t, c);
+    },
+    clear(x, y) { g.P(x, y, 0); },
+    arms: [], // drawn over the body by outline(), each with its own outline
+  };
+  return g;
+}
+// A 1-pixel outline round everything drawn so far (8 ways), as today's pets have; then the arms on top, each with a
+// 4-way outline of its own, so an arm in front of the body still reads (the way costume.js layers a prop).
+function outline(g, c) {
+  ring(g.d, c, 8);
+  for (const a of g.arms) {
+    const t = grid(); t.ox = g.ox; t.oy = g.oy;
+    a(t); ring(t.d, c, 4);
+    for (let k = 0; k < N * N; k++) if (t.d[k]) g.d[k] = t.d[k];
+  }
+  g.arms = [];
+}
+function ring(d, c, ways) {
+  const s = d.slice(), on = (x, y) => x >= 0 && y >= 0 && x < N && y < N && s[y * N + x];
+  const near = ways === 8 ? [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] : [[0, -1], [-1, 0], [1, 0], [0, 1]];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!s[y * N + x] && near.some(([i, j]) => on(x + i, y + j))) d[y * N + x] = c;
+}
+
+// ---- states: frames and timing; a pose per frame ----
+const STATES = [
+  // id, label, frames, ms per frame, what it is for
+  ['asleep', 'Asleep', 2, 1200, 'Idle for a while: eyes shut, slow breathing'],
+  ['walkR', 'Walk right', 4, 150, 'Walking along the screen edge'],
+  ['walkL', 'Walk left', 4, 150, 'The same walk, mirrored'],
+  ['typing', 'Working · typing', 4, 150, 'Editing, running a command'],
+  ['reading', 'Working · reading', 4, 300, 'Reading, searching, the web'],
+  ['waiting', 'Waiting for you', 4, 220, 'Looks out at you, taps a foot'],
+  ['wave', 'Done · wave', 4, 150, 'Finished: waves at you…'],
+  ['jump', 'Done · jump', 4, 150, '…then jumps for joy'],
+  ['failed', 'Failed', 4, 300, 'Slumps, a drop of sweat'],
+];
+const STATE = Object.fromEntries(STATES.map(([id, label, n, ms, note]) => [id, { id, label, n, ms, note }]));
+
+function pose(st, f) {
+  const p = { st, f, dy: 0, jump: 0, lift: [0, 0], arms: ['down', 'down'], eyes: 'open', mouth: 'smile', look: 0, fx: [] };
+  switch (st) {
+    case 'walkR': case 'walkL':
+      p.dy = f % 2 ? -1 : 0; p.lift = [[2, 0], [0, 0], [0, 2], [0, 0]][f]; p.arms = f < 2 ? ['fwd', 'back'] : ['back', 'fwd']; p.look = 1; p.mouth = 'small'; break;
+    case 'typing':
+      p.eyes = 'down'; p.mouth = 'flat'; p.arms = ['type', 'type']; p.tap = f % 2; break;
+    case 'reading':
+      p.eyes = 'down'; p.mouth = 'small'; p.arms = ['hold', 'hold']; p.look = [-1, 0, 1, 0][f]; break;
+    case 'waiting':
+      p.eyes = 'look'; p.mouth = 'o'; p.arms = ['hips', 'hips']; p.lift = [0, f % 2 ? 2 : 0]; break;
+    case 'wave':
+      p.eyes = 'happy'; p.mouth = 'open'; p.arms = ['down', f % 2 ? 'wave2' : 'wave1']; p.cheeks = true; break;
+    case 'jump':
+      p.eyes = 'happy'; p.mouth = 'open'; p.cheeks = true;
+      p.dy = [1, 0, 0, 1][f]; p.jump = [0, -4, -6, -2][f]; p.arms = f ? ['up', 'up'] : ['down', 'down']; p.lift = f === 0 ? [0, 0] : [1, 1];
+      if (f === 2) p.fx.push('sparkle'); break;
+    case 'failed':
+      p.dy = 2; p.eyes = 'sad'; p.mouth = 'frown'; p.arms = ['slump', 'slump']; p.fx.push('sweat'); break;
+    case 'asleep':
+      p.dy = f ? 2 : 1; p.eyes = 'closed'; p.mouth = 'none'; p.arms = ['rest', 'rest']; break;
+  }
+  return p;
+}
+
+// Legs from the body's bottom (top) to the ground; a lifted foot stops short of it.
+function legs(g, xs, top, p, c, w = 3) {
+  xs.forEach((x, i) => {
+    const bottom = GROUND - p.lift[i];
+    g.R(x, top, w, Math.max(1, bottom - top + 1), c);
+    g.R(i ? x : x - 1, bottom, w + 1, 1, c); // the foot points outward
+  });
+}
+// An arm from the shoulder (x, y): side -1 is the pet's left (screen left), 1 its right. 2 pixels thick.
+function arm(g, side, x, y, mode, p, c) {
+  g.arms.push(t => armOn(t, side, x, y, mode, p, c));
+}
+function armOn(g, side, x, y, mode, p, c) {
+  const s = side, seg = (ax, ay, bx, by) => g.L(x + s * ax, y + ay, x + s * bx, y + by, c, 2);
+  switch (mode) {
+    case 'fwd': return seg(0, 0, 2, 4);
+    case 'back': return seg(0, 0, 0, 5);
+    case 'type': { const up = (p.tap + (s > 0)) % 2; return seg(0, 0, -3, 4 - up); } // hands in front, one up, one down
+    case 'hold': return seg(0, 0, -3, 3);
+    case 'hips': seg(0, 0, 3, 2); return seg(3, 2, 1, 5);
+    case 'wave1': return seg(0, 0, 3, -5);
+    case 'wave2': return seg(0, 0, 4, -3);
+    case 'up': return seg(0, 0, 2, -6);
+    case 'slump': return seg(0, 0, 0, 7);
+    case 'rest': return seg(0, 0, 1, 4);
+    default: return seg(0, 0, 1, 5);
+  }
+}
+// Eyes and mouth. cx: the middle between the eyes; y: the eyes' top row. o: { ink, glint, gap, mouthInk, cheek, noMouth }
+function face(g, cx, y, p, o) {
+  const ink = o.ink, gap = o.gap ?? 6, lx = Math.round(cx - gap / 2 - 1 + p.look), rx = Math.round(cx + gap / 2 - 1 + p.look);
+  const glint = o.glint === undefined ? WHITE32 : o.glint;
+  for (const x of [lx, rx]) {
+    switch (p.eyes) {
+      case 'open': g.R(x, y, 2, 3, ink); if (glint) g.P(x, y, glint); break;
+      case 'look': g.R(x, y - 1, 3, 4, ink); if (glint) { g.P(x, y - 1, glint); g.P(x + 1, y, glint); } break;
+      case 'down': g.R(x, y + 1, 2, 2, ink); break;
+      case 'happy': g.P(x - 1, y + 2, ink); g.R(x, y + 1, 2, 1, ink); g.P(x + 2, y + 2, ink); break;
+      case 'sad': g.R(x, y + 1, 2, 2, ink); g.P(x === lx ? x + 1 : x - 1, y - 1, ink); g.P(x === lx ? x + 2 : x - 2, y, ink); break; // brows up in the middle
+      case 'closed': g.R(x - 1, y + 2, 4, 1, ink); break;
+    }
+  }
+  if (p.cheeks && o.cheek) { g.R(lx - 3, y + 3, 2, 1, o.cheek); g.R(rx + 3, y + 3, 2, 1, o.cheek); }
+  if (o.noMouth) return;
+  const m = o.mouthInk ?? ink, mx = Math.round(cx - 1 + p.look), my = y + 4;
+  switch (p.mouth) {
+    case 'smile': g.P(mx - 1, my, m); g.R(mx, my + 1, 2, 1, m); g.P(mx + 2, my, m); break;
+    case 'small': case 'flat': g.R(mx, my, 2, 1, m); break;
+    case 'o': g.R(mx, my, 2, 2, m); break;
+    case 'open': g.R(mx - 1, my, 4, 2, m); g.R(mx, my + 1, 2, 1, C['#ff8fa3']); break;
+    case 'frown': g.P(mx - 1, my + 1, m); g.R(mx, my, 2, 1, m); g.P(mx + 2, my + 1, m); break;
+  }
+}
+// Little extras over the pet, after its outline.
+function extras(g, p, top) {
+  if (p.fx.includes('sweat')) { const y = top + 1 + (p.f % 2); g.R(29, y, 2, 3, C['#8fd3ff']); g.P(29, y, C['#d6f1ff']); g.P(30, y - 1, C['#8fd3ff']); }
+  if (p.fx.includes('sparkle')) for (const [x, y] of [[4, 8], [31, 12]]) { g.P(x, y, C['#ffd23f']); g.P(x - 1, y, C['#ffd23f']); g.P(x + 1, y, C['#ffd23f']); g.P(x, y - 1, C['#ffd23f']); g.P(x, y + 1, C['#ffd23f']); }
+}
+
+// ---- the pets ----
+const INK = C['#1f2433'];
+const PETS = [
+  {
+    id: 'nota', name: 'Nota', idea: 'A spiral notebook that writes down everything you do. Cover face, bookmark ribbon.',
+    draw(g, p) {
+      const b = 4 + p.dy, cover = C['#6f9fe6'], dark = C['#4f7fc8'], page = C['#fbf3df'];
+      legs(g, [12, 20], b + 24, p, dark);
+      g.R(9, b, 18, 24, cover);                                   // the cover
+      g.R(25, b + 1, 2, 22, page);                                // page edges
+      g.R(10, b + 1, 1, 9, C['#a9c6f2']);                         // shine
+      for (let y = b + 2; y <= b + 21; y += 3) { g.P(8, y, C['#c9ced8']); g.P(7, y, C['#c9ced8']); } // the spiral
+      g.R(13, b + 16, 10, 4, page); g.R(14, b + 17, 8, 1, C['#9aa6c4']); g.R(14, b + 18, 5, 1, C['#9aa6c4']); // label
+      g.R(22, b + 24, 2, 3, C['#e05a6a']);                        // ribbon
+      arm(g, -1, 8, b + 11, p.arms[0], p, dark); arm(g, 1, 27, b + 11, p.arms[1], p, dark);
+      outline(g, C['#2c3a63']);
+      face(g, 18, b + 6, p, { ink: INK, gap: 8, cheek: C['#f7a1b5'] });
+      return b;
+    },
+  },
+  {
+    id: 'tty', name: 'Tty', idea: 'A little terminal with its face on the screen: green prompt eyes, a blinking cursor for a mouth.',
+    draw(g, p) {
+      const b = 3 + p.dy, shell = C['#e4dccb'], dark = C['#c2b8a3'];
+      const glow = p.st === 'failed' ? C['#ff6b6b'] : p.st === 'asleep' ? C['#3f7a50'] : C['#7df29b'];
+      legs(g, [12, 21], b + 22, p, dark);
+      g.R(14, b + 20, 8, 2, dark);                                // stand
+      g.R(6, b, 24, 20, shell);
+      for (const [x, y] of [[6, b], [29, b], [6, b + 19], [29, b + 19]]) g.clear(x, y);
+      g.R(7, b + 1, 1, 8, C['#f6f1e6']);                          // shine
+      g.R(9, b + 3, 18, 12, C['#1d2b33']);                        // screen
+      g.R(10, b + 17, 6, 1, dark); g.P(26, b + 17, p.st === 'failed' ? C['#ff6b6b'] : C['#5fd38a']); // vents, power light
+      arm(g, -1, 7, b + 10, p.arms[0], p, dark); arm(g, 1, 28, b + 10, p.arms[1], p, dark);
+      outline(g, C['#4a4438']);
+      face(g, 18, b + 6, p, { ink: glow, glint: 0, gap: 8, noMouth: true });
+      const blink = p.st === 'asleep' ? 0 : p.st === 'typing' || p.st === 'walkR' || p.st === 'walkL' ? p.f % 2 : 1;
+      const cur = p.mouth === 'open' || p.mouth === 'o' ? [3, 2] : p.mouth === 'frown' ? [4, 1] : [3, 1];
+      if (blink || p.mouth === 'open' || p.mouth === 'o') g.R(Math.round(17 - cur[0] / 2 + p.look), b + 11, cur[0], cur[1], glow); // the cursor
+      return b;
+    },
+  },
+  {
+    id: 'bitbug', name: 'Bitbug', idea: 'A small beetle, the bug you are hunting, friendly about it. Teal shell, waving antennae.',
+    draw(g, p) {
+      const b = p.dy + 1, shell = C['#5fc3a6'], dark = C['#3e9a82'], head = C['#3a3552'];
+      legs(g, [12, 21], 28 + b, p, head, 3);
+      g.L(9, 22 + b, 5, 25 + b, head, 2); g.L(27, 22 + b, 31, 25 + b, head, 2); // middle legs
+      g.E(18, 21 + b, 11, 9, shell);
+      g.R(18, 14 + b, 1, 16, dark);                               // the shell's seam
+      for (const [x, y] of [[11, 19], [24, 19], [13, 25], [22, 25]]) g.R(x, y + b, 2, 2, C['#2f6d5d']);
+      g.R(10, 16 + b, 2, 1, C['#9be3cf']);                         // shine
+      const wig = p.st === 'waiting' || p.st === 'wave' || p.st === 'jump' ? p.f % 2 : 0, droop = p.st === 'failed' || p.st === 'asleep' ? 3 : 0;
+      g.L(15, 7 + b, 12 - wig, 3 + b + droop, head); g.L(21, 7 + b, 24 + wig, 3 + b + droop, head); // antennae
+      g.R(11 - wig, 2 + b + droop, 2, 2, shell); g.R(24 + wig, 2 + b + droop, 2, 2, shell);
+      g.E(18, 11 + b, 7, 5, head);
+      arm(g, -1, 9, 16 + b, p.arms[0], p, head); arm(g, 1, 27, 16 + b, p.arms[1], p, head);
+      outline(g, C['#252238']);
+      if (p.eyes === 'open' || p.eyes === 'look' || p.eyes === 'down') { // white eyes on the dark head
+        const lx = 12 + p.look, rx = 20 + p.look, h = p.eyes === 'look' ? 5 : 4, y = p.eyes === 'look' ? 7 + b : 8 + b;
+        for (const x of [lx, rx]) { // round whites, the pupil low while it works, a glint while it looks at you
+          g.R(x, y + 1, 4, h - 2, WHITE32); g.R(x + 1, y, 2, h, WHITE32);
+          g.R(x + 1, p.eyes === 'down' ? y + h - 2 : y + 1, 2, 2, INK);
+          if (p.eyes === 'look') g.P(x + 1, y + 1, WHITE32);
+        }
+        face(g, 18, 9 + b, { ...p, eyes: 'none' }, { ink: C['#f2c6d0'], gap: 7 }); // the mouth only
+      } else face(g, 18, 9 + b, p, { ink: C['#f2f2f7'], gap: 7, mouthInk: C['#f2c6d0'] });
+      return b;
+    },
+  },
+  {
+    id: 'dux', name: 'Dux', idea: 'A rubber duck, for rubber-duck debugging: you explain the bug to it and it listens.',
+    draw(g, p) {
+      const b = p.dy, y = C['#f6cf4f'], dark = C['#e0a92f'], beak = C['#f28c38'];
+      legs(g, [13, 21], 30 + b, p, beak, 3);
+      g.E(18, 24 + b, 12, 7, y);                                  // body
+      g.R(5, 18 + b, 3, 3, y); g.P(5, 17 + b, y);                 // tail
+      g.E(19, 12 + b, 7, 7, y);                                   // head
+      g.P(18, 5 + b, y); g.P(19, 4 + b, y); g.P(20, 3 + b, y);    // a curl on top
+      g.R(14, 7 + b, 1, 4, C['#fde7a0']); g.R(9, 21 + b, 1, 4, C['#fde7a0']); // shine
+      const open = p.mouth === 'open' || p.mouth === 'o';
+      g.R(26, 12 + b, 4, 2, beak); g.R(26, 14 + b + (open ? 1 : 0), 3, 1, C['#d9702a']); // beak, open when it talks
+      arm(g, -1, 9, 21 + b, p.arms[0], p, dark); arm(g, 1, 27, 21 + b, p.arms[1], p, dark);
+      outline(g, C['#7a5418']);
+      if (open) g.R(26, 14 + b, 3, 1, C['#b5482b']);
+      face(g, 20, 10 + b, p, { ink: C['#2a1f12'], gap: 6, cheek: C['#f7a1a1'], noMouth: true });
+      return b;
+    },
+  },
+  {
+    id: 'hoot', name: 'Hoot', idea: 'A night owl who codes late. Big facial disc, ear tufts, a chevron-pattern belly.',
+    draw(g, p) {
+      const b = p.dy, brown = C['#a77b5a'], dark = C['#7f5a3f'], disc = C['#f3e6cb'];
+      legs(g, [13, 20], 29 + b, p, C['#f0a24a'], 3);
+      g.R(8, 4 + b, 3, 4, brown); g.R(25, 4 + b, 3, 4, brown); g.P(8, 3 + b, brown); g.P(27, 3 + b, brown); // ear tufts
+      g.E(18, 18 + b, 11, 12, brown);
+      g.E(18, 23 + b, 7, 6, C['#ecd9b5']);                        // belly
+      for (const [x, yy] of [[13, 21], [19, 21], [16, 24], [22, 24], [16, 27]]) { g.P(x, yy + b, dark); g.P(x + 1, yy + 1 + b, dark); g.P(x + 2, yy + b, dark); }
+      g.E(14, 13 + b, 4, 4, disc); g.E(22, 13 + b, 4, 4, disc);  // facial disc
+      arm(g, -1, 8, 15 + b, p.arms[0], p, dark); arm(g, 1, 28, 15 + b, p.arms[1], p, dark);
+      outline(g, C['#4a3222']);
+      g.R(17, 15 + b, 2, 2, C['#f0a24a']); g.P(17, 17 + b, C['#f0a24a']); // beak
+      face(g, 18, 11 + b, p, { ink: C['#24170f'], gap: 8, cheek: C['#f2a7a0'], noMouth: true });
+      if (p.mouth === 'open' || p.mouth === 'o') g.R(17, 17 + b, 2, 1, C['#b5482b']);
+      return b;
+    },
+  },
+];
+
+// A pet's sprite for a state's frame, as today's pets are drawn: { w, h, data } for spriteSVG. Cached.
+const SPR = new Map();
+function petSprite(pet, st, f) {
+  const key = `${pet.id}|${st}|${f}`;
+  if (SPR.has(key)) return SPR.get(key);
+  const p = pose(st === 'walkL' ? 'walkR' : st, f), g = grid();
+  const top = pet.draw(g, p);
+  extras(g, p, top);
+  let data = g.d;
+  if (st === 'walkL') { data = new Uint32Array(N * N); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) data[y * N + x] = g.d[y * N + N - 1 - x]; }
+  const spr = { w: N, h: N, data, lift: -p.jump }; // lift: grid rows to raise the whole sprite (a jump), as the overlay's hop does
+  SPR.set(key, spr);
+  return spr;
+}
+</script>
+<script>
+// ---- the page ----
+const REC = new URLSearchParams(location.search).has('rec'); // recording: the clock moves only by __at(ms)
+const OLD = [['alpha', 0, 'Today'], ['bobix', 2, 'Today'], ['web', 4, 'Today']]; // today's pets: project id, colour
+// The rows of the comparison: the issue's states. 'done' plays wave then jump.
+const ROWS = [['walk', 'Walk', 'walkR'], ['typing', 'Working · typing', 'typing'], ['reading', 'Working · reading', 'reading'],
+  ['waiting', 'Waiting for you', 'waiting'], ['done', 'Done · wave, jump', 'done'], ['failed', 'Failed', 'failed'], ['asleep', 'Asleep', 'asleep']];
+// Today's pet for a row: its face state and the overlay's motion class.
+const OLD_LOOK = { walk: ['working', 'walking'], typing: ['working', ''], reading: ['working', ''], waiting: ['waiting', 'hop'], done: ['done', ''], failed: null, asleep: ['idle', 'dim'] };
+
+// The frame a state shows at time t (ms); 'done' is wave then jump.
+function frameAt(st, t) {
+  if (st === 'done') { const w = STATE.wave, j = STATE.jump, k = t % (w.n * w.ms + j.n * j.ms); return k < w.n * w.ms ? ['wave', Math.floor(k / w.ms)] : ['jump', Math.floor((k - w.n * w.ms) / j.ms)]; }
+  const s = STATE[st]; return [st, Math.floor(t / s.ms) % s.n];
+}
+// A jump raises the whole sprite (CSS, like the overlay's hop) instead of moving it inside its 36×36 grid.
+const svgOf = (pet, st, t) => { const [s, f] = frameAt(st, t), spr = petSprite(pet, s, f), svg = spriteSVG(spr);
+  return spr.lift ? svg.replace('<svg ', `<svg style="transform:translateY(${(-spr.lift / N * 100).toFixed(2)}%)" `) : svg; };
+
+let pick = PETS[0], pickState = 'waiting';
+const live = []; // [element, pet, state]: redrawn when their frame changes
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function viewer() {
+  document.getElementById('picker').innerHTML = PETS.map(p => `<button type="button" data-pet="${p.id}" aria-pressed="${p === pick}"><span class="ico">${spriteSVG(petSprite(p, 'wave', 0))}</span>${esc(p.name)}</button>`).join('');
+  document.getElementById('bigName').textContent = `${pick.name} · ${STATE[pickState].label}`;
+  document.getElementById('bigNote').textContent = `${pick.idea} ${STATE[pickState].note}.`;
+  document.getElementById('states').innerHTML = STATES.map(([id, label, n]) => `<button type="button" data-state="${id}" aria-pressed="${id === pickState}"><span><b>${label}</b><small>${n} frames</small></span><span class="mini" data-live="${pick.id}|${id}"></span></button>`).join('');
+  document.getElementById('bigStage').dataset.live = `${pick.id}|${pickState}`;
+  bind();
+}
+function table(id) {
+  const head = `<thead><tr><th></th>${OLD.map(([pid], i) => `<th>${pid}<small>today</small></th>`).join('')}${PETS.map((p, i) => `<th${i ? '' : ' class="sep"'}>${p.name}<small>new</small></th>`).join('')}</tr></thead>`;
+  const body = ROWS.map(([row, label, st]) => `<tr><th scope="row">${label}</th>${OLD.map(([pid, ci]) => {
+    const look = OLD_LOOK[row];
+    if (!look) return '<td><span class="none">—</span></td>';
+    return `<td><span class="box ${look[1]}">${spriteSVG(fineSprite(pid, look[0], ci))}${row === 'asleep' ? '<span class="zz">z</span>' : ''}</span></td>`;
+  }).join('')}${PETS.map((p, i) => `<td${i ? '' : ' class="sep"'}><span class="box"><span class="sp" data-live="${p.id}|${st}"></span>${row === 'asleep' ? '<span class="zz">z</span>' : ''}</span></td>`).join('')}</tr>`).join('');
+  document.getElementById(id).innerHTML = head + `<tbody>${body}</tbody>`;
+}
+function bind() {
+  live.length = 0;
+  for (const el of document.querySelectorAll('[data-live]')) { const [pid, st] = el.dataset.live.split('|'); live.push([el, PETS.find(p => p.id === pid), st]); el.dataset.k = ''; }
+  draw(now());
+}
+function draw(t) {
+  for (const [el, pet, st] of live) { const k = frameAt(st, t).join(); if (el.dataset.k !== k) { el.dataset.k = k; el.innerHTML = svgOf(pet, st, t); } }
+}
+let clock = 0;
+const now = () => (REC ? clock : performance.now());
+window.__at = ms => { clock = ms; draw(ms); for (const a of document.getAnimations()) { a.pause(); a.currentTime = ms; } };
+
+document.addEventListener('click', e => {
+  const pb = e.target.closest('[data-pet]'), sb = e.target.closest('[data-state]');
+  if (pb) { pick = PETS.find(p => p.id === pb.dataset.pet); viewer(); }
+  if (sb) { pickState = sb.dataset.state; viewer(); }
+});
+table('t56'); table('t84'); viewer();
+if (!REC) (function tick() { draw(performance.now()); requestAnimationFrame(tick); })();
+</script>
+</body>
+</html>
