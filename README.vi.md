@@ -2,7 +2,7 @@
 
 <h1 align="center">Bobix</h1>
 
-<p align="center"><b>Mỗi session Claude Code là một chú thú pixel trên màn hình của bạn.</b><br>
+<p align="center"><b>Mỗi session Claude Code là một chú thú nhỏ trên màn hình của bạn.</b><br>
 Liếc xuống là biết session nào đang làm, session nào cần bạn, session nào đã xong, không phải mở cửa sổ nào.</p>
 
 <p align="center">
@@ -27,8 +27,8 @@ Chạy vài session Claude Code cùng lúc thì bạn sẽ phải bấm qua từ
 | Chú thú… | nghĩa là |
 |----------|----------|
 | đi lại, bong bóng kiểu *đang chạy lệnh* | Claude đang làm |
-| nhảy, bong bóng đỏ *Cần bạn duyệt: Bash* | Claude đang chờ bạn duyệt |
-| cười, bong bóng xanh *Xong nhiệm vụ!* | session đã xong lượt |
+| gõ chân trong vòng viền cam, huy hiệu "!" | Claude đang chờ bạn duyệt |
+| vẫy tay rồi nhảy, huy hiệu dấu tích xanh | session đã xong lượt |
 | ngủ | không có gì xảy ra; ngủ lâu thì tạm rời màn hình |
 
 **Bấm vào chú thú để mở đúng session đó.** Rê chuột lên để xem việc đang làm, trạng thái và lượng context còn lại.
