@@ -895,6 +895,23 @@ test('board: a process replaces the rules; without one the team first, then your
   assert.equal(B.installHint('fix-ticket'), '');
 });
 
+// Classic scripts share one global scope: a second top-level function of the same name silently replaces the first
+// (a second loadHabits once emptied the habit cards and Settings → What Bobix remembers).
+test('no top-level function is declared twice in a page and the scripts it loads', () => {
+  const ui = path.join(__dirname, '../src/ui');
+  for (const page of ['panel.html', 'pets.html']) {
+    const html = fs.readFileSync(path.join(ui, page), 'utf8');
+    const srcs = [...html.matchAll(/<script src="\/ui\/([^"]+)"/g)].map(m => [m[1], fs.readFileSync(path.join(ui, m[1]), 'utf8')]);
+    const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => [page, m[1]]);
+    const seen = new Map(), twice = [];
+    for (const [file, code] of [...srcs, ...inline]) for (const m of code.matchAll(/^(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/gm)) {
+      if (seen.has(m[1])) twice.push(`${m[1]} (${seen.get(m[1])} and ${file})`); else seen.set(m[1], file);
+    }
+    assert.ok(seen.size > 20, `${page}: the check found its functions`);
+    assert.deepEqual(twice, [], `${page}: declared twice`);
+  }
+});
+
 test("every script and stylesheet the pages load is one the app's server serves", () => {
   const ui = path.join(__dirname, '../src/ui');
   const listed = JSON.parse(fs.readFileSync(path.join(__dirname, '../src-tauri/src/server.rs'), 'utf8').match(/const ASSETS: \[&str; \d+\] = (\[[^\]]*\])/)[1]);

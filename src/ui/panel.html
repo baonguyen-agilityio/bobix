@@ -1753,7 +1753,7 @@ function paintProcess() {
 }
 async function loadSkillLists() {
   if (!bridge) return;
-  loadAudit(); loadHabits();
+  loadAudit(); loadHabitSkills();
   [mySkills, procs] = await Promise.all([bridge.mySkills().catch(() => []), bridge.processStatus().catch(() => [])]);
   render();
   paintMine(); paintProcess();
@@ -1931,12 +1931,12 @@ async function skAct(d) {
 // hs: { v: the view, busy: the item an act runs for, err: { id, text } }; hsText: your edits of each draft.
 let hs = { v: null, busy: '', err: null }, hsText = {}, hsPoll = 0;
 Object.assign(GRP, { habits: 'hs.grp' });
-async function loadHabits() {
+async function loadHabitSkills() {
   if (!bridge?.habitSkills) return;
   try { hs.v = await bridge.habitSkills('view'); } catch (e) { hs.err = { id: 'hs', text: T('sk.err', { e: String(e?.message || e) }) }; }
   render();
   clearTimeout(hsPoll);
-  if (hs.v?.scan?.busy && scope === 'skills') hsPoll = setTimeout(loadHabits, 3000); // a weekly scan runs: show it when done
+  if (hs.v?.scan?.busy && scope === 'skills') hsPoll = setTimeout(loadHabitSkills, 3000); // a weekly scan runs: show it when done
 }
 const hsErr = id => (hs.err?.id === id ? `<p class="note err" role="alert">${esc(hs.err.text)}</p>` : '');
 const hsBusy = id => hs.busy === id;
@@ -2041,8 +2041,8 @@ async function hsDo(itemId, act, id, text, v) {
 async function hsAct(d) {
   if (!bridge?.habitSkills) return;
   const at = cur?.id || 'hs';
-  if (d.hs === 'on' || d.hs === 'off') { await bridge.setSettings({ habitScan: d.hs === 'on' }); state.settings.habitScan = d.hs === 'on'; return loadHabits(); }
-  if (d.hs === 'scan') { hs.v && (hs.v.scan.busy = true); await hsDo('hs', 'scan'); return loadHabits(); }
+  if (d.hs === 'on' || d.hs === 'off') { await bridge.setSettings({ habitScan: d.hs === 'on' }); state.settings.habitScan = d.hs === 'on'; return loadHabitSkills(); }
+  if (d.hs === 'scan') { hs.v && (hs.v.scan.busy = true); await hsDo('hs', 'scan'); return loadHabitSkills(); }
   if (d.hs === 'draft') return hsDo(at, 'draft', d.id);
   if (d.hs === 'approve') { const sug = hs.v?.suggestions.find(x => x.id === d.id), m = hs.v?.made.find(x => 'm:' + x.name === d.id), dr = sug?.draft || m?.draft; if (!dr) return;
     return hsDo(at, 'approve', d.id, hsText[d.id] ?? dr.text); }
