@@ -39,7 +39,7 @@ pub fn show(app: &AppHandle, b: &Arc<Bobix>, select: Option<String>, tab: Option
         q.push(format!("t={}", enc(&b.token))); // the page needs the token to read /events
         let Ok(url) = format!("{origin}/?{}", q.join("&")).parse() else { return };
         let dark = app.get_webview_window(crate::overlay::LABEL).and_then(|w| w.theme().ok()) == Some(Theme::Dark);
-        let bg = if dark { Color(0x12, 0x15, 0x1f, 255) } else { Color(0xf9, 0xf6, 0xf0, 255) }; // the panel's --bg
+        let bg = if dark { Color(0x15, 0x17, 0x1a, 255) } else { Color(0xfd, 0xfe, 0xfe, 255) }; // the panel's window colour (--surface)
         let page = format!("{origin}/?");
         eprintln!("[bobix] panel: opening");
         let built = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(url))
