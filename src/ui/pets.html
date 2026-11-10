@@ -26,11 +26,6 @@ button{font:inherit;color:inherit}
 .tag .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center}
 .tag .iss{flex:none;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .st-waiting .tag .iss{color:inherit;opacity:.8}
-.bb{position:absolute;left:50%;bottom:calc(100% - var(--size) * .08);width:calc(var(--size) * .5);translate:-50% 0;cursor:pointer;animation:bob 2.6s var(--ease) infinite;transform-origin:50% 100%}
-.pet.side .bb{width:calc(var(--size) * .42)}
-/* Top edge: the balloon floats below the pet's name tag, its string up (balloonSVG draws it upside down there). */
-.edge-top .bb{bottom:auto;top:calc(100% + 2px)}
-.bb svg{display:block;width:100%;height:auto;filter:drop-shadow(0 1px 2px oklch(20% .02 262 / .18))}
 @keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-4px) rotate(2deg)}}
 .st-idle .spr{opacity:.75}
 .say,.card{position:absolute;bottom:calc(100% + var(--s2) + var(--lane, 0) * 36px);left:50%;transform:translateX(-50%);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--pop)}
@@ -62,18 +57,18 @@ button{font:inherit;color:inherit}
 .card .hint{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--line);padding-top:var(--s2);margin-top:var(--s1)}
 .zz{position:absolute;left:70%;top:-6px;font:600 var(--t-sm) var(--f-ui);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
 /* While an effect plays (pet-fx.js) the pet keeps its own SVG (it acts its state) and the effect draws round it; one
-   that draws over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and the "z". A pet
+   that draws over the pet's head (XP bar, battery) hides the tool bubble there, and the "z". A pet
    saying goodbye melts from the feet up and keeps nothing but itself. Two pets too close: the effect waits, the pet
    shows as it is. A pet out of sight round the line's far end is hidden. */
-.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
+.pet.fx .zz,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
 .pet.leaving .spr>svg{animation:melt 1.4s linear forwards}
 @keyframes melt{0%,50%{clip-path:inset(-20% -20% 0 -20%)}100%{clip-path:inset(-20% -20% 100% -20%)}}
 .pet.line-off{visibility:hidden!important}
 .pet.fx-hide .fxl,.pet.leaving.fx-hide{visibility:hidden}
 .pet.leaving>:not(.spr){opacity:0;transition:opacity 600ms var(--ease)}
 .fxl{position:absolute;pointer-events:none;overflow:visible;z-index:0}
-/* A pet's balloon, bubble, card and name tag stay above its own effect; other pets' are cut out of it (fxClip). */
-.pet>.bb,.pet>.say,.pet>.card,.pet>.tag{z-index:1}
+/* A pet's bubble, card and name tag stay above its own effect; other pets' are cut out of it (fxClip). */
+.pet>.say,.pet>.card,.pet>.tag{z-index:1}
 .walking .spr svg.pic{animation:step 320ms steps(2) infinite} /* a picture that is the whole pet steps and hops; the others act their poses */
 .st-waiting .spr svg.pic{animation:hop 900ms var(--ease) infinite}
 @keyframes step{to{transform:translateY(-3px)}}
@@ -175,13 +170,6 @@ function answerButtons(s, now) {
 }
 // Side sessions: a side session's pet is smaller, walks right behind its parent and names the session it came from.
 const attached = s => !!(s.parent && pets.has(s.parent)); // walks with its parent pet
-// What a pet has to tell you: it waits for you, or it is done (for DONE_BUBBLE). Every pet speaks for itself.
-function reportOf(s, now) {
-  const st = look(s);
-  if (st === 'waiting') return { kind: 'waiting', text: s.askTool ? T('pet.waiting', { tool: s.askTool }) : T('pet.waitingPlain') };
-  if (st === 'done' && now - s.since < DONE_BUBBLE) return { kind: 'done', text: T('pet.done') };
-  return null;
-}
 const byId = id => (lastList || []).find(x => x.id === id);
 const kidsOf = s => (lastList || []).filter(x => x.parent === s.id);
 function kidsText(s) {
@@ -199,15 +187,13 @@ function poseOf(p, art, st) {
 function paint(p, now) {
   const s = p.s, st = look(s), kid = attached(s), color = petColor(s, lastList || []), art = (s.parent && byId(s.parent)) || s, pose = poseOf(p, art, st), fr = pose ? pose.join() : '';
   p.art = [art, color]; // what the pet looks like, for its effects
-  const fam = !kid && kidsOf(s).some(k => visible(k)), mine = reportOf(s, now);
+  const fam = !kid && kidsOf(s).some(k => visible(k));
   // Hovered: its own card, or its request and buttons while it waits for you (the card would cover them).
   const card = p.hover && st !== 'waiting';
-  // Its balloon only while no effect plays (reduced motion): the aura and the XP bar say the same.
-  const balloon = mine && !p.hover ? statusBalloon(FX_ON, mine.kind) : '';
   // A bubble: its request when hovered; the tool it just picked up, for a pet on its own.
   const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
   const say = (habitSay && habitSay.id === s.id && !p.hover && Date.now() < habitSay.until ? ['habit', habitSay.text] : null) || (t && (p.hover || t[0] === '') ? t : null);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, card && [s.usage, cfg.usageCost], s.tool, s.title, s.name, card, say, balloon, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, card && [s.usage, cfg.usageCost], s.tool, s.title, s.name, card, say, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
   if (p.key === key) { // only its pose moved: swap the picture, keep the rest (a card being clicked, say)
     if (fr !== p.fr) { p.fr = fr; const svg = p.el.querySelector('.spr>svg'); if (svg) svg.outerHTML = petArt(art, st, color, pose); }
     return;
@@ -228,7 +214,6 @@ function paint(p, now) {
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         ${s.usage ? `<div class="row use"><span>${esc(USAGE.line(s.usage, T, cfg))}</span></div>${USAGE.warns(s.usage, T).slice(0, 1).map(w => `<p class="need use">⚠ ${esc(w.text)}</p>`).join('')}` : ''}
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="btn sm ghost" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
-    ${balloon ? `<div class="bb ${balloon}" data-bb title="${esc(mine.text)}">${balloonSVG(balloon, cfg.edge === 'top')}</div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(art, st, color, pose)}</div>
@@ -286,7 +271,7 @@ function fxStart(p, kind, o = {}) {
 }
 // ---- each effect stays in its pet's own room ----
 // A pet's room: the screen around it up to halfway to the next pet's box on each side, and up to the nearest name
-// tag, balloon, bubble or card above or below its own box. The effect is drawn for that room (an aura hugs the pet
+// tag, bubble or card above or below its own box. The effect is drawn for that room (an aura hugs the pet
 // where it is tight, a bar or a badge only when it fits whole: pet-fx.js) and clipped to it, and to every such thing in
 // it. Pets standing closer than GAP (one walking past another) show without their effects until they are apart.
 const GAP = 2;
@@ -301,7 +286,7 @@ function fxScene(all) {
     own.set(q, rectOf(spr));
     if (!q.leaving || (q.fx && q.fx.total < 1.4)) boxes.set(q, own.get(q)); // goodbye: melted by 1.4 s
     if (q.leaving) continue;
-    for (const n of q.el.querySelectorAll('.tag:not(.ghost),.bb,.say,.card')) if (getComputedStyle(n).visibility !== 'hidden') {
+    for (const n of q.el.querySelectorAll('.tag:not(.ghost),.say,.card')) if (getComputedStyle(n).visibility !== 'hidden') {
       const r = rectOf(n), t = [r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1]; // a pixel round it: edges fall between pixels
       things.push(t); if (n.classList.contains('tag')) tags.set(q, t);
     }
@@ -359,8 +344,7 @@ function fxTick(p, dt) {
   if (p.fl.style.translate !== tr) p.fl.style.translate = tr;
 }
 
-// A click on a pet opens its session; on its card's Hide button, hides it; on Allow / Deny, answers its request; on its
-// balloon, shows its card (and its request) for a few seconds. Press and slide sideways to take a pet (with its family)
+// A click on a pet opens its session; on its card's Hide button, hides it; on Allow / Deny, answers its request. Press and slide sideways to take a pet (with its family)
 // out of the line and move it; let go and it slides into the line at the nearest free place.
 let drag = null; // { p: the family's lead pet, id: the pet pressed, dx, x0, moved }
 function draggable(p, id) {
@@ -370,7 +354,6 @@ function draggable(p, id) {
     if (e.target.closest('[data-hide]')) { bridge?.setPet(id, 'hidden'); return; }
     const a = e.target.closest('[data-answer]');
     if (a) { if (p.s.answer) bridge?.answer(p.s.answer.id, a.dataset.answer); return; }
-    if (e.target.closest('[data-bb]')) { p.hoverUntil = Date.now() + 8000; p.key = null; wake(); return; }
     if (e.target.closest('[data-habit]')) { habitSay = null; p.key = null; bridge?.showBoard(); wake(); return; }
     const lead = attached(p.s) ? pets.get(p.s.parent) : p; // a side session's family moves as one: drag its parent
     drag = { p: lead, id, dx: e.clientX - lead.x, x0: e.clientX, moved: false };
@@ -600,8 +583,8 @@ function frame(t) {
     const rects = [];
     // While dragging, the whole window takes the mouse, or the drag would end as soon as the cursor leaves the pet.
     if (drag?.moved) rects.push([0, 0, innerWidth, innerHeight]);
-    // Every card, bubble and balloon a pet in sight shows, not just the first of each.
-    else for (const { el } of [...pets.values(), ...leaving]) if (!el.classList.contains('line-off')) for (const n of [el, el.querySelector('.tag'), ...el.querySelectorAll('.card,.say,.bb')]) {
+    // Every card and bubble a pet in sight shows, not just the first of each.
+    else for (const { el } of [...pets.values(), ...leaving]) if (!el.classList.contains('line-off')) for (const n of [el, el.querySelector('.tag'), ...el.querySelectorAll('.card,.say')]) {
       if (!n) continue;
       const b = n.getBoundingClientRect();
       rects.push([b.left, b.top, b.width, b.height].map(Math.round));

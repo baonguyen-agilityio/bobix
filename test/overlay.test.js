@@ -120,7 +120,7 @@ const STATE = `[...pets.values(), ...leaving].map(p => { const r = e => e ? (b =
   return { id: p.s.id, state: p.s.state, parent: p.s.parent, cls: p.el.className, x: p.x, fade: p.el.style.opacity, probe: p.el.dataset.probe || null, kind: p.fx?.kind, total: p.fx && p.fx.total, queue: (p.queue || []).map(q => q[0]),
     el: r(p.el), spr: r(p.el.querySelector('.spr')), effect: n?.isConnected ? r(n) : null, effectVisibility: n?.isConnected ? getComputedStyle(n).visibility : null, clip: n?.style.clipPath || '',
     lay: p.lay && { L: p.lay.L, R: p.lay.R, T: p.lay.T, B: p.lay.B, crowded: p.lay.crowded }, tags: [...p.el.querySelectorAll('.tag')].map(e => ({ cls: e.className, text: e.textContent, box: r(e) })),
-    others: [...p.el.querySelectorAll('.bb, .say, .card')].map(e => ({ cls: e.className, box: r(e) })) }; })`;
+    others: [...p.el.querySelectorAll('.say, .card')].map(e => ({ cls: e.className, box: r(e) })) }; })`;
 
 // A session as the app sends it.
 function ses(id, o = {}) {
@@ -213,7 +213,7 @@ const separate = async ({ push, steps, ses }) => {
   await steps(5, 4);
 };
 
-// With reduced motion: no effect at all, and each pet that needs you holds its own balloon instead.
+// With reduced motion: no effect at all, and no status balloon either (the badge and the waiting ring say it).
 async function reducedMotion(b, url) {
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   try {
@@ -223,7 +223,7 @@ async function reducedMotion(b, url) {
     const n = await ev('__now()');
     await ev(`__push(${JSON.stringify([ses('w', { state: 'waiting', since: n }), ses('d', { cwd: '/tmp/d', state: 'done', since: n }), ses('t', { cwd: '/tmp/t', state: 'working', tool: 'Bash', since: n })])})`);
     for (let i = 0; i < 60; i++) await ev('__step(33.4)');
-    return await ev(`({ fxOn: FX_ON, effects: document.querySelectorAll('.fxl').length, balloons: [...document.querySelectorAll('.pet:not(.line-off) .bb')].map(e => e.className).sort() })`);
+    return await ev(`({ fxOn: FX_ON, effects: document.querySelectorAll('.fxl').length, balloons: [...document.querySelectorAll('.pet:not(.line-off) .bb, .pet:not(.line-off) [class*=balloon]')].map(e => e.className), ring: !!document.querySelector('.pet.st-waiting:not(.line-off) svg .ring') })`);
   } finally { await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] }); }
 }
 
@@ -411,7 +411,7 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     console.log(`# this machine reports prefers-reduced-motion: ${rm ? 'reduce' : 'no-preference'}; effects are checked with it set to no-preference, and the reduced-motion look on its own`);
     const r = await reducedMotion(b, url);
     console.log(`# with reduced motion: ${JSON.stringify(r)}`);
-    if (r.fxOn || r.effects || r.balloons.join() !== 'bb done,bb waiting') bad.push(`reduced motion: want no effect and a balloon on the waiting and the done pet, got ${JSON.stringify(r)}`);
+    if (r.fxOn || r.effects || r.balloons.length || !r.ring) bad.push(`reduced motion: want no effect, no balloon and the waiting pet's ring, got ${JSON.stringify(r)}`);
     await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 one card')) bad.push(...await oneCard(b, url), ...b.errors.splice(0).map(e => `one card: page error: ${e}`));
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 show when needed')) for (const rm of [false, true]) bad.push(...await onDemand(b, url, rm), ...b.errors.splice(0).map(e => `show when needed: page error: ${e}`));

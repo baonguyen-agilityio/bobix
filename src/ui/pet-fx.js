@@ -206,9 +206,6 @@ const FX = {
   },
 };
 
-// A pet's status balloon ("!" waiting, tick done): only without effects; with them the ring, the badge and the XP tell
-// the state.
-const statusBalloon = (fxOn, kind) => (fxOn ? '' : kind);
 
 // ---- staying off other things ---------------------------------------------------------------------------------
 // Where the effect layer sits in its pet's sprite box (size px square, before the box's own scale): the pet's middle on
@@ -228,7 +225,7 @@ function rectMinus(a, b) {
   if (b[2] < a[2]) out.push([b[2], t, a[2], bo]);
   return out;
 }
-// The parts of an effect's box (on screen) it must leave empty: everything in avoid (other pets, name tags, balloons,
+// The parts of an effect's box (on screen) it must leave empty: everything in avoid (other pets, name tags,
 // bubbles, cards), except where its own pet is, which it always draws; front: pets standing in front of its own pet,
 // left empty even over it. Disjoint, clipped to the box.
 function fxHoles(box, own, avoid, front = []) {

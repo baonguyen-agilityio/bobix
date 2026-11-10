@@ -161,8 +161,9 @@ function badge(st) {
 const PET_COLORS = BODY.map(t => { const [L, C, h] = TOKENS[t]; return { hi: hex32(oklch([L, C, h])), lo: hex32(oklch([L - .1, C + .03, h])) }; });
 let GID = 0; // each picture's gradient gets an id of its own: one in a hidden part of a page never blanks the others
 // The status ring and badge over a pet's box: while it waits for you, the coral ring (its brightness pulses with the
-// frame f); the badge for its status.
-const statusMarks = (status, f = 0) => (status === 'waiting' ? `<rect class="ring" x="1.6" y="-.6" width="32.8" height="34" rx="10.5" fill="${STATUS_FILL.waiting}" fill-opacity=".14" stroke="${STATUS_FILL.waiting}" stroke-width="1.7" opacity="${[1, .7, .45, .7][f % 4]}"/>` : '');
+// frame f, never below 60% so it reads at the smallest pet size); the badge for its status. They say what a pet in the
+// line needs: it carries no status balloon.
+const statusMarks = (status, f = 0) => (status === 'waiting' ? `<rect class="ring" x="1.6" y="-.6" width="32.8" height="34" rx="10.5" fill="${STATUS_FILL.waiting}" fill-opacity=".14" stroke="${STATUS_FILL.waiting}" stroke-width="1.7" opacity="${[1, .82, .6, .82][f % 4]}"/>` : '');
 // The pet as SVG, every colour written out (no CSS variable). withBadge: the status badge and the waiting ring. pic: a
 // picture worn as its face (the 'picture' design).
 function flatSVG(key, ci, st, [ps, f], withBadge, pic) {

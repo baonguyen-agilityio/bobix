@@ -197,8 +197,6 @@ test('an effect drawn for its room stays inside it', () => {
     return res;
   })())`, ctx));
   for (const [k, v] of Object.entries(r)) { assert.equal(v.outside, 0, `${k} drew outside its room`); assert.ok(v.drawn > 0, `${k} drew nothing`); }
-  // With effects on, pets show no status balloon (the ring, badge and effects tell the state); without them, as before.
-  assert.equal(require('vm').runInContext("[statusBalloon(true, 'waiting'), statusBalloon(true, 'done'), statusBalloon(false, 'waiting')]", ctx).join(), ',,waiting');
   // The rect maths the clip is made of.
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.rectMinus([0, 0, 10, 10], [3, 3, 6, 6]))), [[0, 0, 10, 3], [0, 6, 10, 10], [0, 3, 3, 6], [6, 3, 10, 6]]);
   const hs = JSON.parse(JSON.stringify(ctx.fxHoles([0, 0, 100, 100], [40, 40, 60, 100], [[30, 50, 70, 70], [50, 60, 90, 80], [200, 0, 300, 10]])));
