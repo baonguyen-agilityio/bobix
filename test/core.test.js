@@ -1027,7 +1027,7 @@ test('tour: every step has its words in both languages, NEWS is this version, an
   assert.equal(TOUR.fresh(TOUR.STEPS.map(s => s.key)).length, 0);
   assert.equal(TOUR.fresh(undefined).length, TOUR.STEPS.length);
   for (const s of TOUR.STEPS) {
-    const TABS = ['sessions', 'skills', 'settings', 'setup'];
+    const TABS = ['overview', 'sessions', 'skills', 'settings', 'setup'];
     assert.ok(TABS.includes(s.tab) && s.at.length && (!s.alt || (TABS.includes(s.alt.tab) && s.alt.at.length)), s.key);
     assert.match(s.key, /^[a-z]{1,24}$/, 'a key settings.rs keeps');
     for (const lang of ['en', 'vi']) for (const k of ['title', 'body']) assert.ok(I18N.STR[lang][`tour.${s.key}.${k}`], `${lang} tour.${s.key}.${k}`);
