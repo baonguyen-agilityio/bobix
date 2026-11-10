@@ -23,6 +23,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .tag{max-width:none;transform:none;overflow:visible;display:flex;justify-content:center;align-items:center;gap:var(--s1);box-sizing:border-box}
 .tag .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center}
 .tag .iss{flex:none;color:var(--ink-2)}
+/* Under a family the name starts at the parent and runs on towards its side sessions, instead of sitting mid-family. */
+.tag[data-kids="l"] .nm{text-align:right}.tag[data-kids="r"] .nm{text-align:left}
 .bb{position:absolute;left:50%;bottom:calc(100% - var(--size) * .08);width:calc(var(--size) * .5);translate:-50% 0;cursor:pointer;animation:bob 2.6s var(--ease) infinite;transform-origin:50% 100%}
 .pet.side .bb{width:calc(var(--size) * .42)}
 /* Top edge: the balloon floats below the pet's name tag, its string up (balloonSVG draws it upside down there). */
@@ -565,11 +567,12 @@ function groundTags(all) {
     const fam = all.filter(q => q.s.parent === p.s.id), reach = sideFirst() + fam.length * sideStep() + 8, back = rtl() ? 1 : -1;
     const kids = fam.filter(q => (q.x - p.x) * back > 0 && Math.abs(q.x - p.x) <= reach), xs = [p.x, ...kids.map(q => q.x)];
     const l = Math.max(0, Math.min(...xs) - TAG), r = Math.min(innerWidth, Math.max(...xs) + cfg.size + TAG); // never past the screen's ends
-    const g = `${Math.round(l - p.x)}|${Math.round(r - l)}`;
+    const g = `${Math.round(l - p.x)}|${Math.round(r - l)}|${kids.length ? (back < 0 ? 'l' : 'r') : ''}`;
     if (tg.dataset.g === g) continue;
     tg.dataset.g = g;
-    const [left, width] = g.split('|');
+    const [left, width, side] = g.split('|');
     Object.assign(tg.style, { left: left + 'px', width: width + 'px' });
+    tg.dataset.kids = side;
   }
 }
 // Bubbles that touch are lifted one lane: they never overlap, even when pets cross.
