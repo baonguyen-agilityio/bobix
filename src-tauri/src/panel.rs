@@ -56,6 +56,7 @@ pub fn show(app: &AppHandle, b: &Arc<Bobix>, select: Option<String>, tab: Option
                     w.on_window_event(move |e| if let tauri::WindowEvent::Destroyed = e { let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory); });
                 }
                 let _ = w.set_focus();
+                crate::tray::badge(&app, &b, true); // the Dock icon (macOS) or taskbar button (Windows) is new
                 eprintln!("[bobix] panel: open");
             }
             Err(e) => eprintln!("[bobix] panel: {e}"),
