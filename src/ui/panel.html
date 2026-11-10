@@ -407,6 +407,7 @@ code{font:500 var(--t-sm)/1.5 var(--f-mono);background:var(--sunk);border:1px so
 .sec h2{font-size:var(--t-lg);padding:var(--s4) 0 var(--s3)}
 .opt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s3) var(--s6);align-items:center;padding:var(--s4) 0;border-top:1px solid var(--line)}
 .opt.wide{grid-template-columns:minmax(0,1fr)}
+.sec-note{margin:0;padding:var(--s3) 0 var(--s4);border-top:1px solid var(--line);font-size:var(--t-xs);color:var(--ink-3)}
 .opt .lbl{font-weight:600}
 .opt .desc{font-size:var(--t-sm);color:var(--ink-3);margin-top:2px;max-width:60ch}
 .opt.dim .lbl,.opt.dim .desc{opacity:.45}
@@ -1431,7 +1432,7 @@ function renderSettings() {
       <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}" data-row="${r.k}">
         <div><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`)}${r.k === 'dnd' && dndLeft(s) ? ' ' + T('set.dnd.left', { n: dndLeft(s) }) : ''}</div>` : ''}</div>
         <div class="ctl">${control(r, s)}</div>
-      </div>`).join('')}</section>`).join('')}${habitsSettingsHTML(s)}</div>`;
+      </div>`).join('')}${title === 'set.section.work' ? `<p class="note sec-note">${esc(T('set.work.privacy'))}</p>` : ''}</section>`).join('')}${habitsSettingsHTML(s)}</div>`;
   renderPreview();
 }
 
