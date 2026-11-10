@@ -45,10 +45,23 @@ pub fn bitmap(size: usize, template: bool) -> Vec<u8> {
 }
 
 // ---- the badge: how many sessions wait for your approval ----
-// Digits 0–9 and "+" on a 3×5 grid, row by row.
+// Digits 0–9 and "+" as strokes through a 3×5 grid (0–2 across, 0–4 down), drawn round and smoothed like the pet, not
+// as pixel steps.
+type Stroke = &'static [(f64, f64)];
 #[cfg_attr(target_os = "macos", allow(dead_code))] // drawn on Windows and Linux; macOS shows the count as text
-const GLYPHS: [&str; 11] = ["111101101101111", "010110010010111", "111001111100111", "111001111001111", "101101111001001",
-    "111100111001111", "111100111101111", "111001001001001", "111101111101111", "111101111001111", "000010111010000"];
+const GLYPHS: [&[Stroke]; 11] = [
+    &[&[(0.0, 0.0), (2.0, 0.0), (2.0, 4.0), (0.0, 4.0), (0.0, 0.0)]],
+    &[&[(0.2, 0.8), (1.0, 0.0), (1.0, 4.0)]],
+    &[&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0), (0.0, 4.0), (2.0, 4.0)]],
+    &[&[(0.0, 0.0), (2.0, 0.0), (2.0, 4.0), (0.0, 4.0)], &[(0.4, 2.0), (2.0, 2.0)]],
+    &[&[(0.0, 0.0), (0.0, 2.0), (2.0, 2.0)], &[(2.0, 0.0), (2.0, 4.0)]],
+    &[&[(2.0, 0.0), (0.0, 0.0), (0.0, 2.0), (2.0, 2.0), (2.0, 4.0), (0.0, 4.0)]],
+    &[&[(2.0, 0.0), (0.0, 0.0), (0.0, 4.0), (2.0, 4.0), (2.0, 2.0), (0.0, 2.0)]],
+    &[&[(0.0, 0.0), (2.0, 0.0), (2.0, 4.0)]],
+    &[&[(0.0, 0.0), (2.0, 0.0), (2.0, 4.0), (0.0, 4.0), (0.0, 0.0)], &[(0.0, 2.0), (2.0, 2.0)]],
+    &[&[(2.0, 2.0), (0.0, 2.0), (0.0, 0.0), (2.0, 0.0), (2.0, 4.0), (0.0, 4.0)]],
+    &[&[(1.0, 1.0), (1.0, 3.0)], &[(0.0, 2.0), (2.0, 2.0)]],
+];
 #[cfg_attr(target_os = "macos", allow(dead_code))] // drawn on Windows and Linux; macOS shows the count as text
 const CORAL: [f64; 3] = [255.0, 122.0, 77.0]; // the pets' "waiting" badge (STATUS_FILL in creature.js)
 
@@ -80,12 +93,33 @@ pub fn draw_badge(buf: &mut [u8], size: usize, n: usize, h: usize) {
             o[3] = (a * 255.0).round() as u8;
         }
     }
-    let (x0, y0) = (size - w + (w - tw) / 2, (h - 5 * k) / 2);
+    let (x0, y0, kf) = (size - w + (w - tw) / 2, (h - 5 * k) / 2, k as f64);
+    let half = kf * 0.55; // half the stroke: a glyph cell's width, a little bolder
+    let near = |x: f64, y: f64, (ax, ay): (f64, f64), (bx, by): (f64, f64)| { // within half a stroke of the segment a–b
+        let (dx, dy) = (bx - ax, by - ay);
+        let t = (((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy).max(1e-9)).clamp(0.0, 1.0);
+        (x - ax - t * dx).hypot(y - ay - t * dy) <= half
+    };
     for (gi, &g) in glyphs.iter().enumerate() {
-        for (bit, c) in GLYPHS[g].bytes().enumerate() {
-            if c != b'1' { continue; }
-            let (cx, cy) = (x0 + gi * 4 * k + (bit % 3) * k, y0 + (bit / 3) * k);
-            for y in cy..cy + k { for x in cx..cx + k { buf[(y * size + x) * 4..][..4].copy_from_slice(&[255, 255, 255, 255]); } }
+        let (ox, oy) = ((x0 + gi * 4 * k) as f64 + kf / 2.0, y0 as f64 + kf / 2.0); // the grid's first cell centre
+        let at = |(gx, gy): (f64, f64)| (ox + gx * kf, oy + gy * kf);
+        let (l, t) = ((ox - half).floor().max(0.0) as usize, (oy - half).floor().max(0.0) as usize);
+        let (r, b) = (((ox + 2.0 * kf + half).ceil() as usize).min(size), ((oy + 4.0 * kf + half).ceil() as usize).min(size));
+        for py in t..b {
+            for px in l..r {
+                let mut c = 0.0;
+                for sy in 0..4 {
+                    for sx in 0..4 {
+                        let (x, y) = (px as f64 + (sx as f64 + 0.5) / 4.0, py as f64 + (sy as f64 + 0.5) / 4.0);
+                        if GLYPHS[g].iter().any(|s| s.windows(2).any(|p| near(x, y, at(p[0]), at(p[1])))) { c += 1.0 / 16.0; }
+                    }
+                }
+                if c == 0.0 { continue; }
+                let o = &mut buf[(py * size + px) * 4..][..4];
+                let a = o[3] as f64 / 255.0;
+                for i in 0..3 { o[i] = (255.0 * c + o[i] as f64 * (1.0 - c)).round() as u8; }
+                o[3] = ((c + a * (1.0 - c)) * 255.0).round() as u8;
+            }
         }
     }
 }
