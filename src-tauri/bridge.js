@@ -60,6 +60,8 @@
     addRoutingRules: dir => invoke('skills_rules', { dir: String(dir), add: true }), // only after showing the exact text
     // From your habits (src-tauri/src/habit_skills.rs): act view | scan | draft | approve | dismiss | restore | undo | remove.
     // Answers the view, with the act's { ok, error } in `result`. Changes run only on the person's click.
+    // The war room (src-tauri/src/room.rs): act list | create | invite | uninvite | frame | add | summarize | decide | audit | markdown | get | radd | leave | open.
+    room: (act, a) => invoke('room', { act: String(act), a: a && typeof a === 'object' ? a : {} }),
     habitSkills: (act, id, text, v) => invoke('habit_skills', { act: String(act || 'view'), id: id == null ? null : String(id), text: text == null ? null : String(text), v: Number.isFinite(v) ? v : null }),
     processStatus: () => invoke('process_status'), // per project: the repository's .bobix/skills.json and the imported process
     // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one

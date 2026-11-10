@@ -144,6 +144,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 **Decisions**
 - **Network:** the company tailnet.
 - **Purpose:** structure and a final decision record. One room per problem, with the frame problem → options → pros and cons → decision.
+- **Chat in the room; the AI arranges it into the frame at the end** (decided 2026-11-11). People type freely; the host's one summarizer drafts problem → options → pros and cons → decision from the chat, and the host edits the draft before deciding.
 - **Hosting:** the room creator's machine hosts it and the others connect. Real peer-to-peer sync is out of scope.
 - **AI:** exactly one summarizer, on the host's machine. People contribute by hand. This keeps company content from flowing into several personal Claude accounts.
 - **Output:**
@@ -157,7 +158,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 - Remote control of other machines (Tailscale and SSH already do it).
 
 **Open questions**
-- Can a headless `claude -p` publish an artifact?
+- Can a headless `claude -p` publish an artifact? **No** (checked 2026-11-11 with Claude Code 2.1.322: no artifact or publish tool, with MCP servers off or on). The room offers "Copy for Claude" instead: the host pastes the record into claude.ai. Built in [#114](https://github.com/baonguyen-agilityio/bobix/issues/114).
 
 ## 6. Security of the war room
 
@@ -175,14 +176,15 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 - Remote control of other machines.
 
 **Open questions**
-- None recorded yet beyond step 5's artifact question.
+- macOS's firewall asks once whether Bobix may accept incoming connections when a room is first hosted (an unsigned build is not allowed on its own).
+- Secret redaction covers known token shapes and `key = value` assignments; a secret in another shape can still pass.
 
 ---
 
 ## Open questions in one list
 
 1. Can a model be preset for a new Claude desktop session? (step 2) Not through the documented link; see step 2.
-2. Can a headless `claude -p` publish an artifact? (step 5)
+2. ~~Can a headless `claude -p` publish an artifact?~~ No; the room copies the record for Claude instead. (step 5)
 3. The exact usage thresholds for "too long". (step 1)
 4. Where Jira and Trello credentials are stored. (step 3)
 

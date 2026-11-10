@@ -1094,6 +1094,20 @@ test('habits become skills: every string in both languages, and every one the pa
   for (const k of used) assert.ok(I18N.STR.en[k], `missing ${k}`);
 });
 
+test('room: every string in both languages, and every one the panel uses exists', () => {
+  const I18N = require('../src/ui/i18n');
+  const vars = s => (s.match(/\{\w+\}/g) || []).sort().join();
+  const keys = Object.keys(I18N.STR.en).filter(k => k.startsWith('rm.'));
+  for (const k of keys) assert.equal(vars(I18N.STR.vi[k] || '-'), vars(I18N.STR.en[k]), `vi ${k}`);
+  for (const k of Object.keys(I18N.STR.vi).filter(k => k.startsWith('rm.'))) assert.ok(I18N.STR.en[k], `en ${k}`);
+  const html = require('fs').readFileSync(require('path').join(__dirname, '../src/ui/panel.html'), 'utf8');
+  const used = new Set([...html.matchAll(/T\('(rm\.[\w.]*\w)'/g)].map(m => m[1]));
+  for (const k of ['rm.why.notInvited', 'rm.why.notTailnet', 'rm.why.unknown', 'rm.state.open', 'rm.state.decided', ...['create', 'invite', 'uninvite', 'join', 'saw', 'say', 'record', 'refused', 'decide'].map(e => 'rm.ev.' + e)]) used.add(k);
+  assert.ok(used.size > 60, `${used.size}`);
+  for (const k of used) assert.ok(I18N.STR.en[k], `missing ${k}`);
+  for (const k of keys) if (!k.startsWith('rm.why.') && !k.startsWith('rm.ev.') && !k.startsWith('rm.state.')) assert.ok(html.includes(`'${k}'`), `unused ${k}`);
+});
+
 test('ticket flow: steps, the Start prompt, disk sizes', () => {
   const B = require('../src/ui/board');
   assert.deepStrictEqual(['starting', 'planning', 'approve', 'running', 'done', 'blocked', 'x'].map(B.flowStep), ['plan', 'plan', 'approve', 'run', 'done', 'done', 'plan']);
