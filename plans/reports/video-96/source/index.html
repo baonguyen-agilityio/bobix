@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="vi" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Bobix: giới thiệu và cách dùng</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <link rel="stylesheet" href="assets/fonts/fonts.css" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #f6f0e6; }
+      body { font-family: "Be Vietnam Pro", sans-serif; color: #2b2622; }
+      .scene { position: absolute; inset: 0; background: #f6f0e6; }
+      h1, h2, .brand { font-family: "Baloo 2", sans-serif; font-weight: 700; }
+      /* caption: one short line or two, always in the bottom band */
+      .cap { position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); max-width: 1600px; width: max-content;
+        padding: 18px 40px; border-radius: 22px; background: #2b2622; color: #fff; font: 600 44px/1.3 "Be Vietnam Pro", sans-serif; text-align: center; }
+      .cap b { color: #ffb38a; font-weight: 600; }
+      .kicker { position: absolute; left: 96px; top: 64px; font: 700 44px "Baloo 2", sans-serif; color: #c4552f; letter-spacing: .02em; }
+      .shot { position: absolute; left: 50%; top: 28px; width: 1368px; transform: translateX(-50%); border-radius: 16px;
+        box-shadow: 0 2px 0 #e3d9c9, 0 24px 60px rgba(60, 40, 20, .18); overflow: hidden; background: #fff; }
+      .shot img { display: block; width: 100%; }
+      .shot.small { top: 120px; }
+      /* a part of a real screenshot, at its own size: --x/--y = where the part starts in the picture */
+      .crop { position: absolute; overflow: hidden; border-radius: 16px; background: #fff; box-shadow: 0 2px 0 #e3d9c9, 0 24px 60px rgba(60, 40, 20, .18); }
+      .crop img { position: absolute; left: calc(var(--x) * -1px); top: calc(var(--y) * -1px); }
+      .strip { position: absolute; left: 0; width: 1920px; height: 340px; }
+      .tabs { position: absolute; left: 50%; top: 880px; transform: translateX(-50%); display: none; }
+      .grid6 { position: absolute; left: 50%; top: 160px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(3, 420px); gap: 28px 40px; }
+      .tile { background: #fffaf2; border: 2px solid #eadfcd; border-radius: 22px; padding: 8px 0 14px; text-align: center; }
+      .tile img { width: 336px; height: 240px; image-rendering: pixelated; display: block; margin: 0 auto; }
+      .tile span { font: 600 34px "Be Vietnam Pro", sans-serif; }
+      .tile.hot { border-color: #e7744f; background: #fff3ec; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="82" data-width="1920" data-height="1080">
+
+      <!-- 1. What Bobix is (0–8 s) -->
+      <section id="s1" class="clip scene" data-start="0" data-duration="8" data-track-index="0">
+        <div id="s1-logo" style="position:absolute;left:50%;top:110px;transform:translateX(-50%);display:flex;align-items:center;gap:36px">
+          <img src="assets/icon.png" style="width:168px;height:168px;image-rendering:pixelated" alt="" />
+          <div>
+            <div class="brand" style="font-size:150px;line-height:1">Bobix</div>
+            <div style="font:500 40px 'Be Vietnam Pro';color:#6b6158">thú cưng pixel cho Claude Code</div>
+          </div>
+        </div>
+        <div class="cap" id="s1-cap">Mỗi phiên Claude Code là <b>một chú thú pixel</b> trên màn hình.</div>
+      </section>
+      <video id="v1" class="clip strip" src="assets/pets.mp4" data-start="0" data-duration="8" data-media-start="2" data-track-index="2" muted playsinline style="top:420px"></video>
+
+      <!-- 2. Install (8–17 s): the real v0.2.0-rc.4 release page -->
+      <section id="s2" class="clip scene" data-start="8" data-duration="9" data-track-index="0">
+        <div class="crop" data-layout-allow-overflow id="s2-shot" style="--x:48;--y:366;left:50%;top:60px;width:1824px;height:870px;transform:translateX(-50%) scale(.9);transform-origin:top center">
+          <img src="assets/release.png" alt="" />
+        </div>
+        <div class="cap" id="s2-a"><b>Bước 1:</b> tải file cài cho máy bạn: Mac, Windows hoặc Linux.</div>
+        <div class="cap" id="s2-b" style="opacity:0">Mở app. Bobix nằm trên thanh menu (Windows: khay hệ thống).</div>
+      </section>
+
+      <!-- 3. Setup / Kết nối (17–28 s) -->
+      <section id="s3" class="clip scene" data-start="17" data-duration="11" data-track-index="0">
+        <div class="shot" id="s3-before"><img src="assets/setup-before.png" alt="" /></div>
+        <div class="shot" id="s3-after" style="opacity:0"><img src="assets/setup-after.png" alt="" /></div>
+        <div class="cap" id="s3-a"><b>Bước 2:</b> mở Bobix → tab <b>Kết nối</b> → bấm <b>Cài hooks</b>.</div>
+        <div class="cap" id="s3-b" style="opacity:0">Đã kết nối. Gửi một prompt trong Claude Code là thú cưng hiện ra.</div>
+      </section>
+
+      <!-- 4. Pets live (28–42 s) -->
+      <section id="s4" class="clip scene" data-start="28" data-duration="14" data-track-index="0">
+        <div class="kicker">Thú cưng đi dọc mép màn hình</div>
+        <div class="cap" id="s4-a">Mỗi phiên một chú thú. <b>Bấm vào</b> là mở đúng phiên đó.</div>
+        <div class="cap" id="s4-b" style="opacity:0">Viền cam, nhãn đỏ: Claude <b>đang chờ bạn duyệt</b>.</div>
+        <div class="cap" id="s4-c" style="opacity:0">Làm xong: nhận XP, đội vương miện, <b>phất cờ</b>.</div>
+      </section>
+      <video id="v2" class="clip strip" src="assets/pets.mp4" data-start="28" data-duration="14" data-media-start="1" data-track-index="2" muted playsinline style="top:290px"></video>
+
+      <!-- 5. Costume by state (42–50 s): close-ups cut from the same recording -->
+      <section id="s5" class="clip scene" data-start="42" data-duration="8" data-track-index="0">
+        <div class="kicker">Trang phục theo trạng thái</div>
+        <div class="grid6">
+          <div class="tile"><img src="assets/c-work.png" alt="" /><span>Đang sửa file</span></div>
+          <div class="tile"><img src="assets/c-bash.png" alt="" /><span>Đang chạy lệnh</span></div>
+          <div class="tile"><img src="assets/c-search.png" alt="" /><span>Đang đọc, tìm</span></div>
+          <div class="tile hot"><img src="assets/c-wait.png" alt="" /><span>Chờ bạn duyệt</span></div>
+          <div class="tile"><img src="assets/c-done.png" alt="" /><span>Xong việc</span></div>
+          <div class="tile"><img src="assets/c-sleep.png" alt="" /><span>Đang ngủ</span></div>
+        </div>
+        <div class="cap" id="s5-cap">Nhìn trang phục là biết phiên <b>đang làm gì</b>.</div>
+      </section>
+
+      <!-- 6. Panel tabs (50–67 s) -->
+      <section id="s6" class="clip scene" data-start="50" data-duration="17" data-track-index="0">
+        <div class="shot" id="s6-board"><img src="assets/board.png" alt="" /></div>
+        <div class="shot" id="s6-skills" style="opacity:0"><img src="assets/skills.png" alt="" /></div>
+        <div class="shot" id="s6-settings" style="opacity:0"><img src="assets/settings.png" alt="" /></div>
+        <div class="cap" id="s6-a"><b>Bảng</b>: việc cần bạn duyệt, việc đang làm, việc hôm nay.</div>
+        <div class="cap" id="s6-b" style="opacity:0"><b>Skill</b>: vai trò của bạn và skill của từng dự án.</div>
+        <div class="cap" id="s6-c" style="opacity:0"><b>Cài đặt</b>: chỗ thú cưng đi, kiểu hiện, cỡ, Đừng làm phiền…</div>
+      </section>
+
+      <!-- 7. Notifications (67–75 s) -->
+      <section id="s7" class="clip scene" data-start="67" data-duration="8" data-track-index="0">
+        <div class="kicker">Thông báo và duyệt nhanh</div>
+        <div class="crop" data-layout-allow-overflow id="s7-ask" style="--x:118;--y:170;left:120px;top:150px;width:1200px;height:150px;transform:scale(1.4);transform-origin:left top">
+          <img src="assets/board.png" alt="" />
+        </div>
+        <div class="crop" data-layout-allow-overflow id="s7-set" style="--x:522;--y:258;left:485px;top:390px;width:760px;height:400px;transform:scale(1.25);transform-origin:left top">
+          <img src="assets/settings-notify.png" alt="" />
+        </div>
+        <div class="cap" id="s7-cap">Bobix báo khi phiên <b>cần duyệt</b> hoặc <b>làm xong</b>.</div>
+      </section>
+
+      <!-- 8. Closing (75–82 s) -->
+      <section id="s8" class="clip scene" data-start="75" data-duration="7" data-track-index="0">
+        <div id="s8-logo" style="position:absolute;left:50%;top:170px;transform:translateX(-50%);text-align:center">
+          <img src="assets/icon.png" style="width:200px;height:200px;image-rendering:pixelated" alt="" />
+          <div class="brand" style="font-size:120px;line-height:1.05">Bobix</div>
+          <div style="font:600 44px 'Be Vietnam Pro';color:#6b6158;margin-top:10px">v0.2.0-rc.4 · macOS · Windows · Linux</div>
+          <div style="font:500 40px 'Be Vietnam Pro';color:#c4552f;margin-top:28px">github.com/baonguyen-agilityio/bobix</div>
+        </div>
+        <div class="cap" id="s8-cap">Chạy trên máy bạn, <b>không gửi gì ra ngoài</b>.</div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const IN = { opacity: 0, y: 24, duration: 0.6, ease: "power2.out" };
+      // swap(a, b, t): the caption or shot a gives way to b at t
+      const swap = (a, b, t) => { tl.to(a, { opacity: 0, duration: 0.4 }, t); tl.fromTo(b, { opacity: 0 }, { opacity: 1, duration: 0.5 }, t + 0.2); };
+
+      tl.from("#s1-logo", { ...IN, y: -30 }, 0.1).from("#v1", { opacity: 0, duration: 0.8 }, 0.4).from("#s1-cap", IN, 0.8);
+
+      tl.from("#s2-shot", { opacity: 0, y: 30, duration: 0.6 }, 8).from("#s2-a", IN, 8.3);
+      swap("#s2-a", "#s2-b", 12.8);
+
+      tl.from("#s3-before", { opacity: 0, y: 30, duration: 0.6 }, 17).from("#s3-a", IN, 17.3);
+      swap("#s3-before", "#s3-after", 22.6); swap("#s3-a", "#s3-b", 22.6);
+
+      tl.from("#s4 .kicker", IN, 28.1).from("#s4-a", IN, 28.4);
+      swap("#s4-a", "#s4-b", 32.4); swap("#s4-b", "#s4-c", 37.6);
+
+      tl.from("#s5 .kicker", IN, 42.1).from("#s5 .tile", { ...IN, stagger: 0.12 }, 42.2).from("#s5-cap", IN, 43);
+
+      tl.from("#s6-board", { opacity: 0, y: 30, duration: 0.6 }, 50).from("#s6-a", IN, 50.3);
+      swap("#s6-board", "#s6-skills", 56.3); swap("#s6-a", "#s6-b", 56.3);
+      swap("#s6-skills", "#s6-settings", 61.6); swap("#s6-b", "#s6-c", 61.6);
+
+      tl.from("#s7 .kicker", IN, 67.1).from("#s7-ask", { ...IN, x: -30 }, 67.2).from("#s7-set", IN, 67.9).from("#s7-cap", IN, 68.3);
+
+      tl.from("#s8-logo", { ...IN, scale: 0.96 }, 75.1).from("#s8-cap", IN, 75.8);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
