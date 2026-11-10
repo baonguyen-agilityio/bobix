@@ -16,7 +16,6 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .edge-top .pet{bottom:auto;top:var(--s1)}
 .spr{position:relative;width:var(--size);height:var(--size);display:grid;place-items:center}
 .spr svg{width:100%;height:100%}
-.spr svg:not(.flat){filter:drop-shadow(0 2px 0 oklch(30% 0.04 262 / .25))} /* a flat pet draws its own shadow */
 .tag{position:relative;left:50%;transform:translateX(-50%);width:max-content;max-width:160px;padding:0 var(--s2);border-radius:var(--pill);background:var(--surface);border:1px solid var(--line-strong);font-size:var(--t-xs);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .st-waiting .tag{background:var(--coral);border-color:var(--coral);color:var(--n-900)}
 .pet.side .spr{transform:scale(.8);transform-origin:50% 100%}
@@ -62,28 +61,21 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .card .hide{flex:none;font:600 var(--t-xs) var(--f-body);color:var(--ink-2);background:var(--n-100);border:1px solid var(--line-strong);border-radius:var(--pill);padding:0 var(--s2);cursor:pointer}
 .card .hide:hover{background:var(--n-200);color:var(--ink)}
 .zz{position:absolute;left:70%;top:-6px;font:700 var(--t-sm) var(--f-display);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
-/* While an effect plays (pet-fx.js) its canvas draws the pet, so the pet's own art steps aside; an effect that draws
-   over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and a pet saying goodbye keeps
-   nothing but itself. */
-.pet.fx .spr>svg:not(.flat),.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
-/* A flat pet keeps its own SVG while an effect plays round it (it acts its state; its waiting ring is its own), and
-   melts from the feet up when it says goodbye. Two pets too close: the effect waits, the pet shows as it is (a picture
-   pet waiting for you with a thin orange outline); one saying goodbye goes. A pet out of sight round the line's far end
-   is hidden. */
-.pet.leaving .spr>svg.flat{animation:melt 1.4s linear forwards}
+/* While an effect plays (pet-fx.js) the pet keeps its own SVG (it acts its state) and the effect draws round it; one
+   that draws over the pet's head (XP bar, battery) hides the balloon and the tool bubble there, and the "z". A pet
+   saying goodbye melts from the feet up and keeps nothing but itself. Two pets too close: the effect waits, the pet
+   shows as it is. A pet out of sight round the line's far end is hidden. */
+.pet.fx .zz,.pet.fx-over .bb,.pet.fx-over .say:not(.waiting){visibility:hidden;animation:none}
+.pet.leaving .spr>svg{animation:melt 1.4s linear forwards}
 @keyframes melt{0%,50%{clip-path:inset(-20% -20% 0 -20%)}100%{clip-path:inset(-20% -20% 100% -20%)}}
-.pet.wait-ring .spr>svg:not(.flat){filter:drop-shadow(1px 0 0 #ff7a4d) drop-shadow(-1px 0 0 #ff7a4d) drop-shadow(0 1px 0 #ff7a4d) drop-shadow(0 -1px 0 #ff7a4d)}
 .pet.line-off{visibility:hidden!important}
-.pet.fx.fx-hide:not(.leaving) .spr>svg{visibility:visible}.pet.fx-hide .fxc,.pet.fx-hide .fxs,.pet.leaving.fx-hide{visibility:hidden}
+.pet.fx-hide .fxl,.pet.leaving.fx-hide{visibility:hidden}
 .pet.leaving>:not(.spr){opacity:0;transition:opacity 600ms var(--ease)}
-.fxc,.fxs{position:absolute;pointer-events:none;image-rendering:pixelated;z-index:0}
+.fxl{position:absolute;pointer-events:none;overflow:visible;z-index:0}
 /* A pet's balloon, bubble, card and name tag stay above its own effect; other pets' are cut out of it (fxClip). */
 .pet>.bb,.pet>.say,.pet>.card,.pet>.tag{z-index:1}
-.fxs{overflow:hidden}.fxs img{display:block;image-rendering:pixelated;will-change:transform}
-.spr svg.faced{position:absolute;left:-5%;bottom:0;width:110%;height:110%}
-.edge-top .spr svg.faced{bottom:auto;top:0}
-.walking .spr svg:not(.flat){animation:step 320ms steps(2) infinite} /* a picture pet steps and hops; a flat one acts its pose */
-.st-waiting .spr svg:not(.flat){animation:hop 900ms var(--ease) infinite}
+.walking .spr svg.pic{animation:step 320ms steps(2) infinite} /* a picture that is the whole pet steps and hops; the others act their poses */
+.st-waiting .spr svg.pic{animation:hop 900ms var(--ease) infinite}
 @keyframes step{to{transform:translateY(-3px)}}
 @keyframes hop{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
 @keyframes pop{from{opacity:0;translate:0 4px}}
@@ -93,9 +85,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:400 v
 .pet.od{bottom:auto;top:0;z-index:2;transition:opacity 300ms var(--ease)}
 .pet.od.gone{opacity:0}
 .fly{position:absolute;left:0;top:0;pointer-events:none}
-.fly canvas,.sheetbox{position:absolute;transform-origin:0 0;image-rendering:pixelated}
-.sheetbox{overflow:hidden}.sheetbox canvas{position:static;display:block}
-.free{position:absolute;left:0;top:0;transform-origin:0 0;image-rendering:pixelated;pointer-events:none}
+.fly>svg{position:absolute;left:0;top:0;overflow:visible}
+.free{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
 .pet.od:not(.hover) :is(.tag,.card),.pet.od.going :is(.tag,.card){display:none}
 .pet.od .tag{margin-top:2px;left:50%;translate:-50% 0;width:max-content;max-width:160px}
 .pet.od .card{top:var(--cy,0);bottom:auto;left:var(--cx,0);transform:none;cursor:default;text-align:left}
@@ -225,7 +216,7 @@ function paint(p, now) {
   }
   p.key = key; p.fr = fr;
   const hp = s.ctx;
-  const keep = ['line-off', 'fx-hide', 'wait-ring', 'leaving'].filter(c => p.el.classList.contains(c)).map(c => ' ' + c).join(''); // set by the line and the effects
+  const keep = ['line-off', 'fx-hide', 'leaving'].filter(c => p.el.classList.contains(c)).map(c => ' ' + c).join(''); // set by the line and the effects
   p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''}${keep} ${p.edge}`;
   const kids = kidsText(s), parent = s.parent && byId(s.parent);
   p.el.innerHTML = `
@@ -244,7 +235,7 @@ function paint(p, now) {
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(art, st, color, pose)}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>`}`;
-  if (p.fx) p.el.querySelector('.spr').append(p.sheetShown ? p.sheetEl : p.cv);
+  if (p.fx) p.el.querySelector('.spr').append(p.fl);
 }
 
 function sync(list) {
@@ -276,28 +267,23 @@ function sync(list) {
   }
 }
 
-// ---------- pixel effects (pet-fx.js) ----------
-// One-shots (a finished task's XP, low context, a new side session, the end) queue on the pet and play one after the
-// other; between them the state's loop plays (the aura while waiting, the tool's prop while working). Nothing runs or
-// draws while no effect plays.
+// ---------- effects (pet-fx.js) ----------
+// One-shots (a finished task's XP, low context, the end) queue on the pet and play one after the other, drawn as flat
+// SVG round the pet. Nothing runs or draws while no effect plays.
 const FX_ON = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 const leaving = new Set(); // pets of ended sessions playing their goodbye
-const fxCell = () => cfg.size / 18; // CSS px per effect cell: half a pixel of the 9×9 creature (its box is the pet's)
+const fxCell = () => cfg.size / 18; // CSS px per effect cell (the pet's box is 18 cells)
 function fxStart(p, kind, o = {}) {
-  const [art, color] = p.art || [p.s, undefined], pet = st => fxSprite(art, st, color, wake);
-  if (!['done', 'working'].map(pet).every(Boolean)) return false; // its pictures are still loading (both asked for at once)
-  if (!p.cv) {
-    p.cv = Object.assign(document.createElement('canvas'), { width: GW * 2, height: GH * 2, className: 'fxc' });
-    p.cg = p.cv.getContext('2d'); p.img = p.cg.createImageData(GW * 2, GH * 2); p.buf = new Buf();
-  }
-  if (p.fx) { p.fx.done = true; sheetOff(p); }
-  // On the top edge the effect is mirrored down (the screen's edge is its ground); a tool's prop is held in its hands.
+  const color = p.art?.[1];
+  if (!p.fl) { p.fl = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); p.fl.setAttribute('class', 'fxl'); p.fl.setAttribute('viewBox', `0 0 ${GW} ${GH}`); p.fl.setAttribute('aria-hidden', 'true'); }
+  if (p.fx) p.fx.done = true;
+  // On the top edge the effect is mirrored down (the screen's edge is its ground).
   p.lay = fxRoom(p, fxScene([...pets.values()])); // drawn for its room from the first frame
-  o = { ...o, flipX: false, mini: kind === 'tool', flipY: cfg.edge === 'top' && kind !== 'tool', flat: !art.image };
-  const run = fxRun(kind, { pet, ...o }), at = fxPlace(cfg.size, run.ox, o.flipX, o.flipY);
-  Object.assign(p.cv.style, { width: at.width + 'px', height: at.height + 'px', left: at.left + 'px', top: at.top + 'px', translate: '', clipPath: '' }); p.clip = '';
-  p.fx = run; p.fxSeg = o.seg; p.fxO = o; p.fxArt = [art, color, pet]; p.sheet = null; p.sheetRoom = '';
-  p.el.classList.add('fx'); p.el.classList.toggle('fx-over', kind === 'xp' || kind === 'ctx'); p.el.querySelector('.spr')?.append(p.cv);
+  o = { ...o, flipY: cfg.edge === 'top', tint: color == null ? undefined : PET_COLORS[color].hi };
+  const run = fxRun(kind, o), at = fxPlace(cfg.size, run.ox, o.flipY);
+  Object.assign(p.fl.style, { width: at.width + 'px', height: at.height + 'px', left: at.left + 'px', top: at.top + 'px', translate: '', clipPath: '' }); p.clip = ''; p.flSvg = '';
+  p.fx = run; p.fxO = o;
+  p.el.classList.add('fx'); p.el.classList.toggle('fx-over', kind === 'xp' || kind === 'ctx'); p.el.querySelector('.spr')?.append(p.fl);
   return true;
 }
 // ---- each effect stays in its pet's own room ----
@@ -337,11 +323,11 @@ function fxRoom(p, sc) {
   return { L, R, T: Math.max(T, 0), B: Math.min(B, innerHeight), box: b, cell: (b[2] - b[0]) / 18, crowded: L > b[0] + .5 || R < b[2] - .5 };
 }
 // That room in the effect's own cells: [x0, y0, x1, y1] around its pet's column ox and feet (mirrored as it is).
-function fxRoomCells(lay, ox, flipX, flipY) {
+function fxRoomCells(lay, ox, flipY) {
   const { L, R, T, B, box, cell } = lay, cx = (box[0] + box[2]) / 2, feet = flipY ? box[1] : box[3], cap = v => Math.min(GW, Math.max(0, Math.floor(v / cell)));
   const left = cap(cx - L), right = cap(R - cx), above = cap(feet - T), below = cap(B - feet);
-  const [l, r] = flipX ? [right, left] : [left, right], [u, d] = flipY ? [below, above] : [above, below];
-  return [ox - l, FEET - u, ox + r, FEET + d];
+  const [u, d] = flipY ? [below, above] : [above, below];
+  return [ox - left, FEET - u, ox + right, FEET + d];
 }
 // Every frame: each pet's room and the clip of each effect to it.
 function fxClip(all) {
@@ -352,73 +338,27 @@ function fxClip(all) {
     p.lay = fxRoom(p, sc);
     if (!p.fx || !p.lay) continue;
     if (p.el.classList.contains('fx-hide') !== p.lay.crowded) p.el.classList.toggle('fx-hide', p.lay.crowded);
-    const ring = p.lay.crowded && look(p.s) === 'waiting'; if (p.el.classList.contains('wait-ring') !== ring) p.el.classList.toggle('wait-ring', ring);
     clipTo(p, sc);
   }
 }
-// Cuts a pet's effect (its canvas, or the sheet shown instead) to its room and around every thing in it.
+// Cuts a pet's effect to its room and around every thing in it.
 function clipTo(p, sc) {
-  const node = p.sheetShown ? p.sheetEl : p.cv, box = rectOf(node), { L, R } = p.lay, avoid = [...sc.things];
+  const node = p.fl, box = rectOf(node), { L, R } = p.lay, avoid = [...sc.things];
   if (L > box[0]) avoid.push([box[0], box[1], L, box[3]]);
   if (R < box[2]) avoid.push([R, box[1], box[2], box[3]]);
-  const clip = fxClipPath(box, fxHoles(box, [0, 0, 0, 0], avoid), node.offsetWidth, node.offsetHeight);
-  if (clip !== (node === p.cv ? p.clip : p.sheetClip)) { node.style.clipPath = clip; if (node === p.cv) p.clip = clip; else p.sheetClip = clip; }
+  const clip = fxClipPath(box, fxHoles(box, [0, 0, 0, 0], avoid), parseFloat(node.style.width), parseFloat(node.style.height));
+  if (clip !== p.clip) { node.style.clipPath = clip; p.clip = clip; }
 }
-function fxStop(p) { if (p.fx) p.fx.done = true; sheetOff(p); p.fx = p.sheet = null; p.el.classList.remove('fx', 'fx-over'); p.cv.remove(); }
-// Loops play from a sheet of frames drawn once (fxSheet) as soon as it is ready: a CSS animation, nothing drawn per frame.
-const SHEETS = new Map(); // kind|prop|look -> fxSheet, the 6 latest
-function sheetFor(kind, o, art, color, pet) {
-  const key = [kind, o.seg, o.flipX, o.flipY, o.badge, o.plain, o.mini, o.flat, o.room, art.image, art.whole, art.pixel, art.project || art.id, color].join('|');
-  let sh = SHEETS.get(key);
-  if (sh) SHEETS.delete(key); else sh = fxSheet(kind, { pet, ...o });
-  SHEETS.set(key, sh);
-  if (SHEETS.size > 6) { const [k, old] = SHEETS.entries().next().value; SHEETS.delete(k); if (old.ready) URL.revokeObjectURL(old.ready.url); }
-  return sh;
-}
-// The sheet sits in a frame-sized window; each overlay frame shows the frame due by moving the picture (a transform
-// on a layer that is already drawn: no drawing, no upload). A near-square sheet stays one layer.
-function sheetOn(p) {
-  const s = p.sheet.ready, q = fxCell() / 2, run = p.fx, wrap = document.createElement('div'), im = new Image();
-  wrap.className = 'fxs';
-  Object.assign(wrap.style, { left: parseFloat(p.cv.style.left) + s.x * q + 'px', top: parseFloat(p.cv.style.top) + s.y * q + 'px', width: s.fw * q + 'px', height: s.fh * q + 'px' });
-  Object.assign(im.style, { width: s.cols * s.fw * q + 'px', height: Math.ceil(s.n / s.cols) * s.fh * q + 'px' });
-  const at = i => `translate(${(-(i % s.cols) * s.fw + s.shakes[i][0] * 2) * q}px, ${(-Math.floor(i / s.cols) * s.fh + s.shakes[i][1] * 2) * q}px)`;
-  p.sheetClip = ''; p.sheetEl = wrap; // claimed now; shown once the picture is decoded (the live canvas plays until then)
-  im.src = s.url;
-  im.decode().then(() => {
-    if (p.sheetEl !== wrap || p.fx !== run) return;
-    const t0 = performance.now() - ((run.total - s.lead) * 1000) % s.ms;
-    p.sheetDraw = () => { const i = Math.floor(((performance.now() - t0) % s.ms) / s.ms * s.n); if (i !== p.sheetI) { p.sheetI = i; im.style.transform = at(i); } };
-    p.sheetDraw(); wrap.append(im); p.cv.replaceWith(wrap); p.sheetShown = true;
-    if (p.lay) clipTo(p, fxScene([...pets.values()])); // cut before it is ever drawn, not a frame later
-  }, () => { if (p.sheetEl === wrap) p.sheetEl = null; });
-}
-function sheetOff(p) { p.sheetDraw = null; p.sheetI = -1; if (p.sheetEl) { if (p.sheetShown) p.sheetEl.replaceWith(p.cv); p.sheetEl = null; p.sheetShown = false; } }
+function fxStop(p) { if (p.fx) p.fx.done = true; p.fx = null; p.el.classList.remove('fx', 'fx-over'); p.fl.remove(); }
 function fxTick(p, dt) {
   if (p.fx?.done) fxStop(p);
-  if (!p.fx || p.fx.loop) { // one-shots first; a loop gives way to them
-    const next = p.queue?.[0];
-    if (next && fxStart(p, ...next)) p.queue.shift();
-    else if (!p.leaving) {
-      // The loops are a picture pet's: a flat pet shows waiting with its ring and working with its pose.
-      const want = (p.art?.[0] || p.s).image ? fxLoop(p.s, look(p.s)) : null;
-      if (!want) { if (p.fx) fxStop(p); }
-      else if (!p.fx || p.fx.kind !== want[0] || p.fxSeg !== want[1]) fxStart(p, want[0], { seg: want[1], first: true });
-    }
-  }
+  if (!p.fx) { const next = p.queue?.[0]; if (next && fxStart(p, ...next)) p.queue.shift(); }
   if (!p.fx) return;
-  // Its room in its cells; a loop plays from a sheet drawn for that room once the room has held for half a second.
-  const room = p.lay ? String(fxRoomCells(p.lay, p.fx.ox, p.fxO.flipX, p.fxO.flipY)) : '', now = performance.now();
-  if (room !== p.sheetRoom) { p.sheetRoom = room; p.roomAt = now; if (p.sheet) { sheetOff(p); p.sheet = null; } }
-  if (p.fx.loop && !p.sheet && room && now - p.roomAt > 500) p.sheet = sheetFor(p.fx.kind, { ...p.fxO, room: room.split(',').map(Number) }, ...p.fxArt);
-  if (p.sheetShown && p.sheetDraw) p.sheetDraw();
-  if (p.sheetShown) return;
   p.fx.step(dt);
-  if (p.sheet && !p.sheetEl) { if (!p.sheet.ready) p.sheet.step(3); else if (p.fx.total >= p.sheet.ready.lead) sheetOn(p); }
-  p.fx.draw(p.buf, room ? room.split(',').map(Number) : null); const [x, y, w, h] = p.buf.toImage(p.img);
-  if (w) p.cg.putImageData(p.img, 0, 0, x, y, w, h); // only the part that holds something now or did last frame
-  const [sx, sy] = p.buf.shake, c = fxCell(), tr = sx || sy ? `${sx * c}px ${sy * c}px` : '';
-  if (p.cv.style.translate !== tr) p.cv.style.translate = tr;
+  const S = p.fx.draw(p.lay ? fxRoomCells(p.lay, p.fx.ox, p.fxO.flipY) : null), svg = S.svg();
+  if (svg !== p.flSvg) { p.flSvg = svg; p.fl.innerHTML = svg; }
+  const [sx, sy] = S.shake, c = fxCell(), tr = sx || sy ? `${sx * c}px ${sy * c}px` : '';
+  if (p.fl.style.translate !== tr) p.fl.style.translate = tr;
 }
 
 // A click on a pet opens its session; on its card's Hide button, hides it; on Allow / Deny, answers its request; on its
@@ -609,7 +549,7 @@ function pointedPet(all) {
 }
 function frame(t) {
   raf = 0; timer = 0;
-  if (t - last < 32) { raf = requestAnimationFrame(frame); return; } // ~30 fps is smooth enough for a pixel pet
+  if (t - last < 32) { raf = requestAnimationFrame(frame); return; } // ~30 fps is smooth enough for a pet
   const dt = Math.min(0.05, (t - last) / 1000), now = Date.now();
   last = t;
   if (odOn()) { // "show when needed": pets-ondemand.js

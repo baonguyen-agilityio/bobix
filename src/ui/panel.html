@@ -121,12 +121,14 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .b-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;background:var(--surface-3);color:var(--ink-2);flex:none}
 .b-ico svg.i{width:15px;height:15px}
 .b-ico svg:not(.i){width:15px;height:17px}
+.b-ico.pet svg{width:22px;height:22px}
 .b-ico.warn{background:var(--warn-bg);color:var(--warn)}
 .b-ico.hot{background:var(--accent-bg);color:var(--accent-ink)}
 .b-ico.ok{background:var(--ok-bg);color:var(--ok)}
 .b-ico.lg{width:48px;height:48px;border-radius:12px}
 .b-ico.lg svg.i{width:22px;height:22px}
 .b-ico.lg svg:not(.i){width:27px;height:30px}
+.b-ico.lg.pet svg{width:40px;height:40px}
 .b-detail{overflow:auto;min-width:0;overflow-wrap:anywhere}
 .b-pane{padding:20px 22px 28px;display:flex;flex-direction:column;gap:18px;min-width:0}
 .b-dh{display:flex;align-items:center;gap:12px;min-width:0}
@@ -834,18 +836,6 @@ let usageMeta = {}; // the price table's date and state (usage.rs Store::meta)
 let work = { status: 'off' }, model = {}, lastProjects = '', waiting = [], waits = []; // waiting: New pressed, no new session there yet; waits: times Claude waited for you (the app's log)
 const skippedHere = {}; // stuck items skipped outside the app (this page only); in the app: settings.stuckSkipped
 const today = () => BOARD.day(Date.now());
-// An egg in the pets' pixel style, for a project.
-function eggSVG(seed) {
-  const BODY = ['--sky', '--mint', '--lilac', '--peach', '--butter', '--rose'];
-  const col = `var(${BODY[hashStr(seed) % BODY.length]})`, line = `color-mix(in oklch, ${col} 45%, #1d2030)`, shine = 'oklch(98% 0.01 90 / .9)';
-  const rows = ['...xxx...', '..xxxxx..', '.xxxxxxx.', '.xxxxxxx.', 'xxxxxxxxx', 'xxxxxxxxx', 'xxxxxxxxx', 'xxxxxxxxx', '.xxxxxxx.', '..xxxxx..'];
-  const on = new Set(); rows.forEach((r, y) => [...r].forEach((c, x) => c === 'x' && on.add(`${x},${y}`)));
-  const px = (x, y, f) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${f}"/>`;
-  let r = hashStr(seed + 'spots'), out = '';
-  const spots = new Set(); for (let i = 0; i < 4; i++) { r = Math.imul(r ^ (r >>> 13), 2654435761) >>> 0; spots.add(`${2 + r % 5},${3 + (r >>> 8) % 5}`); }
-  for (const k of on) { const [x, y] = k.split(',').map(Number); const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => !on.has(`${x + a},${y + b}`)); out += px(x, y, edge ? line : spots.has(k) ? shine : col); }
-  return `<svg viewBox="0 0 9 10" shape-rendering="crispEdges" aria-hidden="true">${out + px(3, 1, shine) + px(2, 2, shine)}</svg>`;
-}
 // Start (a new Claude session in the project's folder, through the Start box when nothing works on the issue yet)
 // or Resume (the session that works on it).
 async function startIssue(b) {
@@ -1517,7 +1507,8 @@ const CMD = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
 const K = ks => ks.map(k => `<span class="kbd">${esc(k)}</span>`).join('');
 const ic = id => `<svg class="i"><use href="#i-${id}"/></svg>`;
 const ico = (id, cls = '') => `<span class="b-ico ${cls}">${ic(id)}</span>`;
-const egg = (p, cls = '') => `<span class="b-ico ${cls}">${eggSVG(p)}</span>`;
+// A project's (or a ticket's) avatar: the project's own pet, resting.
+const projectPet = (p, cls = '') => `<span class="b-ico pet ${cls}">${creature(p, 'idle')}</span>`;
 const oneLine = t => String(t || '').replace(/\s+/g, ' ').trim();
 const times = x => `${x < 10 ? x.toFixed(1) : Math.round(x)}×`;
 let scope = 'overview', bq = '', items = [], cur = null, curKey = '', nextFocus = null, pendingSel = selected, proj = 'all';
@@ -1653,9 +1644,9 @@ function ticketItem([i, g, ss]) {
   if (bridge && g.dir) acts.push([T('day.openSession'), ['↵'], `data-start="${i.iid}" data-path="${esc(g.path)}"`]);
   if (bridge && i.url) acts.push([T('work.open'), [CMD, 'O'], `data-url="${esc(i.url)}"`]);
   return { id: `t:${g.path}#${i.iid}`, grp: 'doing', kind: 'board', cls: leadSt(ss) === 'waiting' ? 'hot' : '',
-    lead: lead ? pet(lead, '', ss.length > 1 ? `<span class="cnt">${ss.length}</span>` : '') : egg(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${ticketState(ss)}`,
+    lead: lead ? pet(lead, '', ss.length > 1 ? `<span class="cnt">${ss.length}</span>` : '') : projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${ticketState(ss)}`,
     meta: `${dupIssue(g.path, i.iid) || ss.some(s => dup.sessions.get(s.id)) ? '<span class="dup">⚠</span>' : ''}${lowCtx(ctxs.length ? Math.min(...ctxs) : null)}<span>${esc(ago(last))}</span>`,
-    detail: () => `${head(egg(g.path, 'lg'), `#${i.iid} ${i.title}`, `${BOARD.short(g.path)} · ${ticketState(ss)}`)}${stepper(i, ss)}
+    detail: () => `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, `${BOARD.short(g.path)} · ${ticketState(ss)}`)}${stepper(i, ss)}
       ${dupIssue(g.path, i.iid) ? `<p>${dupIssue(g.path, i.iid)}</p>` : ''}
       <section class="b-sec"><h3>${esc(T('tab.sessions'))}</h3>${ss.length ? `<ul class="rows">${familyOrder(ss).map(s => `<li>${rowBtn(s)}</li>`).join('')}</ul>` : `<p class="note">${esc(T('day.noSession'))}</p>`}</section>
       ${acts.length ? `<div class="acts" style="margin:0">${g.dir && bridge ? `<button class="btn pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${T('day.openSession')}</button>` : ''}${bridge && i.url ? `<button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button>` : ''}</div>` : ''}`,
@@ -1664,8 +1655,8 @@ function ticketItem([i, g, ss]) {
 function verifyItem([i, g, ss]) {
   const say = [...ss].sort((a, b) => b.since - a.since).find(s => s.summary), mr = /\/merge_requests\//.test(i.review), why = BOARD.why(i, ss, T, LOCALE());
   const acts = !bridge ? [] : [[T(mr ? 'day.openMR' : 'day.openPR'), ['↵'], `data-url="${esc(i.review)}"`], ...(ss.length && g.dir ? [[T('day.openSession'), [CMD, '⇧', 'O'], `data-start="${i.iid}" data-path="${esc(g.path)}"`]] : []), ...(i.url ? [[T('work.open'), [CMD, 'O'], `data-url="${esc(i.url)}"`]] : [])];
-  return { id: `v:${g.path}#${i.iid}`, grp: 'verify', kind: 'board', lead: egg(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${why}`,
-    detail: () => `${head(egg(g.path, 'lg'), `#${i.iid} ${i.title}`, BOARD.short(g.path))}${stepper(i, ss)}
+  return { id: `v:${g.path}#${i.iid}`, grp: 'verify', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${why}`,
+    detail: () => `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, BOARD.short(g.path))}${stepper(i, ss)}
       ${say ? `<section class="b-sec"><h3>${esc(T('pane.report'))}</h3><div class="report md">${markdown(say.summary)}</div></section>` : ''}
       ${ss.length ? `<section class="b-sec"><h3>${esc(T('tab.sessions'))}</h3><ul class="rows">${familyOrder(ss).map(s => `<li>${rowBtn(s)}</li>`).join('')}</ul></section>` : ''}
       ${bridge ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-url="${esc(i.review)}">${T(mr ? 'day.openMR' : 'day.openPR')}</button>${ss.length && g.dir ? `<button class="btn" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${T('day.openSession')}</button>` : ''}${i.url ? `<button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button>` : ''}</div>` : ''}`,
@@ -1682,7 +1673,7 @@ function todoItems() {
   const nx = bridge && BOARD.next(st, waiting, proj);
   if (nx) {
     const [i, g] = nx, why = i.due ? T(i.due < today() ? 'next.overdue' : 'next.due', { d: i.due }) : T('next.oldest');
-    it.push({ id: 'next', grp: 'todo', kind: 'board', lead: egg(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${why}`, meta: `<span class="badge accent">${esc(T('next.title'))}</span>`,
+    it.push({ id: 'next', grp: 'todo', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${why}`, meta: `<span class="badge accent">${esc(T('next.title'))}</span>`,
       detail: () => issueHTML(i, g, why), acts: [[T('day.start'), ['↵'], `data-start="${i.iid}" data-path="${esc(g.path)}"`]] });
   }
   all.filter(([, g]) => proj === 'all' || g.path === proj).forEach(x => it.push(issueItem(x)));
@@ -1703,14 +1694,14 @@ function issueItem([i, g]) {
   if (bridge && !wait) acts.push([!here ? T('day.web') : i.resume ? T('work.resume') : T('day.start'), ['↵'], here ? `data-start="${i.iid}" data-path="${esc(g.path)}"` : `data-url="${esc(i.url)}"`]);
   if (wait) acts.push([T('work.wait.cancel'), [CMD, '⌫'], `data-cancel="${esc(g.dir)}"`]);
   if (here && i.url) acts.push([T('work.open'), [CMD, 'O'], `data-url="${esc(i.url)}"`]);
-  return { id: `i:${g.path}#${i.iid}`, grp: 'todo', kind: 'board', lead: egg(g.path), label: `#${i.iid} ${i.title}`, cls: od ? 'hot' : '',
+  return { id: `i:${g.path}#${i.iid}`, grp: 'todo', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, cls: od ? 'hot' : '',
     sub: [BOARD.short(g.path), od ? T('day.overdue') : '', wait ? T('work.wait') : '', !g.dir && bridge ? T('b.away') : ''].filter(Boolean).join(' · '),
     meta: i.resume ? `<span class="badge">${esc(T('work.resume'))}</span>` : '', detail: () => issueHTML(i, g), acts };
 }
 function issueHTML(i, g, why) {
   const here = !!g.dir && !!bridge, wait = waiting.find(x => x.dir === g.dir && x.iid === i.iid);
   const tip = !here ? T('work.open') : i.resume ? T('work.resume.desc') : T('day.startDesc', { n: i.iid });
-  return `${head(egg(g.path, 'lg'), `#${i.iid} ${i.title}`, [BOARD.short(g.path), why].filter(Boolean).join(' · '))}
+  return `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [BOARD.short(g.path), why].filter(Boolean).join(' · '))}
     ${i.due && i.due < today() ? `<p class="hot">${esc(T('day.overdue'))} · ${esc(i.due)}</p>` : ''}
     <p class="note">${esc(wait ? T('work.wait.desc') : tip)}</p>${!g.dir && bridge ? `<p class="note">${esc(T('day.away'))}</p>` : ''}
     ${bridge ? `<div class="acts" style="margin:0">${wait ? `<span class="badge">${esc(T('work.wait'))}</span><button class="btn" type="button" data-cancel="${esc(g.dir)}">${esc(T('work.wait.cancel'))}</button>`
@@ -1764,7 +1755,7 @@ function skillItems() {
   it.unshift(...top);
   for (const p of procs) {
     const used = p.repo || p.imported;
-    it.push({ id: 'proc:' + p.path, grp: 'projects', kind: 'skills', lead: egg(p.path), label: BOARD.short(p.path),
+    it.push({ id: 'proc:' + p.path, grp: 'projects', kind: 'skills', lead: projectPet(p.path), label: BOARD.short(p.path),
       sub: [T('sk.team', { n: (p.skills || []).length }), used ? T('set.skillProcess') : '', (p.missing || []).length ? `${p.missing.length} ${T('start.missing')}` : ''].filter(Boolean).join(' · ') });
   }
   if (picked.some(([d]) => !procs.some(p => inDir(d, p.dir)))) it.push({ id: 'proc:*', grp: 'projects', kind: 'skills', lead: ico('file'), label: T('sk.habit.other'), sub: T('sk.habit') });
@@ -1794,7 +1785,7 @@ function paintProcess() {
   const used = p.repo || p.imported, n = x => x.rules.length, mine = picked.filter(([d]) => inDir(d, p.dir));
   const status = p.repo ? T('set.skillProcess.repo', { n: n(p.repo) }) : p.imported ? T('set.skillProcess.imported', { n: n(p.imported) }) : T('set.skillProcess.none');
   const team = p.skills || [], miss = p.missing || [];
-  box.innerHTML = `<div class="b-dh">${egg(p.path, 'lg')}<div><h2 title="${esc(p.path)}">${esc(BOARD.short(p.path))}</h2><p class="note" title="${esc(p.dir)}">${esc(home(p.dir))}</p></div></div><div class="proc">
+  box.innerHTML = `<div class="b-dh">${projectPet(p.path, 'lg')}<div><h2 title="${esc(p.path)}">${esc(BOARD.short(p.path))}</h2><p class="note" title="${esc(p.dir)}">${esc(home(p.dir))}</p></div></div><div class="proc">
     <div class="pg"><span class="lbl">${esc(T('sk.team', { n: team.length }))}</span>${team.length ? `<ul class="tags">${team.map(x => `<li title="${esc(x.description)}"><code>/${esc(x.name)}</code><span class="src">${esc(T('skill.src.' + x.source))}</span></li>`).join('')}</ul>` : `<p class="note">${esc(T('sk.team.none'))}</p>`}</div>
     <div class="pg"><span class="lbl">${esc(T('set.skillProcess'))}</span><span class="src">${esc(status)}${used?.name ? ` · ${esc(used.name)}` : ''}</span>
       ${p.repoError ? `<p class="note err">${esc(T('set.skillProcess.repoBad', { e: p.repoError }))}</p>` : ''}
@@ -2197,7 +2188,7 @@ function commands() {
   const A = T('b.actions'), c = [];
   for (const s of waitingList().filter(held)) c.push({ g: A, label: `${T('ask.allow')} ${toolOf(s)}: ${oneLine(s.answer?.full || s.ask)}`, sub: s.title || s.name, icon: pet(s, 'xs'), run: () => bridge.answer(s.answer.id, 'allow') });
   const nx = bridge && BOARD.next(st, waiting, 'all');
-  if (nx) c.push({ g: A, label: `${T('day.start')} #${nx[0].iid} ${nx[0].title}`, sub: T('next.title'), icon: egg(nx[1].path, 'xs'), run: () => { showTab('sessions'); bsel.sessions = 'next'; render(); $('#b-bar [data-primary]')?.click(); } });
+  if (nx) c.push({ g: A, label: `${T('day.start')} #${nx[0].iid} ${nx[0].title}`, sub: T('next.title'), icon: projectPet(nx[1].path, 'xs'), run: () => { showTab('sessions'); bsel.sessions = 'next'; render(); $('#b-bar [data-primary]')?.click(); } });
   c.push({ g: A, label: T('su.title'), icon: ic('file'), run: openStandup }, { g: A, label: T('day.report'), icon: ic('file'), run: openReport });
   if (bridge && work.status !== 'off') c.push({ g: A, label: T('work.refresh'), icon: ic('refresh'), run: () => bridge.refreshWork() });
   if (bridge && list.some(offScreen)) c.push({ g: A, label: T('board.showAll'), icon: ic('eye'), run: () => bridge.setPet('*', 'shown') });
