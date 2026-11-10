@@ -530,7 +530,7 @@ mod tests {
         let t = |v: serde_json::Value| super::sanitize(&serde_json::json!({ "tourSeen": v }), &super::defaults())["tourSeen"].clone();
         assert_eq!(t(serde_json::json!(["pets", "board", "pets", "Bad", "", 3, "stuck"])), serde_json::json!(["pets", "board", "stuck"]));
         assert_eq!(t(serde_json::json!("x")), serde_json::json!([]));
-        assert!(crate::i18n::TOUR.len() >= 8 && crate::i18n::TOUR[0] == "pets", "{:?}", *crate::i18n::TOUR);
+        assert!(crate::i18n::TOUR.len() >= 8 && crate::i18n::TOUR[0] == "flat", "{:?}", *crate::i18n::TOUR);
         assert_eq!(super::news_for(&s("0.1.3"), "0.1.4-rc.1", "0.1.4").as_deref(), Some("0.1.4"));
         assert_eq!(super::news_for(&s("0.1.4"), "0.1.4", "0.1.4"), None);
         assert_eq!(super::news_for(&s("0.1.3"), "0.1.5", "0.1.4"), None);

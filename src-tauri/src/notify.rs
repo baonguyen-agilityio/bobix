@@ -7,6 +7,8 @@ pub struct Note {
     pub body: String,
     pub sound: bool,
     pub buttons: Option<(String, String)>, // (Allow, Deny) labels
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub open: String, // the click action's label (Linux shows it)
 }
 
 pub enum Reply { Click, Allow, Deny }
@@ -40,7 +42,7 @@ fn show_blocking(n: &Note) -> Option<Reply> {
 #[cfg(target_os = "linux")]
 fn show_blocking(n: &Note) -> Option<Reply> {
     use notify_rust::{Hint, Notification};
-    let h = Notification::new().appname("Bobix").summary(&n.title).body(&n.body).action("default", "Open")
+    let h = Notification::new().appname("Bobix").summary(&n.title).body(&n.body).action("default", &n.open)
         .hint(Hint::SuppressSound(!n.sound)).show().ok()?;
     let mut out = None;
     h.wait_for_action(|a| if a == "default" { out = Some(Reply::Click) });

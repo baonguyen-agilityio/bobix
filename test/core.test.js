@@ -1023,7 +1023,7 @@ test('tour: every step has its words in both languages, NEWS is this version, an
   const I18N = require('../src/ui/i18n');
   assert.ok(TOUR.STEPS.length >= 6 && TOUR.STEPS.length <= 12, 'a short tour');
   assert.equal(new Set(TOUR.STEPS.map(s => s.key)).size, TOUR.STEPS.length, 'one key per step (settings.tourSeen)');
-  assert.deepEqual(TOUR.fresh(['pets', 'stuck', 'gone']).map(s => s.key), TOUR.STEPS.map(s => s.key).filter(k => k !== 'pets' && k !== 'stuck'), 'only the steps not seen yet');
+  assert.deepEqual(TOUR.fresh(['flat', 'stuck', 'gone']).map(s => s.key), TOUR.STEPS.map(s => s.key).filter(k => k !== 'flat' && k !== 'stuck'), 'only the steps not seen yet');
   assert.equal(TOUR.fresh(TOUR.STEPS.map(s => s.key)).length, 0);
   assert.equal(TOUR.fresh(undefined).length, TOUR.STEPS.length);
   for (const s of TOUR.STEPS) {
