@@ -48,11 +48,8 @@ function odSync(list) {
 // ---------- a pet under its balloon ----------
 function odRide(p) {
   const s = p.s, st = look(s), color = petColor(s, lastList || []), art = (s.parent && byId(s.parent)) || s;
-  const again = () => { if (OD.pets.get(s.id) === p && !p.leaving) odRide(p); };
-  const spr = fxSprite(art, st, color, again) || fxSprite({ ...art, image: null }, st, color, again);
-  if (!spr) return; // drawn as soon as its picture is ready
   p.R?.el.remove();
-  p.R = new PetRide.Ride(PetRide.look(spr, p.need, `${art.project || art.id}|${art.image || ''}|${st}|${color}`), cfg.size,
+  p.R = new PetRide.Ride(PetRide.look(pose => petArt(art, st, color, pose), st, p.need, `${art.project || art.id}|${art.image || ''}|${st}|${color}`), cfg.size,
     { origin: () => [p.x, p.y], layer: document.body }, hashStr(s.id + s.since));
   p.R.frozen = !FX_ON;
   p.el.querySelector('.spr')?.append(p.R.el);
@@ -78,7 +75,7 @@ function odLeave(p, need) {
   if (p.leaving) return;
   p.leaving = true; p.card = p.open = null; p.el.classList.add('going'); p.el.style.pointerEvents = 'none';
   odSeen(p);
-  if (FX_ON && p.R) p.R.leave(need); else { p.el.classList.add('gone'); p.goneAt = performance.now() + 320; } // removed by odFrame once faded
+  if (FX_ON) p.R.leave(need); else { p.el.classList.add('gone'); p.goneAt = performance.now() + 320; } // removed by odFrame once faded
   wake();
 }
 function odSeen(p) {
@@ -100,9 +97,9 @@ function odPaint(p) {
   p.el.className = `pet od st-${st}${p.hover ? ' hover' : ''}${p.leaving ? ' going' : ''}`;
   p.el.innerHTML = `<div class="spr"></div><div class="tag"><span class="nm">${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>
     <div class="card"><h2>${esc(s.title || s.name)}</h2><p class="sub">${esc(s.cwd)}</p>${k === 'done' ? '' : `<p class="q">${esc(s.quest || T('line.noQuest'))}</p>`}${need}
-      <div class="row"><span class="st">${esc(statusText(s, st))}</span><span>${T('pet.lv', { n: s.lv })}</span></div>
+      <div class="row"><span class="st"><i class="dot ${st}"></i>${esc(statusText(s, st))}</span><span class="badge">${T('pet.lv', { n: s.lv })}</span></div>
       <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div><div class="meter ${hp != null && hp < OD_CTX ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
-      <div class="hint"><span>${T('od.click')}</span>${k === 'waiting' ? '' : `<button class="hide" type="button" data-hide>${T('pet.hide')}</button>`}</div></div>`;
+      <div class="hint"><span>${T('od.click')}</span>${k === 'waiting' ? '' : `<button class="btn sm ghost" type="button" data-hide>${T('pet.hide')}</button>`}</div></div>`;
   if (p.R) p.el.querySelector('.spr').append(p.R.el);
   if (p.hover) odCardPlace(p);
 }
@@ -167,7 +164,7 @@ function odCardPlace(p) {
   const pill = OD.ui && !OD.ui.corner.hidden ? [odGrow(odRect(OD.ui.corner), M)] : [];
   const fits = r => r.l >= M && r.t >= M && r.r <= W - M && r.b <= H - M;
   const tries = [];
-  for (let k = 0; k <= 12; k++) for (const s of k ? [1, -1] : [1]) { // beside it, level with the balloon first, then higher or lower
+  for (let k = 0; k <= 24; k++) for (const s of k ? [1, -1] : [1]) { // beside it, level with the balloon first, then higher or lower (up to a tall card's height)
     const t = p.box.t + s * k * 24;
     tries.push({ l: R + 4, t, pref: k * 2 }, { l: L - 4 - cw, t, pref: k * 2 + 1 });
   }
@@ -198,7 +195,7 @@ function odFrame(t, dt) {
     const hover = over || t - (p.hoverAt ?? -1e9) < 300; // a short grace while moving between the pet and its card
     if (hover !== p.hover) { p.hover = hover; p.el.classList.toggle('hover', hover); if (hover) odCardPlace(p); else p.card = p.open = null; }
     if (p.hover && p.until !== Infinity) p.until = Math.max(p.until, now + 1500); // reading it: it stays
-    if (p.need === 'ctx') p.R?.setLevel(Math.min(4, Math.floor((now - p.t0) / OD_SHOW.ctx * 5))); // the balloon leaks
+    if (p.need === 'ctx') p.R.setLevel(Math.min(4, Math.floor((now - p.t0) / OD_SHOW.ctx * 5))); // the balloon leaks
     if (now > p.until) p.last = true;
     if (p.cross) { odCross(p, t, dt); if (!OD.pets.has(p.s.id)) continue; busy = true; }
     else if (p.last && !p.hover) odLeave(p, p.need);
@@ -253,7 +250,8 @@ function odPill() {
       OD.ui.pop.innerHTML = `<h2>${T('od.list')}</h2>` + list.map(s => {
         const st = look(s);
         return `<div class="row ${st}" data-sid="${esc(s.id)}"><span class="mini">${petArt(s, st, petColor(s, lastList || []))}</span><span class="nm">${esc(labelOf(s))}</span>`
-          + `<span class="stx">${esc(statusText(s, st))}</span>${st === 'waiting' ? answerButtons(s, now) : ''}</div>`;
+          // Allow / Deny when Bobix can answer; otherwise the row keeps its status (where to answer is its tooltip).
+          + `<span class="stx"${st === 'waiting' && !(bridge && left(s, now)) ? ` title="${esc(T(approveWhere(s)))}"` : ''}>${esc(statusText(s, st))}</span>${st === 'waiting' && bridge && left(s, now) ? answerButtons(s, now) : ''}</div>`;
       }).join('');
     }
   }

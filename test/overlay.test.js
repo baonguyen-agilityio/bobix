@@ -109,16 +109,16 @@ const PRELUDE = `(() => {
 const PROBE = `(() => { const out = []; let k = 0; for (const e of document.querySelectorAll('[data-probe]')) delete e.dataset.probe;
   for (const el of document.querySelectorAll('.pet')) {
     if (el.style.visibility === 'hidden') continue;
-    const node = el.querySelector('.spr>.fxs') || el.querySelector('.spr>canvas.fxc');
+    const node = el.querySelector('.spr>svg.fxl');
     if (!node || getComputedStyle(node).visibility === 'hidden') continue;
     const r = node.getBoundingClientRect(); node.dataset.probe = el.dataset.probe = String(++k);
     out.push({ k, id: [...pets.values()].find(q => q.el === el)?.s.id || '', x: r.left, y: r.top, w: r.width, h: r.height });
   } return out; })()`;
 
 // Every pet's state and boxes (left, right, top, bottom), for a failing check's dump.
-const STATE = `[...pets.values(), ...leaving].map(p => { const r = e => e ? (b => [b.left, b.right, b.top, b.bottom].map(v => Math.round(v * 10) / 10))(e.getBoundingClientRect()) : null, n = p.sheetShown ? p.sheetEl : p.cv;
+const STATE = `[...pets.values(), ...leaving].map(p => { const r = e => e ? (b => [b.left, b.right, b.top, b.bottom].map(v => Math.round(v * 10) / 10))(e.getBoundingClientRect()) : null, n = p.fl;
   return { id: p.s.id, state: p.s.state, parent: p.s.parent, cls: p.el.className, x: p.x, fade: p.el.style.opacity, probe: p.el.dataset.probe || null, kind: p.fx?.kind, total: p.fx && p.fx.total, queue: (p.queue || []).map(q => q[0]),
-    sheet: !!p.sheetShown, el: r(p.el), spr: r(p.el.querySelector('.spr')), effect: n?.isConnected ? r(n) : null, effectVisibility: n?.isConnected ? getComputedStyle(n).visibility : null, clip: n?.style.clipPath || '',
+    el: r(p.el), spr: r(p.el.querySelector('.spr')), effect: n?.isConnected ? r(n) : null, effectVisibility: n?.isConnected ? getComputedStyle(n).visibility : null, clip: n?.style.clipPath || '',
     lay: p.lay && { L: p.lay.L, R: p.lay.R, T: p.lay.T, B: p.lay.B, crowded: p.lay.crowded }, tags: [...p.el.querySelectorAll('.tag')].map(e => ({ cls: e.className, text: e.textContent, box: r(e) })),
     others: [...p.el.querySelectorAll('.bb, .say, .card')].map(e => ({ cls: e.className, box: r(e) })) }; })`;
 
@@ -161,10 +161,9 @@ async function run(b, url, settings, script, label, mayShowNone = false) {
       const x = Math.max(0, Math.floor(p.x)), y = Math.max(0, Math.floor(p.y)), r = Math.min(W, Math.ceil(p.x + p.w)), bo = Math.min(H, Math.ceil(p.y + p.h));
       if (r <= x || bo <= y) continue;
       const clip = { x, y, width: r - x, height: bo - y, scale: 1 }, shot = async () => { const d = (await b.send('Page.captureScreenshot', { format: 'png', clip })).data; return { ...png(Buffer.from(d, 'base64')), d }; };
-      // A loop's sheet can take its canvas's place between two calls (its picture decodes in real time): then this pet
-      // waits for the next look. The marks are taken off the very elements they were put on (window.__look), never looked
-      // up again: a canvas swapped out mid-look would keep its mark, come back with its next effect, and show in every
-      // other pet's "effect alone" screenshot.
+      // The marks are taken off the very elements they were put on (window.__look), never looked up again: a layer taken
+      // out mid-look would keep its mark, come back with its next effect, and show in every other pet's "effect alone"
+      // screenshot.
       if (!await ev(`(() => { const n = document.querySelector('[data-probe="${p.k}"]:not(.pet)'); if (!n) return false; window.__look = [n, document.querySelector('.pet[data-probe="${p.k}"] .spr')];
         document.body.classList.add('__only'); n.classList.add('__on'); return true; })()`)) continue;
       const fx = await shot();
@@ -224,7 +223,7 @@ async function reducedMotion(b, url) {
     const n = await ev('__now()');
     await ev(`__push(${JSON.stringify([ses('w', { state: 'waiting', since: n }), ses('d', { cwd: '/tmp/d', state: 'done', since: n }), ses('t', { cwd: '/tmp/t', state: 'working', tool: 'Bash', since: n })])})`);
     for (let i = 0; i < 60; i++) await ev('__step(33.4)');
-    return await ev(`({ fxOn: FX_ON, effects: document.querySelectorAll('.fxc,.fxs').length, balloons: [...document.querySelectorAll('.pet:not(.line-off) .bb')].map(e => e.className).sort() })`);
+    return await ev(`({ fxOn: FX_ON, effects: document.querySelectorAll('.fxl').length, balloons: [...document.querySelectorAll('.pet:not(.line-off) .bb')].map(e => e.className).sort() })`);
   } finally { await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] }); }
 }
 
