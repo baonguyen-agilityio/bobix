@@ -34,7 +34,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 ## Features
 
 ### Pets for your sessions
-- **One pet per session.** A project's sessions (git worktrees too) share one of five flat-icon designs, each session in a colour of its own, named after the session's title. Want your own picture? **Change pet** turns it into pixel art for the pet's face or the whole pet.
+- **One pet per session.** A project's sessions (git worktrees too) share one of five flat-icon designs, each session in a colour of its own, named after the session's title.
 - **One line along the edge** of the screen you choose, top or bottom, walking one way; side sessions walk right behind the session they came from. Or **Show when needed**: only a session that needs you rises up the screen until you answer it.
 - **Small signals**: a level-up when a session finishes a task, a low battery when its context runs low. With reduced motion, a balloon says what needs you instead.
 

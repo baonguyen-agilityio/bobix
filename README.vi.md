@@ -34,7 +34,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 ## Tính năng
 
 ### Thú cưng cho các session
-- **Mỗi session một chú thú.** Các session của cùng một project (kể cả git worktree) dùng chung một trong năm mẫu thú kiểu icon phẳng, mỗi session một màu riêng, tên lấy theo tiêu đề session. Muốn dùng ảnh của bạn? **Đổi thú cưng** biến ảnh thành pixel art làm mặt hoặc cả chú thú.
+- **Mỗi session một chú thú.** Các session của cùng một project (kể cả git worktree) dùng chung một trong năm mẫu thú kiểu icon phẳng, mỗi session một màu riêng, tên lấy theo tiêu đề session.
 - **Một hàng dọc mép** màn hình bạn chọn, mép trên hoặc mép dưới, đi cùng một chiều; session phụ đi ngay sau session đã tạo ra nó. Hoặc **Hiện khi có việc**: chỉ session cần bạn mới bay lên màn hình cho tới khi bạn trả lời.
 - **Tín hiệu nhỏ**: lên cấp khi session xong một việc, pin yếu khi context sắp hết. Khi bật giảm chuyển động, một quả bóng cho biết việc gì cần bạn.
 
