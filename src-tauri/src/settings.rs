@@ -10,7 +10,7 @@ pub fn defaults() -> Value {
     json!({
         "language": "auto", "port": 4747, "display": "primary", "edge": "bottom", "walkDir": "ltr", "petMode": "edge", "dnd": "0", "dndUntil": 0, "zoneStart": 0, "zoneEnd": 100,
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "longWait": 10, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
-        "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true,
+        "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true, "badge": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false, "tourSeen": [],
         "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "petImages": {},
         "habitsOn": false, "habitsNo": {}, "habitsHidden": {}, "habitsSkill": {}, "habitsPetDay": "",

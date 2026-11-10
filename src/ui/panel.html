@@ -964,6 +964,7 @@ const SECTIONS = [
     { k: 'longWait', type: 'number', min: 1, max: 120, step: 1, unit: 'set.minutes' },
     { k: 'notifyWaiting', type: 'switch', dim: s => s.paused },
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
+    { k: 'badge', type: 'switch', dim: s => !!dndLeft(s) },
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
     { k: 'checkUpdates', type: 'switch' },
   ]],

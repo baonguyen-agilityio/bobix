@@ -99,7 +99,7 @@ impl Bobix {
 
     pub fn broadcast(self: &Arc<Self>) {
         let _ = self.tx.send(self.snapshot());
-        if let Some(app) = self.app.get() { overlay::wake(app, self); }
+        if let Some(app) = self.app.get() { overlay::wake(app, self); tray::badge(app, self, false); }
     }
 
     // A hook event. Returns what the hook waits for: a held permission request's answer, or a new session's name.
@@ -366,7 +366,7 @@ fn tick(b: &Arc<Bobix>) {
     }
     remember(lines, now);
     for (id, pid) in to_check { check_pid(b, id, pid); }
-    if changed { b.broadcast(); }
+    if changed { b.broadcast(); } else if let Some(app) = b.app.get() { tray::badge(app, b, false); } // do not disturb may have ended
 }
 
 // Usage per session (usage.rs): transcripts are read under the usage lock only; the core is locked briefly before
@@ -612,6 +612,7 @@ pub fn update_settings(b: &Arc<Bobix>, patch: Value) -> Value {
         if ["display", "edge", "size", "petMode"].iter().any(|k| changed(k)) { overlay::place(app, b); }
         if changed("petsVisible") { overlay::show_or_hide(app, b); overlay::wake(app, b); }
         if ["petsVisible", "paused", "language", "seenVersion"].iter().any(|k| changed(k)) { tray::build(app, b); }
+        tray::badge(app, b, false);
     }
     answers::release_unseen(b);
     for f in work::FORGES { if changed(f.key()) { refresh_forge(b, f); } }

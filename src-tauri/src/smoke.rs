@@ -64,8 +64,12 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         report["answer"] = match aid {
             None => json!("error: not held"),
             Some(id) => {
+                // The tray badge counts the held request, and clears once it is answered.
+                let applied = || { thread::sleep(Duration::from_millis(600)); crate::tray::APPLIED.load(std::sync::atomic::Ordering::Relaxed) };
+                report["badge"] = json!({ "held": applied() });
                 answers::answer(&b, &id, "allow");
                 let out = held.join().unwrap_or_default();
+                report["badge"]["answered"] = json!(applied());
                 json!(if out.contains("\"behavior\":\"allow\"") { "ok".to_string() } else { format!("error: hook printed {out:?}") })
             }
         };
@@ -162,7 +166,8 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
             && ["audit", "disable", "undoDisable", "remove", "undoRemove", "lines", "rulesAdd", "rulesRemove"].iter().all(|k| report["skillsPanel"][k] == true)
-            && report["settingsSaved"] == true && report["tray"] == true && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
+            && report["settingsSaved"] == true && report["tray"] == true
+            && report["badge"]["held"].as_u64().unwrap_or(0) >= 1 && report["badge"]["answered"].as_u64() < report["badge"]["held"].as_u64() && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
         write(&report);
         log(&format!("done {report}"));
