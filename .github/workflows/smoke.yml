@@ -3,8 +3,15 @@
 name: smoke
 on:
   push:
+    branches: [develop, main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+# A newer push to a PR replaces the older run of that PR; runs on develop, main and tags are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   tauri:
