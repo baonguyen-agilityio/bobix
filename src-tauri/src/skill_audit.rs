@@ -235,7 +235,8 @@ pub fn apply(home: &Path, dir: Option<&Path>, data: &Path, key: &str, act: &str)
     if act != "disable" && act != "remove" { return err("unknown change"); }
     let dir = dir.map(Path::to_path_buf).unwrap_or_else(|| home.join(".claude/no-project"));
     let list = skills::all(home, &dir);
-    let Some(s) = list.iter().find(|s| s.dir.to_string_lossy() == key) else { return err("no such skill here") };
+    // Compared as paths: on Windows "\\" and "/" are the same separator.
+    let Some(s) = list.iter().find(|s| s.dir == Path::new(key)) else { return err("no such skill here") };
     let c = change(s, &list);
     if c["can"] != true { let mut r = err(format!("not changed: a {} skill", c["why"].as_str().unwrap_or("other"))); r["plan"] = c["plan"].clone(); return r; }
     // Only a folder directly in a skills folder Claude reads (defence in depth: the list gave it).
