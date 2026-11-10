@@ -1599,7 +1599,7 @@ function sessItem(s, grp, kid) {
   if (bridge) acts.push([T('pane.open'), acts.length ? [CMD, 'O'] : ['↵'], 'data-act="open"'], [T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet'), [CMD, '⇧', 'H'], 'data-act="pet"'], ...(PICTURE_PETS ? [[T('pane.petPick'), [CMD, '⇧', 'P'], 'data-act="pic"']] : []));
   return { id: 's:' + s.id, grp, kind: 'session', s: s.id, cls: `${kid ? 'kid' : ''}${lk === 'waiting' ? ' hot' : ''}`, lead: pet(s),
     label: s.title || s.name, sub: [statusText(s, lk), s.issue && !kid ? '#' + s.issue.iid : ''].filter(Boolean).join(' · '),
-    meta: `${s.mark ? `<span class="badge warn" title="${esc(T('pet.assume'))}">!</span>` : ''}${dup.sessions.get(s.id) ? '<span class="dup">⚠</span>' : ''}${lowCtx(s.ctx)}${u?.times != null ? `<span class="${u.warnings?.length ? 'hot' : ''}">${times(u.times)}</span>` : ''}<span>${esc(ago(s.since))}</span>`,
+    meta: `${s.mark ? `<span class="badge warn" title="${esc(T('pet.assume'))}">?</span>` : ''}${dup.sessions.get(s.id) ? '<span class="dup">⚠</span>' : ''}${lowCtx(s.ctx)}${u?.times != null ? `<span class="${u.warnings?.length ? 'hot' : ''}">${times(u.times)}</span>` : ''}<span>${esc(ago(s.since))}</span>`,
     detail: () => sessionHTML(s), acts };
 }
 function ticketItem([i, g, ss]) {
@@ -1742,7 +1742,7 @@ function flowHTML(f, s) {
   return `${head(s ? pet(s, 'lg') : projectPet(f.path, 'lg'), `#${f.iid} ${f.title}`, `${BOARD.short(f.path)} · ${T('tk.st.' + f.status)}`)}
     <div class="stg">${steps}<p class="why">${esc(T('tk.why.' + f.status))}</p></div>
     ${asks ? `<div class="ask"><strong>${esc(T('tk.gate'))}</strong> ${esc(T('tk.gate.note'))}</div>` : ''}
-    ${plan ? `<section class="b-sec"><h3>${esc(T('tk.plan'))}</h3>${moreHTML('tkp:' + f.key, markdown(plan), 'report md')}</section>` : ''}
+    ${plan ? `<section class="b-sec"><h3>${esc(T('tk.plan'))}</h3>${asks ? `<div class="report md">${markdown(plan)}</div>` : moreHTML('tkp:' + f.key, markdown(plan), 'report md')}</section>` : ''}
     ${asks ? (held ? `<label class="tk-ch"><span>${esc(T('tk.change.l'))}</span><textarea rows="2" data-tk-text="${k}" data-f="tkch:${k}" placeholder="${esc(T('tk.change.ph'))}">${esc(tkChange[f.key] || '')}</textarea></label>
       <div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-ok="${k}" data-f="tkok:${k}">${esc(T('tk.approve'))}</button><button class="btn" type="button" data-tk-no="${k}">${esc(T('tk.change'))}</button></div>
       <p class="note">${esc(T('tk.approve.note'))}</p>` : `<p class="note">${esc(T('tk.approve.where'))}</p>`) : ''}

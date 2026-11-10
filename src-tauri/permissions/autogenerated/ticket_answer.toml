@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ticket-answer"
+description = "Enables the ticket_answer command without any pre-configured scope."
+commands.allow = ["ticket_answer"]
+
+[[permission]]
+identifier = "deny-ticket-answer"
+description = "Denies the ticket_answer command without any pre-configured scope."
+commands.deny = ["ticket_answer"]

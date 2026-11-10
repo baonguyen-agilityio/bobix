@@ -165,7 +165,7 @@ pub fn keep_log(data: &Path, f: &Flow) {
 
 // ---------- Haiku, only when you click: through your own `claude -p`, no tools, no hooks (no pet for it) ----------
 fn haiku(claude: &str, prompt: &str, schema: Option<&str>) -> Result<Value, String> {
-    let mut a = vec!["-p", "--model", "haiku", "--tools", "", "--no-session-persistence", "--settings", r#"{"disableAllHooks":true}"#, "--output-format", "json"];
+    let mut a = vec!["-p", "--model", "haiku", "--tools", "", "--no-session-persistence", "--strict-mcp-config", "--settings", r#"{"disableAllHooks":true}"#, "--output-format", "json"];
     if let Some(s) = schema { a.extend(["--json-schema", s]); }
     a.push(prompt);
     let r = procs::exec(claude, &a, 120, &[]);

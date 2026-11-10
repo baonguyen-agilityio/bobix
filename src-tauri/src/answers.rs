@@ -50,7 +50,7 @@ pub fn risky(tool: &str, input: &Value) -> bool {
 // The request's main text, whole (the session keeps a short one): the command, file, address… else its input.
 fn full_text(e: &Value) -> String {
     let i = &e["tool_input"];
-    let t = ["command", "file_path", "url", "pattern", "query"].iter().find_map(|k| i[*k].as_str().filter(|s| !s.is_empty()))
+    let t = ["command", "file_path", "url", "pattern", "query", "plan"].iter().find_map(|k| i[*k].as_str().filter(|s| !s.is_empty()))
         .map(String::from).unwrap_or_else(|| if i.is_object() { i.to_string() } else { String::new() });
     crate::js::head16(&t, 2000).to_string()
 }
@@ -139,6 +139,7 @@ mod tests {
         let e = serde_json::json!({ "tool_input": { "command": "npm test", "description": "d" } });
         assert_eq!(super::full_text(&e), "npm test");
         assert_eq!(super::full_text(&serde_json::json!({ "tool_input": { "a": 1 } })), "{\"a\":1}");
+        assert_eq!(super::full_text(&serde_json::json!({ "tool_input": { "plan": "1. add it" } })), "1. add it", "a plan reads as itself");
         assert_eq!(super::new_id().len(), 32);
     }
 

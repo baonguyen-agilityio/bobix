@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ticket-start"
+description = "Enables the ticket_start command without any pre-configured scope."
+commands.allow = ["ticket_start"]
+
+[[permission]]
+identifier = "deny-ticket-start"
+description = "Denies the ticket_start command without any pre-configured scope."
+commands.deny = ["ticket_start"]
