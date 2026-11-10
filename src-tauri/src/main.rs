@@ -27,6 +27,7 @@ mod habit_skills;
 mod skills;
 mod smoke;
 mod state;
+mod tickets;
 mod tray;
 mod update;
 mod usage;
@@ -57,6 +58,7 @@ pub struct Core {
     pub save_gen: u64,                     // settings saves are debounced: only the newest one writes
     pub habits: habits::Mem,               // the permission requests waiting, for the habit log (memory only)
     pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
+    pub tickets: tickets::Flows,           // the ticket flow (#112): kept in the data folder, this machine only
     pub usage: Value,                      // usage::Store::meta: the price table's date, how many past sessions make the normal
 }
 
@@ -114,7 +116,7 @@ impl Bobix {
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, settings, work, waits, habits: mem, .. } = &mut *c;
+            let Core { sessions, pending, settings, work, waits, habits: mem, tickets: flows, .. } = &mut *c;
             let gitlab = work::any_on(settings);
             let remember = habits::on(settings);
             let before = if remember { habits::before(sessions, &e) } else { None };
@@ -138,7 +140,10 @@ impl Bobix {
                     }
                     find_parent(s, now);
                     let git_dir = git_due(work, s, ev == "Stop" || start, now);
-                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e) }
+                    let tool = e["tool_name"].as_str().unwrap_or("");
+                    if flows.on_event(&id, &s.cwd, &ev, tool, e["tool_input"]["plan"].as_str(), now) { flows.save(); }
+                    let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
+                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e, plan) }
                         // A session that starts on an issue (New in the Work tab, or its branch) gets its name from Bobix,
                         // the way /rename names it; one that has a name keeps it.
                         else if start && source == "startup" && untitled && work.new_for.contains_key(&s.cwd) { Some(take_issue(work, settings, s)) }
@@ -1271,7 +1276,7 @@ fn main() {
     let (tx, _) = broadcast::channel(64);
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
-            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), usage: Value::Null }),
+            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
         tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())),
     });
 
@@ -1409,7 +1414,7 @@ mod snapshot_tests {
         ];
         work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), usage: Value::Null }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");
