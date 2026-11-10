@@ -662,7 +662,11 @@ async function habitMorning() {
 setInterval(habitMorning, 5 * 60e3);
 const moveTo = m => { mouse = m; mouseMoved = true; wake(); };
 addEventListener('mousemove', e => moveTo({ x: e.clientX, y: e.clientY }));
-addEventListener('mouseleave', () => moveTo({ x: -1, y: -1 }));
+// The cursor left the window. On XWayland the page's own events are all it knows of the cursor (overlay.rs, track_mouse),
+// so the last spot, usually the pet just left, would stay hovered while the cursor works in a Wayland window.
+// mouseleave does not bubble up to window: hear it on <html>, and mouseout with no relatedTarget says the same.
+document.documentElement.addEventListener('mouseleave', () => moveTo({ x: -1, y: -1 }));
+addEventListener('mouseout', e => { if (!e.relatedTarget) moveTo({ x: -1, y: -1 }); });
 document.addEventListener('visibilitychange', wake);
 if (bridge) {
   bridge.onMouse(moveTo);            // the window is click-through most of the time, so the app feeds us the cursor
