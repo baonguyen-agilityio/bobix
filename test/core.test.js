@@ -1108,6 +1108,24 @@ test('room: every string in both languages, and every one the panel uses exists'
   for (const k of keys) if (!k.startsWith('rm.why.') && !k.startsWith('rm.ev.') && !k.startsWith('rm.state.')) assert.ok(html.includes(`'${k}'`), `unused ${k}`);
 });
 
+test('a plan approval reads "Approve the plan", not ExitPlanMode; other tools keep their own name', () => {
+  const I18N = require('../src/ui/i18n');
+  assert.equal(I18N.askLabel('en', 'ExitPlanMode'), 'Approve the plan');
+  assert.equal(I18N.askLabel('vi', 'ExitPlanMode'), 'Duyệt kế hoạch');
+  for (const tool of ['Bash', 'Edit', 'mcp__gitlab__create_issue']) assert.equal(I18N.askLabel('en', tool), tool);
+  const html = require('fs').readFileSync(require('path').join(__dirname, '../src/ui/panel.html'), 'utf8');
+  assert.match(html, /const toolOf = s => s\.askTool \? I18N\.askLabel\(lang, s\.askTool\)/, 'the panel names the tool through askLabel');
+});
+
+test('the habits day list says "1 approval" for one, in both languages', () => {
+  const I18N = require('../src/ui/i18n');
+  assert.equal(I18N.t('en', 'hab.set.ask1', { m: 2 }), '1 approval, 2 min waiting');
+  assert.equal(I18N.t('en', 'hab.set.asks', { n: 3, m: 2 }), '3 approvals, 2 min waiting');
+  assert.equal(I18N.t('vi', 'hab.set.ask1', { m: 2 }), 'chờ duyệt 1 lần, 2 phút');
+  const html = require('fs').readFileSync(require('path').join(__dirname, '../src/ui/panel.html'), 'utf8');
+  assert.ok(html.includes("T(x.asks === 1 ? 'hab.set.ask1' : 'hab.set.asks'"), 'the day list picks the singular for one');
+});
+
 test('ticket flow: steps, the Start prompt, disk sizes', () => {
   const B = require('../src/ui/board');
   assert.deepStrictEqual(['starting', 'planning', 'approve', 'running', 'done', 'blocked', 'x'].map(B.flowStep), ['plan', 'plan', 'approve', 'run', 'done', 'done', 'plan']);
