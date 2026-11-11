@@ -1878,7 +1878,8 @@ async function rpSave() {
   const all = { ...(state.settings.workRepos || {}) };
   for (const [h, set] of Object.entries(rpDraft())) all[h] = [...set];
   rp.dirty = false;
-  await askIssues(() => save({ workRepos: all }));
+  const same = Object.keys(all).every(h => JSON.stringify([...all[h]].sort()) === JSON.stringify([...(state.settings.workRepos?.[h] || [])].sort()));
+  await (same ? save({ workRepos: all }) : askIssues(() => save({ workRepos: all }))); // the same ticks read nothing again
   toast(T('work.repos.saved', { n: draftCount() }));
 }
 function workItems() {

@@ -393,7 +393,8 @@ fn start_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> 
 // BOBIX_SMOKE_READS=<stand-in state dir> (with BOBIX_HOME set; not in CI): #178, reading the issues again, against stand-in
 // glab and gh that read slowly (3 s), find nothing, hang or are down while `slow`, `none`, `gl-hang` or `gh-down` is in
 // that dir. The filter shows "Reading your issues…" in place of the list at once (within 100 ms) and looks busy; a second
-// change before the first read ends wins (the first answer is never shown); the page arrows and Refresh say so too;
+// change before the first read ends wins (the first answer is never shown); the page arrows, Refresh, the repo picker's
+// Show issues and its Read again say so too;
 // one host down shows the others' issues and names it; one timing out and one down stop reading and name both; none says so.
 fn reads_step(app: &AppHandle, sdir: &str) -> Value {
     if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
@@ -418,7 +419,13 @@ fn reads_step(app: &AppHandle, sdir: &str) -> Value {
         t0 = performance.now(); document.querySelector('#b-list [data-act=refresh]')?.click(); r.refreshLoading = loadingNow() && performance.now() - t0 < 100; await until(() => !reading(), 20000); \
         await askIssues(() => save({ workFilter: 'all' })); r.allBack = await until(() => !reading() && work.filter === 'all' && work.more, 20000); \
         const nx = document.querySelector('#scopes .pager [data-wpage]:last-child'); t0 = performance.now(); nx?.click(); r.pageLoading = !!nx && loadingNow() && performance.now() - t0 < 100; \
-        r.pageEnds = await until(() => !reading() && work.page === 2, 20000); await w(hold); document.querySelector('#scopes .pager [data-wpage]')?.click(); await until(() => !reading() && work.page === 1, 20000);"), 120);
+        r.pageEnds = await until(() => !reading() && work.page === 2, 20000); await w(hold); document.querySelector('#scopes .pager [data-wpage]')?.click(); await until(() => !reading() && work.page === 1, 20000); \
+        bsel.work = 'repos'; render(); await until(() => rp.list && !rp.busy && !!document.querySelector('#b-dyn [data-rp-load=fresh]'), 20000); document.querySelector('#b-dyn [data-rp-load=fresh]').click(); await w(50); \
+        r.readAgainBusy = rp.busy && document.querySelector('#b-dyn [aria-busy=true] .rp-h') !== null && document.querySelector('#b-dyn').textContent.includes(T('work.repos.loading')); await until(() => !rp.busy, 20000); await w(300); \
+        const off = [...document.querySelectorAll('#b-dyn [data-rp-tick]:checked')].find(x => x.value !== 'acme/web-shop'); off?.click(); await w(100); \
+        t0 = performance.now(); document.querySelector('#b-dyn [data-rp-save]').click(); r.showIssuesLoading = !!off && loadingNow() && performance.now() - t0 < 100; \
+        r.showIssuesEnds = await until(() => !reading(), 20000); const back = [...document.querySelectorAll('#b-dyn [data-rp-tick]')].find(x => x.value === off?.value); \
+        if (back && !back.checked) { back.click(); await w(100); document.querySelector('#b-dyn [data-rp-save]')?.click(); await until(() => !reading(), 20000); }"), 150);
     merge(&mut r, x);
     flag("slow", false);
     flag("gh-down", true);
@@ -435,7 +442,7 @@ fn reads_step(app: &AppHandle, sdir: &str) -> Value {
     merge(&mut r, x);
     flag("none", false);
     let _ = ask_for(app, panel::LABEL, "(async () => { await bridge.refreshWork(); return true; })()", 10);
-    let keys = ["ready", "filterLoading", "busy", "responsive", "ended", "newestWins", "neverOld", "listBack", "refreshLoading", "allBack", "pageLoading", "pageEnds", "oneDown", "allDownEnds", "allDown", "noneSaid"];
+    let keys = ["ready", "filterLoading", "busy", "responsive", "ended", "newestWins", "neverOld", "listBack", "refreshLoading", "allBack", "pageLoading", "pageEnds", "readAgainBusy", "showIssuesLoading", "showIssuesEnds", "oneDown", "allDownEnds", "allDown", "noneSaid"];
     r["failedChecks"] = json!(keys.iter().filter(|k| r[**k] != true).collect::<Vec<_>>());
     r["pass"] = json!(keys.iter().all(|k| r[*k] == true));
     r
