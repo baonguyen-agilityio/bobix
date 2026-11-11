@@ -1779,7 +1779,7 @@ function issueHTML(i, g, why) {
   const tip = !here ? T('work.where.tip') : i.resume ? T('work.resume.desc') : T('day.startDesc', { n: i.iid });
   return `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [g.path, whoText(i), why].filter(Boolean).join(' · '))}
     ${i.due && i.due < today() ? `<p class="hot">${esc(T('day.overdue'))} · ${esc(i.due)}</p>` : ''}
-    <p class="note">${esc(wait ? T('work.wait.desc') : tip)}</p>${!g.dir && bridge ? whereHTML(g) : viaHTML(g)}
+    <p class="note">${esc(wait ? T('work.wait.desc') : tip)}</p>${!g.dir && bridge ? whereHTML(g) : viaHTML(g)}${flowsHTML(g.path, i.iid)}
     ${bridge ? `<div class="acts" style="margin:0">${wait ? `<span class="badge">${esc(T('work.wait'))}</span><button class="btn" type="button" data-cancel="${esc(g.dir)}">${esc(T('work.wait.cancel'))}</button>`
       : here ? `<button class="btn pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(tip)}">${esc(i.resume ? T('work.resume') : T('day.start'))}</button>` : ''}${i.url ? `<button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button>` : ''}</div>` : ''}`;
 }
@@ -1852,12 +1852,13 @@ const modelsLine = m => (m?.size === 'large' && m.steps?.length ? m.steps.map(x 
 // The repo picker: every repository your glab / gh can reach, ticked ones' issues listed. The list is read when the
 // picker opens (and again on "Read again"); ticks are a draft until "Show issues", then kept in Settings (workRepos).
 // Until you change a tick, the draft follows the saved ticks (the first ones are saved by the first read).
-const rp = { list: null, busy: false, q: '', draft: null, dirty: false };
+const rp = { list: null, busy: false, q: '', draft: null, dirty: false, tried: false };
 const tickedCount = () => Object.values(state?.settings?.workRepos || {}).reduce((n, a) => n + a.length, 0);
 async function loadRepos(fresh) {
   if (!bridge || rp.busy) return;
   rp.busy = true; render();
-  rp.list = await bridge.workRepos(!!fresh).catch(() => []);
+  const x = await bridge.workRepos(!!fresh).catch(() => null);
+  rp.list = Array.isArray(x) ? x : []; // whatever comes back ends the load: drawing never asks again on its own
   rp.busy = false; render();
 }
 function rpDraft() {
@@ -1872,7 +1873,7 @@ function reposItem() {
     detail: reposHTML, acts: [[T('work.repos.choose'), ['↵'], 'data-rp-load="1"']] };
 }
 function reposHTML() {
-  if (!rp.list && !rp.busy) setTimeout(() => loadRepos(false));
+  if (!rp.list && !rp.busy && !rp.tried) { rp.tried = true; setTimeout(() => loadRepos(false)); } // once; Read again asks again
   if (rp.list) rpDraft();
   const top = `${head(ico('work', 'lg'), T('work.repos.t'), rp.list ? T('work.repos.count', { n: draftCount(), all: (rp.list || []).reduce((a, h) => a + h.repos.length, 0) }) : '')}<p class="note">${esc(T('work.repos.note', { d: 90 }))}</p>`;
   if (!rp.list) return `${top}<p class="note">${esc(T('work.repos.loading'))}</p>`;
@@ -1994,7 +1995,7 @@ function startItem([i, g]) {
 function startHTML(i, g, k) {
   const pr = tkPrep[k], ek = esc(k), p = pr?.prep;
   const code = tkCode(k), other = code !== g.path, dirOf = codeDir(code);
-  if (bridge && !rp.list && !rp.busy) setTimeout(() => loadRepos(false)); // the picker's choices: every repository you can reach
+  if (bridge && !rp.list && !rp.busy && !rp.tried) { rp.tried = true; setTimeout(() => loadRepos(false)); } // the choices: every project you can reach, read once
   // "Fix it in which project?": the ticket's own project, or the one picked last time for this ticket's project
   const pick = `<p class="tk-code"><label for="tkc-${ek}"><strong>${esc(T('tk.code'))}</strong></label> <select class="sel" id="tkc-${ek}" data-tk-code="${ek}" data-f="tkc:${ek}">${codeChoices(g).map(c => `<option value="${esc(c)}"${c === code ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></p>`;
   const top = `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [g.path, whoText(i), ...(i.labels || [])].filter(Boolean).join(' · '))}<p class="note">${esc(T('tk.flow.note'))}</p>${other ? '' : viaHTML(g)}${flowsHTML(g.path, i.iid)}${pick}`;

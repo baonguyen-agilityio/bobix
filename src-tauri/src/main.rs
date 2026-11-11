@@ -608,7 +608,7 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
         let auth = bin.as_deref().and_then(|x| f.auth(x));
         let at = state::now();
         let read_ok;
-        let (filter, need) = { let c = b.core.lock().unwrap(); (c.settings["workFilter"].as_str().unwrap_or("all").to_string(), c.work.page.max(1) * work::PER_PAGE + 1) };
+        let (filter, need) = { let c = b.core.lock().unwrap(); (c.settings["workFilter"].as_str().unwrap_or("all").to_string(), work::need_for(c.work.page)) };
         let (next, reviews) = match (&bin, auth) {
             (_, None) => (json!({ "status": f.missing(), "at": at }), vec![]), // look again next time: it may be installed by then
             (_, Some((h, _))) if h.is_empty() => (json!({ "status": f.signed_out(), "hosts": h, "at": at }), vec![]),
@@ -700,7 +700,7 @@ async fn work_repos(fresh: Option<bool>, b: B<'_>) -> Result<Value, ()> {
 // The Work list's page (from 1): read again for it.
 #[tauri::command]
 fn work_page(page: usize, b: B) -> usize {
-    let page = page.clamp(1, 50);
+    let page = page.clamp(1, work::MAX_PAGE);
     b.core.lock().unwrap().work.page = page;
     refresh_issues(&b);
     page

@@ -218,7 +218,7 @@ fn repos_step(app: &AppHandle, spec: &str) -> Value {
         const ticked = () => Object.values(state.settings.workRepos || {{}}).flat().sort(), upd = () => st.todo.map(x => x[0].updated || '').sort(); \
         const first = () => {{ const it = workItems().find(x => x.grp === 'fstart'); if (it) bsel.work = it.id; render(); }}; \
         $('#toasts').replaceChildren(); r.on = state.settings.github === true && state.settings.gitlab === true; await bridge.refreshWork(); \
-        r.read = await until(() => work.status === 'ok' && st.todo.length > 0, 40000); r.preTicked = ticked().join(','); r.oldOut = !ticked().includes({old}); \
+        r.read = await until(() => work.status === 'ok' && (work.hosts || []).length >= 2 && st.todo.length > 0 && ticked().length >= {n}, 40000); await bridge.refreshWork(); await w(1500); r.preTicked = ticked().join(','); r.oldOut = !ticked().includes({old}); \
         r.found = await until(() => state.settings.workDirs?.[{found}]?.how === 'found', 30000); \
         r.page1 = st.todo.length; r.more = work.more === true; const oldest = upd()[0]; showTab('work'); first(); await w({hold}); \
         await bridge.workPage(2); r.page2 = await until(() => work.page === 2 && st.todo.length > 0 && upd().at(-1) <= oldest, 20000); first(); await w({hold}); \
@@ -238,7 +238,7 @@ fn repos_step(app: &AppHandle, spec: &str) -> Value {
         const ok = await bridge.linkFolder({away}, {dir}); r.linked = !!ok.ok; r.startable = await until(() => !!document.querySelector('#b-dyn [data-tk-prep]'), 15000); \
         showTab('sessions'); const it = items.find(x => x.id.startsWith('i:')); if (it) {{ bsel.sessions = it.id; render(); }} await w(300); r.who = !!it && /assigned|giao/.test(it.sub); await w({hold}); \
         showTab('settings'); bsel.settings = 'set:work'; render(); await w(300); await w({hold}); showTab('work'); return r; }})()",
-        old = j(old), away = j(away), dir = j(dir), found = j(found), untick = j(untick)), 180 + 8 * hold / 1000);
+        old = j(old), away = j(away), dir = j(dir), found = j(found), untick = j(untick), n = pre.split(',').count()), 180 + 8 * hold / 1000);
     let want: Vec<&str> = { let mut x: Vec<&str> = pre.split(',').collect(); x.sort(); x };
     r["preTickedOk"] = json!(r["preTicked"] == want.join(","));
     r["ticksShown"] = json!(r["draftTicks"].as_u64() == Some(want.len() as u64));
@@ -262,7 +262,7 @@ fn again_step(app: &AppHandle, spec: &str) -> Value {
         const [p, n] = tkSplit(ik), mine = () => tickets.list.filter(f => f.path === p && f.iid === n); \
         r.second = await until(() => mine().length >= 2, 20000); r.keys = mine().map(f => f.key); r.dirs = new Set(mine().map(f => f.dir)).size; \
         await w(300); r.listed = bsel.work.startsWith('f:') && !!q('[data-sel-flow]'); await w({hold}); \
-        showTab('sessions'); const it = items.find(x => x.id === 't:' + ik || x.id === 'v:' + ik); if (it) {{ bsel.sessions = it.id; render(); await w(300); }} r.onIssue = !it || !!q('.tk-flows'); await w({hold}); \
+        showTab('sessions'); const it = items.find(x => ['t:', 'v:', 'i:'].some(p => x.id === p + ik)); if (it) {{ bsel.sessions = it.id; render(); await w(300); }} r.onIssue = !!it && q('.tk-flows')?.querySelectorAll('li').length >= 2; await w({hold}); \
         showTab('work'); return r; }})()", first = json!(first), other = json!(other)), 60 + 3 * hold / 1000);
     r["pass"] = json!(["againButton", "box", "prepared", "second", "listed", "onIssue"].iter().all(|k| r[*k] == true) && r["dirs"] == 2);
     r
@@ -323,6 +323,7 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     // the line to paste, with the prompt (the panel copied it; here it is written for the e2e driver)
     let p = ask(app, panel::LABEL, "window.__tkStart && window.__tkStart.cmd");
     let _ = fs::write(dir.join("ticket-start.json"), json!({ "dir": fdir, "cmd": p, "key": key, "start": r["start"] }).to_string());
+    if f.is_null() { r["pass"] = json!(false); return r; } // Start did not start (no disk, no folder…): nothing to wait for
     let f = wait(ticket_secs() / 2, &|f| f["status"] == "approve");
     r["plan"] = json!(f["plan"].as_str().map_or(0, |p| p.len()));
     r["planHasAssumptions"] = json!(f["plan"].as_str().is_some_and(|p| p.to_lowercase().contains("assum")));

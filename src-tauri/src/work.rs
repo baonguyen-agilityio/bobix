@@ -108,6 +108,9 @@ pub fn logins(text: &str) -> HashMap<String, String> {
 // Issues per page of the Work list, and how far back a repository's activity pre-ticks it in the repo picker.
 pub const PER_PAGE: usize = 20;
 pub const RECENT_DAYS: u64 = 90;
+pub const MAX_PAGE: usize = 50; // the list pages that can be shown: a read never asks for more than 50 × 20 + 1 issues
+// How many of the newest issues a read takes for page `page`: up to it, and one more to know whether a next exists.
+pub fn need_for(page: usize) -> usize { page.clamp(1, MAX_PAGE) * PER_PAGE + 1 }
 pub const MANY_GITLAB: usize = 20; // GitLab projects ticked past this: each is one more read every 5 minutes, so Work warns
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -634,6 +637,7 @@ mod tests {
         assert_eq!((v["more"].clone(), ids(&v).len()), (json!(false), 5));
         let many = json!({ "gitlab": true, "workRepos": { "gl.example.test": (0..21).map(|n| format!("g/p{n}")).collect::<Vec<_>>() } });
         assert_eq!(view(&w, &many, &Sessions::default())["many"], true, "21 GitLab projects: each is a read of its own");
+        assert_eq!((need_for(0), need_for(1), need_for(3), need_for(10_000)), (21, 21, 61, MAX_PAGE * PER_PAGE + 1), "a read is capped, whatever the page");
         // the repo picker's first ticks: active in the last 90 days
         let repos = [json!({ "path": "a/new", "at": "2026-11-01T00:00:00Z" }), json!({ "path": "a/old", "at": "2026-01-01T00:00:00Z" }), json!({ "path": "a/never", "at": null })];
         assert_eq!(recent(&repos, "2026-08-13T00:00:00Z"), ["a/new"]);
