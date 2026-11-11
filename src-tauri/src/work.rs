@@ -629,6 +629,8 @@ impl Work {
         view["reading"] = json!(self.reading(settings));
         view["gen"] = json!(self.gen); // reads asked for so far: the panel waits for it to move after its ask
         view["dirs"] = json!(known); // the remembered folders that still exist (Start's folder for a code project)
+        // the ones you chose or cloned: they win over a session's folder, also for a code project with no issue listed
+        view["pinned"] = json!(known.keys().filter_map(|p| crate::clones::pinned(settings, p).map(|d| (p.clone(), d))).collect::<HashMap<_, _>>());
         // the repositories ticked on the hosts read (none: the list asks you to pick some), and a warning for many GitLab
         // projects, each read on its own
         let ticked = |f: &Feed| f.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str()).map(|h| settings["workRepos"][h].as_array().map_or(0, |a| a.len())).sum::<usize>();

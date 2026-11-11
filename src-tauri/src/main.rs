@@ -1176,7 +1176,8 @@ fn listed_issue(c: &Core, path: &str, iid: i64, code: &str) -> Option<(Option<St
     let view = c.work.view(&c.settings, &m);
     let groups = || view["local"].as_array().into_iter().flatten().chain(view["away"].as_array().into_iter().flatten());
     let i = groups().find(|g| g["path"] == path)?["issues"].as_array()?.iter().find(|i| i["iid"].as_i64() == Some(iid))?.clone();
-    let dir = groups().find(|g| g["path"] == code).and_then(|g| g["dir"].as_str().map(String::from))
+    // a folder you chose or cloned first, also for a code project with no issue listed (only a session there)
+    let dir = clones::pinned(&c.settings, code).or_else(|| groups().find(|g| g["path"] == code).and_then(|g| g["dir"].as_str().map(String::from)))
         .or_else(|| m.repos.iter().find(|r| r.path == code).and_then(|r| r.dirs.first().map(|d| d.to.path.clone())))
         .or_else(|| clones::dirs(&c.settings).get(code).cloned());
     Some((dir, i))
@@ -1958,6 +1959,28 @@ mod snapshot_tests {
 
     // Before the work model, the pages got exactly test/fixtures/work-snapshot.json for this fixture. Now they get the
     // same, plus two things nothing read before: each issue's "stage" and the model itself ("model").
+    // Issue in one repository, code in another that has no issue listed but a session running in its folder: a folder
+    // you chose (or cloned) for the code project is where prep and start work, and what the panel shows; a found one is not.
+    #[test]
+    fn a_chosen_folder_wins_for_a_code_project_with_only_a_session() {
+        let mut c = fixture();
+        c.work.feeds[work::Forge::GitLab as usize].issues["list"] = json!([]); // team/shop: no issue listed, a session in /src/shop
+        let y = std::env::temp_dir().join(format!("bobix-chosen-{}", std::process::id()));
+        std::fs::create_dir_all(&y).unwrap();
+        let y = y.to_string_lossy().into_owned();
+        let dir = |c: &Core| listed_issue(c, "acme/app", 52, "team/shop").unwrap().0;
+        let pinned = |c: &Core| c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work))["pinned"]["team/shop"].clone();
+        assert_eq!(dir(&c).as_deref(), Some("/src/shop"), "the session's folder, until you choose one");
+        c.settings["workDirs"] = json!({ "team/shop": { "dir": y, "how": "found" } });
+        assert_eq!((dir(&c).as_deref(), pinned(&c)), (Some("/src/shop"), Value::Null), "a found one does not win");
+        for how in ["chosen", "cloned"] {
+            c.settings["workDirs"]["team/shop"]["how"] = json!(how);
+            assert_eq!((dir(&c), pinned(&c)), (Some(y.clone()), json!(y)), "{how}: prep and start work there, the panel shows it");
+        }
+        std::fs::remove_dir_all(&y).unwrap();
+        assert_eq!(dir(&c).as_deref(), Some("/src/shop"), "gone: not used");
+    }
+
     #[test]
     fn pages_get_the_same_json() {
         let c = fixture();
@@ -1969,8 +1992,8 @@ mod snapshot_tests {
         // the list's page, its filter and the repositories ticked: one page (read in full), no filter set, none ticked in this fixture;
         let w = got["work"].as_object_mut().unwrap();
         // no read asked for and not answered yet; no remembered folder
-        let paging: Vec<Option<Value>> = ["page", "more", "filling", "filter", "ticked", "many", "reading", "gen", "dirs"].iter().map(|k| w.shift_remove(*k)).collect();
-        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false)), Some(json!(false)), Some(json!(0)), Some(json!({}))]);
+        let paging: Vec<Option<Value>> = ["page", "more", "filling", "filter", "ticked", "many", "reading", "gen", "dirs", "pinned"].iter().map(|k| w.shift_remove(*k)).collect();
+        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false)), Some(json!(false)), Some(json!(0)), Some(json!({})), Some(json!({}))]);
         for s in got["sessions"].as_array_mut().unwrap() {
             let o = s.as_object_mut().unwrap();
             assert_eq!((o.shift_remove("mark"), o.shift_remove("flow")), (Some(json!(false)), Some(Value::Null)));

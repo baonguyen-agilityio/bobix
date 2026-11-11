@@ -119,20 +119,35 @@ pub const CLONE_MIN_BYTES: u64 = 1 << 30;
 
 // Clones `path` into `dest` with your own glab (GitLab) or gh (GitHub), signed in on `host`. → the clone's folder.
 // Never into or over a folder that is there; a clone that fails leaves nothing behind (the folder it began is removed).
-pub fn clone(bin: &str, gitlab: bool, host: &str, path: &str, dest: &Path) -> Result<String, String> {
+pub fn clone(bin: &str, gitlab: bool, host: &str, path: &str, dest: &Path) -> Result<String, String> { clone_within(bin, gitlab, host, path, dest, CLONE_SECS) }
+pub const CLONE_SECS: u64 = 600;
+// A clone that runs past `secs` is stopped, but its folder is left as it is: something it started (git, on Windows)
+// may still be writing there. Only a clone that ended with a failure has its folder removed.
+fn clone_within(bin: &str, gitlab: bool, host: &str, path: &str, dest: &Path, secs: u64) -> Result<String, String> {
     if dest.exists() { return Err(format!("{} is already there", dest.display())); }
     let d = dest.to_string_lossy();
+    let t = std::time::Instant::now();
     let r = if gitlab {
-        procs::exec(bin, &["repo", "clone", &format!("https://{host}/{path}"), &d], 600, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
+        procs::exec(bin, &["repo", "clone", &format!("https://{host}/{path}"), &d], secs, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
     } else {
-        procs::exec(bin, &["repo", "clone", path, &d], 600, &[("GH_HOST", host), ("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
+        procs::exec(bin, &["repo", "clone", path, &d], secs, &[("GH_HOST", host), ("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
     };
+    if !r.ok && t.elapsed().as_secs() >= secs {
+        return Err(format!("no answer in {secs} s, stopped; {} was left as it is", dest.display()));
+    }
     if !r.ok || !dest.join(".git").exists() {
         if dest.exists() { let _ = fs::remove_dir_all(dest); } // made by this clone: it was not there before
         let t = format!("{} {}", r.err, r.out);
         return Err(crate::js::head16(&t.split_whitespace().collect::<Vec<_>>().join(" "), 300).to_string());
     }
     Ok(d.into_owned())
+}
+
+// The folder you chose or cloned for `path` (Choose folder…, Change folder…, Clone…), while it is there: Start works
+// there, whatever folder a session runs in.
+pub fn pinned(settings: &Value, path: &str) -> Option<String> {
+    let e = &settings["workDirs"][path];
+    matches!(e["how"].as_str(), Some("chosen" | "cloned")).then(|| e["dir"].as_str().map(String::from)).flatten().filter(|d| Path::new(d).is_dir())
 }
 
 // The remembered folders as the Work view uses them: project path → folder, for the ones that still exist.
@@ -240,6 +255,11 @@ mod tests {
         let e = clone(&no, true, "gitlab.example.test", "acme/web-shop", &dest).unwrap_err();
         assert!(e.contains("not allowed"), "the reason is shown: {e}");
         assert!(!dest.exists(), "the partial folder is gone");
+        // one that runs past its time is stopped, and what it began is left alone (it may still be written to)
+        let slow = bin("glab-slow", r#"mkdir -p "$4/.git"; sleep 10"#);
+        let e = clone_within(&slow, true, "gitlab.example.test", "acme/web-shop", &dest, 3).unwrap_err();
+        assert!(e.contains("left as it is") && dest.is_dir(), "{e}");
+        fs::remove_dir_all(&dest).unwrap();
         let yes = bin("glab-yes", r#"mkdir -p "$4/.git""#);
         assert_eq!(clone(&yes, true, "gitlab.example.test", "acme/web-shop", &dest), Ok(dest.to_string_lossy().into_owned()));
         let _ = fs::remove_dir_all(&root);

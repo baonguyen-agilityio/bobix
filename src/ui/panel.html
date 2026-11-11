@@ -1817,8 +1817,8 @@ const tkIssue = k => { const [p, n] = tkSplit(k); for (const g of [...(work.loca
 const tkAgain = new Set(); // issues to start again, in another repository ("Start in another project…")
 // Start's "Fix it in which project?": the one picked in the box, else the one picked last for this issue repository's issues, else its own.
 const tkCode = k => { const [p] = tkSplit(k); return tkPrep[k]?.code || state?.settings?.workCode?.[p] || p; };
-// A repository's folder as Bobix knows it: listed with issues, a session's, or a remembered clone.
-const codeDir = path => [...(work.local || []), ...(work.away || [])].find(g => g.path === path)?.dir || (model.repos || []).find(r => r.path === path)?.dirs?.[0]?.path || work.dirs?.[path] || null; // remembered ones only while they are there (work.dirs)
+// A repository's folder as Bobix knows it: one you chose or cloned, then listed with issues, a session's, or a remembered clone.
+const codeDir = path => work.pinned?.[path] || [...(work.local || []), ...(work.away || [])].find(g => g.path === path)?.dir || (model.repos || []).find(r => r.path === path)?.dirs?.[0]?.path || work.dirs?.[path] || null; // remembered ones only while they are there (work.dirs)
 // The repositories to pick from: the issue's, the last pick, the ones with issues listed, then every one the picker read on that host.
 function codeChoices(g) {
   const out = [g.path, state?.settings?.workCode?.[g.path], ...[...(work.local || []), ...(work.away || [])].map(x => x.path)];
