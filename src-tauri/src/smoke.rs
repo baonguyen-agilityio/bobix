@@ -22,7 +22,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 };
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -160,7 +160,12 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             report["drag"] = drag(&app, &rest);
             report["hover"] = hover(&app);
         }
+        if std::env::var("BOBIX_SMOKE_THEME").is_ok_and(|t| t == "dark") {
+            if let Some(w) = app.get_webview_window(panel::LABEL) { let _ = w.set_theme(Some(tauri::Theme::Dark)); }
+        }
+        if let Ok(spec) = std::env::var("BOBIX_SMOKE_REPOS") { report["repos"] = repos_step(&app, &spec); }
         if let Ok(key) = std::env::var("BOBIX_SMOKE_TICKET") { report["ticket"] = ticket(&app, &b, &dir, &key); }
+        if let Ok(spec) = std::env::var("BOBIX_SMOKE_AGAIN") { report["again"] = again_step(&app, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_CLONES") { report["clones"] = clones_step(&app, &spec); }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
@@ -173,6 +178,8 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && ["audit", "disable", "undoDisable", "remove", "undoRemove", "lines", "rulesAdd", "rulesRemove"].iter().all(|k| report["skillsPanel"][k] == true)
             && (report.get("ticket").is_none() || report["ticket"]["pass"] == true)
             && (report.get("clones").is_none() || report["clones"]["pass"] == true)
+            && (report.get("repos").is_none() || report["repos"]["pass"] == true)
+            && (report.get("again").is_none() || report["again"]["pass"] == true)
             && report["settingsSaved"] == true && report["tray"] == true
             && report["badge"]["held"].as_u64().unwrap_or(0) >= 1 && report["badge"]["answered"].as_u64() < report["badge"]["held"].as_u64() && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
@@ -194,13 +201,77 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
 // a folder of another project (refused), then with its own; <clone> is cloned into <parent> (the stand-in clones). The
 // app asks for these folders with a dialog; here the bridge gets them. BOBIX_SMOKE_THEME=dark: the panel window dark.
 // BOBIX_SMOKE_HOLD=<ms>: hold on Work, the issue and Settings → Work for screenshots of the real window.
+// BOBIX_SMOKE_REPOS=<pre-ticked, comma-separated>|<old repo>|<repo with no folder>|<its folder>|<repo found by its
+// remote>|<repo to untick> (with BOBIX_HOME set; not in CI; stand-in gh and glab signed in, the settings from before
+// the repo picker): #165. GitLab and GitHub are on; the repos active in the last 90 days are ticked, not <old repo>;
+// one list of their issues, newest first, 20 a page, the next page older; Mine and Unassigned filter it; the picker
+// lists the repos, searches them and unticks one; Start on <repo with no folder> asks where its code is, and the
+// folder (reached through an ~/.ssh/config alias) makes it startable; <repo found by its remote> is found by itself.
+fn repos_step(app: &AppHandle, spec: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let v: Vec<&str> = spec.split('|').collect();
+    let [pre, old, away, dir, found, untick] = v.as_slice() else { return json!("bad BOBIX_SMOKE_REPOS") };
+    let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let j = |s: &str| json!(s);
+    let mut r = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), r = {{}}; \
+        const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
+        const ticked = () => Object.values(state.settings.workRepos || {{}}).flat().sort(), upd = () => st.todo.map(x => x[0].updated || '').sort(); \
+        const first = () => {{ const it = workItems().find(x => x.grp === 'fstart'); if (it) bsel.work = it.id; render(); }}; \
+        $('#toasts').replaceChildren(); r.on = state.settings.github === true && state.settings.gitlab === true; await bridge.refreshWork(); \
+        r.read = await until(() => work.status === 'ok' && (work.hosts || []).length >= 2 && st.todo.length > 0 && ticked().length >= {n}, 40000); await bridge.refreshWork(); await w(1500); r.preTicked = ticked().join(','); r.skipped = (work.failed || []).map(f => f.host + ': ' + f.detail); r.oldOut = !ticked().includes({old}); \
+        r.found = await until(() => state.settings.workDirs?.[{found}]?.how === 'found', 30000); \
+        r.page1 = st.todo.length; r.more = work.more === true; const oldest = upd()[0]; showTab('work'); first(); await w({hold}); \
+        await bridge.workPage(2); r.page2 = await until(() => work.page === 2 && st.todo.length > 0 && upd().at(-1) <= oldest, 20000); first(); await w({hold}); \
+        await bridge.workPage(1); await until(() => work.page === 1 && st.todo.length === r.page1, 20000); \
+        await save({{ workFilter: 'mine' }}); r.mine = await until(() => work.filter === 'mine' && st.todo.length > 0 && st.todo.every(x => x[0].mine), 20000); first(); await w({hold}); \
+        await save({{ workFilter: 'unassigned' }}); r.unassigned = await until(() => st.todo.length > 0 && st.todo.every(x => x[0].assignees?.length === 0), 20000); \
+        await save({{ workFilter: 'all' }}); await until(() => work.filter === 'all' && st.todo.length === r.page1, 20000); \
+        bsel.work = 'repos'; render(); r.picker = await until(() => document.querySelectorAll('#b-dyn [data-rp-tick]').length >= 5, 20000); await w(300); await w({hold}); \
+        r.draftTicks = document.querySelectorAll('#b-dyn [data-rp-tick]:checked').length; await until(() => document.querySelector('#b-dyn [data-rp-q]'), 5000); \
+        const q = document.querySelector('#b-dyn [data-rp-q]'); q.value = 'api'; q.dispatchEvent(new Event('input', {{ bubbles: true }})); \
+        r.search = [...document.querySelectorAll('#b-dyn label.rp')].filter(l => !l.hidden).map(l => l.querySelector('input').value).join(','); \
+        q.value = ''; q.dispatchEvent(new Event('input', {{ bubbles: true }})); \
+        [...document.querySelectorAll('#b-dyn [data-rp-tick]')].find(x => x.value === {untick})?.click(); await w(300); document.querySelector('#b-dyn [data-rp-save]')?.click(); \
+        r.unticked = await until(() => !ticked().includes({untick}) && st.todo.length > 0 && !st.todo.some(x => x[1].path === {untick}), 20000); \
+        const a = st.todo.find(x => x[1].path === {away}); if (a) {{ bsel.work = 'n:' + {away} + '#' + a[0].iid; render(); }} await w(300); \
+        r.where = !!document.querySelector('#b-dyn [data-wk-link]') && !document.querySelector('#b-dyn [data-tk-prep]'); await w({hold}); \
+        const ok = await bridge.linkFolder({away}, {dir}); r.linked = !!ok.ok; r.startable = await until(() => !!document.querySelector('#b-dyn [data-tk-prep]'), 15000); \
+        showTab('sessions'); const it = items.find(x => x.id.startsWith('i:')); if (it) {{ bsel.sessions = it.id; render(); }} await w(300); r.who = !!it && /assigned|giao/.test(it.sub); await w({hold}); \
+        showTab('settings'); bsel.settings = 'set:work'; render(); await w(300); await w({hold}); showTab('work'); return r; }})()",
+        old = j(old), away = j(away), dir = j(dir), found = j(found), untick = j(untick), n = pre.split(',').count()), 180 + 8 * hold / 1000);
+    let want: Vec<&str> = { let mut x: Vec<&str> = pre.split(',').collect(); x.sort(); x };
+    r["preTickedOk"] = json!(r["preTicked"] == want.join(","));
+    r["ticksShown"] = json!(r["draftTicks"].as_u64() == Some(want.len() as u64));
+    r["searchOk"] = json!(r["search"].as_str().is_some_and(|s| !s.is_empty() && s.split(',').all(|x| x.contains("api"))));
+    r["pass"] = json!(["on", "read", "preTickedOk", "oldOut", "found", "more", "page2", "mine", "unassigned", "picker", "ticksShown", "searchOk", "unticked", "where", "linked", "startable", "who"].iter().all(|k| r[*k] == true) && r["page1"] == 20);
+    r
+}
+
+// BOBIX_SMOKE_AGAIN=<flow key>|<another repository> (after BOBIX_SMOKE_TICKET; not in CI): one issue, a second
+// repository. "Start in another repo…" on the flow opens the issue's Start box; with the other repository picked it
+// starts a second flow (its own worktree and key), and each flow's detail lists the other.
+fn again_step(app: &AppHandle, spec: &str) -> Value {
+    let Some((first, other)) = spec.split_once('|') else { return json!("bad BOBIX_SMOKE_AGAIN") };
+    let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let mut r = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), r = {{}}, k = {first}, ik = k.split('>')[0], other = {other}; \
+        const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; const q = s => document.querySelector('#b-dyn ' + s); \
+        showTab('work'); bsel.work = 'f:' + k; render(); await w(300); r.againButton = !!q('[data-tk-again]'); q('[data-tk-again]')?.click(); await w(300); \
+        r.box = bsel.work === 'n:' + ik && !!q('[data-tk-code]'); const sel = q('[data-tk-code]'); r.suggested = sel?.value || null; \
+        sel.value = other; sel.dispatchEvent(new Event('change', {{ bubbles: true }})); await w(300); q('[data-tk-prep]')?.click(); \
+        r.prepared = await until(() => !!q('.tk-prompt'), 20000); await w({hold}); q('[data-tk-cli]')?.click(); \
+        const [p, n] = tkSplit(ik), mine = () => tickets.list.filter(f => f.path === p && f.iid === n); \
+        r.second = await until(() => mine().length >= 2, 20000); r.keys = mine().map(f => f.key); r.dirs = new Set(mine().map(f => f.dir)).size; \
+        await w(300); r.listed = bsel.work.startsWith('f:') && !!q('[data-sel-flow]'); await w({hold}); \
+        showTab('sessions'); const it = items.find(x => ['t:', 'v:', 'i:'].some(p => x.id === p + ik)); if (it) {{ bsel.sessions = it.id; render(); await w(300); }} r.onIssue = !!it && q('.tk-flows')?.querySelectorAll('li').length >= 2; await w({hold}); \
+        showTab('work'); return r; }})()", first = json!(first), other = json!(other)), 60 + 3 * hold / 1000);
+    r["pass"] = json!(["againButton", "box", "prepared", "second", "listed", "onIssue"].iter().all(|k| r[*k] == true) && r["dirs"] == 2);
+    r
+}
+
 fn clones_step(app: &AppHandle, spec: &str) -> Value {
     if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
     let v: Vec<&str> = spec.split('|').collect();
     let [found, link, wrong, right, clone, parent] = v.as_slice() else { return json!("bad BOBIX_SMOKE_CLONES") };
-    if std::env::var("BOBIX_SMOKE_THEME").is_ok_and(|t| t == "dark") {
-        if let Some(w) = app.get_webview_window(panel::LABEL) { let _ = w.set_theme(Some(tauri::Theme::Dark)); }
-    }
     let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
     let j = |s: &str| json!(s);
     let mut r = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), r = {{}}; \
@@ -234,22 +305,25 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     let k = json!(key);
     // BOBIX_SMOKE_HOLD=<ms>: stay that long on the screens a person would look at (for screenshots of the real window)
     let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-    r["start"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), k = {k}; \
+    // <key> may name the code's repository after ">" ("demo/tracker#3>demo/service"): picked in the Start box first
+    r["start"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), k = {k}, ik = k.split('>')[0], code = k.split('>')[1]; \
         const until = async f => {{ for (let t = 0; t < 30000; t += 100) {{ if (f()) return true; await w(100); }} return false; }}; \
         navigator.clipboard.writeText = async () => {{}}; const go = bridge.ticketStart; bridge.ticketStart = async (...a) => (window.__tkStart = await go(...a)); await bridge.refreshWork(); showTab('work'); \
-        if (!await until(() => items.some(x => x.id === 'n:' + k))) return {{ error: 'issue not listed', items: items.map(x => x.id), work: work.status, local: (work.local || []).map(g => g.path + ' ' + g.issues.length), todo: st.todo.length, problems: work.problems }}; \
-        bsel.work = 'n:' + k; render(); document.querySelector('#b-dyn [data-tk-prep]').click(); \
-        if (!await until(() => document.querySelector('#b-dyn .tk-prompt'))) return {{ error: 'no Start box' }}; await w({hold}); \
-        const prompt = tkPrep[k].prompt, disk = document.querySelector('#b-dyn .note, #b-dyn .risk') && tkPrep[k].prep.room, claudeWarn = !!document.querySelector('#b-dyn [data-tk-claude]'), claudeDir = tkPrep[k].prep.repo; \
+        if (!await until(() => items.some(x => x.id === 'n:' + ik))) return {{ error: 'issue not listed', items: items.map(x => x.id), work: work.status, local: (work.local || []).map(g => g.path + ' ' + g.issues.length), todo: st.todo.length, problems: work.problems }}; \
+        bsel.work = 'n:' + ik; render(); await w(300); if (code) {{ const sel = document.querySelector('#b-dyn [data-tk-code]'); sel.value = code; sel.dispatchEvent(new Event('change', {{ bubbles: true }})); await w(300); await w({hold}); }} \
+        document.querySelector('#b-dyn [data-tk-prep]').click(); \
+        if (!await until(() => document.querySelector('#b-dyn .tk-prompt'))) return {{ error: 'no Start box', code: tkPrep[ik] }}; await w({hold}); \
+        const prompt = tkPrep[ik].prompt, disk = document.querySelector('#b-dyn .note, #b-dyn .risk') && tkPrep[ik].prep.room, claudeWarn = !!document.querySelector('#b-dyn [data-tk-claude]'), claudeDir = tkPrep[ik].prep.repo; \
         document.querySelector('#b-dyn [data-tk-cli]').click(); \
-        if (!await until(() => tickets.list.some(f => f.key === k))) return {{ error: 'not started' }}; \
-        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir }}; }})()"), 40 + hold / 1000);
+        if (!await until(() => tickets.list.some(f => f.key === k))) return {{ error: 'not started', keys: tickets.list.map(f => f.key) }}; \
+        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir, code: tkCode(ik) }}; }})()"), 40 + 2 * hold / 1000);
     let f = flow();
     let fdir = f["dir"].as_str().unwrap_or("").to_string();
     r["worktree"] = json!(std::path::Path::new(&fdir).join(".bobix-log/work-log.md").is_file());
     // the line to paste, with the prompt (the panel copied it; here it is written for the e2e driver)
     let p = ask(app, panel::LABEL, "window.__tkStart && window.__tkStart.cmd");
     let _ = fs::write(dir.join("ticket-start.json"), json!({ "dir": fdir, "cmd": p, "key": key, "start": r["start"] }).to_string());
+    if f.is_null() { r["pass"] = json!(false); return r; } // Start did not start (no disk, no folder…): nothing to wait for
     let f = wait(ticket_secs() / 2, &|f| f["status"] == "approve");
     r["plan"] = json!(f["plan"].as_str().map_or(0, |p| p.len()));
     r["planHasAssumptions"] = json!(f["plan"].as_str().is_some_and(|p| p.to_lowercase().contains("assum")));
@@ -292,14 +366,14 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         showTab('work'); bsel.work = 'f:' + k; render(); await w(300); const r = {{}}; \
         q('[data-tk-clean]').click(); r.unpushed = await until(() => tkUnpushed[k] > 0, 10000) ? tkUnpushed[k] : 0; \
         q('[data-tk-mr-open]').click(); await until(() => q('[data-tk-mr-body]'), 5000); q('.tk-mr').scrollIntoView({{ block: 'start' }}); await w({hold}); const body = q('[data-tk-mr-body]').value; \
-        r.bodyHasPlan = body.includes('## Plan'); r.bodyHasChecks = body.includes('## Checks'); r.closes = body.startsWith('Closes #'); \
+        r.bodyHasPlan = body.includes('## Plan'); r.bodyHasChecks = body.includes('## Checks'); r.closes = /^Closes (\\S+)?#\\d+\\n/.test(body); r.closesLine = body.split('\\n')[0]; \
         q('[data-tk-mr-go]').click(); r.opened = await until(() => tickets.list.find(f => f.key === k)?.mr, 90000); \
-        r.url = tickets.list.find(f => f.key === k)?.mr || null; r.link = !!document.querySelector('#b-dyn [data-url*=\"merge_requests\"]'); return r; }})()"), 120 + hold / 1000);
+        r.url = tickets.list.find(f => f.key === k)?.mr || null; r.link = !!document.querySelector('#b-dyn [data-url*=\"merge_requests\"], #b-dyn [data-url*=\"/pull/\"]'); return r; }})()"), 120 + hold / 1000);
     // CI: Check CI reads the MR's pipeline (red at first in the e2e run): the flow shows it with Fix CI and the Overview
     // lists "CI red"; once the run turns it green (it waits for <dir>/ticket-ci.json), Check CI shows it passed
     r["ci"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s), f = () => tickets.list.find(x => x.key === k); \
         showTab('work'); bsel.work = 'f:' + k; render(); await w(300); q('[data-tk-ci]').click(); for (let t = 0; t < 20000 && !f()?.ci?.status; t += 200) await w(200); await w(300); \
-        const r = {{ status: f()?.ci?.status || null, fix: !!q('[data-copy*=\"CI failed on merge request\"]'), badge: q('h3 .badge.err')?.textContent || null, stuck: stuckList().some(x => x.kind === 'cired' && x.key === k) }}; \
+        const r = {{ status: f()?.ci?.status || null, fix: !!q('[data-copy*=\"CI failed on \"]'), badge: q('h3 .badge.err')?.textContent || null, stuck: stuckList().some(x => x.kind === 'cired' && x.key === k) }}; \
         q('.tk-warn')?.scrollIntoView({{ block: 'center' }}); await w({hold}); showTab('overview'); bsel.overview = 'stuck:cired:' + k; render(); await w({hold}); return r; }})()"), 30 + 2 * hold / 1000);
     let _ = fs::write(dir.join("ticket-ci.json"), json!({ "key": key, "status": r["ci"]["status"] }).to_string());
     r["ciGreen"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), f = () => tickets.list.find(x => x.key === k); \
