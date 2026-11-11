@@ -28,9 +28,22 @@ pub struct Flow {
     pub mr: String, // the merge request (GitLab) / pull request (GitHub) Bobix opened for it (its link), on your click
     pub forge: String, // its issue's tracker: gitlab (also when empty, from before GitHub) | github
     pub ci: Value,  // its head pipeline, as last read: { status: passed | running | failed | other | none, url, state, since, at }
+    // The repository its code is in, when not the issue's own (an issue of a product repository whose code lives in
+    // a service repository): the worktree, the MR / PR and its CI are there. Empty: the issue's repository.
+    pub code: String,
 }
 
 pub fn key_of(path: &str, iid: i64) -> String { format!("{path}#{iid}") }
+// A flow's key: the issue's ("group/app#7"), and the code repository after ">" when it is another one
+// ("group/app#7>group/api"): one issue can have a flow in each repository its change needs.
+pub fn flow_key(path: &str, iid: i64, code: &str) -> String {
+    if code.is_empty() || code == path { key_of(path, iid) } else { format!("{}>{code}", key_of(path, iid)) }
+}
+// In another repository, the worktree and the branch carry the issue repository's name ("tracker-7-…"), so they are
+// not taken for that repository's own issue 7; in its own, as before ("7-…").
+fn from_tag(path: &str, code: &str) -> String {
+    if code.is_empty() || code == path { String::new() } else { format!("{}-", slug(path.rsplit('/').next().unwrap_or(path))) }
+}
 
 impl Flow {
     // The log read again, and the status it sets (done / blocked; running once its plan was approved).
@@ -49,13 +62,17 @@ pub fn mr_body(f: &Flow) -> String {
     let plan = p["plan"].as_str().filter(|x| !x.is_empty()).map(String::from).unwrap_or_else(|| f.plan.clone());
     let list = |k: &str| p[k].as_array().into_iter().flatten().filter_map(|x| x.as_str()).map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n");
     let checks = p["checksText"].as_str().unwrap_or("").to_string();
-    let mut b = format!("Closes #{}\n", f.iid);
+    // in another repository the close reference names the issue's (GitLab and GitHub both read "group/app#7")
+    let mut b = if f.code_repo() == f.path { format!("Closes #{}\n", f.iid) } else { format!("Closes {}#{}\n", f.path, f.iid) };
     for (h, t) in [("Plan", plan), ("Assumptions", list("assumptions")), ("Checks", if checks.is_empty() { "None pasted.".into() } else { checks })] {
         if !t.trim().is_empty() { b += &format!("\n## {h}\n\n{}\n", t.trim()); }
     }
     head16(&b, 20_000).to_string()
 }
-impl Flow { pub fn github(&self) -> bool { self.forge == "github" } }
+impl Flow {
+    pub fn github(&self) -> bool { self.forge == "github" }
+    pub fn code_repo(&self) -> &str { if self.code.is_empty() { &self.path } else { &self.code } }
+}
 // The merge request's (pull request's) link in what glab (gh) printed.
 pub fn mr_url(out: &str) -> Option<String> {
     static U: std::sync::LazyLock<fancy_regex::Regex> = std::sync::LazyLock::new(|| fancy_regex::Regex::new(r"https?://\S+(?:/-/merge_requests|/pull)/\d+").unwrap());
@@ -117,11 +134,11 @@ pub fn open_mr(bin: &str, host: &str, f: &Flow, title: &str, body: &str) -> Resu
     if !r.ok { return Err(format!("git push: {}", one_line(&r))); }
     if f.github() {
         let env: Vec<(&str, &str)> = GH_ENV.iter().copied().chain([("GH_HOST", host)]).collect();
-        let r = procs::exec(bin, &["pr", "create", "--repo", &f.path, "--head", &f.branch, "--title", title, "--body", body], 60, &env);
+        let r = procs::exec(bin, &["pr", "create", "--repo", f.code_repo(), "--head", &f.branch, "--title", title, "--body", body], 60, &env);
         return mr_url(&format!("{}\n{}", r.out, r.err)).ok_or_else(|| format!("gh pr create: {}", one_line(&r)));
     }
     let glab = bin;
-    let repo = format!("https://{host}/{}", f.path);
+    let repo = format!("https://{host}/{}", f.code_repo());
     let r = procs::exec(glab, &["mr", "create", "--repo", &repo, "--source-branch", &f.branch, "--title", title, "--description", body, "--yes"], 60, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1")]);
     let out = format!("{}\n{}", r.out, r.err);
     match mr_url(&out) { Some(u) => Ok(u), None => Err(format!("glab mr create: {}", one_line(&r))) }
@@ -144,10 +161,14 @@ pub fn slug(title: &str) -> String {
     s.truncate(40);
     s
 }
-// The branch names the issue the way Bobix already reads branches ("<iid>-…": model::issue_of_branch).
-pub fn branch_for(iid: i64, title: &str) -> String { let s = slug(title); if s.is_empty() { format!("{iid}-ticket") } else { format!("{iid}-{s}") } }
+// The branch names the issue the way Bobix already reads branches ("<iid>-…": model::issue_of_branch); in another
+// repository than the issue's, after the issue repository's name (`from_tag`).
+pub fn branch_for(iid: i64, title: &str, path: &str, code: &str) -> String {
+    let (s, t) = (slug(title), from_tag(path, code));
+    if s.is_empty() { format!("{t}{iid}-ticket") } else { format!("{t}{iid}-{s}") }
+}
 // Where Claude itself keeps worktrees (`claude -w`, Claude desktop): <repo>/.claude/worktrees/<name>.
-pub fn worktree_dir(repo: &str, iid: i64) -> PathBuf { Path::new(repo).join(".claude/worktrees").join(format!("bobix-{iid}")) }
+pub fn worktree_dir(repo: &str, iid: i64, path: &str, code: &str) -> PathBuf { Path::new(repo).join(".claude/worktrees").join(format!("bobix-{}{iid}", from_tag(path, code))) }
 
 // Free bytes on the disk that holds `dir`; None where Bobix can't tell (Windows), and then nothing is capped.
 #[cfg(unix)]
@@ -379,7 +400,7 @@ impl Flows {
     // → (key, host, project path, number, github)
     pub fn open_mrs(&self) -> Vec<(String, String, String, i64, bool)> {
         self.list.values().filter(|f| !f.mr.is_empty() && !matches!(f.ci["state"].as_str(), Some("merged" | "closed")))
-            .filter_map(|f| Some((f.key.clone(), tauri::Url::parse(&f.mr).ok()?.host_str()?.to_string(), f.path.clone(), mr_iid(&f.mr)?, f.github()))).collect()
+            .filter_map(|f| Some((f.key.clone(), tauri::Url::parse(&f.mr).ok()?.host_str()?.to_string(), f.code_repo().to_string(), mr_iid(&f.mr)?, f.github()))).collect()
     }
     // A new assumption since you last looked: the pet gets a mark (the session does not stop).
     pub fn marked(&self, sid: &str) -> bool { self.by_session(sid).is_some_and(|f| !f.cleaned && assumptions(&f.log) > f.seen) }
@@ -407,11 +428,16 @@ mod tests {
     fn names_branches_and_folders() {
         assert_eq!(slug("[Bug] Cart total ignores discount codes!"), "bug-cart-total-ignores-discount-codes");
         assert_eq!(slug("Sửa lỗi đăng nhập"), "s-a-l-i-ng-nh-p");
-        assert_eq!(branch_for(7, "Add subtract()"), "7-add-subtract");
-        assert_eq!(branch_for(8, "€€"), "8-ticket");
+        assert_eq!(branch_for(7, "Add subtract()", "g/shop", ""), "7-add-subtract");
+        assert_eq!(branch_for(8, "€€", "g/shop", "g/shop"), "8-ticket");
         assert!(slug(&"word ".repeat(40)).len() <= 40);
-        assert_eq!(worktree_dir("/src/shop", 7), Path::new("/src/shop/.claude/worktrees/bobix-7"));
-        assert_eq!(crate::model::issue_of_branch(&branch_for(42, "x")), Some(42), "the branch names its issue the way Bobix reads branches");
+        assert_eq!(worktree_dir("/src/shop", 7, "g/shop", ""), Path::new("/src/shop/.claude/worktrees/bobix-7"));
+        assert_eq!(crate::model::issue_of_branch(&branch_for(42, "x", "g/shop", "")), Some(42), "the branch names its issue the way Bobix reads branches");
+        // the code in another repository: names that are not taken for that repository's own issue 7
+        assert_eq!(branch_for(7, "Add subtract()", "demo/Tracker", "demo/service"), "tracker-7-add-subtract");
+        assert_eq!(crate::model::issue_of_branch("tracker-7-add-subtract"), None);
+        assert_eq!(worktree_dir("/src/service", 7, "demo/tracker", "demo/service"), Path::new("/src/service/.claude/worktrees/bobix-tracker-7"));
+        assert_eq!((flow_key("g/app", 7, ""), flow_key("g/app", 7, "g/app"), flow_key("g/app", 7, "g/api")), ("g/app#7".into(), "g/app#7".into(), "g/app#7>g/api".into()));
         assert_eq!(room(Some(WORKTREE_BYTES * 2 + 1)), Some(2));
         assert_eq!(room(Some(WORKTREE_BYTES - 1)), Some(0));
         assert!(free_bytes(Path::new(env!("CARGO_MANIFEST_DIR"))).is_some_and(|b| b > 0) || cfg!(windows));
@@ -521,6 +547,13 @@ mod tests {
         assert!(b.starts_with("Closes #7\n\n## Plan\n\n1. add it\n\n## Assumptions\n\n- ints only\n\n## Checks\n\n- `npm test`\n```\nok 2\n```"), "{b}");
         f.log = template(7, "x");
         assert!(mr_body(&f).contains("## Checks\n\nNone pasted."), "no checks: said so");
+        // the code in another repository: the close reference names the issue's repository, the MR goes to the code's
+        let x = Flow { path: "group/space-v2".into(), iid: 123, code: "group/space-langchain-agent".into(), log: template(123, "x"), ..Default::default() };
+        assert!(mr_body(&x).starts_with("Closes group/space-v2#123\n"), "{}", mr_body(&x));
+        assert_eq!((x.code_repo(), Flow { path: "a/b".into(), ..Default::default() }.code_repo()), ("group/space-langchain-agent", "a/b"));
+        let mut fl = Flows::default();
+        fl.list.insert("k".into(), Flow { key: "k".into(), path: "group/space-v2".into(), code: "group/space-langchain-agent".into(), mr: "https://gitlab.example.test/group/space-langchain-agent/-/merge_requests/4".into(), ..Default::default() });
+        assert_eq!(fl.open_mrs()[0].2, "group/space-langchain-agent", "CI follows the code repository");
         assert_eq!(mr_url("Creating merge request for 7-x into main in demo/shop\n\nhttps://gitlab.example.test/demo/shop/-/merge_requests/12\n").as_deref(), Some("https://gitlab.example.test/demo/shop/-/merge_requests/12"));
         assert_eq!(mr_url("error"), None);
         assert!(open_mr("glab", "h", &Flow { branch: "main".into(), ..Default::default() }, "t", "b").is_err(), "never the default branch");
@@ -567,7 +600,7 @@ mod tests {
         fs::create_dir_all(&repo).unwrap();
         let r = repo.to_string_lossy().to_string();
         for a in [&["init", "-q", "-b", "main"][..], &["-c", "user.email=demo@example.test", "-c", "user.name=demo", "commit", "-q", "--allow-empty", "-m", "init"]] { assert!(git(&r, a).ok); }
-        let dir = worktree_dir(&r, 7);
+        let dir = worktree_dir(&r, 7, "g/r", "");
         assert_eq!(create_worktree(&r, &dir, "7-add-subtract", "log").unwrap(), "HEAD");
         assert_eq!(read_log(&dir.to_string_lossy()).as_deref(), Some("log"));
         assert!(git(&dir.to_string_lossy(), &["status", "--porcelain"]).out.trim().is_empty(), "the log folder ignores itself");

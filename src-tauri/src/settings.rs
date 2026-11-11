@@ -12,7 +12,7 @@ pub fn defaults() -> Value {
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "longWait": 10, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true, "badge": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false, "tourSeen": [],
-        "seenVersion": "", "gitlab": true, "github": true, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "workDirs": {}, "workDirsOff": [], "workRepos": {}, "workFilter": "all", "petImages": {},
+        "seenVersion": "", "gitlab": true, "github": true, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "workDirs": {}, "workDirsOff": [], "workRepos": {}, "workCode": {}, "workFilter": "all", "petImages": {},
         "habitsOn": false, "habitsNo": {}, "habitsHidden": {}, "habitsSkill": {}, "habitsPetDay": "",
         "habitScan": false, // habits become skills (habit_skills.rs): the weekly scan, also needs usageContent
         // usage per session (usage.rs): the API-equivalent estimate shown, prompt kinds read (opt-in), the warnings and when.
@@ -214,6 +214,12 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
                     seen.truncate(1000);
                     Some((h.to_lowercase(), json!(seen)))
                 }).take(20).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "workCode" { // issue repository → the repository its issues' code is in (the Start box's suggestion)
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter().filter(|(p, c)| project_path(p) && c.as_str().is_some_and(project_path))
+                    .take(300).map(|(p, c)| (p.to_lowercase(), json!(c.as_str().unwrap_or("").to_lowercase()))).collect();
                 out.insert(k.into(), Value::Object(m));
             }
         } else if k == "workDirsOff" || k == "workProjects" {
@@ -494,6 +500,7 @@ mod tests {
         let now = json!({ "gitlab": false, "github": false, "workRepos": {} });
         assert_eq!(upgrade(s(now.clone()), &now)["github"], false, "turned off since: stays off");
         assert_eq!(s(json!({ "workFilter": "mine" }))["workFilter"], "mine");
+        assert_eq!(s(json!({ "workCode": { "Group/Space-v2": "group/Space-Agent", "a/b": "nope", "x": "a/b" } }))["workCode"], json!({ "group/space-v2": "group/space-agent" }));
         assert_eq!(s(json!({ "workFilter": "others" }))["workFilter"], "all");
         assert_eq!(s(json!({ "workRepos": { "GitHub.com": ["Acme/Shop", "acme/shop", "nope"], "ghe.example.com:8443": ["a/b"], "bad host": ["a/b"], "x": "a/b" } }))["workRepos"],
             json!({ "github.com": ["acme/shop"], "ghe.example.com:8443": ["a/b"] }));

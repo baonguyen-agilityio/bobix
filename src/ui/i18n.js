@@ -53,6 +53,9 @@
       'cm.added': 'Tests line added to CLAUDE.md.', 'cm.removed': 'Tests line taken out of CLAUDE.md.', 'cm.empty': 'Type the command first.',
       'work.link': 'Choose folder…',
       'work.clone': 'Clone…', 'work.clone.busy': 'Cloning…', 'work.link.pick': 'Choose the folder of {p}', 'work.clone.pick': 'Choose where to clone {p}',
+      'tk.code': 'Fix it in which project?',
+     
+      'tk.flows': 'Work on this issue', 'tk.again': 'Start in another project…',
       'work.g.repos': 'Repos', 'work.repos.t': 'Repos to list', 'work.repos.sub': '{n} ticked · newest issues first, 20 a page', 'work.repos.choose': 'Choose repos…',
       'work.repos.note': 'Work lists the open issues of the repos you tick here, newest update first. The first time, Bobix ticks the ones with activity in the last {d} days; it remembers your ticks.',
       'work.repos.count': '{n} of {all} ticked', 'work.repos.loading': 'Reading the repos you can reach…', 'work.repos.nohost': 'No GitLab or GitHub sign-in to read repos from. Sign in with glab or gh in a terminal, then Read again.',
@@ -593,6 +596,9 @@
       'cm.added': 'Đã thêm dòng Tests vào CLAUDE.md.', 'cm.removed': 'Đã bỏ dòng Tests khỏi CLAUDE.md.', 'cm.empty': 'Hãy gõ lệnh trước.',
       'work.link': 'Chọn thư mục…',
       'work.clone': 'Clone…', 'work.clone.busy': 'Đang clone…', 'work.link.pick': 'Chọn thư mục của {p}', 'work.clone.pick': 'Chọn nơi clone {p}',
+      'tk.code': 'Sửa ở dự án nào?',
+     
+      'tk.flows': 'Việc trên issue này', 'tk.again': 'Bắt đầu ở dự án khác…',
       'work.g.repos': 'Repo', 'work.repos.t': 'Repo cần liệt kê', 'work.repos.sub': 'Đã chọn {n} · issue mới nhất trước, 20 mỗi trang', 'work.repos.choose': 'Chọn repo…',
       'work.repos.note': 'Công việc liệt kê issue đang mở của các repo bạn chọn ở đây, cập nhật mới nhất trước. Lần đầu, Bobix chọn sẵn các repo có hoạt động trong {d} ngày qua; Bobix nhớ lựa chọn của bạn.',
       'work.repos.count': 'Đã chọn {n} / {all}', 'work.repos.loading': 'Đang đọc các repo bạn truy cập được…', 'work.repos.nohost': 'Chưa đăng nhập GitLab hay GitHub để đọc repo. Đăng nhập bằng glab hoặc gh trong terminal, rồi bấm Đọc lại.',

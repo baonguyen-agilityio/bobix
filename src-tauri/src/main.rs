@@ -741,17 +741,19 @@ fn remember_dir(b: &Arc<Bobix>, path: &str, dir: &str, how: &str) {
     update_settings(b, json!({ "workDirs": dirs, "workDirsOff": off }));
     b.broadcast();
 }
-// A project Bobix lists issues for: its tracker, that tracker's CLI and the signed-in host of its issues' links.
-fn project_source(b: &Bobix, path: &str) -> Option<(work::Forge, String, String, Vec<String>)> {
+// A project Bobix lists issues for: its tracker, that tracker's CLI and the signed-in host of its issues' links. For
+// the code repository of another project's issue (`of`), which may have no issue listed: that project's.
+fn project_source(b: &Bobix, path: &str, of: Option<&str>) -> Option<(work::Forge, String, String, Vec<String>)> {
     let c = b.core.lock().unwrap();
-    work::FORGES.into_iter().filter(|f| f.on(&c.settings)).find_map(|f| {
+    let find = |p: &str| work::FORGES.into_iter().filter(|f| f.on(&c.settings)).find_map(|f| {
         let feed = &c.work.feeds[f as usize];
-        let i = feed.issues["list"].as_array()?.iter().find(|i| i["project"] == path)?;
+        let i = feed.issues["list"].as_array()?.iter().find(|i| i["project"] == p)?;
         let url_host = i["url"].as_str().and_then(|u| tauri::Url::parse(u).ok())?.host_str()?.to_lowercase();
         let hosts: Vec<String> = feed.issues["hosts"].as_array()?.iter().filter_map(|h| h.as_str().map(String::from)).collect();
         let host = hosts.iter().find(|h| h.split(':').next() == Some(url_host.as_str()))?.clone();
         Some((f, feed.bin.clone()?, host, hosts))
-    })
+    });
+    find(path).or_else(|| find(of?))
 }
 fn pick_folder(b: &Bobix, title: &str) -> Option<std::path::PathBuf> {
     use tauri_plugin_dialog::DialogExt;
@@ -761,10 +763,10 @@ fn pick_folder(b: &Bobix, title: &str) -> Option<std::path::PathBuf> {
 // "Already on this machine": a folder you choose (`dir`, else the folder dialog) is remembered for `path` once one of
 // its git remotes names that project. { ok, dir } | { ok: false, reason: cancel | notgit | other | gone, found? }
 #[tauri::command]
-async fn work_link(path: String, dir: Option<String>, b: B<'_>) -> Result<Value, ()> {
+async fn work_link(path: String, dir: Option<String>, of: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let Some((_, _, _, hosts)) = project_source(&b, &path) else { return json!({ "ok": false, "reason": "gone" }) };
+        let Some((_, _, _, hosts)) = project_source(&b, &path, of.as_deref()) else { return json!({ "ok": false, "reason": "gone" }) };
         let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "work.link.pick", &[("p", &path)]);
         let Some(d) = dir.map(std::path::PathBuf::from).or_else(|| pick_folder(&b, &title)) else { return json!({ "ok": false, "reason": "cancel" }) };
         match clones::check(&d, &path, &hosts) {
@@ -777,10 +779,10 @@ async fn work_link(path: String, dir: Option<String>, b: B<'_>) -> Result<Value,
 // "Clone…": into a parent folder you choose (`parent`, else the folder dialog), with your own glab / gh, then
 // remembered. Only on your click. { ok, dir } | { ok: false, reason: cancel | exists | gone | other | error, detail }
 #[tauri::command]
-async fn work_clone(path: String, parent: Option<String>, b: B<'_>) -> Result<Value, ()> {
+async fn work_clone(path: String, parent: Option<String>, of: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let Some((forge, bin, host, hosts)) = project_source(&b, &path) else { return json!({ "ok": false, "reason": "gone" }) };
+        let Some((forge, bin, host, hosts)) = project_source(&b, &path, of.as_deref()) else { return json!({ "ok": false, "reason": "gone" }) };
         let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "work.clone.pick", &[("p", &path)]);
         let Some(p) = parent.map(std::path::PathBuf::from).or_else(|| pick_folder(&b, &title)) else { return json!({ "ok": false, "reason": "cancel" }) };
         let dest = clones::clone_dest(&p, &path);
@@ -1140,31 +1142,41 @@ async fn work_start(path: String, iid: i64, prompt: Option<String>, dir: Option<
 }
 
 // ---------- the ticket flow (#112): Start in a worktree, approve the plan, the work log ----------
-// An issue of a project a session here works in (its folder known), as Start reads it.
-fn local_issue(c: &Core, path: &str, iid: i64) -> Option<(String, Value)> {
-    let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
-    let g = view["local"].as_array()?.iter().find(|g| g["path"] == path)?;
-    let i = g["issues"].as_array()?.iter().find(|i| i["iid"].as_i64() == Some(iid))?.clone();
-    Some((g["dir"].as_str()?.to_string(), i))
+// An issue Bobix lists, as Start reads it, and the folder of the repository its code is in (`code`): the one a session
+// here works in, else a clone Bobix knows (clones.rs). The code may be in another repository than the issue's.
+fn listed_issue(c: &Core, path: &str, iid: i64, code: &str) -> Option<(Option<String>, Value)> {
+    let m = model::Model::build(&c.settings, &c.sessions, &c.work);
+    let view = c.work.view(&c.settings, &m);
+    let groups = || view["local"].as_array().into_iter().flatten().chain(view["away"].as_array().into_iter().flatten());
+    let i = groups().find(|g| g["path"] == path)?["issues"].as_array()?.iter().find(|i| i["iid"].as_i64() == Some(iid))?.clone();
+    let dir = groups().find(|g| g["path"] == code).and_then(|g| g["dir"].as_str().map(String::from))
+        .or_else(|| m.repos.iter().find(|r| r.path == code).and_then(|r| r.dirs.first().map(|d| d.to.path.clone())))
+        .or_else(|| clones::dirs(&c.settings).get(code).cloned());
+    Some((dir, i))
 }
-// The repository's top folder (a session may work in a subfolder), its worktree for the issue, the branch, the disk.
-fn ticket_place(b: &Bobix, path: &str, iid: i64) -> Result<(String, Value, std::path::PathBuf, String), Value> {
-    let (dir, i) = { let c = b.core.lock().unwrap(); local_issue(&c, path, iid) }.ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
-    let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
-    let wt = tickets::worktree_dir(&repo, iid);
-    let branch = tickets::branch_for(iid, i["title"].as_str().unwrap_or(""));
+// The code repository's top folder (a session may work in a subfolder), its worktree for the issue, the branch.
+// Err { reason: where, code } when Bobix knows no folder of the code repository yet: the panel asks.
+fn ticket_place(b: &Bobix, path: &str, iid: i64, code: &str) -> Result<(String, Value, std::path::PathBuf, String), Value> {
+    let (dir, i) = { let c = b.core.lock().unwrap(); listed_issue(&c, path, iid, code) }.ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
+    let dir = dir.ok_or_else(|| json!({ "ok": false, "reason": "where", "code": code }))?;
+    let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).ok_or_else(|| json!({ "ok": false, "reason": "where", "code": code }))?;
+    let wt = tickets::worktree_dir(&repo, iid, path, code);
+    let branch = tickets::branch_for(iid, i["title"].as_str().unwrap_or(""), path, code);
     Ok((repo, i, wt, branch))
 }
+// The repository a Start puts the code in: the one you picked, else the issue's own. Lower case, as paths are kept.
+fn code_of(path: &str, code: Option<String>) -> String { code.map(|c| c.trim().to_lowercase()).filter(|c| c.contains('/')).unwrap_or_else(|| path.to_string()) }
 
 // For the Start box: where it will work and how the session is told to work. { ok, repo, dir, branch, rules, free, room, need, exists }
 #[tauri::command]
-async fn ticket_prep(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
+async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (repo, _, wt, branch) = match ticket_place(&b, &path, iid) { Ok(x) => x, Err(e) => return e };
+        let code = code_of(&path, code);
+        let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
-        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::key_of(&path, iid)).is_some_and(|f| !f.cleaned);
-        json!({ "ok": true, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
+        json!({ "ok": true, "code": code, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
     }).await.map_err(|_| ())
 }
 
@@ -1172,11 +1184,12 @@ async fn ticket_prep(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
 // (how: desktop), or the line to paste in a terminal with the model and plan mode preset (how: cli). The first session
 // created in that folder takes the issue (its name, as New does) and the flow.
 #[tauri::command]
-async fn ticket_start(path: String, iid: i64, prompt: String, models: Value, how: String, b: B<'_>) -> Result<Value, ()> {
+async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (repo, i, wt, branch) = match ticket_place(&b, &path, iid) { Ok(x) => x, Err(e) => return e };
-        let key = tickets::key_of(&path, iid);
+        let code = code_of(&path, code);
+        let (repo, i, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
+        let key = tickets::flow_key(&path, iid, &code);
         if b.core.lock().unwrap().tickets.list.get(&key).is_some_and(|f| !f.cleaned) { return json!({ "ok": false, "reason": "exists" }); }
         let free = tickets::free_bytes(std::path::Path::new(&repo));
         if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) { return json!({ "ok": false, "reason": "disk", "free": free }); }
@@ -1189,16 +1202,21 @@ async fn ticket_start(path: String, iid: i64, prompt: String, models: Value, how
             let mut c = b.core.lock().unwrap();
             c.tickets.list.shift_remove(&key);
             let forge = c.work.source_of(&c.settings, &path, iid).map(|x| x.0.key()).unwrap_or("gitlab").to_string();
-            c.tickets.list.insert(key.clone(), tickets::Flow { key, path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
-                dir: dir.clone(), branch, base, status: "starting".into(), models, forge, at: state::now(), ..Default::default() });
+            c.tickets.list.insert(key.clone(), tickets::Flow { key: key.clone(), path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
+                dir: dir.clone(), branch, base, status: "starting".into(), models, forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, ..Default::default() });
             c.tickets.save();
             c.work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": title }));
         }
+        // the repository picked becomes the next Start's suggestion for this issue repository's issues
+        let mut all = b.core.lock().unwrap().settings["workCode"].clone();
+        if !all.is_object() { all = json!({}); }
+        if code == path { all.as_object_mut().map(|o| o.remove(&path)); } else { all[&path] = json!(code); }
+        update_settings(&b, json!({ "workCode": all }));
         b.broadcast();
-        if how == "cli" { return json!({ "ok": true, "mode": "cli", "dir": dir, "cmd": cmd }); }
+        if how == "cli" { return json!({ "ok": true, "mode": "cli", "key": key, "dir": dir, "cmd": cmd }); }
         match tauri_plugin_opener::open_url(work::new_session_link(&dir, &prompt), None::<&str>) {
-            Ok(_) => json!({ "ok": true, "mode": "new", "dir": dir, "cmd": cmd }),
-            Err(e) => json!({ "ok": false, "mode": "new", "reason": e.to_string(), "dir": dir, "cmd": cmd }),
+            Ok(_) => json!({ "ok": true, "mode": "new", "key": key, "dir": dir, "cmd": cmd }),
+            Err(e) => json!({ "ok": false, "mode": "new", "key": key, "reason": e.to_string(), "dir": dir, "cmd": cmd }),
         }
     }).await.map_err(|_| ())
 }

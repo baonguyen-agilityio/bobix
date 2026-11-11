@@ -296,6 +296,7 @@ input[type=number]{width:104px}
 .wdirs{display:grid;width:100%}.wdirs .wd{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px var(--s2);padding:var(--s2) 0;border-top:1px solid var(--line)}.wdirs .wd:first-child{border-top:0}
 .wdirs .p{font-weight:500;overflow-wrap:anywhere}
 /* the repo picker (Work → Repos) and the list's filter and pages (beside the scope tabs) */
+.tk-code{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:var(--s2) 0}.tk-code .sel{max-width:100%}
 .rp-bar{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin:var(--s2) 0}.rp-bar input[type=search]{flex:1 1 180px;min-height:30px;padding:4px 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font-size:var(--t-sm)}
 .rp-list{display:grid;max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-md)}
 .rp{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--s2);align-items:center;padding:6px 10px;border-top:1px solid var(--line);cursor:pointer}.rp:first-child{border-top:0}.rp[hidden]{display:none}
@@ -1690,7 +1691,7 @@ function ticketItem([i, g, ss]) {
   return { id: `t:${g.path}#${i.iid}`, grp: 'doing', kind: 'board', cls: leadSt(ss) === 'waiting' ? 'hot' : '',
     lead: lead ? pet(lead, '', ss.length > 1 ? `<span class="cnt">${ss.length}</span>` : '') : projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${ticketState(ss)}`,
     meta: `${dupIssue(g.path, i.iid) || ss.some(s => dup.sessions.get(s.id)) ? '<span class="dup">⚠</span>' : ''}${lowCtx(ctxs.length ? Math.min(...ctxs) : null)}<span>${esc(ago(last))}</span>`,
-    detail: () => `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, `${BOARD.short(g.path)} · ${ticketState(ss)}`)}${stepper(i, ss)}
+    detail: () => `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, `${BOARD.short(g.path)} · ${ticketState(ss)}`)}${stepper(i, ss)}${flowsHTML(g.path, i.iid)}
       ${dupIssue(g.path, i.iid) ? `<p>${dupIssue(g.path, i.iid)}</p>` : ''}
       <section class="b-sec"><h3>${esc(T('tab.sessions'))}</h3>${ss.length ? `<ul class="rows">${familyOrder(ss).map(s => `<li>${rowBtn(s)}</li>`).join('')}</ul>` : `<p class="note">${esc(T('day.noSession'))}</p>`}</section>
       ${acts.length ? `<div class="acts" style="margin:0">${g.dir && bridge ? `<button class="btn pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${T('day.openSession')}</button>` : ''}${bridge && i.url ? `<button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button>` : ''}</div>` : ''}`,
@@ -1700,7 +1701,7 @@ function verifyItem([i, g, ss]) {
   const say = [...ss].sort((a, b) => b.since - a.since).find(s => s.summary), mr = /\/merge_requests\//.test(i.review), why = BOARD.why(i, ss, T, LOCALE());
   const acts = !bridge ? [] : [[T(mr ? 'day.openMR' : 'day.openPR'), ['↵'], `data-url="${esc(i.review)}"`], ...(ss.length && g.dir ? [[T('day.openSession'), [CMD, '⇧', 'O'], `data-start="${i.iid}" data-path="${esc(g.path)}"`]] : []), ...(i.url ? [[T('work.open'), [CMD, 'O'], `data-url="${esc(i.url)}"`]] : [])];
   return { id: `v:${g.path}#${i.iid}`, grp: 'verify', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${why}`,
-    detail: () => `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, BOARD.short(g.path))}${stepper(i, ss)}
+    detail: () => `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, BOARD.short(g.path))}${stepper(i, ss)}${flowsHTML(g.path, i.iid)}
       ${say ? `<section class="b-sec"><h3>${esc(T('pane.report'))}</h3><div class="report md">${markdown(say.summary)}</div></section>` : ''}
       ${ss.length ? `<section class="b-sec"><h3>${esc(T('tab.sessions'))}</h3><ul class="rows">${familyOrder(ss).map(s => `<li>${rowBtn(s)}</li>`).join('')}</ul></section>` : ''}
       ${bridge ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-url="${esc(i.review)}">${T(mr ? 'day.openMR' : 'day.openPR')}</button>${ss.length && g.dir ? `<button class="btn" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${T('day.openSession')}</button>` : ''}${i.url ? `<button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button>` : ''}</div>` : ''}`,
@@ -1752,20 +1753,22 @@ function issueItem([i, g]) {
 // Start on a repository whose folder Bobix does not know yet: asked once, then remembered (Settings → Work). Choose
 // the folder you cloned it to (its git remotes are checked: https, ssh and ~/.ssh/config aliases, forks' too), or
 // clone it with your own glab / gh into a folder you choose. Nothing runs before the click.
-const whereHTML = g => `<div class="tk-warn"><p><strong>${esc(T('work.where.t'))}</strong> ${esc(T('work.where.why', { p: g.path }))}</p>
-  <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-wk-link="${esc(g.path)}"${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T('work.link'))}</button><button class="btn sm" type="button" data-wk-clone="${esc(g.path)}"${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T(wkBusy.has(g.path) ? 'work.clone.busy' : 'work.clone'))}</button></div></div>`;
+// `of`: the issue's repository, when g is the repository its code is in (Start's "Fix it in which project?").
+const whereHTML = (g, of) => { const o = of ? ` data-wk-of="${esc(of)}"` : '';
+  return `<div class="tk-warn"><p><strong>${esc(T('work.where.t'))}</strong> ${esc(T('work.where.why', { p: g.path }))}</p>
+  <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-wk-link="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T('work.link'))}</button><button class="btn sm" type="button" data-wk-clone="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T(wkBusy.has(g.path) ? 'work.clone.busy' : 'work.clone'))}</button></div></div>`; };
 // How Bobix knows a project's folder when no session ran there yet: found, chosen or cloned.
 const viaHTML = g => (g.via && g.dir ? `<p class="note">${esc(T('work.via.' + g.via, { dir: home(g.dir) }))}</p>` : '');
 const wkBusy = new Set(); // projects being cloned
-async function wkLink(path) {
-  const r = await bridge.linkFolder(path).catch(e => ({ ok: false, reason: 'error', detail: String(e) }));
+async function wkLink(path, of) {
+  const r = await bridge.linkFolder(path, undefined, of).catch(e => ({ ok: false, reason: 'error', detail: String(e) }));
   if (r?.ok) return toast(T('work.link.done', { p: path, dir: home(r.dir) }));
   if (r?.reason === 'cancel') return;
   toast(r?.reason === 'notgit' ? T('work.link.notgit') : r?.reason === 'other' ? (r.found ? T('work.link.other', { p: path, x: r.found }) : T('work.link.none', { p: path })) : T('work.link.fail'));
 }
-async function wkClone(path) {
+async function wkClone(path, of) {
   wkBusy.add(path); render();
-  const r = await bridge.cloneProject(path).catch(e => ({ ok: false, reason: 'error', detail: String(e) }));
+  const r = await bridge.cloneProject(path, undefined, of).catch(e => ({ ok: false, reason: 'error', detail: String(e) }));
   wkBusy.delete(path); render();
   if (r?.ok) return toast(T('work.clone.done', { p: path, dir: home(r.dir) }));
   if (r?.reason === 'cancel') return;
@@ -1823,8 +1826,27 @@ const tkBusy = new Set(); // flows waiting on Haiku's summary
 const tkMr = {}; // per flow: the merge request box (open, its title and description as edited, busy)
 const tkUnpushed = {}; // per flow: commits not pushed, when Clean up said so (the next click cleans up anyway)
 const FGRP = { approve: 'fapprove', starting: 'frun', planning: 'frun', running: 'frun', done: 'fdone', blocked: 'fdone' };
-const tkSplit = k => { const n = k.lastIndexOf('#'); return [k.slice(0, n), Number(k.slice(n + 1))]; };
-const tkIssue = k => { const [p, n] = tkSplit(k); return st.todo.find(([i, g]) => g.path === p && i.iid === n && g.dir); };
+// A flow's key is its issue's ("group/app#7"), with ">group/api" after it when its code is in another repository.
+const tkSplit = k => { const b = k.split('>')[0], n = b.lastIndexOf('#'); return [b.slice(0, n), Number(b.slice(n + 1))]; };
+const tkIssue = k => { const [p, n] = tkSplit(k); for (const g of [...(work.local || []), ...(work.away || [])]) { const i = g.path === p && (g.issues || []).find(x => x.iid === n); if (i) return [i, g]; } return null; };
+const tkAgain = new Set(); // issues to start again, in another repository ("Start in another project…")
+// Start's "Fix it in which project?": the one picked in the box, else the one picked last for this issue repository's issues, else its own.
+const tkCode = k => { const [p] = tkSplit(k); return tkPrep[k]?.code || state?.settings?.workCode?.[p] || p; };
+// A repository's folder as Bobix knows it: listed with issues, a session's, or a remembered clone.
+const codeDir = path => [...(work.local || []), ...(work.away || [])].find(g => g.path === path)?.dir || (model.repos || []).find(r => r.path === path)?.dirs?.[0]?.path || state?.settings?.workDirs?.[path]?.dir || null;
+// The repositories to pick from: the issue's, the last pick, the ones with issues listed, then every one the picker read on that host.
+function codeChoices(g) {
+  const out = [g.path, state?.settings?.workCode?.[g.path], ...[...(work.local || []), ...(work.away || [])].map(x => x.path)];
+  const host = (() => { try { return new URL(g.issues?.[0]?.url).host; } catch { return ''; } })();
+  for (const h of rp.list || []) if (!host || h.host.split(':')[0] === host) out.push(...h.repos.map(r => r.path));
+  return [...new Set(out.filter(Boolean))];
+}
+// Every flow of one issue (one per repository its change needed), for its detail.
+function flowsHTML(path, iid, except) {
+  const fs = tickets.list.filter(f => f.path === path && f.iid === iid && f.key !== except);
+  if (!fs.length) return '';
+  return `<section class="b-sec"><h3>${esc(T('tk.flows'))}</h3><ul class="rows tk-flows">${fs.map(f => `<li><button class="lnk" type="button" data-sel-flow="${esc(f.key)}">${esc(f.code || f.path)}</button> · ${esc(T('tk.st.' + f.status))}${f.cleaned ? ' · ' + esc(T('tk.cleaned')) : ''}${f.mr ? ` · <button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(T('tk.mr.view', { ...fw(f), n: mrRef(f.mr) }))}</button>` : ''}</li>`).join('')}</ul></section>`;
+}
 const tkLive = (p, n) => tickets.list.some(f => f.path === p && f.iid === n && !f.cleaned);
 const modelsLine = m => (m?.size === 'large' && m.steps?.length ? m.steps.map(x => `${T('tk.m.' + x.step)} ${x.model}`).join(' · ') : T('tk.m.small'));
 // The repo picker: every repository your glab / gh can reach, ticked ones' issues listed. The list is read when the
@@ -1876,6 +1898,7 @@ function workItems() {
   const it = bridge && state && work.status !== 'off' ? [reposItem()] : [], fl = tickets.list, order = ['approve', 'starting', 'planning', 'running', 'blocked', 'done'];
   [...fl].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || a.cleaned - b.cleaned || b.at - a.at).forEach(f => it.push(flowItem(f)));
   if (bridge) st.todo.filter(([i, g]) => !tkLive(g.path, i.iid)).sort(newestFirst).forEach(x => it.push(startItem(x)));
+  if (bridge) for (const k of tkAgain) { const x = tkIssue(k); if (x && !it.some(y => y.id === 'n:' + k)) it.push(startItem(x)); }
   if (!it.some(x => x.grp !== 'frepos')) it.push({ id: 'tk:none', kind: 'board', lead: ico('work'), label: T('tk.none'), sub: T('tk.none.sub'),
     detail: () => `<div class="b-empty">${ico('work')}<h3>${esc(T('tk.none'))}</h3><p>${esc(T('tk.none.sub'))}</p>${bridge && work.status === 'off' ? `<button class="btn" type="button" data-tab-go="settings" data-set="set:work">${esc(T('work.toSettings'))}</button>` : ''}</div>`,
     acts: bridge && work.status === 'off' ? [[T('work.toSettings'), ['↵'], 'data-tab-go="settings" data-set="set:work"']] : [] });
@@ -1899,7 +1922,7 @@ function flowItem(f) {
   if (f.mr) acts.push([T('tk.mr.view', { ...fw(f), n: mrRef(f.mr) }), acts.length ? [CMD, '⇧', 'M'] : ['↵'], `data-url="${esc(f.mr)}"`]);
   if (bridge && !f.cleaned && ['done', 'blocked'].includes(f.status)) acts.push([T('tk.review'), acts.length ? [CMD, '⇧', 'V'] : ['↵'], `data-tk-review="${k}"`], [T('tk.clean'), [CMD, '⇧', 'K'], `data-tk-clean="${k}"`]);
   return { id: 'f:' + f.key, grp: FGRP[f.status] || 'frun', kind: 'board', cls: f.status === 'approve' ? 'hot' : '', lead: s ? pet(s) : projectPet(f.path),
-    label: `#${f.iid} ${f.title}`, sub: [BOARD.short(f.path), T('tk.st.' + f.status), f.cleaned ? T('tk.cleaned') : ''].filter(Boolean).join(' · '),
+    label: `#${f.iid} ${f.title}`, sub: [BOARD.short(f.path) + (f.code ? ' → ' + f.code : ''), T('tk.st.' + f.status), f.cleaned ? T('tk.cleaned') : ''].filter(Boolean).join(' · '),
     meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${f.mr ? ciBadge(f) : checkBadges(f)}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
 }
 const fresh = t => Date.now() - t < 60e3; // "just now": no "for just now" / "just now ago"
@@ -1929,8 +1952,9 @@ function flowHTML(f, s) {
   if (f.new && bridge) queueMicrotask(() => bridge.ticketSeen(f.key)); // you see its assumptions now: the pet's mark goes
   const steps = `<ol class="stp" aria-label="${esc(T('stage.label'))}">${BOARD.FLOW.map((x, n) => `<li class="${n === at ? 'cur' : n < at ? 'past' : ''}"${n === at ? ' aria-current="step"' : ''}>${esc(T('tk.step.' + x))}</li>`).join('')}</ol>`;
   const plan = f.plan || p.plan, as = p.assumptions || [];
-  return `${head(s ? pet(s, 'lg') : projectPet(f.path, 'lg'), `#${f.iid} ${f.title}`, `${BOARD.short(f.path)} · ${T('tk.st.' + f.status)}`)}
+  return `${head(s ? pet(s, 'lg') : projectPet(f.path, 'lg'), `#${f.iid} ${f.title}`, `${f.path}${f.code ? ' → ' + f.code : ''} · ${T('tk.st.' + f.status)}`)}
     <div class="stg">${steps}<p class="why">${esc(T('tk.why.' + f.status))}</p></div>
+    ${flowsHTML(f.path, f.iid, f.key)}
     ${asks ? `<div class="ask"><strong>${esc(T('tk.gate'))}</strong> ${esc(T('tk.gate.note'))}</div>` : ''}
     ${plan ? `<section class="b-sec"><h3>${esc(T('tk.plan'))}</h3>${asks ? `<div class="report md">${markdown(plan)}</div>` : moreHTML('tkp:' + f.key, markdown(plan), 'report md')}</section>` : ''}
     ${asks ? (held ? `<label class="tk-ch"><span>${esc(T('tk.change.l'))}</span><textarea rows="2" data-tk-text="${k}" data-f="tkch:${k}" placeholder="${esc(T('tk.change.ph'))}">${esc(tkChange[f.key] || '')}</textarea></label>
@@ -1954,22 +1978,27 @@ function flowHTML(f, s) {
       ${s ? `<dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>` : ''}</dl></section>
     ${bridge ? `<div class="acts" style="margin:0">${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `${f.status === 'done' && !f.mr && !tkMr[f.key]?.open ? `<button class="btn pri" type="button" data-tk-mr-open="${k}">${esc(T('tk.mr', fw(f)))}</button>` : ''}<button class="btn${f.status === 'done' && !f.mr ? '' : ' pri'}" type="button" data-tk-review="${k}">${esc(T('tk.review'))}</button><button class="btn" type="button" data-tk-review-cli="${k}">${esc(T('tk.review.cli'))}</button><button class="btn" type="button" data-tk-clean="${k}">${esc(T('tk.clean'))}</button>` : ''}
       ${f.session ? `<button class="btn" type="button" data-tk-sum="${k}"${tkBusy.has(f.key) ? ' disabled' : ''}>${esc(T(tkBusy.has(f.key) ? 'tk.ask.busy' : 'tk.sum'))}</button>` : ''}
-      ${f.url ? `<button class="btn" type="button" data-url="${esc(f.url)}">${esc(T('work.open'))}</button>` : ''}</div>
+      ${f.url ? `<button class="btn" type="button" data-url="${esc(f.url)}">${esc(T('work.open'))}</button>` : ''}<button class="btn" type="button" data-tk-again="${esc(f.path + '#' + f.iid)}">${esc(T('tk.again'))}</button></div>
       ${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `<p class="note">${esc(T('tk.review.note'))}</p>` : ''}
       ${f.session ? `<p class="note">${esc(T('tk.sum.note'))}</p>` : ''}` : ''}
     <p class="note">${esc(T('tk.local'))}</p>`;
 }
 function startItem([i, g]) {
   const k = g.path + '#' + i.iid, pr = tkPrep[k], ek = esc(k);
-  const acts = !g.dir ? [[T('work.link'), ['↵'], `data-wk-link="${esc(g.path)}"`], [T('work.clone'), [CMD, '⇧', 'L'], `data-wk-clone="${esc(g.path)}"`]]
+  const code = tkCode(k), of = code === g.path ? '' : ` data-wk-of="${esc(g.path)}"`;
+  const acts = !codeDir(code) ? [[T('work.link'), ['↵'], `data-wk-link="${esc(code)}"${of}`], [T('work.clone'), [CMD, '⇧', 'L'], `data-wk-clone="${esc(code)}"${of}`]]
     : pr?.prep?.ok ? [[T('tk.start'), ['↵'], `data-tk-go="${ek}"`], [T('tk.cli'), [CMD, '⇧', 'C'], `data-tk-cli="${ek}"`]] : [[T('tk.prep'), ['↵'], `data-tk-prep="${ek}"`]];
-  return { id: 'n:' + k, grp: 'fstart', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: [g.path, whoText(i), ...(i.labels || []).slice(0, 2)].filter(Boolean).join(' · '),
+  return { id: 'n:' + k, grp: 'fstart', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: [g.path, code !== g.path ? '→ ' + code : '', whoText(i), ...(i.labels || []).slice(0, 2)].filter(Boolean).join(' · '),
     detail: () => startHTML(i, g, k), acts };
 }
 function startHTML(i, g, k) {
   const pr = tkPrep[k], ek = esc(k), p = pr?.prep;
-  const top = `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [g.path, whoText(i), ...(i.labels || [])].filter(Boolean).join(' · '))}<p class="note">${esc(T('tk.flow.note'))}</p>${viaHTML(g)}`;
-  if (!g.dir) return `${top}${whereHTML(g)}${i.url ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button></div>` : ''}`;
+  const code = tkCode(k), other = code !== g.path, dirOf = codeDir(code);
+  if (bridge && !rp.list && !rp.busy) setTimeout(() => loadRepos(false)); // the picker's choices: every repository you can reach
+  // "Fix it in which project?": the ticket's own project, or the one picked last time for this ticket's project
+  const pick = `<p class="tk-code"><label for="tkc-${ek}"><strong>${esc(T('tk.code'))}</strong></label> <select class="sel" id="tkc-${ek}" data-tk-code="${ek}" data-f="tkc:${ek}">${codeChoices(g).map(c => `<option value="${esc(c)}"${c === code ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></p>`;
+  const top = `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [g.path, whoText(i), ...(i.labels || [])].filter(Boolean).join(' · '))}<p class="note">${esc(T('tk.flow.note'))}</p>${other ? '' : viaHTML(g)}${flowsHTML(g.path, i.iid)}${pick}`;
+  if (!dirOf || p?.reason === 'where') return `${top}${whereHTML({ path: code }, other ? g.path : '')}${i.url ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button></div>` : ''}`;
   if (!p) return `${top}<div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-prep="${ek}" data-f="tkprep:${ek}"${pr?.loading ? ' disabled' : ''}>${esc(T(pr?.loading ? 'tk.prep.busy' : 'tk.prep'))}</button>${i.url ? `<button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button>` : ''}</div>`;
   if (!p.ok) return `${top}<p class="note err">${esc(T('work.new.fail'))}</p>`;
   const disk = p.room == null ? T('tk.disk.unknown') : T(p.room > 0 ? 'tk.disk.ok' : 'tk.disk.full', { n: p.room, free: BOARD.gb(p.free), need: BOARD.gb(p.need) });
@@ -1990,10 +2019,11 @@ async function tkPrepare(k) {
   const x = tkIssue(k);
   if (!x || !bridge) return;
   const [path, iid] = tkSplit(k);
-  tkPrep[k] = { loading: true }; render();
-  const [p, r] = await Promise.all([bridge.ticketPrep(path, iid), bridge.issueBrief(path, iid).catch(() => null)]);
+  const code = tkCode(k);
+  tkPrep[k] = { loading: true, code }; render();
+  const [p, r] = await Promise.all([bridge.ticketPrep(path, iid, code), bridge.issueBrief(path, iid).catch(() => null)]);
   const body = r?.ok ? r.body : '';
-  tkPrep[k] = { prep: p || { ok: false }, body, sel: 'small', mtext: p?.models || '', prompt: p?.ok ? BOARD.flowPrompt(x[0], body, p.models, p.rules) : '' };
+  tkPrep[k] = { code, prep: p || { ok: false }, body, sel: 'small', mtext: p?.models || '', prompt: p?.ok ? BOARD.flowPrompt(x[0], body, p.models, p.rules) : '' };
   nextFocus = 'tkp:' + k;
   render();
 }
@@ -2019,7 +2049,7 @@ async function tkGo(k, how) {
   if (!pr?.prep?.ok || pr.busy) return;
   pr.busy = true; render();
   if (how !== 'cli') try { await navigator.clipboard.writeText(pr.prompt); } catch {}
-  const r = await bridge.ticketStart(path, iid, pr.prompt, pr.sel === 'haiku' && pr.cls?.ok ? pr.cls : { size: 'small' }, how);
+  const r = await bridge.ticketStart(path, iid, pr.prompt, pr.sel === 'haiku' && pr.cls?.ok ? pr.cls : { size: 'small' }, how, tkCode(k));
   pr.busy = false;
   if (!r?.ok && r?.reason !== undefined && !r.dir) {
     toast(r.reason === 'disk' ? T('tk.disk.full', { free: BOARD.gb(r.free), need: BOARD.gb(pr.prep.need) }) : r.reason === 'exists' ? T('tk.exists') : r.reason === 'git' ? T('tk.fail.git', { e: r.detail }) : T('work.new.fail'));
@@ -2027,8 +2057,8 @@ async function tkGo(k, how) {
   }
   if (how === 'cli') { try { await navigator.clipboard.writeText(r.cmd); toast(T('tk.cli.done')); } catch { toast(r.cmd); } }
   else toast(T(r.ok ? 'tk.start.done' : 'tk.start.open'));
-  delete tkPrep[k];
-  bsel.work = 'f:' + k;
+  delete tkPrep[k]; tkAgain.delete(k);
+  bsel.work = 'f:' + (r.key || k);
   render();
 }
 async function tkAnswer(key, ok) {
@@ -2873,8 +2903,10 @@ async function onAct(e) {
     rp.dirty = true;
     return render();
   }
-  if (d.wkLink) return wkLink(d.wkLink);
-  if (d.wkClone) return wkClone(d.wkClone);
+  if (d.wkLink) return wkLink(d.wkLink, d.wkOf);
+  if (d.wkClone) return wkClone(d.wkClone, d.wkOf);
+  if (d.selFlow) { bsel.work = 'f:' + d.selFlow; showTab('work'); return; }
+  if (d.tkAgain) { tkAgain.add(d.tkAgain); bsel.work = 'n:' + d.tkAgain; showTab('work'); return; }
   if (d.tkPrep) return tkPrepare(d.tkPrep);
   if (d.tkAsk) return tkAsk(d.tkAsk);
   if (d.tkGo) return tkGo(d.tkGo, 'desktop');
@@ -2908,6 +2940,7 @@ $('#b-dyn').addEventListener('input', e => {
 $('#b-dyn').addEventListener('change', e => {
   const d = e.target.dataset;
   if (d.tkM) tkModels(d.tkM, e.target.value);
+  if (d.tkCode) { tkPrep[d.tkCode] = { code: e.target.value }; render(); } // another repository: prepared again for it
   if (d.rpTick && rp.list) { rpDraft()[d.rpTick][e.target.checked ? 'add' : 'delete'](e.target.value); rp.dirty = true; render(); }
 });
 $('#b-bar').addEventListener('click', onAct);
