@@ -46,6 +46,8 @@ jobs:
           name: overlay-dump-${{ matrix.os }}
           path: overlay-dump/
           if-no-files-found: ignore
+      - name: Panel and pets card in Chrome (no layout shift)
+        run: node --test test/layout.test.js
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test

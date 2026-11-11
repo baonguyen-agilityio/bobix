@@ -855,6 +855,20 @@ test('board: the issue to start next, and what Claude gets', () => {
   assert.equal(B.brief({ iid: 1, title: 'T', url: 'u' }, null), '#1 T\n\nu', 'no description');
 });
 
+test('board: the search matches under the accents and case, and says where it hit', () => {
+  const B = require('../src/ui/board');
+  const ws = B.words('  DANG   nhap ');
+  assert.deepEqual(ws, ['dang', 'nhap'], 'words folded, blanks dropped');
+  assert.ok(B.matches('Tự mở khi Đăng nhập máy', ws), 'đ and the marks do not count');
+  assert.ok(!B.matches('Đăng xuất', ws), 'every word has to be there');
+  const at = (t, q) => { const h = B.hits(t, B.words(q)); return h.r.map(([a, b]) => h.src.slice(a, b)); };
+  assert.deepEqual(at('Tự mở khi Đăng nhập máy', 'nhap dang'), ['Đăng', 'nhập'], 'the words as written, in the text\'s order');
+  assert.deepEqual(at('Ngo\u0302n ngữ', 'ngon'), ['Ngôn'], 'a decomposed letter counts once');
+  assert.deepEqual(at('acme-shop', 'ac cme'), ['acme'], 'overlapping hits merge');
+  assert.deepEqual(at('a & b <c>', 'b'), ['b']);
+  assert.deepEqual(B.hits('shop', []).r, []);
+});
+
 test('board: the skill to suggest for an issue, and the prompt with it', () => {
   const B = require('../src/ui/board');
   const sk = (name, source = 'personal') => ({ name, source, description: '' });
