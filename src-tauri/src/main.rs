@@ -1493,7 +1493,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
+    "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
     "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
@@ -1673,6 +1673,36 @@ fn main() {
 }
 
 fn has_hooks() -> bool { hooks::status(&paths::home())["events"].as_array().is_some_and(|a| !a.is_empty()) }
+
+// The pages may call a command only when it is in all three: the handler, COMMANDS (granted to the 127.0.0.1 pages) and
+// build.rs (declared to Tauri). One missing from a list is refused at run time ("Command … not allowed by ACL"), which
+// tests that stub the bridge never see. bridge.js may only call commands that are granted.
+#[cfg(test)]
+mod command_list_tests {
+    use std::collections::BTreeSet;
+    fn between<'a>(s: &'a str, open: &str, close: &str) -> &'a str {
+        let i = s.find(open).unwrap_or_else(|| panic!("{open} not found")) + open.len();
+        &s[i..i + s[i..].find(close).unwrap()]
+    }
+    fn quoted(s: &str) -> BTreeSet<String> { s.split('"').skip(1).step_by(2).map(String::from).collect() }
+
+    #[test]
+    fn every_command_is_in_the_handler_commands_and_build_rs() {
+        let handler: BTreeSet<String> = between(include_str!("main.rs"), concat!("generate_", "handler!["), "])")
+            .split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
+        let granted: BTreeSet<String> = super::COMMANDS.iter().map(|c| c.to_string()).collect();
+        let declared = quoted(between(include_str!("../build.rs"), concat!(".commands", "(&["), "])"));
+        assert!(handler.len() > 40, "{handler:?}");
+        assert_eq!(granted.len(), super::COMMANDS.len(), "COMMANDS has a name twice");
+        assert_eq!(granted, handler, "COMMANDS vs generate_handler!");
+        assert_eq!(declared, handler, "build.rs vs generate_handler!");
+        let bridge = include_str!("../bridge.js");
+        let called: BTreeSet<String> = bridge.split("invoke('").skip(1).map(|x| x[..x.find('\'').unwrap()].to_string()).collect();
+        assert!(called.contains("room") && called.contains("habit_skills"), "{called:?}");
+        let missing: Vec<_> = called.difference(&granted).collect();
+        assert!(missing.is_empty(), "bridge.js calls commands that are not granted: {missing:?}");
+    }
+}
 
 #[cfg(test)]
 mod snapshot_tests {
