@@ -43,7 +43,17 @@ jobs:
           key: ${{ matrix.target }}
       - name: Linux libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb xdotool > /dev/null
+        timeout-minutes: 8
+        # A stalled mirror or a held dpkg lock (unattended-upgrades on the runner image) is retried, not waited on for
+        # the whole job; stderr stays visible so a failure leaves a log.
+        run: |
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120"
+          for try in 1 2 3; do
+            echo "apt try $try"
+            if sudo apt-get $APT update -qq > /dev/null && sudo apt-get $APT install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb xdotool > /dev/null; then exit 0; fi
+            sleep 15
+          done
+          exit 1
       - run: npm ci
       - name: Build the installer
         shell: bash
