@@ -577,6 +577,8 @@ impl Work {
         view["closed"] = json!(self.extra(settings, "closed"));
         view["page"] = json!(page);
         view["more"] = json!(more);
+        // a read made for an earlier page: this page shows once the read for it is in
+        view["filling"] = json!(self.on(settings).into_iter().any(|f| f.issues["need"].as_u64().is_some_and(|n| (n as usize) < need_for(page))));
         view["filter"] = settings["workFilter"].clone();
         // the repositories ticked on the hosts read (none: the list asks you to pick some), and a warning for many GitLab
         // projects, each read on its own
@@ -695,6 +697,12 @@ mod tests {
         w.page = 3;
         let v = view(&w, &on, &Sessions::default());
         assert_eq!((v["more"].clone(), ids(&v).len()), (json!(false), 5));
+        // page 2 asked for while the read made for page 1 is what is in: filling until the read for page 2 is
+        w.feeds[Forge::GitHub as usize].issues["need"] = json!(need_for(1));
+        w.page = 2;
+        assert_eq!(view(&w, &on, &Sessions::default())["filling"], true);
+        w.feeds[Forge::GitHub as usize].issues["need"] = json!(need_for(2));
+        assert_eq!(view(&w, &on, &Sessions::default())["filling"], false);
         let many = json!({ "gitlab": true, "workRepos": { "gl.example.test": (0..21).map(|n| format!("g/p{n}")).collect::<Vec<_>>() } });
         assert_eq!(view(&w, &many, &Sessions::default())["many"], true, "21 GitLab projects: each is a read of its own");
         assert_eq!((need_for(0), need_for(1), need_for(3), need_for(10_000)), (21, 21, 61, MAX_PAGE * PER_PAGE + 1), "a read is capped, whatever the page");

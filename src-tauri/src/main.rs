@@ -608,7 +608,7 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
         // each host on its own: one that does not answer is named and skipped, the others are read
         let auth = bin.as_deref().and_then(|x| f.auth(x));
         let at = state::now();
-        let read_ok;
+        let (read_ok, again);
         let (filter, need) = { let c = b.core.lock().unwrap(); (c.settings["workFilter"].as_str().unwrap_or("all").to_string(), work::need_for(c.work.page)) };
         let (next, reviews) = match (&bin, auth) {
             (_, None) => (json!({ "status": f.missing(), "at": at }), vec![]), // look again next time: it may be installed by then
@@ -634,7 +634,7 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
                     let since = hooks::iso(at.saturating_sub(4 * 24 * 3600 * 1000)); // today, and the last working day for the stand-up
                     let reviews: Vec<model::Review> = h.iter().flat_map(|x| f.reviews(g, x)).collect();
                     let closed: Vec<Value> = h.iter().flat_map(|x| f.closed(g, x, &since)).collect();
-                    (json!({ "status": "ok", "hosts": h, "at": at, "failed": failed, "list": list, "closed": closed }), reviews)
+                    (json!({ "status": "ok", "hosts": h, "at": at, "failed": failed, "list": list, "closed": closed, "need": need }), reviews)
                 }
             }
             (None, Some(_)) => unreachable!(),
@@ -648,9 +648,11 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
             feed.reviews = if on { reviews } else { vec![] };
             read_ok = on && next["status"] == "ok";
             feed.issues = if on { next } else { json!({ "status": "off" }) }; // switched off meanwhile
+            again = read_ok && work::need_for(c.work.page) > need; // a later page was asked for while this read ran
         }
         read_claude_list(&b);
         b.broadcast();
+        if again { return refresh_forge(&b, f); }
         if read_ok { refresh_ci(&b, None); } // the ticket flow's merge / pull requests
         find_clones(&b, f);
     });
@@ -705,6 +707,7 @@ async fn work_repos(fresh: Option<bool>, b: B<'_>) -> Result<Value, ()> {
 fn work_page(page: usize, b: B) -> usize {
     let page = page.clamp(1, work::MAX_PAGE);
     b.core.lock().unwrap().work.page = page;
+    b.broadcast(); // the list says it is reading until the read for this page is in
     refresh_issues(&b);
     page
 }
@@ -1942,10 +1945,10 @@ mod snapshot_tests {
         // the ticket flow's view (free disk differs per machine) and each session's flow and mark: none in this fixture
         let flows = got.as_object_mut().unwrap().shift_remove("tickets").expect("the ticket flow goes along");
         assert_eq!((&flows["list"], &flows["need"]), (&json!([]), &json!(tickets::WORKTREE_BYTES)));
-        // the list's page, its filter and the repositories ticked: one page, no filter set, none ticked in this fixture
+        // the list's page, its filter and the repositories ticked: one page (read in full), no filter set, none ticked in this fixture
         let w = got["work"].as_object_mut().unwrap();
-        let paging: Vec<Option<Value>> = ["page", "more", "filter", "ticked", "many"].iter().map(|k| w.shift_remove(*k)).collect();
-        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false))]);
+        let paging: Vec<Option<Value>> = ["page", "more", "filling", "filter", "ticked", "many"].iter().map(|k| w.shift_remove(*k)).collect();
+        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false))]);
         for s in got["sessions"].as_array_mut().unwrap() {
             let o = s.as_object_mut().unwrap();
             assert_eq!((o.shift_remove("mark"), o.shift_remove("flow")), (Some(json!(false)), Some(Value::Null)));
