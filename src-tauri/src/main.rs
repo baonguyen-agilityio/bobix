@@ -43,6 +43,7 @@ use tokio::sync::broadcast;
 
 pub const BRIDGE: &str = include_str!("../bridge.js");
 const STALE_MS: u64 = 12 * 3600 * 1000;
+const SEND_MS: u64 = 250; // the pages get the state at most 4 times a second
 
 pub struct Core {
     pub sessions: Sessions,
@@ -71,6 +72,7 @@ pub struct Bobix {
     pub port: u16,
     pub app: std::sync::OnceLock<AppHandle>,
     pub usage: Mutex<usage::Store>,        // per-session usage tallies (their own lock: reading a transcript never holds the core)
+    pub dirty: std::sync::atomic::AtomicBool, // the pages' state changed since it was last sent (see send_loop)
 }
 
 // What the pages get on /events: the same JSON as snapshot() in the 0.1 (Electron) app's main.js.
@@ -105,9 +107,20 @@ fn snapshot_of(c: &Core) -> Value {
 impl Bobix {
     pub fn snapshot(&self) -> String { snapshot_of(&self.core.lock().unwrap()).to_string() }
 
+    // The pages' state changed: marked here, sent by send_loop (a burst of hook events is one update, not one each).
     pub fn broadcast(self: &Arc<Self>) {
-        let _ = self.tx.send(self.snapshot());
+        self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(app) = self.app.get() { overlay::wake(app, self); tray::badge(app, self, false); }
+    }
+    // At most every SEND_MS: when marked, the state is built once and sent to the pages, unless it is what they have.
+    fn send_loop(self: &Arc<Self>) {
+        let mut last = String::new();
+        loop {
+            thread::sleep(Duration::from_millis(SEND_MS));
+            if !self.dirty.swap(false, std::sync::atomic::Ordering::SeqCst) || self.tx.receiver_count() == 0 { continue; }
+            let s = self.snapshot();
+            if s != last { let _ = self.tx.send(s.clone()); last = s; }
+        }
     }
 
     // A hook event. Returns what the hook waits for: a held permission request's answer, or a new session's name.
@@ -146,12 +159,13 @@ impl Bobix {
                     find_parent(s, now);
                     let git_dir = git_due(work, s, ev == "Stop" || start, now);
                     let tool = e["tool_name"].as_str().unwrap_or("");
-                    if flows.on_event(&id, &s.cwd, &ev, tool, e["tool_input"]["plan"].as_str(), now) { flows.save(); }
+                    let pid = s.claude_pid.filter(|p| s.pid_is_claude == Some(*p)); // claude's own, not a shell that outlives it
+                    if flows.on_event(&id, &s.cwd, &ev, tool, e["tool_input"]["plan"].as_str(), pid, now) { flows.save(); }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
                     let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e, plan) }
                         // A session that starts on an issue (New in the Work tab, or its branch) gets its name from Bobix,
                         // the way /rename names it; one that has a name keeps it.
-                        else if start && source == "startup" && untitled && work.new_for.contains_key(&s.cwd) { Some(take_issue(work, settings, s)) }
+                        else if start && source == "startup" && untitled && work.wait_key(&s.cwd).is_some() { Some(take_issue(work, settings, s)) }
                         else if start && ["startup", "resume", "fork"].contains(&source) && untitled { self.title_for(work.hosts(settings), &s.cwd) }
                         else { None };
                     (Some(id), notice, s.since, reply, git_dir, gitlab)
@@ -356,7 +370,7 @@ fn tick(b: &Arc<Bobix>) {
     let mut lines = vec![];
     {
         let mut c = b.core.lock().unwrap();
-        let Core { sessions, settings, waits, habits: mem, .. } = &mut *c;
+        let Core { sessions, settings, waits, habits: mem, tickets, .. } = &mut *c;
         let remember = habits::on(settings);
         let gone = state::gone(sessions, procs::is_alive);
         sessions.retain(|id, s| {
@@ -374,6 +388,7 @@ fn tick(b: &Arc<Bobix>) {
             }
             if find_parent(s, now) { changed = true; }
         }
+        if tickets.stop_gone(|id| sessions.contains_key(id), procs::is_alive, now) { tickets.save(); changed = true; }
     }
     remember(lines, now);
     for (id, pid) in to_check { check_pid(b, id, pid); }
@@ -567,7 +582,7 @@ fn refresh_git(b: &Arc<Bobix>, dir: String) {
 
 // The first session created in a folder New waits on takes that issue and its name.
 fn take_issue(work: &mut work::Work, settings: &Value, s: &mut state::Session) -> server::Reply {
-    let n = work.new_for.shift_remove(&s.cwd).unwrap_or_default();
+    let n = work.wait_key(&s.cwd).and_then(|k| work.new_for.shift_remove(&k)).unwrap_or_default();
     let (path, iid) = (n["path"].as_str().unwrap_or("").to_string(), n["iid"].as_i64().unwrap_or(0));
     s.started = Some(json!({ "path": path, "iid": iid }));
     let name = work::session_title_for(&work::key_of(settings, &path), iid, n["title"].as_str().unwrap_or(""));
@@ -674,15 +689,16 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
     });
 }
 
-// The repositories ticked on `host` (Settings: workRepos). The first time a host is read, the ones active in the last
-// 90 days are ticked and remembered; you change them in the repo picker.
+// The repositories ticked on `host` (Settings: workRepos). The first time a host is read, the 10 most recently active
+// ones (in the last 90 days) are ticked and remembered, and Work says how many more there are; you change them in the
+// repo picker.
 fn ticked_repos(b: &Arc<Bobix>, f: work::Forge, bin: &str, host: &str) -> Vec<String> {
     let paths = |v: &Value| v.as_array().into_iter().flatten().filter_map(|p| p.as_str().map(String::from)).collect::<Vec<_>>();
     if let Some(a) = b.core.lock().unwrap().settings["workRepos"].get(host) { return paths(a); }
     let Ok(list) = f.repos(bin, host) else { return vec![] }; // asked again at the next read
     let since = hooks::iso(state::now().saturating_sub(work::RECENT_DAYS * 24 * 3600 * 1000));
-    let ticked = work::recent(&list, &since);
-    let mut all = { let mut c = b.core.lock().unwrap(); c.work.feed(f).repos.insert(host.into(), list); c.settings["workRepos"].clone() };
+    let (ticked, more) = work::recent(&list, &since);
+    let mut all = { let mut c = b.core.lock().unwrap(); c.work.feed(f).repos.insert(host.into(), list); if more > 0 { c.work.more_repos.insert(host.into(), more); } c.settings["workRepos"].clone() };
     if !all.is_object() { all = json!({}); }
     all[host] = json!(ticked);
     update_settings(b, json!({ "workRepos": all }));
@@ -728,11 +744,13 @@ fn work_page(page: usize, b: B) -> usize {
 }
 
 // The local clones of this tracker's projects that no session works in here: looked for by their git remotes in the
-// usual code folders (clones.rs; only `.git/config` is read) after each read of the issues, and remembered (`workDirs`,
-// how: found). A project you forgot in Settings (`workDirsOff`) is not looked for again.
+// usual code folders (clones.rs; only `.git/config` is read) after the first read of the issues of each app start, and
+// after Refresh, and remembered (`workDirs`, how: found). Folders macOS guards with a prompt are left out: Find on this
+// Mac walks them on your click (work_find). A project you forgot in Settings (`workDirsOff`) is not looked for again.
 fn find_clones(b: &Arc<Bobix>, f: work::Forge) {
     let (hosts, wanted, known) = {
         let c = b.core.lock().unwrap();
+        if c.work.scanned[f as usize] { return; }
         let feed = &c.work.feeds[f as usize];
         let hosts: Vec<String> = feed.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str().map(String::from)).collect();
         let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
@@ -744,7 +762,8 @@ fn find_clones(b: &Arc<Bobix>, f: work::Forge) {
         (hosts, wanted, known)
     };
     if wanted.is_empty() || hosts.is_empty() { return; }
-    let found = clones::scan(&clones::roots(&paths::home(), &known), &hosts, &wanted);
+    b.core.lock().unwrap().work.scanned[f as usize] = true; // it ran: not again until Refresh or the next start
+    let found = clones::scan(&clones::roots(&paths::home(), &known, false), &hosts, &wanted);
     if found.is_empty() { return; }
     let mut dirs = b.core.lock().unwrap().settings["workDirs"].clone();
     if !dirs.is_object() { dirs = json!({}); }
@@ -793,6 +812,22 @@ async fn work_link(path: String, dir: Option<String>, of: Option<String>, b: B<'
         match clones::check(&d, &path, &hosts) {
             Ok(top) => { remember_dir(&b, &path, &top, "chosen"); json!({ "ok": true, "dir": top }) }
             Err(mut e) => { e["ok"] = json!(false); e }
+        }
+    }).await.map_err(|_| ())
+}
+
+// "Find on this Mac": on your click, the clone search for one project, the folders macOS guards with a prompt included
+// (a refused prompt: that folder is skipped). Remembered as found. { ok, dir } | { ok: false, reason: none | gone }
+#[tauri::command]
+async fn work_find(path: String, of: Option<String>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some((_, _, _, hosts)) = project_source(&b, &path, of.as_deref()) else { return json!({ "ok": false, "reason": "gone" }) };
+        let known: Vec<String> = b.core.lock().unwrap().sessions.values().map(|s| s.cwd.clone()).filter(|d| std::path::Path::new(d).is_absolute()).collect();
+        let wanted: std::collections::HashSet<String> = [path.clone()].into();
+        match clones::scan(&clones::roots(&paths::home(), &known, true), &hosts, &wanted).remove(&path) {
+            Some(d) => { remember_dir(&b, &path, &d, "found"); json!({ "ok": true, "dir": d }) }
+            None => json!({ "ok": false, "reason": "none" }),
         }
     }).await.map_err(|_| ())
 }
@@ -1047,6 +1082,7 @@ fn state(b: B, app: AppHandle) -> Value {
 #[tauri::command]
 async fn settings_set(patch: Value, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
+    if patch.get("workRepos").is_some() { b.core.lock().unwrap().work.more_repos.clear(); } // you picked: no "N more" note
     tauri::async_runtime::spawn_blocking(move || update_settings(&b, patch)).await.map_err(|_| ())
 }
 
@@ -1104,7 +1140,11 @@ async fn feedback_send(v: Value, b: B<'_>) -> Result<Value, ()> {
 
 // Issues, read again now (only from the trackers that are on).
 #[tauri::command]
-fn work_refresh(b: B) { ask_issues(&b); }
+fn work_refresh(b: B) {
+    forget_bins(); // a CLI installed since it was looked up is found now
+    b.core.lock().unwrap().work.scanned = Default::default(); // and the clone search may run again
+    ask_issues(&b);
+}
 
 // In the browser; only links to the issues Bobix read open.
 #[tauri::command]
@@ -1208,11 +1248,13 @@ async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> 
     }).await.map_err(|_| ())
 }
 
-// Start: a worktree on a new branch, the log's template in it, then a new Claude desktop session there with the prompt
-// (how: desktop), or the line to paste in a terminal with the model and plan mode preset (how: cli). The first session
-// created in that folder takes the issue (its name, as New does) and the flow.
+// Start: a worktree on a new branch from the remote's default branch (fetched first; offline, the last copy, and the
+// answer says so), the log's template in it, then a new Claude desktop session there with the prompt (how: desktop),
+// or the line to paste in a terminal with the model and plan mode preset (how: cli). The first session created in that
+// folder takes the issue (its name, as New does) and the flow. Under WORKTREE_BYTES free it answers { reason: disk }
+// unless `anyway` (Start anyway: a small repository needs far less).
 #[tauri::command]
-async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, b: B<'_>) -> Result<Value, ()> {
+async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let code = code_of(&path, code);
@@ -1220,10 +1262,12 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         let key = tickets::flow_key(&path, iid, &code);
         if b.core.lock().unwrap().tickets.list.get(&key).is_some_and(|f| !f.cleaned) { return json!({ "ok": false, "reason": "exists" }); }
         let free = tickets::free_bytes(std::path::Path::new(&repo));
-        if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) { return json!({ "ok": false, "reason": "disk", "free": free }); }
+        if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) && anyway != Some(true) { return json!({ "ok": false, "reason": "disk", "free": free }); }
         let title = i["title"].as_str().unwrap_or("").to_string();
         let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
-        let dir = wt.to_string_lossy().to_string();
+        let fetch = json!({ "ok": base.fetched, "from": base.name, "at": base.at });
+        let tests = skill_audit::carry_tests(std::path::Path::new(&repo), &wt, &paths::data_dir()); // your uncommitted Tests line, there too
+        let (base, dir) = (base.commit, wt.to_string_lossy().to_string());
         let models = if models.is_object() { models } else { json!({ "size": "small" }) };
         let cmd = tickets::cli_command(&dir, &tickets::main_model(&models), &prompt);
         {
@@ -1241,10 +1285,10 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         if code == path { all.as_object_mut().map(|o| o.remove(&path)); } else { all[&path] = json!(code); }
         update_settings(&b, json!({ "workCode": all }));
         b.broadcast();
-        if how == "cli" { return json!({ "ok": true, "mode": "cli", "key": key, "dir": dir, "cmd": cmd }); }
-        match tauri_plugin_opener::open_url(work::new_session_link(&dir, &prompt), None::<&str>) {
-            Ok(_) => json!({ "ok": true, "mode": "new", "key": key, "dir": dir, "cmd": cmd }),
-            Err(e) => json!({ "ok": false, "mode": "new", "key": key, "reason": e.to_string(), "dir": dir, "cmd": cmd }),
+        if how == "cli" { return json!({ "ok": true, "mode": "cli", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }); }
+        match open_claude(&work::new_session_link(&dir, &prompt)) {
+            Ok(_) => json!({ "ok": true, "mode": "new", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
+            Err(e) => json!({ "ok": false, "mode": "new", "key": key, "reason": e, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
         }
     }).await.map_err(|_| ())
 }
@@ -1312,9 +1356,9 @@ async fn ticket_review(key: String, how: String, b: B<'_>) -> Result<Value, ()> 
         let prompt = tickets::review_prompt(&f.branch, &f.base);
         let cmd = tickets::cli_in_mode(&f.dir, &tickets::review_model(&f.models), "auto", &prompt);
         if how == "cli" { return json!({ "ok": true, "mode": "cli", "cmd": cmd, "prompt": prompt }); }
-        match tauri_plugin_opener::open_url(work::new_session_link(&f.dir, &prompt), None::<&str>) {
+        match open_claude(&work::new_session_link(&f.dir, &prompt)) {
             Ok(_) => json!({ "ok": true, "mode": "new", "cmd": cmd, "prompt": prompt }),
-            Err(e) => json!({ "ok": false, "error": e.to_string(), "cmd": cmd, "prompt": prompt }),
+            Err(e) => json!({ "ok": false, "error": e, "cmd": cmd, "prompt": prompt }),
         }
     }).await.map_err(|_| ())
 }
@@ -1330,10 +1374,46 @@ async fn ticket_clean(key: String, force: Option<bool>, b: B<'_>) -> Result<Valu
         let n = tickets::unpushed(&f.dir, &f.branch);
         if n > 0 && force != Some(true) { return json!({ "ok": false, "error": "unpushed", "n": n }); }
         tickets::keep_log(&paths::data_dir(), &f);
-        if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir) { return json!({ "ok": false, "error": e }); }
+        if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir, false) { return json!({ "ok": false, "error": e }); }
         { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.new_for.shift_remove(&f.dir); }
         b.broadcast();
         json!({ "ok": true })
+    }).await.map_err(|_| ())
+}
+
+// A flow's texts for its details (its log in sections, plan, summary, the MR's draft): the state the pages get with
+// every update leaves them out. { key, at, parsed, plan, summary, mrTitle?, mrBody? } | null
+#[tauri::command]
+fn ticket_detail(key: String, b: B) -> Value { b.core.lock().unwrap().tickets.detail(&key).unwrap_or(Value::Null) }
+
+// Remove a flow that is not done or blocked (stuck waiting for its session, stopped, or one you give up on), so its
+// issue can start again. act: check → { live, changed, unpushed, exists, dir } (what you are asked about first);
+// keep → the flow goes, its worktree and branch stay (a Start on the issue uses that worktree again); delete → the
+// worktree goes too (its changes not committed with it; the branch keeps its commits). Bobix never closes a Claude
+// session: while its session still runs, only keep is allowed.
+#[tauri::command]
+async fn ticket_remove(key: String, act: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (f, live) = {
+            let c = b.core.lock().unwrap();
+            let Some(f) = c.tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
+            let live = f.session.as_deref().is_some_and(|s| c.sessions.contains_key(s)) || f.pid.is_some_and(procs::is_alive);
+            (f, live)
+        };
+        if f.cleaned { return json!({ "ok": false, "error": "gone" }); }
+        let risk = tickets::at_risk(&f.dir, &f.branch);
+        match act.as_str() {
+            "check" => return json!({ "ok": true, "live": live, "exists": risk.is_some(), "changed": risk.map_or(0, |r| r.0), "unpushed": risk.map_or(0, |r| r.1), "dir": f.dir, "branch": f.branch }),
+            "delete" if live => return json!({ "ok": false, "error": "live" }),
+            "delete" => if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir, true) { return json!({ "ok": false, "error": e }); },
+            "keep" => {}
+            _ => return json!({ "ok": false, "error": "act" }),
+        }
+        tickets::keep_log(&paths::data_dir(), &f);
+        { let mut c = b.core.lock().unwrap(); c.tickets.list.shift_remove(&key); c.tickets.save(); if let Some(k) = c.work.wait_key(&f.dir) { c.work.new_for.shift_remove(&k); } }
+        b.broadcast();
+        json!({ "ok": true, "kept": act == "keep" })
     }).await.map_err(|_| ())
 }
 
@@ -1694,8 +1774,8 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_link", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci"];
+    "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1713,12 +1793,22 @@ pub fn wayland() -> bool {
 }
 
 // Where `name` is, as the person's shell finds it: `where` on Windows, a login shell (then an interactive one, where
-// nvm and the like set PATH) elsewhere. The Dock and the Start menu start apps without the shell's PATH.
+// nvm and the like set PATH) elsewhere. The Dock and the Start menu start apps without the shell's PATH. Each shell
+// gets BIN_SECS at most (a start-up file that waits for input can't hold a read up), and the answer is kept for the
+// run: looked up once per app start, and again after Refresh (forget_bins), so a CLI installed meanwhile is found.
+const BIN_SECS: u64 = 5;
+static BINS: std::sync::LazyLock<Mutex<std::collections::HashMap<String, Option<String>>>> = std::sync::LazyLock::new(Default::default);
+pub fn forget_bins() { BINS.lock().unwrap().clear(); }
 pub fn find_bin(name: &str) -> Option<String> {
+    if let Some(v) = BINS.lock().unwrap().get(name) { return v.clone(); }
+    let v = look_up_bin(name);
+    BINS.lock().unwrap().insert(name.to_string(), v.clone());
+    v
+}
+fn look_up_bin(name: &str) -> Option<String> {
     let ok = |l: &str| { let low = l.to_lowercase(); (low.ends_with(name) || low.ends_with(&format!("{name}.exe"))) && std::path::Path::new(l).exists() };
     let try_cmd = |cmd: &str, args: &[&str], first: bool| -> Option<String> {
-        let out = std::process::Command::new(cmd).args(args).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
-        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        let text = procs::exec(cmd, args, BIN_SECS, &[]).out;
         let mut lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
         if !first { lines.reverse(); } // an interactive shell may print noise before the answer: last wins
         lines.into_iter().find(|l| ok(l)).map(String::from)
@@ -1779,19 +1869,19 @@ fn main() {
     if let Some(p) = std::env::var("BOBIX_PORT").ok().and_then(|p| p.parse::<u16>().ok()) { settings["port"] = json!(p); }
     let port = settings["port"].as_u64().unwrap_or(4747) as u16;
     let token = paths::ensure_token().unwrap_or_else(|e| fail(format!("token: {e}")));
-    let (tx, _) = broadcast::channel(64);
+    let (tx, _) = broadcast::channel(4); // the pages only need the newest state (a page that lags gets the next one whole)
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
             node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
-        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())),
+        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
     });
 
     let rb = b.clone();
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
-            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -1826,6 +1916,8 @@ fn main() {
                 fail(format!("Port {port} is busy ({e}). Is Bobix already running?\nChange \"port\" in {}", paths::settings_file().display()));
             }
 
+            let sb = b.clone();
+            thread::spawn(move || sb.send_loop());
             thread::spawn(|| { room_serve(&paths::data_dir()); }); // a room still open from before
             let hb = b.clone();
             thread::spawn(move || { let node = find_bin("node"); hb.core.lock().unwrap().node_path = node; refresh_hooks(&hb); });
@@ -1992,8 +2084,8 @@ mod snapshot_tests {
         // the list's page, its filter and the repositories ticked: one page (read in full), no filter set, none ticked in this fixture;
         let w = got["work"].as_object_mut().unwrap();
         // no read asked for and not answered yet; no remembered folder
-        let paging: Vec<Option<Value>> = ["page", "more", "filling", "filter", "ticked", "many", "reading", "gen", "dirs", "pinned"].iter().map(|k| w.shift_remove(*k)).collect();
-        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false)), Some(json!(false)), Some(json!(0)), Some(json!({})), Some(json!({}))]);
+        let paging: Vec<Option<Value>> = ["page", "more", "filling", "filter", "ticked", "many", "moreRepos", "reading", "gen", "dirs", "pinned"].iter().map(|k| w.shift_remove(*k)).collect();
+        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false)), Some(json!(0)), Some(json!(false)), Some(json!(0)), Some(json!({})), Some(json!({}))]);
         for s in got["sessions"].as_array_mut().unwrap() {
             let o = s.as_object_mut().unwrap();
             assert_eq!((o.shift_remove("mark"), o.shift_remove("flow")), (Some(json!(false)), Some(Value::Null)));

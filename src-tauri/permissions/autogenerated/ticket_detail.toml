@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ticket-detail"
+description = "Enables the ticket_detail command without any pre-configured scope."
+commands.allow = ["ticket_detail"]
+
+[[permission]]
+identifier = "deny-ticket-detail"
+description = "Denies the ticket_detail command without any pre-configured scope."
+commands.deny = ["ticket_detail"]
