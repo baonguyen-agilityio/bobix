@@ -605,19 +605,22 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
         let bin = { let g = b.core.lock().unwrap().work.feed(f).bin.clone(); g.or_else(|| find_bin(f.bin())) };
         // the issues sessions here work on: one not in your list is read on its own below
         let linked = { let c = b.core.lock().unwrap(); model::Model::build(&c.settings, &c.sessions, &c.work).linked() };
+        // each host on its own: one that does not answer is named and skipped, the others are read
         let auth = bin.as_deref().and_then(|x| f.auth(x));
         let at = state::now();
         let read_ok;
         let (filter, need) = { let c = b.core.lock().unwrap(); (c.settings["workFilter"].as_str().unwrap_or("all").to_string(), work::need_for(c.work.page)) };
         let (next, reviews) = match (&bin, auth) {
             (_, None) => (json!({ "status": f.missing(), "at": at }), vec![]), // look again next time: it may be installed by then
-            (_, Some((h, _))) if h.is_empty() => (json!({ "status": f.signed_out(), "hosts": h, "at": at }), vec![]),
-            (Some(g), Some((h, logins))) => {
+            (_, Some((h, skipped, _))) if h.is_empty() => (json!({ "status": f.signed_out(), "hosts": h, "at": at, "failed": skipped }), vec![]),
+            (Some(g), Some((h, skipped, logins))) => {
                 // the newest issues of the repositories you ticked, up to the page shown and one more
                 let rs: Vec<Value> = h.iter().map(|x| f.page(g, x, &ticked_repos(&b, f, g, x), &filter, need, logins.get(x).map(String::as_str))).collect();
-                let failed: Vec<Value> = rs.iter().zip(&h).filter(|(r, _)| r["ok"] != true)
+                let mut failed: Vec<Value> = rs.iter().zip(&h).filter(|(r, _)| r["ok"] != true)
                     .map(|(r, host)| json!({ "host": host, "detail": r.get("detail").unwrap_or(&r["reason"]) })).collect();
-                if failed.len() == h.len() { (json!({ "status": "error", "hosts": h, "at": at, "failed": failed }), vec![]) } else {
+                let all_failed = failed.len() == h.len();
+                failed.extend(skipped);
+                if all_failed { (json!({ "status": "error", "hosts": h, "at": at, "failed": failed }), vec![]) } else {
                     let mut list: Vec<Value> = rs.iter().flat_map(|r| r["issues"].as_array().cloned().unwrap_or_default()).collect();
                     let failed: Vec<Value> = failed.into_iter().chain(rs.iter().flat_map(|r| r["failed"].as_array().cloned().unwrap_or_default())).collect();
                     // ponytail: 10 at most per read; more sessions on issues not assigned to you wait for the next read

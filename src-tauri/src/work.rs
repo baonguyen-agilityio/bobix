@@ -67,6 +67,63 @@ pub fn logged_in_hosts(text: &str) -> Vec<String> {
     for m in LOGGED.captures_iter(text).flatten() { let h = m[1].to_lowercase(); if !out.contains(&h) { out.push(h); } }
     out
 }
+// The hosts a CLI's own config lists, by name only: the keys under glab's `hosts:` (config.yml), or gh's top-level keys
+// (hosts.yml). Tokens live in those files: nothing but the key names is kept.
+pub fn config_hosts(yaml: &str, glab: bool) -> Vec<String> {
+    let (mut out, mut inside, mut ind): (Vec<String>, bool, Option<usize>) = (vec![], !glab, (!glab).then_some(0));
+    for l in yaml.lines() {
+        let t = l.trim_start();
+        if t.is_empty() || t.starts_with('#') { continue; }
+        let n = l.len() - t.len();
+        if glab && n == 0 { inside = t.trim_end() == "hosts:"; ind = None; continue; }
+        let Some(k) = t.trim_end().strip_suffix(':').filter(|_| inside) else { continue }; // a host is a key with a map under it
+        if *ind.get_or_insert(n) != n { continue; }
+        let h = k.trim_matches(|c| c == '"' || c == '\'').to_lowercase();
+        if !h.is_empty() && !out.contains(&h) { out.push(h); }
+    }
+    out
+}
+// Where glab / gh keep that file: their own variable, XDG, ~/.config, and the system's config folder (newer glab on macOS
+// and Windows, gh on Windows). Hosts from every file that exists, once each.
+fn listed_hosts(f: Forge) -> Vec<String> {
+    use std::path::PathBuf;
+    let (var, dir, file) = match f { Forge::GitLab => ("GLAB_CONFIG_DIR", "glab-cli", "config.yml"), Forge::GitHub => ("GH_CONFIG_DIR", "gh", "hosts.yml") };
+    let home = crate::paths::home();
+    let mut at: Vec<PathBuf> = std::env::var_os(var).map(|d| PathBuf::from(d).join(file)).into_iter().collect();
+    if let Some(x) = std::env::var_os("XDG_CONFIG_HOME") { at.push(PathBuf::from(x).join(dir).join(file)); }
+    at.push(home.join(".config").join(dir).join(file));
+    if cfg!(target_os = "macos") { at.push(home.join("Library/Application Support").join(dir).join(file)); }
+    if let Some(a) = std::env::var_os("APPDATA").filter(|_| cfg!(windows)) { at.push(PathBuf::from(a).join(if f == Forge::GitHub { "GitHub CLI" } else { dir }).join(file)); }
+    let mut out: Vec<String> = Vec::new();
+    for p in at { for h in std::fs::read_to_string(p).map(|y| config_hosts(&y, f == Forge::GitLab)).unwrap_or_default() { if !out.contains(&h) { out.push(h); } } }
+    out
+}
+// How long one host's sign-in check may take. `glab auth status` on its own checks every host in turn, so one host that
+// does not answer (gitlab.com listed with no token: about 31 s) used to hide the others.
+pub const HOST_SECS: u64 = 10;
+// Each host on its own, all at once: `<cli> auth status --hostname <host>`. The hosts signed in, and the others with why
+// (named in the Work tab, ignored for the read), and the account each one signed in reads with. None when the CLI is missing.
+pub fn check_hosts(f: Forge, bin: &str, hosts: &[String], secs: u64) -> Option<(Vec<String>, Vec<Value>, HashMap<String, String>)> {
+    let rs: Vec<(procs::Ran, bool)> = std::thread::scope(|s| {
+        let js: Vec<_> = hosts.iter().map(|h| s.spawn(move || {
+            let t = std::time::Instant::now();
+            let r = procs::exec(bin, &["auth", "status", "--hostname", h], secs, f.env());
+            let late = !r.ok && t.elapsed().as_secs() >= secs;
+            (r, late)
+        })).collect();
+        js.into_iter().map(|j| j.join().unwrap()).collect()
+    });
+    if rs.iter().any(|(r, _)| r.missing) { return None; }
+    let (mut ok, mut skipped, mut who) = (vec![], vec![], HashMap::new());
+    for (h, (r, late)) in hosts.iter().zip(rs) {
+        let text = format!("{}\n{}", r.out, r.err);
+        let signed = if f == Forge::GitLab { logged_in_hosts(&text) } else { gh_logged_in_hosts(&text) };
+        if signed.contains(h) { ok.push(h.clone()); if let Some(n) = logins(&text).remove(h) { who.insert(h.clone(), n); } }
+        else { skipped.push(json!({ "host": h, "detail": if late { format!("no answer in {secs} s, ignored") } else { "not signed in, ignored".into() } })) }
+    }
+    Some((ok, skipped, who))
+}
+
 // The GitHub hosts gh reads with, from `gh auth status`: each host whose active account is signed in ("Logged in to
 // <host> account <name>", then "- Active account: true"; gh api uses that account). Several accounts on one host list
 // one block each. "Failed to log in" is a bad sign-in; "Timeout trying to log in" counts as signed in, so the read
@@ -124,16 +181,19 @@ impl Forge {
     pub fn missing(self) -> &'static str { match self { Forge::GitLab => "noglab", Forge::GitHub => "nogh" } }
     pub fn signed_out(self) -> &'static str { match self { Forge::GitLab => "auth", Forge::GitHub => "ghauth" } }
     pub fn on(self, settings: &Value) -> bool { settings[self.key()] == true }
-    // None when the CLI is missing, else the hosts it is signed in to (none when nowhere). Both exit non-zero when any
-    // host fails, and older gh writes this to stderr.
-    pub fn hosts(self, bin: &str) -> Option<Vec<String>> { self.auth(bin).map(|x| x.0) }
-    // The same, with the account each host reads with (`logins`).
-    pub fn auth(self, bin: &str) -> Option<(Vec<String>, HashMap<String, String>)> {
+    // None when the CLI is missing, else the hosts it is signed in to (none when nowhere), the listed hosts it is not
+    // (with why), and the account each host reads with (`logins`, to mark the issues assigned to you). Each host its config
+    // lists is checked on its own; with none listed (a token from the environment, say), one `auth status` for all. Both
+    // exit non-zero when any host fails, and older gh writes this to stderr.
+    pub fn auth(self, bin: &str) -> Option<(Vec<String>, Vec<Value>, HashMap<String, String>)> {
+        let listed = listed_hosts(self);
+        if !listed.is_empty() { return check_hosts(self, bin, &listed, HOST_SECS); }
         let r = procs::exec(bin, &["auth", "status"], 30, self.env());
         if r.missing { return None; }
-        let t = format!("{}\n{}", r.out, r.err);
-        Some((if self == Forge::GitLab { logged_in_hosts(&t) } else { gh_logged_in_hosts(&t) }, logins(&t)))
+        let text = format!("{}\n{}", r.out, r.err);
+        Some((if self == Forge::GitLab { logged_in_hosts(&text) } else { gh_logged_in_hosts(&text) }, vec![], logins(&text)))
     }
+    pub fn hosts(self, bin: &str) -> Option<(Vec<String>, Vec<Value>)> { self.auth(bin).map(|(h, s, _)| (h, s)) }
     // Every repository (GitHub) / project (GitLab) you can reach on `host`, most recent activity first, for the repo
     // picker: [{ path, at }] (GET; ponytail: 5 pages of 100, add more when someone reaches over 500).
     pub fn repos(self, bin: &str, host: &str) -> Result<Vec<Value>, Value> {
@@ -747,6 +807,37 @@ mod tests {
     }
 
     #[test]
+    fn host_names_from_the_cli_config_only() {
+        let glab = "git_protocol: ssh\nhosts:\n    gitlab.com:\n        api_protocol: https\n        token: secret-a\n    \"Git.Acme.Example\":\n        token: secret-b\n        nested:\n            deep: x\nhost: gitlab.com\nother:\n    not-a-host:\n";
+        assert_eq!(config_hosts(glab, true), ["gitlab.com", "git.acme.example"]);
+        let gh = "github.com:\n    users:\n        me:\n    git_protocol: https\n    oauth_token: secret-c\nghe.example.com:\n    user: me\n";
+        assert_eq!(config_hosts(gh, false), ["github.com", "ghe.example.com"]);
+        assert!(config_hosts("", true).is_empty() && config_hosts("hosts: {}\n", true).is_empty());
+    }
+
+    // A stand-in glab: one host answers at once, one never does (as gitlab.com with no token did, for about 31 s).
+    // The signed-in host is found in a few seconds, and the other is named, not a reason to say "signed in nowhere".
+    #[cfg(unix)]
+    #[test]
+    fn one_host_that_hangs_does_not_hide_the_one_signed_in() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("bobix-glab-stub-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("glab");
+        std::fs::write(&bin, "#!/bin/sh\ncase \"$4\" in\n  git.acme.example) echo \"  ✓ Logged in to git.acme.example as sam (keyring)\" >&2; exit 0;;\n  gitlab.com) exec sleep 30;;\n  *) echo \"x: not logged in\" >&2; exit 1;;\nesac\n").unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let hosts: Vec<String> = ["gitlab.com", "git.acme.example", "old.example"].map(String::from).into();
+        let t = std::time::Instant::now();
+        let (ok, skipped, who) = check_hosts(Forge::GitLab, bin.to_str().unwrap(), &hosts, 2).expect("the stub runs");
+        assert_eq!(who.get("git.acme.example").map(String::as_str), Some("sam"), "the account it reads with");
+        assert!(t.elapsed().as_secs() < 6, "the hosts are checked at once, each with its own limit: {:?}", t.elapsed());
+        assert_eq!(ok, ["git.acme.example"]);
+        assert_eq!(skipped, [json!({ "host": "gitlab.com", "detail": "no answer in 2 s, ignored" }), json!({ "host": "old.example", "detail": "not signed in, ignored" })]);
+        assert!(check_hosts(Forge::GitLab, dir.join("no-such-glab").to_str().unwrap(), &hosts, 2).is_none(), "missing CLI");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn git_status_of_this_repository() {
         let dir = env!("CARGO_MANIFEST_DIR");
         let (g, _) = git_status(dir).expect("the source folder is a git checkout");
@@ -758,8 +849,8 @@ mod tests {
     // cargo test live_ -- --ignored --nocapture
     fn live(f: Forge) {
         let bin = crate::find_bin(f.bin()).expect("the CLI on PATH");
-        let (hosts, logins) = f.auth(&bin).expect("it runs");
-        println!("hosts: {} with an account: {}", hosts.len(), logins.len());
+        let (hosts, skipped, logins) = f.auth(&bin).expect("it runs");
+        println!("hosts: {} skipped: {} with an account: {}", hosts.len(), skipped.len(), logins.len());
         for (n, h) in hosts.iter().enumerate() {
             let repos = f.repos(&bin, h).expect("repos read");
             let paths: Vec<String> = repos.iter().take(5).filter_map(|r| r["path"].as_str().map(String::from)).collect();
