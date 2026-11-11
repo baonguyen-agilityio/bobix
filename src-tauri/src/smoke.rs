@@ -314,9 +314,12 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         document.querySelector('#b-dyn [data-tk-prep]').click(); \
         if (!await until(() => document.querySelector('#b-dyn .tk-prompt'))) return {{ error: 'no Start box', code: tkPrep[ik] }}; await w({hold}); \
         const prompt = tkPrep[ik].prompt, disk = document.querySelector('#b-dyn .note, #b-dyn .risk') && tkPrep[ik].prep.room, claudeWarn = !!document.querySelector('#b-dyn [data-tk-claude]'), claudeDir = tkPrep[ik].prep.repo; \
+        let land = null; if (claudeWarn) {{ document.querySelector('#b-dyn [data-tk-claude]').click(); await until(() => scope === 'skills' && !aud.busy && aud.dir === claudeDir); await w(300); \
+          land = {{ scope, item: bsel.skills, dir: aud.dir === claudeDir, picker: document.querySelector('#scopes [data-skdir]')?.value === claudeDir, add: !!document.querySelector('#b-bar [data-sk=testsAdd]') }}; await w({hold}); \
+          showTab('work'); bsel.work = 'n:' + ik; render(); await w(300); }} \
         document.querySelector('#b-dyn [data-tk-cli]').click(); \
         if (!await until(() => tickets.list.some(f => f.key === k))) return {{ error: 'not started', keys: tickets.list.map(f => f.key) }}; \
-        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir, code: tkCode(ik) }}; }})()"), 40 + 2 * hold / 1000);
+        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir, land, code: tkCode(ik) }}; }})()"), 40 + 2 * hold / 1000);
     let f = flow();
     let fdir = f["dir"].as_str().unwrap_or("").to_string();
     r["worktree"] = json!(std::path::Path::new(&fdir).join(".bobix-log/work-log.md").is_file());
@@ -363,12 +366,14 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     // and Push and open MR pushes the branch and runs glab mr create (a stand-in in the e2e run); the flow keeps the link
     r["mr"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
         const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
+        const seen = s => {{ const e = q(s)?.getBoundingClientRect(), p = $('#b-detail').getBoundingClientRect(); return !!e && e.top >= p.top - 1 && e.top < p.bottom; }}; \
         showTab('work'); bsel.work = 'f:' + k; render(); await w(300); const r = {{}}; \
-        q('[data-tk-clean]').click(); r.unpushed = await until(() => tkUnpushed[k] > 0, 10000) ? tkUnpushed[k] : 0; \
-        q('[data-tk-mr-open]').click(); await until(() => q('[data-tk-mr-body]'), 5000); q('.tk-mr').scrollIntoView({{ block: 'start' }}); await w({hold}); const body = q('[data-tk-mr-body]').value; \
+        q('[data-tk-clean]').click(); r.unpushed = await until(() => tkUnpushed[k] > 0, 10000) ? tkUnpushed[k] : 0; await w(300); r.warnSeen = seen('.tk-unpushed'); await w({hold}); \
+        $('#b-detail').scrollTop = 0; q('[data-tk-mr-open]').click(); await until(() => q('[data-tk-mr-body]'), 5000); await w(300); r.formSeen = seen('.tk-mr'); await w({hold}); const body = q('[data-tk-mr-body]').value; \
         r.bodyHasPlan = body.includes('## Plan'); r.bodyHasChecks = body.includes('## Checks'); r.closes = /^Closes (\\S+)?#\\d+\\n/.test(body); r.closesLine = body.split('\\n')[0]; \
         q('[data-tk-mr-go]').click(); r.opened = await until(() => tickets.list.find(f => f.key === k)?.mr, 90000); \
-        r.url = tickets.list.find(f => f.key === k)?.mr || null; r.link = !!document.querySelector('#b-dyn [data-url*=\"merge_requests\"], #b-dyn [data-url*=\"/pull/\"]'); return r; }})()"), 120 + hold / 1000);
+        r.url = tickets.list.find(f => f.key === k)?.mr || null; r.link = !!document.querySelector('#b-dyn [data-url*=\"merge_requests\"], #b-dyn [data-url*=\"/pull/\"]'); \
+        r.row = [...document.querySelectorAll('#b-list .b-it[aria-selected=\"true\"] .badge')].map(b => b.textContent).join(' | '); return r; }})()"), 120 + 2 * hold / 1000);
     // CI: Check CI reads the MR's pipeline (red at first in the e2e run): the flow shows it with Fix CI and the Overview
     // lists "CI red"; once the run turns it green (it waits for <dir>/ticket-ci.json), Check CI shows it passed
     r["ci"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s), f = () => tickets.list.find(x => x.key === k); \
@@ -378,15 +383,14 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     let _ = fs::write(dir.join("ticket-ci.json"), json!({ "key": key, "status": r["ci"]["status"] }).to_string());
     r["ciGreen"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), f = () => tickets.list.find(x => x.key === k); \
         for (let t = 0; t < 60000 && f()?.ci?.status !== 'passed'; t += 2500) {{ await bridge.ticketCi(k); await w(2500); }} return f()?.ci?.status || null; }})()"), 70);
-    // CLAUDE.md: the Start box said this project has none; its Tests line is added from the Skills screen (after the
-    // confirm that shows it), then taken out again
-    let cdir = json!(r["start"]["claudeDir"]);
+    // CLAUDE.md: the Start box said this project has none, and its "Add a Tests line" landed on the project's CLAUDE.md
+    // item (above); the line is added there (after the confirm that shows it), then taken out again
     r["claudeMd"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
         const until = async (g, ms) => {{ for (let t = 0; t < ms; t += 100) {{ if (g()) return true; await w(100); }} return false; }}; \
-        audDir = {cdir}; aud = {{ busy: true }}; bsel.skills = 'aud:claude'; showTab('skills'); await loadAudit(); bsel.skills = 'aud:claude'; render(); await w(300); \
-        const r = {{ before: aud.claude?.test ?? null, suggest: aud.testCmd }}; q('[data-sk=testsAdd]').click(); \
+        showTab('skills'); await loadAudit(); await w(300); \
+        const r = {{ on: bsel.skills, before: aud.claude?.test ?? null, suggest: aud.testCmd }}; q('[data-sk=testsAdd]').click(); \
         await until(() => $('#sk-dialog').open, 5000); r.lines = $('#sk-dialog .b-code').textContent.includes('Tests: `npm test`'); await w({hold}); $('#sk-dialog [data-sk-yes]').click(); \
-        r.added = await until(() => aud.claude?.test === true && !!aud.claude.undo, 8000); bsel.skills = 'aud:claude'; render(); await w(200 + {hold}); \
+        r.added = await until(() => aud.claude?.test === true && !!aud.claude.undo, 8000); await w(200 + {hold}); \
         q('[data-sk=testsRm]').click(); r.removed = await until(() => aud.claude && aud.claude.test === false, 8000); return r; }})()"), 30 + 2 * hold / 1000);
     // the log's own view, then Haiku's summary and the cleanup, clicked in Work
     r["finish"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
@@ -401,9 +405,12 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     r["pass"] = json!(r["start"]["rules"] == true && r["worktree"] == true && r["plan"].as_u64().unwrap_or(0) > 0 && r["approve"] == true
         && r["status"] == "done" && r["parsed"]["steps"].as_array().is_some_and(|a| !a.is_empty()) && r["finish"]["summary"] == true
         && r["parsed"]["ran"].as_u64().unwrap_or(0) > 0 && r["review"] == true && r["reviewNoted"] == true
-        && r["mr"]["unpushed"].as_u64().unwrap_or(0) > 0 && r["mr"]["opened"] == true && r["mr"]["bodyHasChecks"] == true
+        && r["mr"]["unpushed"].as_u64().unwrap_or(0) > 0 && r["mr"]["warnSeen"] == true && r["mr"]["formSeen"] == true && r["mr"]["opened"] == true
+        && r["mr"]["row"].as_str().is_some_and(|x| x.contains('✓')) && r["mr"]["bodyHasChecks"] == true
         && r["ci"]["status"] == "failed" && r["ci"]["fix"] == true && r["ci"]["stuck"] == true && r["ciGreen"] == "passed"
-        && r["start"]["claudeWarn"] == true && r["claudeMd"]["added"] == true && r["claudeMd"]["removed"] == true);
+        && r["start"]["claudeWarn"] == true && r["start"]["land"]["scope"] == "skills" && r["start"]["land"]["item"] == "aud:claude"
+        && r["start"]["land"]["dir"] == true && r["start"]["land"]["picker"] == true && r["start"]["land"]["add"] == true
+        && r["claudeMd"]["on"] == "aud:claude" && r["claudeMd"]["added"] == true && r["claudeMd"]["removed"] == true);
     r
 }
 

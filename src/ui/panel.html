@@ -299,8 +299,8 @@ input[type=number]{width:104px}
 .tk-code{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:var(--s2) 0}.tk-code .sel{max-width:100%}
 .rp-bar{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin:var(--s2) 0}.rp-bar input[type=search]{flex:1 1 180px;min-height:30px;padding:4px 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font-size:var(--t-sm)}
 .rp-list{display:grid;max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-md)}
-.rp{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--s2);align-items:center;padding:6px 10px;border-top:1px solid var(--line);cursor:pointer}.rp:first-child{border-top:0}.rp[hidden]{display:none}
-.rp .p{overflow-wrap:anywhere}.rp .note{margin:0;white-space:nowrap}
+.rp-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--s2);align-items:center;padding:6px 10px;border-top:1px solid var(--line);cursor:pointer}.rp-row:first-child{border-top:0}.rp-row[hidden]{display:none}
+.rp-h[hidden]{display:none}.rp-row .p{overflow-wrap:anywhere}.rp-row .note{margin:0;white-space:nowrap}
 .pager{display:inline-flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-2);white-space:nowrap}
 .pager .ib{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:6px;background:none;color:var(--ink-2);font-size:15px}.pager .ib:disabled{opacity:.35}.pager .ib:not(:disabled):hover{background:var(--surface-3);color:var(--ink)}.wdirs .d{grid-column:1 / -1;justify-self:start;font-size:var(--t-xs);color:var(--ink-2);overflow-wrap:anywhere}
 .keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;min-height:28px;padding:0 8px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);text-transform:uppercase}
@@ -1848,7 +1848,8 @@ function flowsHTML(path, iid, except) {
   return `<section class="b-sec"><h3>${esc(T('tk.flows'))}</h3><ul class="rows tk-flows">${fs.map(f => `<li><button class="lnk" type="button" data-sel-flow="${esc(f.key)}">${esc(f.code || f.path)}</button> · ${esc(T('tk.st.' + f.status))}${f.cleaned ? ' · ' + esc(T('tk.cleaned')) : ''}${f.mr ? ` · <button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(T('tk.mr.view', { ...fw(f), n: mrRef(f.mr) }))}</button>` : ''}</li>`).join('')}</ul></section>`;
 }
 const tkLive = (p, n) => tickets.list.some(f => f.path === p && f.iid === n && !f.cleaned);
-const modelsLine = m => (m?.size === 'large' && m.steps?.length ? m.steps.map(x => `${T('tk.m.' + x.step)} ${x.model}`).join(' · ') : T('tk.m.small'));
+const MODEL = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' };
+const modelsLine = m => (m?.size === 'large' && m.steps?.length ? m.steps.map(x => T('tk.m.' + x.step, { m: MODEL[x.model] || x.model })).join(' · ') : T('tk.m.small'));
 // The repo picker: every repository your glab / gh can reach, ticked ones' issues listed. The list is read when the
 // picker opens (and again on "Read again"); ticks are a draft until "Show issues", then kept in Settings (workRepos).
 // Until you change a tick, the draft follows the saved ticks (the first ones are saved by the first read).
@@ -1879,8 +1880,8 @@ function reposHTML() {
   if (!rp.list) return `${top}<p class="note">${esc(T('work.repos.loading'))}</p>`;
   if (!rp.list.length) return `${top}<p class="blank">${esc(T('work.repos.nohost'))}</p>`;
   const many = (rp.list || []).filter(h => h.forge === 'gitlab').reduce((n, h) => n + (rp.draft[h.host]?.size || 0), 0) > 20;
-  const host = h => `<section class="b-sec rp-h"><h3>${esc(T('work.repos.host', { f: h.forge === 'github' ? 'GitHub' : 'GitLab', h: h.host }))}</h3>${h.error ? `<p class="note err">${esc(T('work.error', { host: h.host, x: h.error }))}</p>` : ''}
-    <div class="rp-list">${h.repos.map(r => `<label class="rp"${rpShown(r) ? '' : ' hidden'}><input type="checkbox" data-rp-tick="${esc(h.host)}" value="${esc(r.path)}"${rp.draft[h.host]?.has(r.path) ? ' checked' : ''}><span class="p">${esc(r.path)}</span><span class="note">${r.at ? esc(ago(Date.parse(r.at))) : ''}</span></label>`).join('')}</div></section>`;
+  const host = h => `<section class="b-sec rp-h"${!rp.q || h.repos.some(rpShown) ? '' : ' hidden'}><h3>${esc(T('work.repos.host', { f: h.forge === 'github' ? 'GitHub' : 'GitLab', h: h.host }))}</h3>${h.error ? `<p class="note err">${esc(T('work.error', { host: h.host, x: h.error }))}</p>` : ''}
+    <div class="rp-list">${h.repos.map(r => `<label class="rp-row"${rpShown(r) ? '' : ' hidden'}><input type="checkbox" data-rp-tick="${esc(h.host)}" value="${esc(r.path)}"${rp.draft[h.host]?.has(r.path) ? ' checked' : ''}><span class="p">${esc(r.path)}</span><span class="note">${r.at ? esc(ago(Date.parse(r.at))) : ''}</span></label>`).join('')}</div></section>`;
   return `${top}${many ? `<div class="tk-warn"><p><strong>${esc(T('work.repos.many.t'))}</strong> ${esc(T('work.repos.many'))}</p></div>` : ''}
     <div class="rp-bar"><input type="search" class="inp" data-rp-q data-f="rpq" value="${esc(rp.q)}" placeholder="${esc(T('work.repos.search'))}" aria-label="${esc(T('work.repos.search'))}">
       <button class="btn sm" type="button" data-rp-all="1">${esc(T('work.repos.all'))}</button><button class="btn sm" type="button" data-rp-none="1">${esc(T('work.repos.none'))}</button>
@@ -1898,8 +1899,10 @@ async function rpSave() {
 function workItems() {
   const it = bridge && state && work.status !== 'off' ? [reposItem()] : [], fl = tickets.list, order = ['approve', 'starting', 'planning', 'running', 'blocked', 'done'];
   [...fl].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || a.cleaned - b.cleaned || b.at - a.at).forEach(f => it.push(flowItem(f)));
-  if (bridge) st.todo.filter(([i, g]) => !tkLive(g.path, i.iid)).sort(newestFirst).forEach(x => it.push(startItem(x)));
-  if (bridge) for (const k of tkAgain) { const x = tkIssue(k); if (x && !it.some(y => y.id === 'n:' + k)) it.push(startItem(x)); }
+  // another page asked for: its issues show once they are all read, not a part of them first
+  if (bridge && work.filling) it.push({ id: 'tk:loading', grp: 'fstart', kind: 'board', lead: ico('work'), label: T('work.loading'), sub: '', detail: () => `<p class="note">${esc(T('work.loading'))}</p>`, acts: [] });
+  else if (bridge) st.todo.filter(([i, g]) => !tkLive(g.path, i.iid)).sort(newestFirst).forEach(x => it.push(startItem(x)));
+  if (bridge && !work.filling) for (const k of tkAgain) { const x = tkIssue(k); if (x && !it.some(y => y.id === 'n:' + k)) it.push(startItem(x)); }
   if (!it.some(x => x.grp !== 'frepos')) it.push({ id: 'tk:none', kind: 'board', lead: ico('work'), label: T('tk.none'), sub: T('tk.none.sub'),
     detail: () => `<div class="b-empty">${ico('work')}<h3>${esc(T('tk.none'))}</h3><p>${esc(T('tk.none.sub'))}</p>${bridge && work.status === 'off' ? `<button class="btn" type="button" data-tab-go="settings" data-set="set:work">${esc(T('work.toSettings'))}</button>` : ''}</div>`,
     acts: bridge && work.status === 'off' ? [[T('work.toSettings'), ['↵'], 'data-tab-go="settings" data-set="set:work"']] : [] });
@@ -1924,7 +1927,7 @@ function flowItem(f) {
   if (bridge && !f.cleaned && ['done', 'blocked'].includes(f.status)) acts.push([T('tk.review'), acts.length ? [CMD, '⇧', 'V'] : ['↵'], `data-tk-review="${k}"`], [T('tk.clean'), [CMD, '⇧', 'K'], `data-tk-clean="${k}"`]);
   return { id: 'f:' + f.key, grp: FGRP[f.status] || 'frun', kind: 'board', cls: f.status === 'approve' ? 'hot' : '', lead: s ? pet(s) : projectPet(f.path),
     label: `#${f.iid} ${f.title}`, sub: [BOARD.short(f.path) + (f.code ? ' → ' + f.code : ''), T('tk.st.' + f.status), f.cleaned ? T('tk.cleaned') : ''].filter(Boolean).join(' · '),
-    meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${f.mr ? ciBadge(f) : checkBadges(f)}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
+    meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${checkBadges(f)}${f.mr ? ciBadge(f) : ''}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
 }
 const fresh = t => Date.now() - t < 60e3; // "just now": no "for just now" / "just now ago"
 // The MR's pipeline as a badge: ✓ CI / … CI / ✗ CI.
@@ -1968,7 +1971,7 @@ function flowHTML(f, s) {
       ${unchecked(f) ? `<div class="tk-warn"><p><strong>${esc(T('tk.nochecks.t'))}</strong> ${esc(T('tk.nochecks.why'))}</p><div class="cmd"><code>${esc(CHECKS_ASK)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(CHECKS_ASK)}">${esc(T('work.copy'))}</button>` : ''}</div></div>` : ''}</section>
     ${p.result ? `<section class="b-sec"><h3>${esc(T(f.status === 'blocked' ? 'tk.blocked' : 'tk.result'))}</h3><div class="report md${f.status === 'blocked' ? ' stop' : ''}">${markdown(p.result)}</div></section>` : ''}
     ${mrHTML(f)}
-    ${tkUnpushed[f.key] ? `<div class="tk-warn"><p><strong>${esc(T('tk.unpushed.t', { n: tkUnpushed[f.key], b: f.branch }))}</strong> ${esc(T('tk.unpushed.why'))}</p>
+    ${tkUnpushed[f.key] ? `<div class="tk-warn tk-unpushed"><p><strong>${esc(T('tk.unpushed.t', { n: tkUnpushed[f.key], b: f.branch }))}</strong> ${esc(T('tk.unpushed.why'))}</p>
       <div class="acts" style="margin:8px 0 0"><button class="btn sm danger" type="button" data-tk-clean-force="${esc(f.key)}">${esc(T('tk.unpushed.go'))}</button>${!f.mr && f.status === 'done' ? `<button class="btn sm" type="button" data-tk-mr-open="${esc(f.key)}">${esc(T('tk.mr', fw(f)))}</button>` : ''}</div></div>` : ''}
     ${f.summary ? `<section class="b-sec"><h3>${esc(T('tk.summary'))}</h3><div class="report md">${markdown(f.summary)}</div></section>` : ''}
     ${f.status === 'starting' && f.cmd ? `<section class="b-sec"><h3>${esc(T('tk.waiting'))}</h3><p class="note">${esc(T('tk.waiting.note'))}</p><div class="cmd"><code>${esc(f.cmd)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(f.cmd)}">${esc(T('work.copy'))}</button>` : ''}</div></section>` : ''}
@@ -2094,6 +2097,7 @@ function tkMrOpen(key) {
   delete tkUnpushed[key];
   bsel.work = 'f:' + key; nextFocus = 'tkmb:' + key;
   render();
+  document.querySelector('#b-dyn .tk-mr')?.scrollIntoView({ block: 'start' });
 }
 async function tkMrGo(key) {
   const m = tkMr[key];
@@ -2108,7 +2112,7 @@ async function tkMrGo(key) {
 }
 async function tkClean(key, force) {
   const r = await bridge.ticketClean(key, force);
-  if (r?.error === 'unpushed') { tkUnpushed[key] = r.n; return render(); }
+  if (r?.error === 'unpushed') { tkUnpushed[key] = r.n; render(); return document.querySelector('#b-dyn .tk-unpushed')?.scrollIntoView({ block: 'nearest' }); }
   delete tkUnpushed[key];
   toast(r?.ok ? T('tk.cleaned.t') : T('tk.clean.fail', { e: r?.error === 'running' ? T('tk.st.running') : r?.error || '' }));
 }
@@ -2197,8 +2201,9 @@ async function loadSkillLists() {
 // Every change is the person's click (Remove and CLAUDE.md after a confirm), backed up first, and has an Undo. ----------
 // audDir: the project picked (a session's folder; null: your own skills only; undefined: not picked yet).
 // aud: { dir, a: the audit, rules, busy, err: { id, text } } for that folder; skBackups: every change Bobix can undo.
-let audDir, aud = { busy: true }, audSeq = 0, skBackups = [], skConfirm = null;
-const audDirs = () => [...new Set([...list].sort((a, b) => (b.updated || 0) - (a.updated || 0)).map(s => s.cwd).filter(Boolean))];
+// audPicked: folders opened from a ticket's Start box, listed even when no session ran there; audWant: the item to land on once loaded.
+let audDir, aud = { busy: true }, audSeq = 0, audWant = null, audPicked = new Set(), skBackups = [], skConfirm = null;
+const audDirs = () => [...new Set([...[...list].sort((a, b) => (b.updated || 0) - (a.updated || 0)).map(s => s.cwd).filter(Boolean), ...audPicked])];
 const base = p => String(p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 const audName = d => (d ? base(d) : T('sk.aud.mine'));
 const kTok = n => (n / 1000).toFixed(1) + 'k';
@@ -2214,6 +2219,7 @@ async function loadAudit() {
   aud = { dir, a: a?.skills ? a : null, rules: rules?.text ? rules : null, claude: claude?.file ? claude : null, testCmd: claude?.suggest || '', busy: false, err: aud.err,
     fail: (a?.skills ? '' : a?.error || '?') || (rules && !rules.text ? rules.error || '?' : '') };
   skBackups = Array.isArray(backups) ? backups : [];
+  if (audWant) { bsel.skills = audWant; audWant = null; }
   render();
 }
 // The folder a project skill's backup came from loads here: it is this folder or one of its parents.
@@ -2919,7 +2925,7 @@ async function onAct(e) {
   if (d.tkReview) return tkReview(d.tkReview, 'desktop');
   if (d.tkMrOpen) return tkMrOpen(d.tkMrOpen);
   if (d.tkCi) return tkCi(d.tkCi);
-  if (d.tkClaude) { audDir = d.tkClaude; aud = { busy: true }; bsel.skills = 'aud:claude'; showTab('skills'); return loadAudit(); }
+  if (d.tkClaude) { audDir = d.tkClaude; audPicked.add(audDir); aud = { busy: true }; audWant = 'aud:claude'; showTab('skills'); return loadAudit(); }
   if (d.tkMrGo) return tkMrGo(d.tkMrGo);
   if (d.tkMrCancel) { delete tkMr[d.tkMrCancel]; return render(); }
   if (d.tkCleanForce) return tkClean(d.tkCleanForce, true);
@@ -2935,7 +2941,8 @@ $('#b-dyn').addEventListener('input', e => {
   if (d.tkText) tkChange[d.tkText] = e.target.value;
   if (d.tkMrTitle && tkMr[d.tkMrTitle]) tkMr[d.tkMrTitle].title = e.target.value;
   if (d.cmCmd !== undefined) aud.testCmd = e.target.value;
-  if (d.rpQ !== undefined) { rp.q = e.target.value.trim(); for (const l of document.querySelectorAll('#b-dyn label.rp')) l.hidden = !!rp.q && !l.querySelector('input').value.includes(rp.q.toLowerCase()); }
+  if (d.rpQ !== undefined) { rp.q = e.target.value.trim(); for (const l of document.querySelectorAll('#b-dyn label.rp-row')) l.hidden = !!rp.q && !l.querySelector('input').value.includes(rp.q.toLowerCase());
+    for (const g of document.querySelectorAll('#b-dyn .rp-h')) g.hidden = !g.querySelector('label.rp-row:not([hidden])'); }
   if (d.tkMrBody && tkMr[d.tkMrBody]) tkMr[d.tkMrBody].body = e.target.value;
 });
 $('#b-dyn').addEventListener('change', e => {
