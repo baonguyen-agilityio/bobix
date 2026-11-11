@@ -40,9 +40,17 @@ npm run tauri build   # installers land in src-tauri's build folder, under bundl
 
 Installers have fixed names (`Bobix-mac-arm64.dmg`, `Bobix-mac-x64.dmg`, `Bobix-windows-x64.exe`, `bobix-linux-amd64.deb`, `bobix-linux-arm64.deb`), given by [the release workflow](../.github/workflows/release.yml), so `releases/latest/download/<name>` always serves the newest version. Keep the names there and the links in the READMEs and `docs/install.md` in step. Every push to `develop` builds them too: they are that run's artifacts on GitHub Actions, to try a build before it is released. Pull requests only run the smoke workflow; to try a PR's installers, start the release workflow by hand on its branch (Actions → release → Run workflow).
 
+## Branches
+
+- **`main`** is the latest stable release and the default branch. It does not take direct changes: it moves to a new version only when that version is released as stable.
+- **`develop`** is where work lands. Open pull requests against `develop`; every push to it builds the installers as artifacts, and pre-releases (`v0.2.0-rc.N`) are tagged from it.
+- **`v1`** carries maintenance of the v1 line (Electron, v0.1.x) from the commit `main` had before 0.2.0. A fix for v1 is a pull request to `v1`, shipped as a `v0.1.x` tag on `v1`. Fix the same bug on `develop` too if the code still exists there.
+
+`main` and `v1` are protected: changes come in by pull request, with no force push and no deletion. The smoke workflow runs on every pull request, on pushes and on `v*` tags, and the release workflow on `v*` tags, so both work on any of the three branches.
+
 ## Release
 
-1. Bump `version` in `package.json` (the app reads it from there) and commit on `main`.
+1. Bump `version` in `package.json` (the app reads it from there) and commit on the branch you release from (`develop`, or `v1` for a v0.1.x fix).
 2. Push a tag such as `v0.2.0`. The release workflow builds on macOS, Windows and Ubuntu and attaches the installers to a GitHub Release. A tag with a dash (`v0.2.0-rc.1`) makes a pre-release, which does not become "latest".
 3. Add release notes to the release.
 4. For a release with changes people should know about, rewrite the tour's steps (`STEPS` in `src/ui/tour.js`, each pointing at a real element, with its `tour.<key>.title` / `.body` strings in EN and VI) and `NEWS` in `src/ui/i18n.js` before tagging: the panel walks everyone updating to that version through it once (Skip or Done marks it seen), never a new install; Setup → "Show the tour again" shows it again.
