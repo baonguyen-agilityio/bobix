@@ -59,7 +59,8 @@ jobs:
       - name: Node tests
         run: npm test
       - name: Pets overlay in Chrome (no effect over another pet, no pets overlapping)
-        run: node --test test/overlay.test.js
+        timeout-minutes: 5
+        run: node --test --test-timeout=270000 test/overlay.test.js
         env:
           OVERLAY_ONLY: ' 56 '
           OVERLAY_DUMP: overlay-dump
