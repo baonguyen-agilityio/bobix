@@ -340,6 +340,38 @@ async function oneCard(b, url) {
   return out.map(o => 'one card at a time: ' + o);
 }
 
+// A hovered card while its session runs tool after tool: it stays put (same height, no entrance replayed) and its status
+// row names the file or command the tool works on (a long path keeps its file name).
+async function liveCard(b, url) {
+  const out = [];
+  await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+  const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
+  await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, zoneStart: 30, zoneEnd: 70, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })})`);
+  const n = await ev('__now()'), step = async k => { for (let i = 0; i < k; i++) await ev('__step(33.4)'); };
+  const long = '/home/dev/' + 'deep/'.repeat(8) + 'src/ui/pets.html';
+  const push = o => ev(`__push(${JSON.stringify([ses('w0', { state: 'working', since: n, title: 'Fix the card', quest: 'Make the card say what it does', ...o })])})`);
+  await push({ tool: 'Edit', toolArg: long, ctx: 60 }); await step(60);
+  const r = await ev(`(() => { const b = pets.get('w0').el.querySelector('.spr').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r[0], y: r[1] }); await step(6);
+  const look = () => ev(`(() => { const c = pets.get('w0').el.querySelector('.card'); if (!c) return null;
+    return { h: Math.round(c.getBoundingClientRect().height * 10) / 10, still: c.classList.contains('still'), arg: c.querySelector('.st code')?.textContent || '' }; })()`);
+  const first = await look();
+  if (!first) return ['live card: no card on the hovered pet'];
+  if (!first.arg.endsWith('pets.html')) out.push(`the status row lost the file name: "${first.arg}"`);
+  const steps = [[{ tool: 'Bash', toolArg: 'npm test -- ' + 'x'.repeat(80), ctx: 45 }, 'npm test'], [{ tool: 'Read', toolArg: long, ctx: 20 }, 'pets.html'],
+    [{ tool: 'Grep', toolArg: '', ctx: 3 }, ''], [{ tool: 'Bash', toolArg: 'git status', ctx: 0 }, 'git status']];
+  for (const [o, arg] of steps) {
+    await push(o); await step(2);
+    const c = await look();
+    if (!c) { out.push(`${o.tool}: the card closed`); continue; }
+    if (!c.still) out.push(`${o.tool}: the card played its entrance again`);
+    if (c.h !== first.h) out.push(`${o.tool}: the card's height moved ${first.h} → ${c.h}`);
+    if (arg ? !c.arg.includes(arg) : c.arg) out.push(`${o.tool}: the status row says "${c.arg}", want ${arg ? `"${arg}" in it` : 'nothing'}`);
+  }
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
+  return out.map(o => 'live card: ' + o);
+}
+
 // A pet dragged onto its neighbour and let go: no overlap after it, and 1.5 s after the drop the line is evenly spaced
 // again (every gap the line's own gap, nothing still sliding).
 // Every frame right after a drop: no two pets in sight overlap and no two name tags touch, sliding or not.
@@ -414,6 +446,7 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     if (r.fxOn || r.effects || r.balloons.length || !r.ring) bad.push(`reduced motion: want no effect, no balloon and the waiting pet's ring, got ${JSON.stringify(r)}`);
     await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 one card')) bad.push(...await oneCard(b, url), ...b.errors.splice(0).map(e => `one card: page error: ${e}`));
+    if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 live card')) bad.push(...await liveCard(b, url), ...b.errors.splice(0).map(e => `live card: page error: ${e}`));
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 show when needed')) for (const rm of [false, true]) bad.push(...await onDemand(b, url, rm), ...b.errors.splice(0).map(e => `show when needed: page error: ${e}`));
     const cases = [];
     for (const edge of ['bottom', 'top']) for (const size of [32, 56, 128]) {

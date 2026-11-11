@@ -52,7 +52,11 @@ button{font:inherit;color:inherit}
 .card .q{color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:0 0 10px}
 .card .row{display:flex;justify-content:space-between;align-items:center;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);padding:4px 0;border-top:1px solid var(--line)}
 .card .row .bdg{display:flex;gap:4px;flex:none}
+.card.still,.say.still{animation:none} /* redrawn while shown: no second entrance */
 .card .st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink);min-width:0}
+/* What the tool works on, beside the status: one line, so the card holds still while tools run. */
+.card .row .st{flex:1;white-space:nowrap}
+.card .st code{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal;font-size:var(--t-xs);margin-block:-1px}
 .st-waiting .card .st{color:var(--accent-ink)}
 .card .meter{display:block;width:auto;margin:0 0 var(--s1)}
 .card .row.ctx{border-bottom:0;padding-bottom:4px}
@@ -123,6 +127,8 @@ button{font:inherit;color:inherit}
 <script src="/ui/usage.js"></script>
 <script>
 const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
+// A file path keeps its last folders, where the name is; a command keeps its start (the card cuts its end).
+const argText = a => (/^[~/.…]/.test(a) && !/\s/.test(a) && a.split('/').length > 4 ? '…/' + a.split('/').slice(-3).join('/') : a);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 const bridge = window.bobix; // present inside the app (src-tauri/bridge.js); absent in a plain browser tab
@@ -196,7 +202,7 @@ function paint(p, now) {
   // A bubble: its request when hovered; the tool it just picked up, for a pet on its own.
   const t = p.hover ? !card && sayText(p, st, now) : !kid && !fam && st === 'working' && sayText(p, st, now);
   const say = (habitSay && habitSay.id === s.id && !p.hover && Date.now() < habitSay.until ? ['habit', habitSay.text] : null) || (t && (p.hover || t[0] === '') ? t : null);
-  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, card && [s.usage, cfg.usageCost], s.tool, s.title, s.name, s.mark, card, say, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
+  const key = JSON.stringify([st, s.lv, s.ask, s.askTool, s.quest, s.summary, s.ctx, card && [s.usage, cfg.usageCost], s.tool, s.toolArg, s.title, s.name, s.mark, card, say, p.stepping, p.dragging, p.edge, left(s, now) > 0, s.image, s.whole, s.project, s.issue?.iid, color, s.parent && byId(s.parent)?.title, kidsText(s), kid, cfg.label, cfg.clickAction, cfg.walkDir, lang]);
   if (p.key === key) { // only its pose moved: swap the picture, keep the rest (a card being clicked, say)
     if (fr !== p.fr) { p.fr = fr; const svg = p.el.querySelector('.spr>svg'); if (svg) svg.outerHTML = petArt(art, st, color, pose); }
     return;
@@ -206,18 +212,20 @@ function paint(p, now) {
   const keep = ['line-off', 'fx-hide', 'leaving'].filter(c => p.el.classList.contains(c)).map(c => ' ' + c).join(''); // set by the line and the effects
   p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''}${keep} ${p.edge}`;
   const kids = kidsText(s), parent = s.parent && byId(s.parent), model = s.usage && USAGE.mix(s.usage)[0]?.name;
+  const result = st === 'done' && s.summary, shown = { card: card && p.cardOn, say: !!(say && say[1]) && p.sayOn }; // already on screen before this redraw
+  p.cardOn = !!card; p.sayOn = !!(say && say[1]);
   p.el.innerHTML = `
-    ${card ? `<div class="card">
+    ${card ? `<div class="card${shown.card ? ' still' : ''}">
         <h2>${esc(s.title || s.name)}</h2>
         <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
-        <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
-        <div class="row"><span class="st"><i class="dot ${st}"></i>${esc(statusText(s, st))}</span><span class="bdg">${model ? `<span class="badge">${esc(model)}</span>` : ''}<span class="badge">${T('pet.lv', { n: s.lv })}</span></span></div>
+        ${result || s.quest ? `<p class="q">${esc(result || s.quest)}</p>` : ''}
+        <div class="row"><span class="st"><i class="dot ${st}"></i>${esc(statusText(s, st))}${st === 'working' && s.toolArg ? `<code title="${esc(s.toolArg)}">${esc(argText(s.toolArg))}</code>` : ''}</span><span class="bdg">${model ? `<span class="badge">${esc(model)}</span>` : ''}<span class="badge">${T('pet.lv', { n: s.lv })}</span></span></div>
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         ${s.usage ? `<div class="row use"><span>${esc(USAGE.line(s.usage, T, cfg))}</span></div>${USAGE.warns(s.usage, T).slice(0, 1).map(w => `<p class="need use">⚠ ${esc(w.text)}</p>`).join('')}` : ''}
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="btn sm ghost" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
-    ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
+    ${say && say[1] ? `<div class="say ${say[0]}${shown.say ? ' still' : ''}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(art, st, color, pose)}${s.mark ? `<span class="mk" title="${esc(T('pet.assume'))}" aria-label="${esc(T('pet.assume'))}">?</span>` : ''}</div>
     ${kid ? '<div class="tag ghost" aria-hidden="true">·</div>' : `<div class="tag"><span class="nm">${parent ? '↳ ' : ''}${esc(labelOf(s))}</span>${s.issue ? `<span class="iss">#${s.issue.iid}</span>` : ''}</div>`}`;
