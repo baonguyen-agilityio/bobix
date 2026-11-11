@@ -4,7 +4,7 @@
     en: {
       'app.name': 'Bobix',
       'tab.overview': 'Overview', 'tab.sessions': 'Sessions', 'tab.work': 'Work', 'tab.room': 'Room', 'tab.settings': 'Settings', 'tab.setup': 'Setup',
-      'b.search.overview': 'Search approvals, warnings, sessions…', 'b.search.sessions': 'Search sessions and issues…', 'b.search.work': 'Search tickets…', 'b.search.skills': 'Search skills and projects…', 'b.search.room': 'Search…', 'b.search.settings': 'Search settings…',
+      'b.search.overview': 'Search approvals, warnings, sessions…', 'b.search.sessions': 'Search sessions and issues…', 'b.search.work': 'Search tickets…', 'b.search.skills': 'Search skills and projects…', 'b.search.room': 'Search rooms…', 'b.search.settings': 'Search settings…',
       'b.scopes': 'Screens', 'b.actions': 'Actions', 'b.noMatch': 'Nothing matches "{q}".', 'b.empty': 'Nothing here yet.',
       'b.today': 'Today', 'b.today.sub': '{r} running · {w} need you', 'b.stat.running': 'running', 'b.stat.need': 'need you', 'b.stat.warn': 'warnings',
       'b.running': 'Running', 'b.warnings': 'Warnings', 'b.rest': 'Resting', 'b.you': 'You', 'b.showSession': 'Show session', 'b.allowTool': 'Allow {tool}',
@@ -79,7 +79,7 @@
       'rm.join': 'Join a room', 'rm.join.sub': 'With the address the host sent you', 'rm.join.go': 'Join', 'rm.f.addr': 'Room address', 'rm.joined': 'Joined {n}.',
       'rm.join.note': 'The host shares an address like 100.64.0.10:4748/… . You get in only if the host invited your Tailscale login.',
       'rm.refused': 'The host refused: {e}. Ask the host to invite your Tailscale login.', 'rm.unreachable': 'Can\'t reach the host: {e}',
-      'rm.grp.host': 'You host', 'rm.grp.join': 'You joined', 'rm.by': 'Hosted by {n}', 'rm.guest': 'you are a guest', 'rm.leave': 'Leave',
+      'rm.grp.start': 'Start', 'rm.grp.host': 'You host', 'rm.grp.join': 'You joined', 'rm.by': 'Hosted by {n}', 'rm.guest': 'you are a guest', 'rm.leave': 'Leave',
       'rm.state.open': 'open', 'rm.state.decided': 'decided', 'rm.people': '{n} invited',
       'rm.s.frame': 'Problem', 'rm.s.options': 'Options ({n})', 'rm.s.decision': 'Decision',
       'rm.addr': 'Address to share', 'rm.addr.note': 'Send it to the people you invited. It works only for them, only on the tailnet.', 'rm.copyAddr': 'Copy address', 'rm.addrCopied': 'Address copied.', 'rm.opt.ph': 'An option, e.g. Postgres outbox table', 'rm.option': 'Option',
@@ -237,7 +237,7 @@
       'set.approveWait': 'Approve from Bobix',
       'set.approveWait.desc': 'How long a permission request waits for Allow / Deny on its pet, in this panel or on the notification; then the terminal asks as usual. "Until I answer" never times out, but nothing is held while pets are hidden or notifications are paused. Needs the Node.js forwarder (Settings → Connect Claude Code).',
       'set.approveWait.off': 'Off', 'set.approveWait.s20': '20 s', 'set.approveWait.s60': '60 s', 'set.approveWait.m2': '2 min', 'set.approveWait.m5': '5 min', 'set.approveWait.until': 'Until I answer', 'set.approveWait.custom': '{n} s',
-      'ask.whereApp': 'Approve it in the Claude app.', 'ask.allow': 'Allow', 'ask.deny': 'Deny', 'ask.left': '{n}s',
+      'ask.whereApp': 'Approve it in the Claude app.', 'ask.allow': 'Allow', 'ask.plan': 'Approve the plan', 'ask.deny': 'Deny', 'ask.left': '{n}s',
       'pane.askWithin': 'Answer here within {n} s, or in the terminal after that.', 'pane.askUntil': 'Claude waits here until you answer.',
       'pet.hide': 'Hide',
       'od.sessions': '{n} sessions', 'od.need': '{n} need you', 'od.news': '{n} with news', 'od.dnd': '☾ Do not disturb · {n} min left',
@@ -473,7 +473,7 @@
       'hab.set.title': 'What Bobix remembers', 'hab.set.switch': 'Remember my work with Claude', 'hab.set.promise': 'Only on this machine. Nothing you write to Claude is kept. Nothing is sent anywhere.',
       'hab.set.keeps': 'Kept', 'hab.set.k1': 'When sessions start and end', 'hab.set.k2': 'Repo, issue, branch', 'hab.set.k3': 'Approvals: how many, how long, which tool (for a Bash command only its first two words, such as npm test)', 'hab.set.k4': 'Skills used',
       'hab.set.never': 'Never kept', 'hab.set.n1': 'Chat, prompts', 'hab.set.n2': 'Code, files', 'hab.set.n3': 'Claude’s memory',
-      'hab.set.off': 'Off: Bobix logs nothing and suggests nothing.', 'hab.set.stored': 'What is kept', 'hab.set.size': '{s} KB · {n} days', 'hab.set.asks': '{n} approvals, {m} min waiting', 'hab.set.ended': 'session ended', 'hab.set.closed': 'issue closed',
+      'hab.set.off': 'Off: Bobix logs nothing and suggests nothing.', 'hab.set.stored': 'What is kept', 'hab.set.size': '{s} KB · {n} days', 'hab.set.ask1': '1 approval, {m} min waiting', 'hab.set.asks': '{n} approvals, {m} min waiting', 'hab.set.ended': 'session ended', 'hab.set.closed': 'issue closed',
       'hab.set.more': '… and {n} more days. The last 30 days are kept.', 'hab.set.empty': 'Nothing yet. Bobix logs from now on.', 'hab.set.where': 'Kept in', 'hab.set.wipe': 'Delete all',
       'hab.set.sure': 'Delete all {n} days? This cannot be undone.', 'hab.set.keep': 'Keep', 'hab.set.wiped': 'Everything Bobix remembered is deleted.', 'pet.habit': 'Still #{n} from {d} · Continue?',
       'wait.total': 'Claude waited for you {n} min in all today:', 'wait.mins': '{n} min', 'wait.none': 'Claude did not wait for you today.',
@@ -505,7 +505,7 @@
     vi: {
       'app.name': 'Bobix',
       'tab.overview': 'Tổng quan', 'tab.sessions': 'Phiên', 'tab.work': 'Công việc', 'tab.room': 'Phòng', 'tab.settings': 'Cài đặt', 'tab.setup': 'Kết nối',
-      'b.search.overview': 'Tìm yêu cầu duyệt, cảnh báo, phiên…', 'b.search.sessions': 'Tìm phiên và issue…', 'b.search.work': 'Tìm ticket…', 'b.search.skills': 'Tìm skill và dự án…', 'b.search.room': 'Tìm…', 'b.search.settings': 'Tìm cài đặt…',
+      'b.search.overview': 'Tìm yêu cầu duyệt, cảnh báo, phiên…', 'b.search.sessions': 'Tìm phiên và issue…', 'b.search.work': 'Tìm ticket…', 'b.search.skills': 'Tìm skill và dự án…', 'b.search.room': 'Tìm phòng…', 'b.search.settings': 'Tìm cài đặt…',
       'b.scopes': 'Màn hình', 'b.actions': 'Thao tác', 'b.noMatch': 'Không có gì khớp "{q}".', 'b.empty': 'Chưa có gì ở đây.',
       'b.today': 'Hôm nay', 'b.today.sub': '{r} đang chạy · {w} cần bạn', 'b.stat.running': 'đang chạy', 'b.stat.need': 'cần bạn', 'b.stat.warn': 'cảnh báo',
       'b.running': 'Đang chạy', 'b.warnings': 'Cảnh báo', 'b.rest': 'Đang nghỉ', 'b.you': 'Bạn', 'b.showSession': 'Xem phiên', 'b.allowTool': 'Cho phép {tool}',
@@ -580,7 +580,7 @@
       'rm.join': 'Vào một phòng', 'rm.join.sub': 'Bằng địa chỉ chủ phòng gửi', 'rm.join.go': 'Vào', 'rm.f.addr': 'Địa chỉ phòng', 'rm.joined': 'Đã vào {n}.',
       'rm.join.note': 'Chủ phòng gửi địa chỉ dạng 100.64.0.10:4748/… . Bạn chỉ vào được nếu chủ phòng đã mời tài khoản Tailscale của bạn.',
       'rm.refused': 'Chủ phòng từ chối: {e}. Hãy nhờ chủ phòng mời tài khoản Tailscale của bạn.', 'rm.unreachable': 'Không kết nối được chủ phòng: {e}',
-      'rm.grp.host': 'Bạn làm chủ', 'rm.grp.join': 'Bạn đã vào', 'rm.by': 'Chủ phòng: {n}', 'rm.guest': 'bạn là khách', 'rm.leave': 'Rời',
+      'rm.grp.start': 'Bắt đầu', 'rm.grp.host': 'Bạn làm chủ', 'rm.grp.join': 'Bạn đã vào', 'rm.by': 'Chủ phòng: {n}', 'rm.guest': 'bạn là khách', 'rm.leave': 'Rời',
       'rm.state.open': 'đang mở', 'rm.state.decided': 'đã chốt', 'rm.people': '{n} người được mời',
       'rm.s.frame': 'Vấn đề', 'rm.s.options': 'Các hướng ({n})', 'rm.s.decision': 'Quyết định',
       'rm.addr': 'Địa chỉ để gửi', 'rm.addr.note': 'Gửi cho những người bạn mời. Chỉ họ dùng được, và chỉ trên tailnet.', 'rm.copyAddr': 'Chép địa chỉ', 'rm.addrCopied': 'Đã chép địa chỉ.', 'rm.opt.ph': 'Một hướng, ví dụ bảng outbox trong Postgres', 'rm.option': 'Hướng',
@@ -738,7 +738,7 @@
       'set.approveWait': 'Duyệt ngay trên Bobix',
       'set.approveWait.desc': 'Thời gian một yêu cầu xin quyền chờ bạn bấm Cho phép / Từ chối trên thú cưng, trong bảng này hoặc trên thông báo; hết giờ thì terminal hỏi như bình thường. "Đến khi tôi trả lời" thì không bao giờ hết giờ, nhưng yêu cầu không bị giữ khi thú cưng đang ẩn hoặc thông báo đang tạm dừng. Cần bộ chuyển tiếp Node.js (Cài đặt → Kết nối Claude Code).',
       'set.approveWait.off': 'Tắt', 'set.approveWait.s20': '20 giây', 'set.approveWait.s60': '60 giây', 'set.approveWait.m2': '2 phút', 'set.approveWait.m5': '5 phút', 'set.approveWait.until': 'Đến khi tôi trả lời', 'set.approveWait.custom': '{n} giây',
-      'ask.whereApp': 'Duyệt trong ứng dụng Claude.', 'ask.allow': 'Cho phép', 'ask.deny': 'Từ chối', 'ask.left': '{n}s',
+      'ask.whereApp': 'Duyệt trong ứng dụng Claude.', 'ask.allow': 'Cho phép', 'ask.plan': 'Duyệt kế hoạch', 'ask.deny': 'Từ chối', 'ask.left': '{n}s',
       'pane.askWithin': 'Trả lời ở đây trong {n} giây, sau đó thì trả lời trong terminal.', 'pane.askUntil': 'Claude chờ bạn trả lời ở đây.',
       'pet.hide': 'Ẩn',
       'od.sessions': '{n} phiên', 'od.need': '{n} cần bạn', 'od.news': '{n} có tin', 'od.dnd': '☾ Đừng làm phiền · còn {n}′',
@@ -975,7 +975,7 @@
       'hab.set.title': 'Bobix nhớ gì về bạn', 'hab.set.switch': 'Nhớ việc tôi làm với Claude', 'hab.set.promise': 'Chỉ lưu trên máy này. Không lưu nội dung bạn chat với Claude. Không gửi đi đâu.',
       'hab.set.keeps': 'Có nhớ', 'hab.set.k1': 'Giờ mở và đóng phiên', 'hab.set.k2': 'Repo, issue, nhánh', 'hab.set.k3': 'Số lần và thời gian chờ duyệt, tên công cụ (lệnh Bash chỉ hai chữ đầu, ví dụ npm test)', 'hab.set.k4': 'Skill đã dùng',
       'hab.set.never': 'Không bao giờ nhớ', 'hab.set.n1': 'Nội dung chat, prompt', 'hab.set.n2': 'Code, file', 'hab.set.n3': 'Bộ nhớ của Claude',
-      'hab.set.off': 'Đang tắt: Bobix không ghi gì và không gợi ý gì.', 'hab.set.stored': 'Những gì đang lưu', 'hab.set.size': '{s} KB · {n} ngày', 'hab.set.asks': 'chờ duyệt {n} lần, {m} phút', 'hab.set.ended': 'phiên đã kết thúc', 'hab.set.closed': 'issue đã đóng',
+      'hab.set.off': 'Đang tắt: Bobix không ghi gì và không gợi ý gì.', 'hab.set.stored': 'Những gì đang lưu', 'hab.set.size': '{s} KB · {n} ngày', 'hab.set.ask1': 'chờ duyệt 1 lần, {m} phút', 'hab.set.asks': 'chờ duyệt {n} lần, {m} phút', 'hab.set.ended': 'phiên đã kết thúc', 'hab.set.closed': 'issue đã đóng',
       'hab.set.more': '… và {n} ngày trước nữa. Giữ 30 ngày gần nhất.', 'hab.set.empty': 'Chưa có gì. Bobix bắt đầu ghi từ bây giờ.', 'hab.set.where': 'Lưu ở', 'hab.set.wipe': 'Xoá hết',
       'hab.set.sure': 'Xoá hết {n} ngày ghi chép? Không lấy lại được.', 'hab.set.keep': 'Thôi', 'hab.set.wiped': 'Đã xoá hết những gì Bobix nhớ.', 'pet.habit': 'Còn #{n} từ {d} · Làm tiếp?',
       'wait.total': 'Claude đã chờ bạn tổng cộng {n} phút hôm nay:', 'wait.mins': '{n} phút', 'wait.none': 'Hôm nay Claude chưa phải chờ bạn.',
@@ -1017,8 +1017,10 @@
     const mcp = /^mcp__.+?__(.+)$/.exec(tool || '');
     return t(lang, 'tool.other', { tool: mcp ? mcp[1].replace(/_/g, ' ') : tool });
   };
+  // What Claude asks to use, by the tool's own name (Bash, Edit); a ticket flow's plan (ExitPlanMode) reads as what you do with it.
+  const askLabel = (lang, tool) => (tool === 'ExitPlanMode' ? t(lang, 'ask.plan') : tool);
   const NEWS = '0.2.0'; // the release the tour (tour.js, strings tour.*) shows what is new in; change both when a release ships new things (see docs/development.md).
   // Its test builds (0.2.0-rc.N) share it: new step keys are what makes the tour show again after such an upgrade.
-  const api = { STR, t, pick, toolLabel, NEWS };
+  const api = { STR, t, pick, toolLabel, askLabel, NEWS };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.I18N = api;
 })(this);

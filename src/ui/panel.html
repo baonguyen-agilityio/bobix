@@ -179,7 +179,7 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .ask strong{color:var(--accent-ink)}
 .ask .acts{margin-top:var(--s2)}
 .md{overflow-wrap:anywhere;font-size:var(--t-sm);border-radius:var(--r-md);padding:var(--s3) var(--s4)}
-.report{background:var(--ok-bg)}
+.report{background:var(--ok-bg)}.report.stop{background:var(--warn-bg)}
 .md p,.md ul,.md ol,.md pre,.md table,.md blockquote{margin:0 0 var(--s2)}
 .md>:last-child{margin-bottom:0}
 .md h4{font-size:var(--t-sm);font-weight:700;margin:var(--s3) 0 var(--s1)}
@@ -644,7 +644,7 @@ function ago(t) {
 }
 function statusText(s, st) {
   if (st === 'working') return s.tool ? T('status.working', { tool: I18N.toolLabel(lang, s.tool) }) : T('status.thinking');
-  if (st === 'waiting') return s.askTool ? T('status.waitingTool', { tool: s.askTool }) : T('status.waiting');
+  if (st === 'waiting') return isPlan(s) ? T('ask.plan') : s.askTool ? T('status.waitingTool', { tool: s.askTool }) : T('status.waiting');
   return T(`status.${st}`);
 }
 const line2 = (s, st) => st === 'done' && s.summary ? T('line.report') + s.summary : s.quest || T('line.noQuest');
@@ -775,7 +775,7 @@ async function nudge(id) {
 }
 function ticketState(ss) {
   const s0 = leadSt(ss), lead = ss.find(s => look(s) === s0), nW = ss.filter(s => look(s) === 'waiting').length;
-  const t = !lead ? T('day.noSession') : s0 === 'waiting' ? (nW > 1 ? T('day.nWait', { n: nW }) : T('day.waitOne', { what: lead.askTool ? I18N.toolLabel(lang, lead.askTool) : T('status.waiting') }))
+  const t = !lead ? T('day.noSession') : s0 === 'waiting' ? (nW > 1 ? T('day.nWait', { n: nW }) : T('day.waitOne', { what: isPlan(lead) ? T('ask.plan') : lead.askTool ? I18N.toolLabel(lang, lead.askTool) : T('status.waiting') }))
     : s0 === 'working' ? statusText(lead, 'working') : s0 === 'done' ? T('day.turnDone') : T('status.idle');
   return t + (ss.length > 1 ? ' · ' + T('day.nSessions', { n: ss.length }) : '');
 }
@@ -1066,7 +1066,7 @@ function habitsSettingsHTML(s) {
   const issueName = x => { const i = x.iid != null && (model.issues || []).find(y => y.iid === x.iid && (model.repos || []).some(r => r.path === y.project && r.dirs.some(z => z.path === x.dir))); return x.iid != null ? `#${x.iid}${i ? ' ' + i.title : ''}` : x.branch || HABITS.base(x.dir); };
   // "phiên đã kết thúc": the session ended; "issue đã đóng" only for an issue the tracker says is closed (closed lately)
   const closed = x => x.iid != null && (work.closed || []).some(c => c.iid === x.iid && c.project === (x.project || HABITS.projectOf(model, x.dir)));
-  const detail = x => [HABITS.base(x.dir), x.asks ? T('hab.set.asks', { n: x.asks, m: Math.round(x.waitMs / 60e3) }) : '', x.skills.map(k => '/' + k).join(', '), x.ended ? T('hab.set.ended') : '', closed(x) ? T('hab.set.closed') : ''].filter(Boolean).join(' · ');
+  const detail = x => [HABITS.base(x.dir), x.asks ? T(x.asks === 1 ? 'hab.set.ask1' : 'hab.set.asks', { n: x.asks, m: Math.round(x.waitMs / 60e3) }) : '', x.skills.map(k => '/' + k).join(', '), x.ended ? T('hab.set.ended') : '', closed(x) ? T('hab.set.closed') : ''].filter(Boolean).join(' · ');
   const span = x => `${timeOf(x.from)}–${x.ended ? timeOf(x.to) : ''}`;
   const stored = !d ? '' : `<div class="opt wide"><div style="width:100%">
       <div class="lbl">${esc(T('hab.set.stored'))} <span class="note">${esc(T('hab.set.size', { s: Math.max(0, Math.round(d.bytes / 1024)), n: d.days }))}</span></div>
@@ -1502,7 +1502,9 @@ const pet = (s, cls = '', extra = '') => `<span class="av ${cls}${look(s) === 'w
 const lowCtx = hp => (hp != null && hp < 25 ? `<span class="hot" title="${esc(T('ctx'))}">${esc(T('ctx'))} ${hp}%</span>` : ''); // context only when low
 const ticketOf = s => [...st.doing, ...st.verify].find(x => x[2].some(y => y.id === s.id));
 const leadSt = ss => ss.map(look).sort((a, b) => BOARD.PRI[a] - BOARD.PRI[b])[0] || 'idle';
-const toolOf = s => s.askTool || T('status.waiting'); // the tool's own name (Bash, Edit), as Claude asks it
+const toolOf = s => s.askTool ? I18N.askLabel(lang, s.askTool) : T('status.waiting'); // the tool's own name (Bash, Edit), as Claude asks it; a plan reads "Approve the plan"
+// A ticket flow's plan (ExitPlanMode): not "Allow …" or "… wants to run", just "Approve the plan".
+function isPlan(s) { return s.askTool === 'ExitPlanMode'; }
 const hhmm = t => new Date(t).toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const answerAttrs = (s, c) => `data-choice="${c}" data-s="${esc(s.id)}"`;
 const GRP = { aq: 'day.aq', stuck: 'day.stuck', warn: 'b.warnings', hab: 'hab.title', run: 'b.running', doing: 'day.doing', verify: 'day.verify', todo: 'day.todo', done: 'day.done', loose: 'day.loose', rest: 'b.rest', you: 'b.you', projects: 'sk.projects', audit: 'sk.grp.audit', dups: 'sk.grp.dups', fapprove: 'tk.g.approve', frun: 'tk.g.run', fdone: 'tk.g.done', fstart: 'tk.g.start', off: 'sk.grp.off', unused: 'sk.grp.unused', inuse: 'sk.grp.inuse' };
@@ -1523,7 +1525,7 @@ function splitHTML(t) {
 function overviewItems() {
   const it = [], w = waitingList(), run = list.filter(s => look(s) === 'working'), top = w.find(held);
   it.push({ id: 'today', kind: 'board', lead: ico('overview'), label: T('b.today'), sub: T('b.today.sub', { r: run.length, w: w.length }), meta: esc(hhmm(Date.now())), detail: todayHTML,
-    acts: [...(top ? [[T('b.allowTool', { tool: toolOf(top) }), ['↵'], answerAttrs(top, 'allow')]] : []), [T('su.title'), [CMD, '⇧', 'S'], 'data-standup'], [T('day.report'), [CMD, '⇧', 'R'], 'data-report']] });
+    acts: [...(top ? [[isPlan(top) ? T('ask.plan') : T('b.allowTool', { tool: toolOf(top) }), ['↵'], answerAttrs(top, 'allow')]] : []), [T('su.title'), [CMD, '⇧', 'S'], 'data-standup'], [T('day.report'), [CMD, '⇧', 'R'], 'data-report']] });
   w.forEach(s => it.push(askItem(s)));
   const sk = stuckList();
   [...sk.filter(x => !x.old), ...sk.filter(x => x.old)].forEach(x => it.push(stuckItem(x)));
@@ -1555,7 +1557,7 @@ function askItem(s) {
 }
 function askHTML(s, t, text, h) {
   const left = h && secsLeft(s) !== Infinity ? T('ask.left', { n: secsLeft(s) }) : '';
-  return `${head(pet(s, 'lg'), T('b.ask.h', { tool: toolOf(s) }), [t ? BOARD.short(t[1].path) : s.name, left].filter(Boolean).join(' · '))}
+  return `${head(pet(s, 'lg'), isPlan(s) ? T('ask.plan') : T('b.ask.h', { tool: toolOf(s) }), [t ? BOARD.short(t[1].path) : s.name, left].filter(Boolean).join(' · '))}
     <pre class="b-code">${esc(text)}</pre>${s.answer?.risky ? `<p class="risk">${esc(T('day.risky'))}</p>` : ''}
     <dl class="kv"><dt>${esc(T('b.waited'))}</dt><dd>${waitedHTML(s)}</dd><dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>
       ${t ? `<dt>${esc(T('b.ticket'))}</dt><dd>#${t[0].iid} ${esc(t[0].title)}</dd>` : ''}</dl>
@@ -1767,7 +1769,7 @@ function flowHTML(f, s) {
     <section class="b-sec"><h3>${esc(T('tk.assume'))}${f.new ? ` <span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}</h3>
       ${as.length ? `<ul class="tk-as">${as.map((a, n) => `<li${n >= f.seen ? ' class="new"' : ''}>${esc(a)}</li>`).join('')}</ul>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}</section>
     <section class="b-sec"><h3>${esc(T('tk.steps'))}</h3>${p.steps?.length ? `<ol class="tk-steps">${p.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}</section>
-    ${p.result ? `<section class="b-sec"><h3>${esc(T(f.status === 'blocked' ? 'tk.blocked' : 'tk.result'))}</h3><div class="report md">${markdown(p.result)}</div></section>` : ''}
+    ${p.result ? `<section class="b-sec"><h3>${esc(T(f.status === 'blocked' ? 'tk.blocked' : 'tk.result'))}</h3><div class="report md${f.status === 'blocked' ? ' stop' : ''}">${markdown(p.result)}</div></section>` : ''}
     ${f.summary ? `<section class="b-sec"><h3>${esc(T('tk.summary'))}</h3><div class="report md">${markdown(f.summary)}</div></section>` : ''}
     ${f.status === 'starting' && f.cmd ? `<section class="b-sec"><h3>${esc(T('tk.waiting'))}</h3><p class="note">${esc(T('tk.waiting.note'))}</p><div class="cmd"><code>${esc(f.cmd)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(f.cmd)}">${esc(T('work.copy'))}</button>` : ''}</div></section>` : ''}
     <section class="b-sec"><dl class="kv">
@@ -2282,7 +2284,7 @@ function roomItems() {
   }
   return it;
 }
-Object.assign(GRP, { rmstart: 'tab.room', rmhost: 'rm.grp.host', rmjoin: 'rm.grp.join' });
+Object.assign(GRP, { rmstart: 'rm.grp.start', rmhost: 'rm.grp.host', rmjoin: 'rm.grp.join' });
 function rmNewHTML() {
   const tn = rm.v?.tailnet;
   const ts = !rm.v ? `<p class="note">${esc(T('work.loading'))}</p>` : tn?.me ? `<dl class="kv"><dt>${esc(T('rm.you.t'))}</dt><dd>${esc(rmName(tn.me))} · <code>${esc(tn.me.login)}</code></dd><dt>${esc(T('rm.port'))}</dt><dd><code>${esc(tn.ip || '')}:${tn.port}</code>${tn.serving ? ` <span class="badge ok">${esc(T('rm.serving'))}</span>` : ''}</dd></dl>`
@@ -2365,7 +2367,7 @@ function rmRoomHTML(r, host, j) {
     ${open ? rmChatHTML(r, host, j, k, key) + draftSec : draftSec + rmChatHTML(r, host, j, k, key)}
     ${host ? `<section class="b-sec"><h3>${esc(T('rm.people.t'))}</h3><ul class="rows">${people || `<li class="blank">${esc(T('rm.p.none'))}</li>`}</ul>
       ${open ? `<div class="rm-f"><div class="row"><input data-rmin="${esc(key('inv'))}" data-f="${esc(key('inv'))}" value="${rmVal(key('inv'))}" placeholder="name@example.com" aria-label="${esc(T('rm.f.invite'))}" spellcheck="false"><button class="btn sm" type="button" data-rm="invite" ${k}>${esc(T('rm.invite'))}</button></div></div>` : ''}</section>
-      <section class="b-sec"><h3>${esc(T('rm.audit'))}</h3><div class="acts" style="margin:0"><button class="btn sm" type="button" data-rm="audit" ${k}>${esc(T('rm.audit.show'))}</button></div>${rm.audit?.id === r.id ? `<ul class="rows">${rm.audit.lines.slice(0, 30).map(l => `<li><div class="row">${ico(l.ev === 'refused' ? 'x' : l.ev === 'say' ? 'chat' : 'eye', l.ev === 'refused' ? 'hot' : '')}<span class="b-tx"><span class="lb">${esc(T('rm.ev.' + l.ev, { v: l.v ?? '' }))}${l.who ? ` · <code>${esc(l.who)}</code>` : ''}</span><span class="sb">${esc(ago(l.t))}${l.why ? ' · ' + esc(rmWhy(l.why)) : ''}</span></span></div></li>`).join('')}</ul>` : ''}</section>` : ''}
+      <section class="b-sec"><h3>${esc(T('rm.audit'))}</h3><div class="acts" style="margin:0"><button class="btn sm" type="button" data-rm="audit" ${k}>${esc(T('rm.audit.show'))}</button></div>${rm.audit?.id === r.id ? `<ul class="rows">${rm.audit.lines.slice(0, 30).map(l => `<li><div class="row">${ico(l.ev === 'refused' ? 'x' : l.ev === 'say' ? 'chat' : 'eye', l.ev === 'refused' ? 'hot' : '')}<span class="b-tx"><span class="lb">${esc(T('rm.ev.' + l.ev, { v: l.v ?? '' }))}${l.who || l.login ? ` · <code>${esc(l.who || l.login)}</code>` : ''}</span><span class="sb">${esc(ago(l.t))}${l.why ? ' · ' + esc(rmWhy(l.why)) : ''}</span></span></div></li>`).join('')}</ul>` : ''}</section>` : ''}
     <p class="note">${esc(T('rm.footer'))}</p>`;
 }
 async function rmDo(itemId, work) {
@@ -2645,7 +2647,7 @@ $('#b-bar').addEventListener('click', onAct);
 let cmdItems = [], cmdIdx = 0, cmdBack = null;
 function commands() {
   const A = T('b.actions'), c = [];
-  for (const s of waitingList().filter(held)) c.push({ g: A, label: `${T('ask.allow')} ${toolOf(s)}: ${oneLine(s.answer?.full || s.ask)}`, sub: s.title || s.name, icon: pet(s, 'xs'), run: () => bridge.answer(s.answer.id, 'allow') });
+  for (const s of waitingList().filter(held)) c.push({ g: A, label: `${isPlan(s) ? T('ask.plan') : `${T('ask.allow')} ${toolOf(s)}`}: ${oneLine(s.answer?.full || s.ask)}`, sub: s.title || s.name, icon: pet(s, 'xs'), run: () => bridge.answer(s.answer.id, 'allow') });
   const nx = bridge && BOARD.next(st, waiting, 'all');
   if (nx) c.push({ g: A, label: `${T('day.start')} #${nx[0].iid} ${nx[0].title}`, sub: T('next.title'), icon: projectPet(nx[1].path, 'xs'), run: () => { showTab('sessions'); bsel.sessions = 'next'; render(); $('#b-bar [data-primary]')?.click(); } });
   c.push({ g: A, label: T('su.title'), icon: ic('file'), run: openStandup }, { g: A, label: T('day.report'), icon: ic('file'), run: openReport });
