@@ -218,7 +218,7 @@ fn repos_step(app: &AppHandle, spec: &str) -> Value {
         const ticked = () => Object.values(state.settings.workRepos || {{}}).flat().sort(), upd = () => st.todo.map(x => x[0].updated || '').sort(); \
         const first = () => {{ const it = workItems().find(x => x.grp === 'fstart'); if (it) bsel.work = it.id; render(); }}; \
         $('#toasts').replaceChildren(); r.on = state.settings.github === true && state.settings.gitlab === true; await bridge.refreshWork(); \
-        r.read = await until(() => work.status === 'ok' && (work.hosts || []).length >= 2 && st.todo.length > 0 && ticked().length >= {n}, 40000); await bridge.refreshWork(); await w(1500); r.preTicked = ticked().join(','); r.oldOut = !ticked().includes({old}); \
+        r.read = await until(() => work.status === 'ok' && (work.hosts || []).length >= 2 && st.todo.length > 0 && ticked().length >= {n}, 40000); await bridge.refreshWork(); await w(1500); r.preTicked = ticked().join(','); r.skipped = (work.failed || []).map(f => f.host + ': ' + f.detail); r.oldOut = !ticked().includes({old}); \
         r.found = await until(() => state.settings.workDirs?.[{found}]?.how === 'found', 30000); \
         r.page1 = st.todo.length; r.more = work.more === true; const oldest = upd()[0]; showTab('work'); first(); await w({hold}); \
         await bridge.workPage(2); r.page2 = await until(() => work.page === 2 && st.todo.length > 0 && upd().at(-1) <= oldest, 20000); first(); await w({hold}); \
