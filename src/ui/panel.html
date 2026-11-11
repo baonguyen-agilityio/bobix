@@ -1927,6 +1927,8 @@ function workItems() {
 }
 // Done is the session's word; Checks are its evidence (commands with their output) and the review. Done without
 // checks warns (it is not blocked): the ask below is what you paste to the session.
+// A work log in another language than English: the merge request's text is the session's own English section (#185).
+const MR_ASK = 'Fill the "## MR (English)" section of .bobix-log/work-log.md: the merge request description for the team, in English (what changed and why, the assumptions, the checks you ran). Write it for that reader; do not translate the log line by line.';
 const CHECKS_ASK = 'Run the project\'s tests, build and lint (from CLAUDE.md). Under ## Checks in .bobix-log/work-log.md, add one line per command with its last lines of output, then review the change against the plan with /code-review and add a "- Review: " line. Then set the status again.';
 const unchecked = f => f.status === 'done' && !f.cleaned && !(f.parsed?.ran > 0);
 function checkBadges(f) {
@@ -1964,6 +1966,8 @@ function mrHTML(f) {
   if (!bridge || f.cleaned || f.status !== 'done' || !m?.open) return '';
   return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h', fw(f)))}</h3>
     ${unchecked(f) ? `<p class="risk">⚠ ${esc(T('tk.mr.nochecks', fw(f)))}</p>` : ''}
+    ${tkDet[f.key]?.mrReady === false ? `<div class="tk-warn tk-mr-en"><p><strong>${esc(T('tk.mr.noen.t', fw(f)))}</strong> ${esc(T('tk.mr.noen', fw(f)))}</p><div class="cmd"><code>${esc(MR_ASK)}</code><button class="btn sm" type="button" data-copy="${esc(MR_ASK)}">${esc(T('work.copy'))}</button></div></div>`
+      : f.lang && f.lang !== 'en' ? `<p class="note">${esc(T('tk.mr.en', fw(f)))}</p>` : ''}
     <label class="tk-ch"><span>${esc(T('tk.mr.title'))}</span><input type="text" data-tk-mr-title="${k}" data-f="tkmt:${k}" value="${esc(m.title)}"></label>
     <label class="tk-ch"><span>${esc(T('tk.mr.body', fw(f)))}</span><textarea class="tk-prompt" rows="10" spellcheck="false" data-tk-mr-body="${k}" data-f="tkmb:${k}">${esc(m.body)}</textarea></label>
     <p class="note">${esc(T('tk.mr.note', { ...fw(f), b: f.branch }))}</p>
@@ -2144,6 +2148,7 @@ async function tkSum(key) {
   const r = await bridge.ticketSummary(key).catch(e => ({ ok: false, error: String(e) }));
   tkBusy.delete(key);
   if (!r?.ok) toast(T('tk.sum.fail', { e: r?.error || '' }));
+  else delete tkDet[key]; // the summary is one of the flow's texts: read them again (its `at` does not move)
   render();
 }
 async function tkCi(key) {

@@ -33,6 +33,9 @@ pub struct Flow {
     // The repository its code is in, when not the issue's own (an issue of a product repository whose code lives in
     // a service repository): the worktree, the MR / PR and its CI are there. Empty: the issue's repository.
     pub code: String,
+    // Bobix's language when it started ("vi"; "" or "en": English): its work log, summary and review notes are in it,
+    // and it keeps it when you change the language later. The MR / PR text and commits are English either way.
+    pub lang: String,
     pub pid: Option<u32>, // its session's claude process, as last seen: alive after Bobix restarts means it still runs
 }
 
@@ -58,15 +61,21 @@ impl Flow {
     }
 }
 // The merge request's text, from the work log: the issue it closes, the plan, the assumptions, the checks. Shown to you
-// (and editable) before anything is sent: the work log itself stays on this machine.
+// (and editable) before anything is sent: the work log itself stays on this machine. A log in another language than
+// English gives its own `## MR (English)` section instead, written by the session for the team (never a translation
+// made here); without it there is only the close line, and the box says so (mr_ready).
 pub fn mr_title(f: &Flow) -> String { head16(&f.title, 200).to_string() }
+pub fn english(f: &Flow) -> bool { matches!(f.lang.as_str(), "" | "en") }
+pub fn mr_ready(f: &Flow) -> bool { english(f) || !parse_log(&f.log)["mr"].as_str().unwrap_or("").trim().is_empty() }
 pub fn mr_body(f: &Flow) -> String {
     let p = parse_log(&f.log);
+    let close = if f.code_repo() == f.path { format!("Closes #{}\n", f.iid) } else { format!("Closes {}#{}\n", f.path, f.iid) };
+    if !english(f) { return head16(&format!("{close}\n{}\n", p["mr"].as_str().unwrap_or("").trim()), 20_000).trim_end().to_string() + "\n"; }
     let plan = p["plan"].as_str().filter(|x| !x.is_empty()).map(String::from).unwrap_or_else(|| f.plan.clone());
     let list = |k: &str| p[k].as_array().into_iter().flatten().filter_map(|x| x.as_str()).map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n");
     let checks = p["checksText"].as_str().unwrap_or("").to_string();
     // in another repository the close reference names the issue's (GitLab and GitHub both read "group/app#7")
-    let mut b = if f.code_repo() == f.path { format!("Closes #{}\n", f.iid) } else { format!("Closes {}#{}\n", f.path, f.iid) };
+    let mut b = close;
     for (h, t) in [("Plan", plan), ("Assumptions", list("assumptions")), ("Checks", if checks.is_empty() { "None pasted.".into() } else { checks })] {
         if !t.trim().is_empty() { b += &format!("\n## {h}\n\n{}\n", t.trim()); }
     }
@@ -186,13 +195,25 @@ pub fn free_bytes(_: &Path) -> Option<u64> { None }
 // How many more worktrees fit on that disk.
 pub fn room(free: Option<u64>) -> Option<u64> { free.map(|f| f / WORKTREE_BYTES) }
 
-// The work log's template: Bobix writes it into the worktree, the session fills it in.
-pub fn template(iid: i64, title: &str) -> String {
-    format!("# Work log: #{iid} {title}\n\nStatus: planning\n\n## Plan\n\n## Steps\n\n## Assumptions\n\n## Checks\n\n## Result\n")
+// The work log's template: Bobix writes it into the worktree, the session fills it in. Not in English: one more
+// section, the merge request's description in English.
+pub fn template(iid: i64, title: &str, lang: &str) -> String {
+    let mr = if lang_name(lang).is_some() { "\n## MR (English)\n" } else { "" };
+    format!("# Work log: #{iid} {title}\n\nStatus: planning\n\n## Plan\n\n## Steps\n\n## Assumptions\n\n## Checks\n\n## Result\n{mr}")
 }
+// The languages a work log can be in other than English (Bobix's own languages).
+pub fn lang_name(lang: &str) -> Option<&'static str> { match lang { "vi" => Some("Vietnamese"), _ => None } }
 
-// How the session works, appended to the issue in the Start prompt (Claude reads English here whatever the panel's language).
-pub fn rules(branch: &str) -> String {
+// How the session works, appended to the issue in the Start prompt (Claude reads English here whatever the panel's
+// language). `lang`: Bobix's language: the work log is written in it; what the team reads stays English.
+pub fn rules(branch: &str, lang: &str) -> String {
+    let base = rules_en(branch);
+    let Some(name) = lang_name(lang) else { return base };
+    format!("{base}\n\
+6. Language: write the work log in {name}: the plan, your questions, the assumptions, the steps, your notes under Checks, what blocks you and the result. Keep code, file names, commands, command output and identifiers exactly as they are. Keep the template's headings, `Status:` with its English values (planning, running, done, blocked) and the `- Review: ` / `- None: ` prefixes in English, as written.\n\
+7. What the team reads stays English: write commit messages in English, and fill `## MR (English)` in the work log with the merge request's description for the team, in English: what changed and why, the assumptions, the checks you ran. Write it for that reader; do not translate the log line by line.")
+}
+fn rules_en(branch: &str) -> String {
     format!("How to work on this ticket (Bobix ticket flow):\n\
 1. Call the EnterPlanMode tool now, before changing anything. Read what you need, then write the plan. It must end with a section \"Assumptions\": what you assume because nobody can answer now. Then call ExitPlanMode. Approving that plan is the only approval.\n\
 2. After approval, work to the end in this folder (a git worktree on branch `{branch}`). Do not stop to ask, except for these: pushing to the main branch, deleting data, calling hosts this project does not already use, and touching secrets. Commit on `{branch}`; do not push to the main branch.\n\
@@ -235,7 +256,7 @@ pub fn cli_in_mode(dir: &str, model: &str, mode: &str, prompt: &str) -> String {
 // What the log says, section by section. Assumptions are the `- ` / `* ` lines under "## Assumptions".
 pub fn parse_log(text: &str) -> Value {
     let (mut status, mut sec) = (String::new(), String::new());
-    let (mut plan, mut steps, mut assume, mut result, mut checks, mut raw) = (vec![], vec![], vec![], vec![], vec![], vec![]);
+    let (mut plan, mut steps, mut assume, mut result, mut checks, mut raw, mut mr) = (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
     let mut fence = false;
     for l in text.lines() {
         let t = l.trim();
@@ -244,6 +265,7 @@ pub fn parse_log(text: &str) -> Value {
         if sec.starts_with("check") && t.starts_with("```") { fence = !fence; continue; }
         if fence { continue; }
         if let Some(h) = t.strip_prefix("## ") { sec = h.trim().to_lowercase(); continue; }
+        if sec.starts_with("mr") { mr.push(l); continue; } // the merge request's own text, kept as written (blank lines too)
         if t.starts_with('#') { continue; }
         if sec.is_empty() { if let Some(s) = t.strip_prefix("Status:") { status = s.trim().to_lowercase(); } continue; }
         if t.is_empty() { continue; }
@@ -257,21 +279,25 @@ pub fn parse_log(text: &str) -> Value {
             _ => {}
         }
     }
-    let status = ["planning", "running", "done", "blocked"].into_iter().find(|s| status.starts_with(s)).unwrap_or("");
+    // English values, as the template has them; a session that wrote them in Vietnamese anyway is read too
+    const VI: [(&str, &str); 6] = [("xong", "done"), ("hoàn thành", "done"), ("bị chặn", "blocked"), ("chặn", "blocked"), ("đang chạy", "running"), ("lập kế hoạch", "planning")];
+    let status = ["planning", "running", "done", "blocked"].into_iter().find(|s| status.starts_with(s))
+        .or_else(|| VI.iter().find(|(v, _)| status.starts_with(v)).map(|x| x.1)).unwrap_or("");
     // A command run (not "None: …", not the review), and whether a review is noted.
     let low = |c: &&str| c.to_lowercase();
     let ran = checks.iter().filter(|c| { let c = low(c); !c.starts_with("none") && !c.starts_with("review") }).count();
     let reviewed = checks.iter().any(|c| low(&c).starts_with("review"));
     json!({ "status": status, "plan": plan.join("\n"), "steps": steps, "assumptions": assume, "result": result.join("\n"),
-        "checks": checks, "ran": ran, "reviewed": reviewed, "checksText": raw.join("\n").trim().to_string() })
+        "checks": checks, "ran": ran, "reviewed": reviewed, "checksText": raw.join("\n").trim().to_string(), "mr": mr.join("\n").trim().to_string() })
 }
 
 // The prompt of a second session that reviews a done ticket in its worktree, against its plan and assumptions; it
 // changes no code and notes what it found under ## Checks.
-pub fn review_prompt(branch: &str, base: &str) -> String {
+pub fn review_prompt(branch: &str, base: &str, lang: &str) -> String {
+    let say = lang_name(lang).map(|n| format!(" Write what you found in {n}; keep the `- Review (second session): ` prefix as it is.")).unwrap_or_default();
     format!("Review the change on branch `{branch}` in this folder (`git diff {base}...HEAD`) against the approved plan and the Assumptions in `{LOG_DIR}/{LOG_FILE}`. \
 Run `/code-review`, or read the diff yourself. Do not change any code or commit. Look for what breaks the plan, a wrong assumption, a missing check, or a bug. \
-When you are done, add one line under `## Checks` in that work log: `- Review (second session): ` and what you found, or `no issues`.")
+When you are done, add one line under `## Checks` in that work log: `- Review (second session): ` and what you found, or `no issues`.{say}")
 }
 pub fn assumptions(log: &str) -> usize { parse_log(log)["assumptions"].as_array().map_or(0, |a| a.len()) }
 
@@ -381,7 +407,8 @@ pub fn summarize(claude: &str, f: &Flow) -> Result<String, String> {
     let range = format!("{}..HEAD", f.base);
     let commits = git(&f.dir, &["log", "--format=- %s", &range]).out;
     let stat = git(&f.dir, &["diff", "--stat", &f.base]).out;
-    let p = format!("Summarize this coding session's work for its developer in at most 8 short lines: what was done, what is left or blocked. Only from the facts below.\n\nWork log:\n{}\n\nCommits:\n{}\n\nChanged files:\n{}",
+    let say = lang_name(&f.lang).map(|n| format!(" Write it in {n}; keep code, file names and commands as they are.")).unwrap_or_default();
+    let p = format!("Summarize this coding session's work for its developer in at most 8 short lines: what was done, what is left or blocked. Only from the facts below.{say}\n\nWork log:\n{}\n\nCommits:\n{}\n\nChanged files:\n{}",
         head16(&f.log, 8000), head16(&commits, 3000), head16(&stat, 3000));
     let v = haiku("summary", claude, &p, None)?;
     Ok(head16(v["result"].as_str().unwrap_or("").trim(), 2000).to_string())
@@ -476,7 +503,7 @@ impl Flows {
     pub fn detail(&self, key: &str) -> Option<Value> {
         let f = self.list.get(key)?;
         let mut v = json!({ "key": f.key, "at": f.at, "parsed": parse_log(&f.log), "plan": f.plan, "summary": f.summary });
-        if matches!(f.status.as_str(), "done" | "blocked") && !f.cleaned && f.mr.is_empty() { v["mrTitle"] = json!(mr_title(f)); v["mrBody"] = json!(mr_body(f)); }
+        if matches!(f.status.as_str(), "done" | "blocked") && !f.cleaned && f.mr.is_empty() { v["mrTitle"] = json!(mr_title(f)); v["mrBody"] = json!(mr_body(f)); v["mrReady"] = json!(mr_ready(f)); }
         Some(v)
     }
     // Flows whose session ended before done or blocked (it left Bobix's list and its claude process is gone; after a
@@ -529,8 +556,8 @@ mod tests {
 
     #[test]
     fn the_log_reads_back_section_by_section() {
-        let t = template(7, "Add subtract");
-        assert_eq!(parse_log(&t), json!({ "status": "planning", "plan": "", "steps": [], "assumptions": [], "result": "", "checks": [], "ran": 0, "reviewed": false, "checksText": "" }));
+        let t = template(7, "Add subtract", "en");
+        assert_eq!(parse_log(&t), json!({ "status": "planning", "plan": "", "steps": [], "assumptions": [], "result": "", "checks": [], "ran": 0, "reviewed": false, "checksText": "", "mr": "" }));
         let filled = t.replace("Status: planning", "Status: done (all tests pass)")
             .replace("## Plan\n", "## Plan\nAdd `subtract` next to `add`.\n")
             .replace("## Steps\n", "## Steps\n- Read math.js\n- Added subtract\n")
@@ -558,7 +585,7 @@ mod tests {
 
     #[test]
     fn prompt_parts() {
-        let r = rules("7-add-subtract");
+        let r = rules("7-add-subtract", "en");
         for must in ["EnterPlanMode", "ExitPlanMode", "Assumptions", "pushing to the main branch", "deleting data", "calling hosts", "touching secrets", ".bobix-log/work-log.md", "`7-add-subtract`", "## Checks", "tests, build and lint", "`- None: `", "/code-review", "`- Review: `"] {
             assert!(r.contains(must), "{must}");
         }
@@ -567,7 +594,7 @@ mod tests {
         let t = models_text(&big);
         assert!(t.contains("built-in Explore subagent") && t.contains("`sonnet` suits") && t.contains("model `opus`") && !t.contains("gpt"), "{t}");
         assert!(models_text(&json!({ "size": "large", "steps": [{ "step": "explore", "model": "sonnet" }] })).contains("read-only subagent on model `sonnet`"));
-        let rp = review_prompt("7-add-subtract", "origin/HEAD");
+        let rp = review_prompt("7-add-subtract", "origin/HEAD", "");
         assert!(rp.contains("`git diff origin/HEAD...HEAD`") && rp.contains("/code-review") && rp.contains("Do not change any code") && rp.contains("- Review (second session): "), "{rp}");
         assert_eq!(cli_in_mode("/w", "opus", "auto", "r"), "cd '/w' && claude --model 'opus' --permission-mode auto 'r'");
         assert_eq!((main_model(&big), main_model(&json!({}))), ("sonnet".to_string(), "sonnet".to_string()));
@@ -581,7 +608,7 @@ mod tests {
         let dir = root.join("wt");
         fs::create_dir_all(dir.join(LOG_DIR)).unwrap();
         let write = |t: &str| fs::write(dir.join(LOG_DIR).join(LOG_FILE), t).unwrap();
-        write(&template(7, "Add subtract"));
+        write(&template(7, "Add subtract", "en"));
         let d = dir.to_string_lossy().to_string();
         let mut fl = Flows::default();
         fl.list.insert("g/shop#7".into(), Flow { key: "g/shop#7".into(), path: "g/shop".into(), iid: 7, dir: d.clone(), status: "starting".into(), ..Default::default() });
@@ -597,7 +624,7 @@ mod tests {
         fl.answered("s1", true, 5);
         assert_eq!(fl.list[0].status, "running");
         assert!(!fl.marked("s1"));
-        write(&template(7, "Add subtract").replace("## Assumptions\n", "## Assumptions\n- Integers only\n"));
+        write(&template(7, "Add subtract", "en").replace("## Assumptions\n", "## Assumptions\n- Integers only\n"));
         assert!(fl.on_event("s1", &d, "PostToolUse", "Edit", None, None, 6));
         assert!(fl.marked("s1"), "a new assumption marks the pet");
         fl.list[0].seen = 1;
@@ -631,7 +658,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let dir = root.join("wt");
         fs::create_dir_all(dir.join(LOG_DIR)).unwrap();
-        fs::write(dir.join(LOG_DIR).join(LOG_FILE), template(7, "x")).unwrap();
+        fs::write(dir.join(LOG_DIR).join(LOG_FILE), template(7, "x", "en")).unwrap();
         let d = dir.to_string_lossy().to_string();
         let mut fl = Flows::default();
         for (k, st) in [("a#1", "planning"), ("a#2", "running"), ("a#3", "starting"), ("a#4", "done")] {
@@ -644,7 +671,7 @@ mod tests {
         assert_eq!(st, ["stopped", "stopped", "starting", "done"], "a flow with no session yet waits; done stays done");
         assert!(fl.on_event("s-a#1", &d, "UserPromptSubmit", "", None, Some(99), 3) && fl.list[0].status == "planning" && fl.list[0].pid == Some(99), "it speaks again");
         // it set done just before it ended: done, not stopped
-        fs::write(dir.join(LOG_DIR).join(LOG_FILE), template(7, "x").replace("Status: planning", "Status: done")).unwrap();
+        fs::write(dir.join(LOG_DIR).join(LOG_FILE), template(7, "x", "en").replace("Status: planning", "Status: done")).unwrap();
         fl.list[0].pid = None;
         assert!(fl.stop_gone(|_| false, |_| false, 4) && fl.list[0].status == "done");
         let _ = fs::remove_dir_all(&root);
@@ -654,7 +681,7 @@ mod tests {
     // read them. Cleaned flows past CLEANED_KEEP leave the list (their logs stay in worklogs/).
     #[test]
     fn the_pages_get_flows_without_their_texts() {
-        let big = format!("{}\n## Steps\n{}", template(7, "x").replace("Status: planning", "Status: done").split("## Steps").next().unwrap(), "- step\n".repeat(8000));
+        let big = format!("{}\n## Steps\n{}", template(7, "x", "en").replace("Status: planning", "Status: done").split("## Steps").next().unwrap(), "- step\n".repeat(8000));
         let mut fl = Flows::default();
         for n in 0..(CLEANED_KEEP + 30) {
             let k = format!("g/a#{n}");
@@ -720,16 +747,58 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    // The work log follows Bobix's language (kept per flow from its start); what the team reads stays English: the
+    // MR / PR text comes from the session's own `## MR (English)` section, never from the log's other sections.
+    #[test]
+    fn a_vietnamese_log_reads_back_and_the_mr_stays_english() {
+        // English: nothing changes
+        assert_eq!(rules("7-x", "en"), rules("7-x", ""));
+        assert!(!rules("7-x", "en").contains("Language") && !template(7, "x", "en").contains("MR (English)"));
+        assert!(!review_prompt("7-x", "b", "en").contains("Vietnamese"));
+        // Vietnamese: the log in Vietnamese, the markers and what the team reads in English
+        let r = rules("7-x", "vi");
+        assert!(r.starts_with(&rules("7-x", "en")) && r.contains("write the work log in Vietnamese") && r.contains("commit messages in English") && r.contains("## MR (English)"));
+        assert!(review_prompt("7-x", "b", "vi").contains("Write what you found in Vietnamese"));
+        let t = template(7, "Sửa tổng giỏ hàng", "vi");
+        assert!(t.ends_with("## Result\n\n## MR (English)\n"), "{t}");
+        let log = t.replace("Status: planning", "Status: done")
+            .replace("## Plan\n", "## Plan\nSửa hàm `cartTotal` để trừ mã giảm giá.\n")
+            .replace("## Steps\n", "## Steps\n- Đọc `src/cart.js`\n- Thêm phép trừ mã giảm giá\n")
+            .replace("## Assumptions\n", "## Assumptions\n- Mã giảm giá không cộng dồn\n")
+            .replace("## Checks\n", "## Checks\n- `npm test`\n```\nok 12 tests passed\n```\n- Review: /code-review, không có lỗi\n")
+            .replace("## Result\n", "## Result\nĐã xong: tổng giỏ hàng trừ mã giảm giá.\n")
+            .replace("## MR (English)\n", "## MR (English)\nThe cart total now subtracts the discount code.\n\n- Assumes codes do not stack.\n- Checked with `npm test`.\n");
+        let p = parse_log(&log);
+        assert_eq!((&p["status"], &p["ran"], &p["reviewed"]), (&json!("done"), &json!(1), &json!(true)), "parsing works with Vietnamese content");
+        assert_eq!(p["assumptions"], json!(["Mã giảm giá không cộng dồn"]));
+        assert!(p["checksText"].as_str().unwrap().contains("```\nok 12 tests passed\n```"), "command output exactly as printed");
+        assert_eq!(p["result"], "Đã xong: tổng giỏ hàng trừ mã giảm giá.", "the MR section is not part of the result");
+        assert_eq!(p["mr"], "The cart total now subtracts the discount code.\n\n- Assumes codes do not stack.\n- Checked with `npm test`.", "kept as written, blank lines too");
+        let mut f = Flow { iid: 7, path: "demo/shop".into(), title: "Cart total".into(), log: log.clone(), lang: "vi".into(), ..Default::default() };
+        let b = mr_body(&f);
+        assert_eq!(b, "Closes #7\n\nThe cart total now subtracts the discount code.\n\n- Assumes codes do not stack.\n- Checked with `npm test`.\n");
+        assert!(mr_ready(&f) && !b.contains("Mã") && !b.contains("Đã"), "nothing of the Vietnamese log goes to the MR");
+        // no English section yet: only the close line, and the box says so
+        f.log = log.split("## MR (English)").next().unwrap().to_string() + "## MR (English)\n";
+        assert_eq!((mr_body(&f), mr_ready(&f)), ("Closes #7\n".to_string(), false));
+        // the language was changed after the start: the flow keeps its own
+        let old = Flow { lang: String::new(), ..f.clone() };
+        assert!(english(&old) && mr_ready(&old), "a flow from before (no language): English, as before");
+        // a session that wrote the status in Vietnamese anyway
+        assert_eq!(parse_log("Status: xong\n")["status"], "done");
+        assert_eq!(parse_log("Status: bị chặn vì thiếu quyền\n")["status"], "blocked");
+    }
+
     #[test]
     fn merge_request_text_and_link() {
         let mut f = Flow { iid: 7, title: "Add subtract".into(), plan: "1. add it".into(), ..Default::default() };
-        f.log = template(7, "Add subtract").replace("## Assumptions\n", "## Assumptions\n- ints only\n").replace("## Checks\n", "## Checks\n- `npm test`\n```\nok 2\n```\n");
+        f.log = template(7, "Add subtract", "en").replace("## Assumptions\n", "## Assumptions\n- ints only\n").replace("## Checks\n", "## Checks\n- `npm test`\n```\nok 2\n```\n");
         let b = mr_body(&f);
         assert!(b.starts_with("Closes #7\n\n## Plan\n\n1. add it\n\n## Assumptions\n\n- ints only\n\n## Checks\n\n- `npm test`\n```\nok 2\n```"), "{b}");
-        f.log = template(7, "x");
+        f.log = template(7, "x", "en");
         assert!(mr_body(&f).contains("## Checks\n\nNone pasted."), "no checks: said so");
         // the code in another repository: the close reference names the issue's repository, the MR goes to the code's
-        let x = Flow { path: "group/space-v2".into(), iid: 123, code: "group/space-langchain-agent".into(), log: template(123, "x"), ..Default::default() };
+        let x = Flow { path: "group/space-v2".into(), iid: 123, code: "group/space-langchain-agent".into(), log: template(123, "x", "en"), ..Default::default() };
         assert!(mr_body(&x).starts_with("Closes group/space-v2#123\n"), "{}", mr_body(&x));
         assert_eq!((x.code_repo(), Flow { path: "a/b".into(), ..Default::default() }.code_repo()), ("group/space-langchain-agent", "a/b"));
         let mut fl = Flows::default();
