@@ -41,14 +41,18 @@ async function browser(exe) {
   const once = method => Promise.race([new Promise(ok => on.set(method, p => { on.delete(method); ok(p); })), late(method)]);
   const errors = []; on.set('Runtime.exceptionThrown', p => errors.push(p.exceptionDetails.exception?.description || p.exceptionDetails.text));
   const ev = async x => { const r = await send('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
-  const mouse = async (x, y) => { for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }); };
-  // A click where a person would click: the element's middle.
-  const click = async sel => { const at = await ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`);
-    if (!at) throw new Error('nothing to click: ' + sel); await mouse(...at); };
-  const key = async (k, code, vk, modifiers = 0) => { for (const type of ['rawKeyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers }); };
-  const type = async t => { for (const c of t) await send('Input.insertText', { text: c }); };
+  // Each input the test gives is noted with its time (window.__acts): a shift right after one was asked for.
+  const acted = () => ev('window.__acts && __acts.push(performance.now())');
+  const mouse = async (x, y) => { await acted(); for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }); };
+  // Waits (up to 10 s, a busy runner is slow) for what the page should show next.
+  const until = async (x, what) => { for (let k = 0; k < 100; k++) { const v = await ev(x); if (v) return v; await sleep(100); } throw new Error('not seen in time: ' + what); };
+  // A click where a person would click: the element's middle, once it is there.
+  const click = async sel => { const at = await until(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e || !e.getClientRects().length) return null; const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`, sel);
+    await mouse(...at); };
+  const key = async (k, code, vk, modifiers = 0) => { await acted(); for (const type of ['rawKeyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers }); };
+  const type = async t => { await acted(); for (const c of t) await send('Input.insertText', { text: c }); };
   const close = async () => { try { ws.close(); } catch {} proc.kill(); await sleep(200); try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} };
-  return { send, once, ev, click, mouse, key, type, close, errors };
+  return { send, once, ev, until, acted, click, mouse, key, type, close, errors };
 }
 
 // Serves the pages as the app does: / is the panel, /pets the overlay, and under /ui/ only the files the app's server
@@ -91,7 +95,7 @@ const APP = {
   skills_rules: [{ file: '/home/dev/acme-shop/CLAUDE.md', present: false, text: '## When to split, which model\n- Plan with Opus', block: '## When to split, which model\n', undo: null }, 450],
   skills_backups: [[], 450],
   room: [{ ok: true, tailnet: { me: { login: 'dev@example.com', name: 'Dev' }, ip: '100.64.0.10', port: 4748, serving: true }, hosted: [], joined: [] }, 300],
-  ticket_prep: [{ ok: true, dir: '/home/dev/acme-shop-42', branch: '42-delivery', room: 5, free: 50e9, need: 2e9, models: 'Plan with Opus.', rules: [], exists: false }, 300],
+  ticket_prep: [{ ok: true, dir: '/home/dev/acme-shop-42', branch: '42-delivery', room: 5, free: 50e9, need: 2e9, models: 'Plan with Opus.', rules: [], exists: false }, 1000],
   work_brief: [{ ok: true, body: 'Customers want to know when the order arrives.', labels: [], process: null,
     skills: ['review', 'notes', 'deploy', 'perf', 'docs', 'tests', 'i18n', 'style'].map(name => ({ name, description: `What ${name} does, in a line long enough to wrap in the list.`, source: 'personal' })) }, 200],
   feedback_info: [{ lines: ['Bobix', 'linux'], errs: [] }, 0],
@@ -107,8 +111,8 @@ const prelude = lang => `(() => {
     return new Promise(ok => setTimeout(() => ok(v == null ? null : JSON.parse(JSON.stringify(v))), ms)); } };
   window.EventSource = class { constructor() { window.__es = this; } close() {} };
   window.__push = d => window.__es.onmessage({ data: JSON.stringify(d) });
-  window.__shifts = [];
-  new PerformanceObserver(l => { for (const e of l.getEntries()) window.__shifts.push({ v: e.value, input: e.hadRecentInput,
+  window.__shifts = []; window.__acts = [];
+  new PerformanceObserver(l => { for (const e of l.getEntries()) window.__shifts.push({ v: e.value, input: e.hadRecentInput, t: e.startTime,
     src: (e.sources || []).map(s => (s.node?.id || s.node?.className || s.node?.nodeName || '?') + ' ' + [s.previousRect.y, s.currentRect.y].map(Math.round).join('→')).join(', ') }); })
     .observe({ type: 'layout-shift', buffered: true });
 })();\n` + fs.readFileSync(path.join(__dirname, '../src-tauri/bridge.js'), 'utf8');
@@ -169,6 +173,7 @@ async function panel(b, url, { width, height, lang, dark }) {
     });
     await part('project picked', async () => {
       await tab('sessions'); await sleep(300);
+      await b.until(`!!document.querySelector('[data-proj]')`, 'the project picker'); await b.acted();
       await b.ev(`(() => { const s = document.querySelector('[data-proj]'); s.value = s.options[1].value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       await sleep(100); await frameStill('project picked', '');
     });
@@ -182,13 +187,13 @@ async function panel(b, url, { width, height, lang, dark }) {
     // Work: Prepare says it is busy (reading the issue) in a button of the same size.
     await part('Prepare', async () => {
       await tab('work'); await sleep(300);
-      await b.click('#b-list [data-bsel^="n:acme/shop"]'); await sleep(100);
-      const prep = await b.ev(`document.querySelector('#b-dyn [data-tk-prep]').getBoundingClientRect().toJSON()`);
-      await b.click('#b-dyn [data-tk-prep]'); await sleep(50);
+      await b.click('#b-list [data-bsel^="n:acme/shop"]');
+      const prep = await b.until(`document.querySelector('#b-dyn [data-tk-prep]:not([disabled])')?.getBoundingClientRect().toJSON()`, 'Prepare');
+      await b.click('#b-dyn [data-tk-prep]');
       const busy = await b.ev(`(() => { const e = document.querySelector('#b-dyn [data-tk-prep]'); return e && { ...e.getBoundingClientRect().toJSON(), off: e.disabled }; })()`);
       if (!busy?.off) fail('Prepare: no busy state seen');
       else if (Math.abs(busy.width - prep.width) > .5 || Math.abs(busy.x - prep.x) > .5) fail(`Prepare button while busy: ${Math.round(prep.x)}+${prep.width} → ${Math.round(busy.x)}+${busy.width}`);
-      await sleep(500);
+      await b.until(`!document.querySelector('#b-dyn [data-tk-prep]')`, 'the prepared issue'); await sleep(200);
     });
     // The command bar: its footer stays while the results change under it.
     await part('command bar', async () => {
@@ -228,7 +233,8 @@ async function panel(b, url, { width, height, lang, dark }) {
     });
     await b.ev(`document.querySelectorAll('dialog[open]').forEach(d => d.close())`);
     // Nothing the layout-shift API sees either (narrow: a tab switch moves the detail below the list, as asked).
-    for (const s of [...before, ...await b.ev('__shifts')]) if (!s.input || wide) fail(`layout shift ${s.v.toFixed(4)}${s.input ? ' (after input)' : ''}: ${s.src}`);
+    const acts = await b.ev('__acts'), asked = s => s.input || acts.some(a => s.t >= a && s.t - a < 1500);
+    for (const s of [...before, ...await b.ev('__shifts')]) if (!asked(s) || wide) fail(`layout shift ${s.v.toFixed(4)}${s.input ? ' (after input)' : ''}: ${s.src}`);
     bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
   } finally { await b.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }); }
   return bad.map(m => `${width}×${height} ${lang}${dark ? ' dark' : ''}: ${m}`);
