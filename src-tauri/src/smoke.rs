@@ -232,6 +232,18 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     r["marked"] = json!(marked);
     r["markDrawn"] = drawn;
     r["session"] = f["session"].clone();
+    // Checks on the done flow (✓ n checks, or the nudge), then Review (its terminal line): a second session in the
+    // worktree, run by the e2e driver from <dir>/ticket-review.json, notes what it found under ## Checks
+    r["checksBadge"] = ask(app, panel::LABEL, &format!("(async () => {{ showTab('work'); bsel.work = 'f:' + {k}; render(); await new Promise(o => setTimeout(o, 300)); \
+        return [...document.querySelectorAll('#b-dyn .b-sec h3 .badge')].map(b => b.textContent).join(' | ') || null; }})()"));
+    r["review"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const go = bridge.ticketReview; bridge.ticketReview = async (...a) => (window.__tkReview = await go(...a)); \
+        showTab('work'); bsel.work = 'f:' + {k}; render(); await new Promise(o => setTimeout(o, 300)); document.querySelector('#b-dyn [data-tk-review-cli]').click(); \
+        for (let t = 0; t < 10000 && !window.__tkReview; t += 100) await new Promise(o => setTimeout(o, 100)); return !!window.__tkReview?.cmd; }})()"), 15);
+    let rc = ask(app, panel::LABEL, "window.__tkReview && window.__tkReview.cmd");
+    let _ = fs::write(dir.join("ticket-review.json"), json!({ "dir": fdir, "cmd": rc, "key": key }).to_string());
+    let f = wait(ticket_secs() / 3, &|f| f["log"].as_str().is_some_and(|l| l.contains("Review (second session)")));
+    r["reviewNoted"] = json!(f["log"].as_str().is_some_and(|l| l.contains("Review (second session)")));
+    r["checks"] = f["parsed"]["checks"].clone();
     // the log's own view, then Haiku's summary and the cleanup, clicked in Work
     r["finish"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
         const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
@@ -243,7 +255,8 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     r["kept"] = json!(after["log"].as_str().is_some_and(|l| !l.is_empty()));
     r["worktreeGone"] = json!(!std::path::Path::new(&fdir).exists());
     r["pass"] = json!(r["start"]["rules"] == true && r["worktree"] == true && r["plan"].as_u64().unwrap_or(0) > 0 && r["approve"] == true
-        && r["status"] == "done" && r["parsed"]["steps"].as_array().is_some_and(|a| !a.is_empty()) && r["finish"]["summary"] == true);
+        && r["status"] == "done" && r["parsed"]["steps"].as_array().is_some_and(|a| !a.is_empty()) && r["finish"]["summary"] == true
+        && r["parsed"]["ran"].as_u64().unwrap_or(0) > 0 && r["review"] == true && r["reviewNoted"] == true);
     r
 }
 

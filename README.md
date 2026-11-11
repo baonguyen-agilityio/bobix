@@ -45,7 +45,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 ### See what each session uses
 - For every live session: tokens, the share spent **re-reading context**, the models it used (subagents too) and its active time, read from the transcripts Claude Code writes on your machine.
 - Measured **against your normal**: "3.7× your usual session", learned from your own past sessions. A dollar figure is only an API-equivalent estimate, labelled as such, and can be turned off; your real limits stay in Claude's `/usage`.
-- **Warnings with the reason and the fix**: a session that is too long (run `/compact` or start fresh), a heavy model on light work (`/model sonnet`), or a long run of read-only exploration (ask for a Haiku subagent).
+- **Warnings with the reason and the fix**: a session that is too long (start a new session from a short summary, or `/clear` if the task changed), a heavy model on light work (`/model sonnet`), or a long run of read-only exploration (ask for the built-in Explore subagent, on Haiku).
 
 ### Keep your skills lean, and route models
 - **Skills audit per project**: every skill Claude loads there, what its descriptions cost in every turn, those unused for 30 days and duplicate sets (`acme:build` and `team:build`).

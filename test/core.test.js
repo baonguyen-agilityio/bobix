@@ -1066,7 +1066,7 @@ test('usage: one line, details and warnings from the numbers the app sends', () 
   assert.deepEqual(w.map(x => x.kind), ['long', 'light', 'explore']);
   assert.match(w[0].text, /re-reads 320k tokens.*warns at 300k.*\/compact/);
   assert.match(w[1].text, /^Opus 5\.5 on light work: the last 10 turns answered in about 150 tokens.*Sonnet/);
-  assert.match(w[2].text, /^Read-only exploration on Opus 5\.5: 9 reads in a row\. .*Haiku subagent/);
+  assert.match(w[2].text, /^Read-only exploration on Opus 5\.5: 9 reads in a row\. .*Explore subagent \(Haiku\)/);
   assert.equal(U.line(null, T, {}), '');
   assert.deepEqual(U.facts(undefined, T, {}), []);
   for (const k of Object.keys(I18N.STR.en).filter(k => k.startsWith('use.') || k.startsWith('set.warn') || k.startsWith('set.usage') || k.startsWith('set.prices'))) assert.ok(I18N.STR.vi[k], `vi ${k}`);

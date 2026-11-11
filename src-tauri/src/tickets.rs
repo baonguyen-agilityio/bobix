@@ -29,6 +29,21 @@ pub struct Flow {
 
 pub fn key_of(path: &str, iid: i64) -> String { format!("{path}#{iid}") }
 
+impl Flow {
+    // The log read again, and the status it sets (done / blocked; running once its plan was approved).
+    fn reread(&mut self) {
+        if let Some(l) = read_log(&self.dir) { if l != self.log { self.log = l; } }
+        let st = parse_log(&self.log)["status"].as_str().unwrap_or("").to_string();
+        if matches!(st.as_str(), "done" | "blocked") && self.status != "approve" { self.status = st; }
+        else if st == "running" && self.status == "planning" && !self.plan.is_empty() { self.status = "running".into(); }
+    }
+}
+// The model of the review: the split's review step, else Opus (a strong reviewer, read-only).
+pub fn review_model(models: &Value) -> String {
+    models["steps"].as_array().into_iter().flatten().find(|s| s["step"] == "review").and_then(|s| s["model"].as_str())
+        .filter(|m| ["haiku", "sonnet", "opus"].contains(m)).unwrap_or("opus").to_string()
+}
+
 // "Cart total ignores discount" → "cart-total-ignores-discount", ASCII only, cut at a word near 40 characters.
 pub fn slug(title: &str) -> String {
     let mut s = String::new();
@@ -60,7 +75,7 @@ pub fn room(free: Option<u64>) -> Option<u64> { free.map(|f| f / WORKTREE_BYTES)
 
 // The work log's template: Bobix writes it into the worktree, the session fills it in.
 pub fn template(iid: i64, title: &str) -> String {
-    format!("# Work log: #{iid} {title}\n\nStatus: planning\n\n## Plan\n\n## Steps\n\n## Assumptions\n\n## Result\n")
+    format!("# Work log: #{iid} {title}\n\nStatus: planning\n\n## Plan\n\n## Steps\n\n## Assumptions\n\n## Checks\n\n## Result\n")
 }
 
 // How the session works, appended to the issue in the Start prompt (Claude reads English here whatever the panel's language).
@@ -68,7 +83,9 @@ pub fn rules(branch: &str) -> String {
     format!("How to work on this ticket (Bobix ticket flow):\n\
 1. Call the EnterPlanMode tool now, before changing anything. Read what you need, then write the plan. It must end with a section \"Assumptions\": what you assume because nobody can answer now. Then call ExitPlanMode. Approving that plan is the only approval.\n\
 2. After approval, work to the end in this folder (a git worktree on branch `{branch}`). Do not stop to ask, except for these: pushing to the main branch, deleting data, calling hosts this project does not already use, and touching secrets. Commit on `{branch}`; do not push to the main branch.\n\
-3. Keep the work log in `{LOG_DIR}/{LOG_FILE}` (git ignores it; it is for me only, never commit or share it). Fill in its template: `Status:` (planning, running, done or blocked), `## Plan` (the approved plan in short), `## Steps` (one line per step as you go), `## Assumptions` (one `- ` line for each assumption you make along the way, also after approval), `## Result` (what you did, or what blocks you). Update it as you work, and set the status at the end.")
+3. Keep the work log in `{LOG_DIR}/{LOG_FILE}` (git ignores it; it is for me only, never commit or share it). Fill in its template: `Status:` (planning, running, done or blocked), `## Plan` (the approved plan in short), `## Steps` (one line per step as you go), `## Assumptions` (one `- ` line for each assumption you make along the way, also after approval), `## Checks` (steps 4 and 5), `## Result` (what you did, or what blocks you). Update it as you work.\n\
+4. Before you set `Status: done`, run the project's tests, build and lint: the commands in CLAUDE.md, else the ones the project clearly uses. Under `## Checks`, add one `- ` line per command with the command in backticks, then the last lines of its output in a code block. If the project has none, write `- None: ` and why.\n\
+5. Then review your change against the approved plan and the Assumptions: run `/code-review`, or ask a read-only reviewer subagent. Fix what affects correctness, run the checks again, and add a `- Review: ` line under `## Checks` with what it found and what you fixed. Then set the status.")
 }
 
 // The proposal at Start (Haiku's classification, or "small" when you skip it), as lines for the prompt.
@@ -81,7 +98,8 @@ pub fn models_text(models: &Value) -> String {
     let mut t = String::from("Models: split the work.");
     for (s, m) in steps {
         t += &match s {
-            "explore" => format!("\n- Explore with a subagent on model `{m}` (read-only)."),
+            "explore" if m == "haiku" => "\n- Explore with the built-in Explore subagent (read-only; it runs on Haiku).".to_string(),
+            "explore" => format!("\n- Explore with a read-only subagent on model `{m}`."),
             "review" => format!("\n- Review the finished change with a subagent on model `{m}` before you set the status."),
             _ => format!("\n- Edit in this session (`{m}` suits it)."),
         };
@@ -94,18 +112,24 @@ pub fn main_model(models: &Value) -> String {
         .filter(|m| ["haiku", "sonnet", "opus"].contains(m)).unwrap_or("sonnet").to_string()
 }
 // The same start in a terminal, where the model and plan mode can be preset (the desktop link can't): one line to paste.
-pub fn cli_command(dir: &str, model: &str, prompt: &str) -> String {
+pub fn cli_command(dir: &str, model: &str, prompt: &str) -> String { cli_in_mode(dir, model, "plan", prompt) }
+pub fn cli_in_mode(dir: &str, model: &str, mode: &str, prompt: &str) -> String {
     let q = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
     let p = if prompt.is_empty() { String::new() } else { format!(" {}", q(prompt)) };
-    format!("cd {} && claude --model {} --permission-mode plan{p}", q(dir), q(model))
+    format!("cd {} && claude --model {} --permission-mode {mode}{p}", q(dir), q(model))
 }
 
 // What the log says, section by section. Assumptions are the `- ` / `* ` lines under "## Assumptions".
 pub fn parse_log(text: &str) -> Value {
     let (mut status, mut sec) = (String::new(), String::new());
-    let (mut plan, mut steps, mut assume, mut result) = (vec![], vec![], vec![], vec![]);
+    let (mut plan, mut steps, mut assume, mut result, mut checks, mut raw) = (vec![], vec![], vec![], vec![], vec![], vec![]);
+    let mut fence = false;
     for l in text.lines() {
         let t = l.trim();
+        if sec.starts_with("check") && !t.starts_with("## ") { raw.push(l); }
+        // command output pasted under Checks, in code blocks: not items
+        if sec.starts_with("check") && t.starts_with("```") { fence = !fence; continue; }
+        if fence { continue; }
         if let Some(h) = t.strip_prefix("## ") { sec = h.trim().to_lowercase(); continue; }
         if t.starts_with('#') { continue; }
         if sec.is_empty() { if let Some(s) = t.strip_prefix("Status:") { status = s.trim().to_lowercase(); } continue; }
@@ -115,12 +139,26 @@ pub fn parse_log(text: &str) -> Value {
             s if s.starts_with("plan") => plan.push(t),
             s if s.starts_with("step") => steps.push(item),
             s if s.starts_with("assum") => if t != item { assume.push(item) },
+            s if s.starts_with("check") => if t != item { checks.push(item) },
             s if s.starts_with("result") || s.starts_with("block") => result.push(t),
             _ => {}
         }
     }
     let status = ["planning", "running", "done", "blocked"].into_iter().find(|s| status.starts_with(s)).unwrap_or("");
-    json!({ "status": status, "plan": plan.join("\n"), "steps": steps, "assumptions": assume, "result": result.join("\n") })
+    // A command run (not "None: …", not the review), and whether a review is noted.
+    let low = |c: &&str| c.to_lowercase();
+    let ran = checks.iter().filter(|c| { let c = low(c); !c.starts_with("none") && !c.starts_with("review") }).count();
+    let reviewed = checks.iter().any(|c| low(&c).starts_with("review"));
+    json!({ "status": status, "plan": plan.join("\n"), "steps": steps, "assumptions": assume, "result": result.join("\n"),
+        "checks": checks, "ran": ran, "reviewed": reviewed, "checksText": raw.join("\n").trim().to_string() })
+}
+
+// The prompt of a second session that reviews a done ticket in its worktree, against its plan and assumptions; it
+// changes no code and notes what it found under ## Checks.
+pub fn review_prompt(branch: &str, base: &str) -> String {
+    format!("Review the change on branch `{branch}` in this folder (`git diff {base}...HEAD`) against the approved plan and the Assumptions in `{LOG_DIR}/{LOG_FILE}`. \
+Run `/code-review`, or read the diff yourself. Do not change any code or commit. Look for what breaks the plan, a wrong assumption, a missing check, or a bug. \
+When you are done, add one line under `## Checks` in that work log: `- Review (second session): ` and what you found, or `no issues`.")
 }
 pub fn assumptions(log: &str) -> usize { parse_log(log)["assumptions"].as_array().map_or(0, |a| a.len()) }
 
@@ -217,19 +255,21 @@ impl Flows {
     // flow changed. `plan`: the plan Claude asks you to approve (ExitPlanMode's input).
     pub fn on_event(&mut self, sid: &str, cwd: &str, ev: &str, tool: &str, plan: Option<&str>, now: u64) -> bool {
         let known = self.by_session(sid).is_some();
-        let f = if known { self.by_session_mut(sid) } else if ev == "SessionStart" { self.by_dir(cwd).filter(|f| f.session.is_none()) } else { None };
+        let f = if known { self.by_session_mut(sid) } else { self.by_dir(cwd) };
         let Some(f) = f else { return false };
         let before = f.clone();
-        if f.session.is_none() { f.session = Some(sid.into()); f.status = "planning".into(); }
+        if !known {
+            // the first session started in its worktree takes the flow; a later one (a review) only refreshes its log
+            if !(ev == "SessionStart" && f.session.is_none()) { f.reread(); return if *f != before { f.at = now; true } else { false }; }
+            f.session = Some(sid.into());
+            f.status = "planning".into();
+        }
         if ev == "PermissionRequest" && tool == "ExitPlanMode" {
             f.status = "approve".into();
             if let Some(p) = plan { f.plan = head16(p, 20_000).to_string(); }
         }
         if ev == "UserPromptSubmit" && f.status == "approve" { f.status = "planning".into(); } // you answered in Claude instead
-        if let Some(l) = read_log(&f.dir) { if l != f.log { f.log = l; } }
-        let st = parse_log(&f.log)["status"].as_str().unwrap_or("").to_string();
-        if matches!(st.as_str(), "done" | "blocked") && f.status != "approve" { f.status = st; }
-        else if st == "running" && f.status == "planning" && !f.plan.is_empty() { f.status = "running".into(); }
+        f.reread();
         if *f != before { f.at = now; true } else { false }
     }
     // The plan was answered from Bobix: approved (running) or sent back with changes (planning).
@@ -274,7 +314,7 @@ mod tests {
     #[test]
     fn the_log_reads_back_section_by_section() {
         let t = template(7, "Add subtract");
-        assert_eq!(parse_log(&t), json!({ "status": "planning", "plan": "", "steps": [], "assumptions": [], "result": "" }));
+        assert_eq!(parse_log(&t), json!({ "status": "planning", "plan": "", "steps": [], "assumptions": [], "result": "", "checks": [], "ran": 0, "reviewed": false, "checksText": "" }));
         let filled = t.replace("Status: planning", "Status: done (all tests pass)")
             .replace("## Plan\n", "## Plan\nAdd `subtract` next to `add`.\n")
             .replace("## Steps\n", "## Steps\n- Read math.js\n- Added subtract\n")
@@ -287,18 +327,33 @@ mod tests {
         assert_eq!(p["result"], "Done: subtract(5, 3) is 2.");
         assert_eq!(parse_log("Status: maybe\n")["status"], "");
         assert_eq!(assumptions(&filled), 2);
+        assert_eq!((&p["ran"], &p["reviewed"]), (&json!(0), &json!(false)), "done, but no checks");
+        // checks: one line per command, its output in a code block (not items), a review line; "None: …" is not a run
+        let checked = filled.replace("## Checks\n", "## Checks\n- `npm test`\n```\n- 2 passing\n## not a heading\n```\n- `npm run lint`: clean\n- Review: /code-review, 1 issue fixed\n");
+        let c = parse_log(&checked);
+        assert_eq!(c["checks"], json!(["`npm test`", "`npm run lint`: clean", "Review: /code-review, 1 issue fixed"]));
+        assert_eq!((&c["ran"], &c["reviewed"], &c["result"]), (&json!(2), &json!(true), &json!("Done: subtract(5, 3) is 2.")));
+        assert!(c["checksText"].as_str().unwrap().starts_with("- `npm test`\n```\n- 2 passing"), "{}", c["checksText"]);
+        let none = parse_log(&filled.replace("## Checks\n", "## Checks\n- None: no tests in this repo\n"));
+        assert_eq!((&none["ran"], &none["checks"]), (&json!(0), &json!(["None: no tests in this repo"])));
+        let plan = parse_log("## Plan\n```\ncode\n```\n## Steps\n- a\n");
+        assert_eq!((&plan["plan"], &plan["steps"]), (&json!("```\ncode\n```"), &json!(["a"])), "code in the plan stays");
     }
 
     #[test]
     fn prompt_parts() {
         let r = rules("7-add-subtract");
-        for must in ["EnterPlanMode", "ExitPlanMode", "Assumptions", "pushing to the main branch", "deleting data", "calling hosts", "touching secrets", ".bobix-log/work-log.md", "`7-add-subtract`"] {
+        for must in ["EnterPlanMode", "ExitPlanMode", "Assumptions", "pushing to the main branch", "deleting data", "calling hosts", "touching secrets", ".bobix-log/work-log.md", "`7-add-subtract`", "## Checks", "tests, build and lint", "`- None: `", "/code-review", "`- Review: `"] {
             assert!(r.contains(must), "{must}");
         }
         assert!(models_text(&json!({ "size": "small" })).contains("one session"));
         let big = json!({ "size": "large", "steps": [{ "step": "explore", "model": "haiku" }, { "step": "edit", "model": "sonnet" }, { "step": "review", "model": "opus" }, { "step": "x", "model": "gpt" }] });
         let t = models_text(&big);
-        assert!(t.contains("model `haiku`") && t.contains("`sonnet` suits") && t.contains("model `opus`") && !t.contains("gpt"), "{t}");
+        assert!(t.contains("built-in Explore subagent") && t.contains("`sonnet` suits") && t.contains("model `opus`") && !t.contains("gpt"), "{t}");
+        assert!(models_text(&json!({ "size": "large", "steps": [{ "step": "explore", "model": "sonnet" }] })).contains("read-only subagent on model `sonnet`"));
+        let rp = review_prompt("7-add-subtract", "origin/HEAD");
+        assert!(rp.contains("`git diff origin/HEAD...HEAD`") && rp.contains("/code-review") && rp.contains("Do not change any code") && rp.contains("- Review (second session): "), "{rp}");
+        assert_eq!(cli_in_mode("/w", "opus", "auto", "r"), "cd '/w' && claude --model 'opus' --permission-mode auto 'r'");
         assert_eq!((main_model(&big), main_model(&json!({}))), ("sonnet".to_string(), "sonnet".to_string()));
         assert_eq!(cli_command("/src/it's", "opus", "do 'x'"), r#"cd '/src/it'\''s' && claude --model 'opus' --permission-mode plan 'do '\''x'\'''"#);
     }
@@ -315,10 +370,12 @@ mod tests {
         let mut fl = Flows::default();
         fl.list.insert("g/shop#7".into(), Flow { key: "g/shop#7".into(), path: "g/shop".into(), iid: 7, dir: d.clone(), status: "starting".into(), ..Default::default() });
         assert!(!fl.on_event("s1", "/elsewhere", "SessionStart", "", None, 1), "another folder");
-        assert!(!fl.on_event("s1", &d, "PreToolUse", "Read", None, 1), "only a session that starts there takes it");
+        fl.on_event("s1", &d, "PreToolUse", "Read", None, 1);
+        assert!(fl.list[0].session.is_none() && fl.list[0].status == "starting", "only a session that starts there takes it");
         assert!(fl.on_event("s1", &d, "SessionStart", "", None, 2));
         assert_eq!((fl.list[0].status.as_str(), fl.list[0].session.as_deref()), ("planning", Some("s1")));
         assert!(!fl.on_event("s2", &d, "SessionStart", "", None, 3), "taken: a second session there is not the flow's");
+        assert!(!fl.on_event("s2", &d, "PermissionRequest", "ExitPlanMode", Some("other"), 3) && fl.list[0].status == "planning", "its plan is not the flow's");
         assert!(fl.on_event("s1", &d, "PermissionRequest", "ExitPlanMode", Some("1. add it\n## Assumptions\n- ints"), 4));
         assert_eq!((fl.list[0].status.as_str(), fl.list[0].plan.as_str()), ("approve", "1. add it\n## Assumptions\n- ints"));
         fl.answered("s1", true, 5);
@@ -332,6 +389,9 @@ mod tests {
         write(&fl.list[0].log.replace("Status: planning", "Status: done"));
         assert!(fl.on_event("s1", &d, "Stop", "", None, 7));
         assert_eq!(fl.list[0].status, "done");
+        // a review session in the worktree notes its result: the flow's log is read again on its events
+        write(&fl.list[0].log.replace("## Checks\n", "## Checks\n- Review (second session): no issues\n"));
+        assert!(fl.on_event("r1", &d, "Stop", "", None, 8) && fl.list[0].log.contains("second session") && fl.list[0].session.as_deref() == Some("s1"));
         let v = fl.view(Some(WORKTREE_BYTES * 3));
         assert_eq!((&v["room"], &v["list"][0]["parsed"]["status"], &v["list"][0]["new"]), (&json!(3), &json!("done"), &json!(0)));
         // sent back with changes
