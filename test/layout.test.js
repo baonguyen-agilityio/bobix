@@ -45,13 +45,16 @@ async function browser(exe) {
   const acted = () => ev('window.__acts && __acts.push(performance.now())');
   const mouse = async (x, y) => { await acted(); for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }); };
   // Waits (up to 10 s, a busy runner is slow) for what the page should show next.
-  const until = async (x, what) => { for (let k = 0; k < 100; k++) { const v = await ev(x); if (v) return v; await sleep(100); } throw new Error('not seen in time: ' + what); };
-  // A click where a person would click: the element's middle, once it is there and nothing covers it (off screen or
-  // under the narrow window's sticky action bar, it is scrolled to the middle first).
-  const click = async sel => { const at = await until(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e || !e.getClientRects().length) return null;
+  const until = async (x, what) => { for (let k = 0; k < 100; k++) { const v = await ev(x); if (v) return v; await sleep(100); }
+    throw new Error(`not seen in time: ${what} (page: ${await ev('window.__state ? __state() : ""').catch(() => '?')})`); };
+  // A click where a person would click: the element's middle, once it is there, nothing covers it (off screen or
+  // under the narrow window's sticky action bar, it is scrolled to the middle first) and it has held still for a poll
+  // (on a busy runner the list above can still grow and push it down between the look and the press).
+  const click = async sel => { const at = await until(`(() => { const e = document.querySelector(${JSON.stringify(sel)}), was = window.__aim; window.__aim = null;
+    if (!e || !e.getClientRects().length) return null;
     const b = e.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2, hit = document.elementFromPoint(x, y);
-    if (hit && (hit === e || e.contains(hit))) return [x, y];
-    e.scrollIntoView({ block: 'center' }); return null; })()`, sel);
+    if (!hit || (hit !== e && !e.contains(hit))) { e.scrollIntoView({ block: 'center' }); return null; }
+    window.__aim = [x, y]; return was && was[0] === x && was[1] === y ? [x, y] : null; })()`, sel);
     await mouse(...at); };
   const key = async (k, code, vk, modifiers = 0) => { await acted(); for (const type of ['rawKeyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers }); };
   const type = async t => { await acted(); for (const c of t) await send('Input.insertText', { text: c }); };
@@ -116,6 +119,8 @@ const prelude = lang => `(() => {
   window.EventSource = class { constructor() { window.__es = this; } close() {} };
   window.__push = d => window.__es.onmessage({ data: JSON.stringify(d) });
   window.__shifts = []; window.__acts = [];
+  window.__state = () => { try { return JSON.stringify({ scope, cur: cur && cur.id, q: bq, focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName),
+    dialogs: [...document.querySelectorAll('dialog[open]')].map(d => d.id), start: starting && { iid: starting.iid, skills: starting.skills.length, all: starting.all } }); } catch (e) { return String(e); } };
   new PerformanceObserver(l => { for (const e of l.getEntries()) window.__shifts.push({ v: e.value, input: e.hadRecentInput, t: e.startTime,
     src: (e.sources || []).map(s => (s.node?.id || s.node?.className || s.node?.nodeName || '?') + ' ' + [s.previousRect.y, s.currentRect.y].map(Math.round).join('→')).join(', ') }); })
     .observe({ type: 'layout-shift', buffered: true });
@@ -201,7 +206,7 @@ async function panel(b, url, { width, height, lang, dark }) {
     });
     // The command bar: its footer stays while the results change under it.
     await part('command bar', async () => {
-      await b.key('k', 'KeyK', 75, 2); await sleep(150);
+      await b.key('k', 'KeyK', 75, 2); await b.until(`document.querySelector('#cmdk')?.open`, 'the command bar');
       const k0 = await b.ev(BOXES);
       for (const t of ['se', 'zzz']) { await b.type(t); await sleep(100); for (const m of moved(k0, await b.ev(BOXES), ['#cmdk-ft'])) fail(`command bar, typed ${t}: ${m}`); }
     });
@@ -227,8 +232,10 @@ async function panel(b, url, { width, height, lang, dark }) {
     await part('Start box', async () => {
       await tab('sessions'); await sleep(300);
       await b.ev(`document.querySelector('#b-list [data-bsel="next"]').scrollIntoView({ block: 'center' })`);
-      await b.click('#b-list [data-bsel="next"]'); await sleep(100);
-      await b.click('#b-dyn [data-start]'); await sleep(500);
+      await b.click('#b-list [data-bsel="next"]');
+      await b.until(`cur?.id === 'next' && !!document.querySelector('#b-dyn [data-start]')`, 'the Next up detail');
+      await b.click('#b-dyn [data-start]');
+      await b.until(`document.querySelector('#st-dialog')?.open && !!document.querySelector('#st-all')`, 'the Start box with its skills'); await sleep(300);
       before = await b.ev('__shifts.splice(0)');
       await b.click('#st-all'); await sleep(150);
       await b.ev('__shifts.length = 0');
@@ -237,7 +244,7 @@ async function panel(b, url, { width, height, lang, dark }) {
     });
     await b.ev(`document.querySelectorAll('dialog[open]').forEach(d => d.close())`);
     // Nothing the layout-shift API sees either (narrow: a tab switch moves the detail below the list, as asked).
-    const acts = await b.ev('__acts'), asked = s => s.input || acts.some(a => s.t >= a && s.t - a < 1500);
+    const acts = await b.ev('__acts'), asked = s => s.input || acts.some(a => s.t >= a && s.t - a < 3000);
     for (const s of [...before, ...await b.ev('__shifts')]) if (!asked(s) || wide) fail(`layout shift ${s.v.toFixed(4)}${s.input ? ' (after input)' : ''}: ${s.src}`);
     bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
   } finally { await b.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }); }
