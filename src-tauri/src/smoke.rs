@@ -131,7 +131,9 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
                     const file = (await bobix.getState()).settings.petImages[project]?.file; \
                     pic.served = !!file && (await fetch('/pet-image/' + file + '?t=' + new URLSearchParams(location.search).get('t'))).status === 200; \
                     pic.reset = !!(await bobix.petImage(sid, 'reset'))?.ok; \
-                    }} catch (e) {{ r.error = String(e); }} window.__TAURI_INTERNALS__.invoke('smoke_page', {{ data: {{ panel: r }} }}); }})()", project = json!(project)));
+                    }} catch (e) {{ r.error = String(e); }} \
+                    for (const [k, call] of [['room', async () => (await bobix.room('list', {{}}))?.ok], ['habitSkills', async () => (await bobix.habitSkills('view'))?.result?.ok]]) \
+                      try {{ r[k] = (await call()) === true; }} catch (e) {{ r[k] = String(e); }} window.__TAURI_INTERNALS__.invoke('smoke_page', {{ data: {{ panel: r }} }}); }})()", project = json!(project)));
                 let until = Instant::now() + Duration::from_secs(10);
                 while PAGE.lock().unwrap().is_none() && Instant::now() < until { thread::sleep(Duration::from_millis(100)); }
                 report["panel"] = PAGE.lock().unwrap().take().map(|v| v["panel"].clone()).unwrap_or(json!("error: no answer from the panel"));
@@ -163,7 +165,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
             && report["panel"]["size"] == 64 && report["panel"]["tabs"] == 6 && report["panel"]["selected"] == "settings" && report["panel"]["feedbackLines"] == 6
-            && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true)
+            && ["preview", "save", "served", "reset"].iter().all(|k| report["panel"]["picture"][k] == true) && report["panel"]["room"] == true && report["panel"]["habitSkills"] == true
             && (report.get("drag").is_none() || (report["drag"]["moved"].as_f64().unwrap_or(0.0) > 200.0 && report["drag"]["held"] == false))
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
