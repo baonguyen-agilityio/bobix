@@ -634,7 +634,9 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
                     let mut list: Vec<Value> = rs.iter().flat_map(|r| r["issues"].as_array().cloned().unwrap_or_default()).collect();
                     let failed: Vec<Value> = failed.into_iter().chain(rs.iter().flat_map(|r| r["failed"].as_array().cloned().unwrap_or_default())).collect();
                     // ponytail: 10 at most per read; more sessions on issues not assigned to you wait for the next read
-                    let extra: Vec<&(String, String, i64)> = linked.iter().filter(|(host, p, iid)| h.contains(host)
+                    // a host that did not answer in time is not asked anything more in this read
+                    let up: Vec<String> = h.iter().zip(&rs).filter(|(_, r)| r["hung"] != true).map(|(x, _)| x.clone()).collect();
+                    let extra: Vec<&(String, String, i64)> = linked.iter().filter(|(host, p, iid)| up.contains(host)
                         && !list.iter().any(|i| i["project"] == p.as_str() && i["iid"].as_i64() == Some(*iid))).take(10).collect();
                     for (host, p, iid) in extra {
                         b.core.lock().unwrap().work.asked.insert(format!("{p}#{iid}"));
@@ -642,8 +644,8 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
                     }
                     // what waits for review, and what was closed lately (the panel keeps today's: local midnight is its call)
                     let since = hooks::iso(at.saturating_sub(4 * 24 * 3600 * 1000)); // today, and the last working day for the stand-up
-                    let reviews: Vec<model::Review> = h.iter().flat_map(|x| f.reviews(g, x)).collect();
-                    let closed: Vec<Value> = h.iter().flat_map(|x| f.closed(g, x, &since)).collect();
+                    let reviews: Vec<model::Review> = up.iter().flat_map(|x| f.reviews(g, x)).collect();
+                    let closed: Vec<Value> = up.iter().flat_map(|x| f.closed(g, x, &since)).collect();
                     (json!({ "status": "ok", "hosts": h, "at": at, "failed": failed, "list": list, "closed": closed, "need": need }), reviews)
                 }
             }

@@ -26,7 +26,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 420 } else { 0 };
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -395,7 +395,8 @@ fn start_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> 
 // that dir. The filter shows "Reading your issues…" in place of the list at once (within 100 ms) and looks busy; a second
 // change before the first read ends wins (the first answer is never shown); the page arrows, Refresh, the repo picker's
 // Show issues and its Read again say so too;
-// one host down shows the others' issues and names it; one timing out and one down stop reading and name both; none says so.
+// one host down shows the others' issues and names it; one hanging does too, in about 10 s (its projects are read at
+// once, 10 s each); one hanging and one down stop reading and name both; none says so.
 fn reads_step(app: &AppHandle, sdir: &str) -> Value {
     if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
     let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
@@ -432,9 +433,13 @@ fn reads_step(app: &AppHandle, sdir: &str) -> Value {
     let x = ask_for(app, panel::LABEL, &js("await askIssues(() => bridge.refreshWork()); await until(() => !reading(), 20000); await w(300); \
         r.oneDown = work.status === 'ok' && st.todo.length > 0 && st.todo.every(x => x[0].url.includes('gitlab.example.com')) && status().includes('github.com'); bsel.work = 'todo:status'; render(); await w(Math.max(hold, 200));"), 40);
     merge(&mut r, x);
-    flag("gl-hang", true); // GitLab never answers: its read times out (30 s), GitHub is down
-    let x = ask_for(app, panel::LABEL, &js("const t0 = performance.now(); await askIssues(() => bridge.refreshWork()); r.allDownEnds = await until(() => !reading(), 150000); r.allDownMs = Math.round(performance.now() - t0); await w(300); \
-        r.allDown = r.allDownEnds && status().includes('github.com') && status().includes('gitlab.example.com') && !document.querySelector('#b-list [data-bsel=\"tk:loading\"]'); bsel.work = 'todo:status'; render(); await w(Math.max(hold, 200));"), 170);
+    flag("gh-down", false); flag("gl-hang", true); // GitLab never answers, GitHub does: its issues show in about 10 s
+    let x = ask_for(app, panel::LABEL, &js("const t0 = performance.now(); await askIssues(() => bridge.refreshWork()); await until(() => !reading(), 40000); r.oneHangMs = Math.round(performance.now() - t0); await w(300); \
+        r.oneHang = r.oneHangMs < 13000 && st.todo.length > 0 && st.todo.every(x => x[0].url.includes('github.com')) && status().includes('gitlab.example.com'); bsel.work = 'todo:status'; render(); await w(Math.max(hold, 200));"), 60);
+    merge(&mut r, x);
+    flag("gh-down", true); // and GitHub down too: reading ends, both named
+    let x = ask_for(app, panel::LABEL, &js("const t0 = performance.now(); await askIssues(() => bridge.refreshWork()); r.allDownEnds = await until(() => !reading(), 40000); r.allDownMs = Math.round(performance.now() - t0); await w(300); \
+        r.allDown = r.allDownEnds && status().includes('github.com') && status().includes('gitlab.example.com') && !document.querySelector('#b-list [data-bsel=\"tk:loading\"]'); bsel.work = 'todo:status'; render(); await w(Math.max(hold, 200));"), 60);
     merge(&mut r, x);
     flag("gh-down", false); flag("gl-hang", false); flag("none", true);
     let x = ask_for(app, panel::LABEL, &js("await askIssues(() => bridge.refreshWork()); await until(() => !reading(), 20000); await w(300); \
@@ -442,7 +447,7 @@ fn reads_step(app: &AppHandle, sdir: &str) -> Value {
     merge(&mut r, x);
     flag("none", false);
     let _ = ask_for(app, panel::LABEL, "(async () => { await bridge.refreshWork(); return true; })()", 10);
-    let keys = ["ready", "filterLoading", "busy", "responsive", "ended", "newestWins", "neverOld", "listBack", "refreshLoading", "allBack", "pageLoading", "pageEnds", "readAgainBusy", "showIssuesLoading", "showIssuesEnds", "oneDown", "allDownEnds", "allDown", "noneSaid"];
+    let keys = ["ready", "filterLoading", "busy", "responsive", "ended", "newestWins", "neverOld", "listBack", "refreshLoading", "allBack", "pageLoading", "pageEnds", "readAgainBusy", "showIssuesLoading", "showIssuesEnds", "oneDown", "oneHang", "allDownEnds", "allDown", "noneSaid"];
     r["failedChecks"] = json!(keys.iter().filter(|k| r[**k] != true).collect::<Vec<_>>());
     r["pass"] = json!(keys.iter().all(|k| r[*k] == true));
     r

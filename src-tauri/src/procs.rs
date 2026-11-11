@@ -31,6 +31,8 @@ pub fn exec(cmd: &str, args: &[&str], secs: u64, env: &[(&str, &str)]) -> Ran {
     c.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).envs(env.iter().copied());
     #[cfg(windows)]
     { use std::os::windows::process::CommandExt; c.creation_flags(0x0800_0000); } // CREATE_NO_WINDOW
+    #[cfg(unix)]
+    { use std::os::unix::process::CommandExt; c.process_group(0); } // its own group: a timeout ends what it started too
     let mut child = match c.spawn() {
         Ok(ch) => ch,
         Err(e) => return Ran { ok: false, missing: e.kind() == std::io::ErrorKind::NotFound, out: String::new(), err: e.to_string() },
@@ -42,7 +44,11 @@ pub fn exec(cmd: &str, args: &[&str], secs: u64, env: &[(&str, &str)]) -> Ran {
         match child.try_wait() {
             Ok(Some(st)) => break st.success(),
             Ok(None) if Instant::now() < limit => thread::sleep(Duration::from_millis(20)),
-            _ => { let _ = child.kill(); let _ = child.wait(); break false; }
+            _ => {
+                #[cfg(unix)]
+                unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL); } // the whole group: no child keeps its pipes open
+                let _ = child.kill(); let _ = child.wait(); break false;
+            }
         }
     };
     let get = |h: Option<thread::JoinHandle<String>>| h.and_then(|h| h.join().ok()).unwrap_or_default();
