@@ -929,7 +929,7 @@ fn work_refresh(b: B) { refresh_issues(&b); }
 // In the browser; only links to the issues Bobix read open.
 #[tauri::command]
 fn work_open(url: String, b: B) -> bool {
-    let ok = { let c = b.core.lock().unwrap(); c.work.open_issue_ok(&c.settings, &url) };
+    let ok = { let c = b.core.lock().unwrap(); c.work.open_issue_ok(&c.settings, &url) || c.tickets.list.values().any(|f| !f.mr.is_empty() && f.mr == url) };
     ok && tauri_plugin_opener::open_url(url, None::<&str>).is_ok()
 }
 
@@ -1123,16 +1123,49 @@ async fn ticket_review(key: String, how: String, b: B<'_>) -> Result<Value, ()> 
 
 // Clean up a finished flow's worktree (git refuses when work is not committed; Bobix never forces). The log is kept.
 #[tauri::command]
-async fn ticket_clean(key: String, b: B<'_>) -> Result<Value, ()> {
+async fn ticket_clean(key: String, force: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
         if !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
+        // commits no remote has: said first (the branch stays either way); cleaned up on a second click
+        let n = tickets::unpushed(&f.dir, &f.branch);
+        if n > 0 && force != Some(true) { return json!({ "ok": false, "error": "unpushed", "n": n }); }
         tickets::keep_log(&paths::data_dir(), &f);
         if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir) { return json!({ "ok": false, "error": e }); }
         { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.new_for.shift_remove(&f.dir); }
         b.broadcast();
         json!({ "ok": true })
+    }).await.map_err(|_| ())
+}
+
+// Open MR: push the ticket's branch and open its merge request with your own glab, with the title and description you
+// saw (and may have edited) in Work. GitLab only for now. { ok, url } | { ok: false, error }
+#[tauri::command]
+async fn ticket_mr(key: String, title: String, description: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (f, src) = {
+            let c = b.core.lock().unwrap();
+            let Some(f) = c.tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
+            let src = c.work.source_of(&c.settings, &f.path, f.iid).map(|(fg, bin, host, _)| (fg, Some(bin), host));
+            (f, src)
+        };
+        if f.cleaned || f.status != "done" { return json!({ "ok": false, "error": "notdone" }); }
+        if !f.mr.is_empty() { return json!({ "ok": true, "url": f.mr }); }
+        // the issue's tracker and host, else the host of its link (an issue closed meanwhile is no longer listed)
+        let (forge, bin, host) = src.unwrap_or_else(|| (work::Forge::GitLab, None, tauri::Url::parse(&f.url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default()));
+        if forge != work::Forge::GitLab { return json!({ "ok": false, "error": "gitlab" }); }
+        let Some(glab) = bin.or_else(|| find_bin("glab")) else { return json!({ "ok": false, "error": "noglab" }) };
+        let title = if title.trim().is_empty() { tickets::mr_title(&f) } else { js::head16(title.trim(), 200).to_string() };
+        match tickets::open_mr(&glab, &host, &f, &title, js::head16(&description, 20_000)) {
+            Ok(url) => {
+                { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.mr = url.clone(); x.at = state::now(); } c.tickets.save(); }
+                b.broadcast();
+                json!({ "ok": true, "url": url })
+            }
+            Err(e) => json!({ "ok": false, "error": e }),
+        }
     }).await.map_err(|_| ())
 }
 
@@ -1420,7 +1453,7 @@ fn pet_reset(id: String, b: B) -> Value {
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review"];
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1516,7 +1549,7 @@ fn main() {
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
             settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
-            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review,
+            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
