@@ -605,18 +605,21 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
         let bin = { let g = b.core.lock().unwrap().work.feed(f).bin.clone(); g.or_else(|| find_bin(f.bin())) };
         // the issues sessions here work on: one not in your list is read on its own below
         let linked = { let c = b.core.lock().unwrap(); model::Model::build(&c.settings, &c.sessions, &c.work).linked() };
-        let hosts = bin.as_deref().and_then(|x| f.hosts(x));
+        let auth = bin.as_deref().and_then(|x| f.auth(x));
         let at = state::now();
         let read_ok;
-        let (next, reviews) = match (&bin, hosts) {
+        let (filter, need) = { let c = b.core.lock().unwrap(); (c.settings["workFilter"].as_str().unwrap_or("all").to_string(), c.work.page.max(1) * work::PER_PAGE + 1) };
+        let (next, reviews) = match (&bin, auth) {
             (_, None) => (json!({ "status": f.missing(), "at": at }), vec![]), // look again next time: it may be installed by then
-            (_, Some(h)) if h.is_empty() => (json!({ "status": f.signed_out(), "hosts": h, "at": at }), vec![]),
-            (Some(g), Some(h)) => {
-                let rs: Vec<Value> = h.iter().map(|x| f.fetch(g, x)).collect();
+            (_, Some((h, _))) if h.is_empty() => (json!({ "status": f.signed_out(), "hosts": h, "at": at }), vec![]),
+            (Some(g), Some((h, logins))) => {
+                // the newest issues of the repositories you ticked, up to the page shown and one more
+                let rs: Vec<Value> = h.iter().map(|x| f.page(g, x, &ticked_repos(&b, f, g, x), &filter, need, logins.get(x).map(String::as_str))).collect();
                 let failed: Vec<Value> = rs.iter().zip(&h).filter(|(r, _)| r["ok"] != true)
                     .map(|(r, host)| json!({ "host": host, "detail": r.get("detail").unwrap_or(&r["reason"]) })).collect();
                 if failed.len() == h.len() { (json!({ "status": "error", "hosts": h, "at": at, "failed": failed }), vec![]) } else {
                     let mut list: Vec<Value> = rs.iter().flat_map(|r| r["issues"].as_array().cloned().unwrap_or_default()).collect();
+                    let failed: Vec<Value> = failed.into_iter().chain(rs.iter().flat_map(|r| r["failed"].as_array().cloned().unwrap_or_default())).collect();
                     // ponytail: 10 at most per read; more sessions on issues not assigned to you wait for the next read
                     let extra: Vec<&(String, String, i64)> = linked.iter().filter(|(host, p, iid)| h.contains(host)
                         && !list.iter().any(|i| i["project"] == p.as_str() && i["iid"].as_i64() == Some(*iid))).take(10).collect();
@@ -640,14 +643,67 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
             feed.bin = if next["status"] == f.missing() { None } else { bin };
             feed.busy = false;
             feed.reviews = if on { reviews } else { vec![] };
-            read_ok = on && f == work::Forge::GitLab && next["status"] == "ok";
+            read_ok = on && next["status"] == "ok";
             feed.issues = if on { next } else { json!({ "status": "off" }) }; // switched off meanwhile
         }
         read_claude_list(&b);
         b.broadcast();
-        if read_ok { refresh_ci(&b, None); } // the ticket flow's merge requests
+        if read_ok { refresh_ci(&b, None); } // the ticket flow's merge / pull requests
         find_clones(&b, f);
     });
+}
+
+// The repositories ticked on `host` (Settings: workRepos). The first time a host is read, the ones active in the last
+// 90 days are ticked and remembered; you change them in the repo picker.
+fn ticked_repos(b: &Arc<Bobix>, f: work::Forge, bin: &str, host: &str) -> Vec<String> {
+    let paths = |v: &Value| v.as_array().into_iter().flatten().filter_map(|p| p.as_str().map(String::from)).collect::<Vec<_>>();
+    if let Some(a) = b.core.lock().unwrap().settings["workRepos"].get(host) { return paths(a); }
+    let Ok(list) = f.repos(bin, host) else { return vec![] }; // asked again at the next read
+    let since = hooks::iso(state::now().saturating_sub(work::RECENT_DAYS * 24 * 3600 * 1000));
+    let ticked = work::recent(&list, &since);
+    let mut all = { let mut c = b.core.lock().unwrap(); c.work.feed(f).repos.insert(host.into(), list); c.settings["workRepos"].clone() };
+    if !all.is_object() { all = json!({}); }
+    all[host] = json!(ticked);
+    update_settings(b, json!({ "workRepos": all }));
+    ticked
+}
+
+// For the repo picker: per tracker that is on and host it reads, every repository you can reach (read now when
+// `fresh` or not read yet; GET, your own glab / gh) and the ones ticked. [{ forge, host, repos: [{ path, at }], ticked, error? }]
+#[tauri::command]
+async fn work_repos(fresh: Option<bool>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = vec![];
+        for f in work::FORGES {
+            let (bin, hosts) = {
+                let c = b.core.lock().unwrap();
+                if !f.on(&c.settings) { continue; }
+                let feed = &c.work.feeds[f as usize];
+                (feed.bin.clone(), feed.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str().map(String::from)).collect::<Vec<_>>())
+            };
+            let Some(bin) = bin else { continue };
+            for host in hosts {
+                let cached = { let c = b.core.lock().unwrap(); c.work.feeds[f as usize].repos.get(&host).cloned() };
+                let read = match cached { Some(l) if fresh != Some(true) => Ok(l), _ => f.repos(&bin, &host) };
+                let ticked = b.core.lock().unwrap().settings["workRepos"].get(&host).cloned().unwrap_or(json!([]));
+                out.push(match read {
+                    Ok(l) => { b.core.lock().unwrap().work.feed(f).repos.insert(host.clone(), l.clone()); json!({ "forge": f.key(), "host": host, "repos": l, "ticked": ticked }) }
+                    Err(e) => json!({ "forge": f.key(), "host": host, "repos": [], "ticked": ticked, "error": e.get("detail").unwrap_or(&e["reason"]) }),
+                });
+            }
+        }
+        json!(out)
+    }).await.map_err(|_| ())
+}
+
+// The Work list's page (from 1): read again for it.
+#[tauri::command]
+fn work_page(page: usize, b: B) -> usize {
+    let page = page.clamp(1, 50);
+    b.core.lock().unwrap().work.page = page;
+    refresh_issues(&b);
+    page
 }
 
 // The local clones of this tracker's projects that no session works in here: looked for by their git remotes in the
@@ -833,7 +889,8 @@ pub fn update_settings(b: &Arc<Bobix>, patch: Value) -> Value {
         tray::badge(app, b, false);
     }
     answers::release_unseen(b);
-    for f in work::FORGES { if changed(f.key()) { refresh_forge(b, f); } }
+    if changed("workRepos") || changed("workFilter") { b.core.lock().unwrap().work.page = 1; refresh_issues(b); } // a new list: from its first page
+    else { for f in work::FORGES { if changed(f.key()) { refresh_forge(b, f); } } }
     if next["checkUpdates"] == true && prev["checkUpdates"] != true { let ub = b.clone(); thread::spawn(move || check_for_update(&ub)); }
     if next["checkUpdates"] != true && b.core.lock().unwrap().update.take().is_some() { if let Some(app) = b.app.get() { tray::build(app, b); } }
     if let Some(app) = b.app.get() { for w in [overlay::LABEL, panel::LABEL] { panel::emit(app, w, "settings", &next); } }
@@ -1131,8 +1188,9 @@ async fn ticket_start(path: String, iid: i64, prompt: String, models: Value, how
         {
             let mut c = b.core.lock().unwrap();
             c.tickets.list.shift_remove(&key);
+            let forge = c.work.source_of(&c.settings, &path, iid).map(|x| x.0.key()).unwrap_or("gitlab").to_string();
             c.tickets.list.insert(key.clone(), tickets::Flow { key, path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
-                dir: dir.clone(), branch, base, status: "starting".into(), models, at: state::now(), ..Default::default() });
+                dir: dir.clone(), branch, base, status: "starting".into(), models, forge, at: state::now(), ..Default::default() });
             c.tickets.save();
             c.work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": title }));
         }
@@ -1248,9 +1306,11 @@ async fn ticket_mr(key: String, title: String, description: String, b: B<'_>) ->
         if f.cleaned || f.status != "done" { return json!({ "ok": false, "error": "notdone" }); }
         if !f.mr.is_empty() { return json!({ "ok": true, "url": f.mr }); }
         // the issue's tracker and host, else the host of its link (an issue closed meanwhile is no longer listed)
-        let (forge, bin, host) = src.unwrap_or_else(|| (work::Forge::GitLab, None, tauri::Url::parse(&f.url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default()));
-        if forge != work::Forge::GitLab { return json!({ "ok": false, "error": "gitlab" }); }
-        let Some(glab) = bin.or_else(|| find_bin("glab")) else { return json!({ "ok": false, "error": "noglab" }) };
+        let fallback = if f.github() { work::Forge::GitHub } else { work::Forge::GitLab };
+        let (forge, bin, host) = src.unwrap_or_else(|| (fallback, None, tauri::Url::parse(&f.url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default()));
+        let mut f = f;
+        if f.forge.is_empty() { f.forge = forge.key().into(); }
+        let Some(glab) = bin.or_else(|| find_bin(forge.bin())) else { return json!({ "ok": false, "error": if forge == work::Forge::GitHub { "nogh" } else { "noglab" } }) };
         let title = if title.trim().is_empty() { tickets::mr_title(&f) } else { js::head16(title.trim(), 200).to_string() };
         match tickets::open_mr(&glab, &host, &f, &title, js::head16(&description, 20_000)) {
             Ok(url) => {
@@ -1328,15 +1388,18 @@ async fn skills_rules(dir: String, add: Option<bool>, b: B<'_>) -> Result<Value,
 
 // The pipelines of the merge requests the ticket flow opened, read again (GET, your own glab); with `key`, that one only.
 fn refresh_ci(b: &Arc<Bobix>, key: Option<&str>) -> bool {
-    let (mrs, bin) = { let mut c = b.core.lock().unwrap(); (c.tickets.open_mrs(), c.work.feed(work::Forge::GitLab).bin.clone()) };
+    let (mrs, bins) = { let mut c = b.core.lock().unwrap(); (c.tickets.open_mrs(), [c.work.feed(work::Forge::GitLab).bin.clone(), c.work.feed(work::Forge::GitHub).bin.clone()]) };
     let mrs: Vec<_> = mrs.into_iter().filter(|m| key.is_none_or(|k| k == m.0)).collect();
     if mrs.is_empty() { return false; }
-    let Some(glab) = bin.or_else(|| find_bin("glab")) else { return false };
+    let [glab, gh] = bins;
+    let (glab, gh) = (glab.or_else(|| mrs.iter().any(|m| !m.4).then(|| find_bin("glab")).flatten()), gh.or_else(|| mrs.iter().any(|m| m.4).then(|| find_bin("gh")).flatten()));
     let now = state::now();
-    let mut changed = false;
-    for (k, host, path, iid) in mrs {
-        if let Some(ci) = tickets::read_ci(&glab, &host, &path, iid) { changed |= b.core.lock().unwrap().tickets.set_ci(&k, ci, now); }
+    let (mut changed, mut read) = (false, false);
+    for (k, host, path, iid, github) in mrs {
+        let ci = if github { gh.as_deref().and_then(|g| tickets::read_ci_gh(g, &host, &path, iid)) } else { glab.as_deref().and_then(|g| tickets::read_ci(g, &host, &path, iid)) };
+        if let Some(ci) = ci { read = true; changed |= b.core.lock().unwrap().tickets.set_ci(&k, ci, now); }
     }
+    if !read { return false; }
     b.core.lock().unwrap().tickets.save();
     if changed { b.broadcast(); }
     true
@@ -1585,7 +1648,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_link", "work_clone", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
+    "work_brief", "work_link", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
     "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
@@ -1681,7 +1744,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_clone, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
@@ -1858,6 +1921,10 @@ mod snapshot_tests {
         // the ticket flow's view (free disk differs per machine) and each session's flow and mark: none in this fixture
         let flows = got.as_object_mut().unwrap().shift_remove("tickets").expect("the ticket flow goes along");
         assert_eq!((&flows["list"], &flows["need"]), (&json!([]), &json!(tickets::WORKTREE_BYTES)));
+        // the list's page, its filter and the repositories ticked: one page, no filter set, none ticked in this fixture
+        let w = got["work"].as_object_mut().unwrap();
+        let paging: Vec<Option<Value>> = ["page", "more", "filter", "ticked", "many"].iter().map(|k| w.shift_remove(*k)).collect();
+        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false))]);
         for s in got["sessions"].as_array_mut().unwrap() {
             let o = s.as_object_mut().unwrap();
             assert_eq!((o.shift_remove("mark"), o.shift_remove("flow")), (Some(json!(false)), Some(Value::Null)));

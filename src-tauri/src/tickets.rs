@@ -25,7 +25,8 @@ pub struct Flow {
     pub status: String, pub session: Option<String>, pub plan: String, pub log: String,
     pub seen: usize, // assumptions you have seen; more in the log put a mark on the pet
     pub summary: String, pub models: Value, pub at: u64, pub cleaned: bool,
-    pub mr: String, // the merge request Bobix opened for it (its link), on your click
+    pub mr: String, // the merge request (GitLab) / pull request (GitHub) Bobix opened for it (its link), on your click
+    pub forge: String, // its issue's tracker: gitlab (also when empty, from before GitHub) | github
     pub ci: Value,  // its head pipeline, as last read: { status: passed | running | failed | other | none, url, state, since, at }
 }
 
@@ -54,13 +55,14 @@ pub fn mr_body(f: &Flow) -> String {
     }
     head16(&b, 20_000).to_string()
 }
-// The merge request's link in what glab printed.
+impl Flow { pub fn github(&self) -> bool { self.forge == "github" } }
+// The merge request's (pull request's) link in what glab (gh) printed.
 pub fn mr_url(out: &str) -> Option<String> {
-    static U: std::sync::LazyLock<fancy_regex::Regex> = std::sync::LazyLock::new(|| fancy_regex::Regex::new(r"https?://\S+/-/merge_requests/\d+").unwrap());
+    static U: std::sync::LazyLock<fancy_regex::Regex> = std::sync::LazyLock::new(|| fancy_regex::Regex::new(r"https?://\S+(?:/-/merge_requests|/pull)/\d+").unwrap());
     U.find(out).ok().flatten().map(|m| m.as_str().to_string())
 }
 // The merge request's number, from its link.
-pub fn mr_iid(url: &str) -> Option<i64> { url.rsplit_once("/merge_requests/")?.1.split(['/', '?', '#']).next()?.parse().ok() }
+pub fn mr_iid(url: &str) -> Option<i64> { url.rsplit_once("/merge_requests/").or_else(|| url.rsplit_once("/pull/"))?.1.split(['/', '?', '#']).next()?.parse().ok() }
 // The MR's head pipeline as the flow shows it (GitLab's statuses folded into four), and the MR's own state.
 pub fn ci_of(mr: &Value) -> Value {
     let p = &mr["head_pipeline"];
@@ -80,16 +82,45 @@ pub fn read_ci(glab: &str, host: &str, path: &str, iid: i64) -> Option<Value> {
     serde_json::from_str::<Value>(&r.out).ok().filter(|v| v.is_object()).map(|v| ci_of(&v))
 }
 
+// A pull request's checks (`gh pr checks --json bucket,link`) folded the same way: any failing → failed, any pending →
+// running, all passed or skipped → passed, none → none; `state` from `gh pr view --json state` (OPEN, MERGED, CLOSED).
+pub fn ci_of_checks(checks: &Value, state: &str) -> Value {
+    let a: Vec<&Value> = checks.as_array().into_iter().flatten().collect();
+    let has = |b: &str| a.iter().any(|c| c["bucket"] == b);
+    let st = if a.is_empty() { "none" } else if has("fail") { "failed" } else if has("pending") { "running" } else if a.iter().all(|c| matches!(c["bucket"].as_str(), Some("pass" | "skipping"))) { "passed" } else { "other" };
+    let url = a.iter().find(|c| c["bucket"] == "fail").or(a.first()).map(|c| c["link"].clone()).unwrap_or(Value::Null);
+    let state = match state { "MERGED" => "merged", "CLOSED" => "closed", _ => "opened" };
+    json!({ "status": st, "url": url, "state": state })
+}
+const GH_ENV: &[(&str, &str)] = &[("GH_PROMPT_DISABLED", "1"), ("GH_NO_UPDATE_NOTIFIER", "1"), ("NO_COLOR", "1")];
+// Reads a pull request's checks and state through your own gh (GETs). None when the read fails.
+pub fn read_ci_gh(gh: &str, host: &str, path: &str, n: i64) -> Option<Value> {
+    let env: Vec<(&str, &str)> = GH_ENV.iter().copied().chain([("GH_HOST", host)]).collect();
+    let n = n.to_string();
+    let v = procs::exec(gh, &["pr", "view", &n, "--repo", path, "--json", "state"], 30, &env);
+    let state: Value = serde_json::from_str(&v.out).ok()?;
+    let c = procs::exec(gh, &["pr", "checks", &n, "--repo", path, "--json", "bucket,link,name"], 30, &env); // exits 8 while pending
+    let checks: Value = serde_json::from_str(c.out.trim()).unwrap_or(json!([]));
+    Some(ci_of_checks(&checks, state["state"].as_str().unwrap_or("")))
+}
+
 // Commits on the ticket's branch that no remote has.
 pub fn unpushed(dir: &str, branch: &str) -> u64 {
     let r = git(dir, &["rev-list", "--count", branch, "--not", "--remotes"]);
     if r.ok { r.out.trim().parse().unwrap_or(0) } else { 0 }
 }
-// Push the ticket's branch (never the default one) and open its merge request with your own glab. → the MR's link.
-pub fn open_mr(glab: &str, host: &str, f: &Flow, title: &str, body: &str) -> Result<String, String> {
+// Push the ticket's branch (never the default one) and open its merge request with your own glab, or its pull request
+// with your own gh (`bin`, for the flow's forge). → the link.
+pub fn open_mr(bin: &str, host: &str, f: &Flow, title: &str, body: &str) -> Result<String, String> {
     if f.branch.is_empty() || ["main", "master", "develop"].contains(&f.branch.as_str()) { return Err("not a ticket branch".into()); }
     let r = git(&f.dir, &["push", "-u", "origin", &f.branch]);
     if !r.ok { return Err(format!("git push: {}", one_line(&r))); }
+    if f.github() {
+        let env: Vec<(&str, &str)> = GH_ENV.iter().copied().chain([("GH_HOST", host)]).collect();
+        let r = procs::exec(bin, &["pr", "create", "--repo", &f.path, "--head", &f.branch, "--title", title, "--body", body], 60, &env);
+        return mr_url(&format!("{}\n{}", r.out, r.err)).ok_or_else(|| format!("gh pr create: {}", one_line(&r)));
+    }
+    let glab = bin;
     let repo = format!("https://{host}/{}", f.path);
     let r = procs::exec(glab, &["mr", "create", "--repo", &repo, "--source-branch", &f.branch, "--title", title, "--description", body, "--yes"], 60, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1")]);
     let out = format!("{}\n{}", r.out, r.err);
@@ -345,9 +376,10 @@ impl Flows {
         true
     }
     // Flows whose MR is still open: their pipeline is worth reading again.
-    pub fn open_mrs(&self) -> Vec<(String, String, String, i64)> {
+    // → (key, host, project path, number, github)
+    pub fn open_mrs(&self) -> Vec<(String, String, String, i64, bool)> {
         self.list.values().filter(|f| !f.mr.is_empty() && !matches!(f.ci["state"].as_str(), Some("merged" | "closed")))
-            .filter_map(|f| Some((f.key.clone(), tauri::Url::parse(&f.mr).ok()?.host_str()?.to_string(), f.path.clone(), mr_iid(&f.mr)?))).collect()
+            .filter_map(|f| Some((f.key.clone(), tauri::Url::parse(&f.mr).ok()?.host_str()?.to_string(), f.path.clone(), mr_iid(&f.mr)?, f.github()))).collect()
     }
     // A new assumption since you last looked: the pet gets a mark (the session does not stop).
     pub fn marked(&self, sid: &str) -> bool { self.by_session(sid).is_some_and(|f| !f.cleaned && assumptions(&f.log) > f.seen) }
@@ -503,13 +535,28 @@ mod tests {
         assert_eq!(ci_of(&json!({ "state": "opened", "head_pipeline": null }))["status"], "none");
         let mut fl = Flows::default();
         fl.list.insert("g/p#7".into(), Flow { key: "g/p#7".into(), path: "g/p".into(), mr: "https://h/g/p/-/merge_requests/12".into(), ..Default::default() });
-        assert_eq!(fl.open_mrs(), [("g/p#7".to_string(), "h".to_string(), "g/p".to_string(), 12)]);
+        assert_eq!(fl.open_mrs(), [("g/p#7".to_string(), "h".to_string(), "g/p".to_string(), 12, false)]);
         let red = || ci_of(&json!({ "state": "opened", "head_pipeline": { "status": "failed", "web_url": "u" } }));
         assert!(fl.set_ci("g/p#7", red(), 100));
         assert!(!fl.set_ci("g/p#7", red(), 200), "still red: no change");
         assert_eq!((&fl.list[0].ci["since"], &fl.list[0].ci["at"]), (&json!(100), &json!(200)), "red since the first read");
         assert!(fl.set_ci("g/p#7", ci_of(&json!({ "state": "merged", "head_pipeline": { "status": "success", "web_url": "u" } })), 300));
         assert!(fl.open_mrs().is_empty(), "merged: not read again");
+    }
+
+    #[test]
+    fn github_pull_requests_and_their_checks() {
+        assert_eq!(mr_url("Creating pull request for 7-x into main in demo/shop\n\nhttps://github.com/demo/shop/pull/12\n").as_deref(), Some("https://github.com/demo/shop/pull/12"));
+        assert_eq!(mr_iid("https://github.com/demo/shop/pull/12"), Some(12));
+        let ch = |b: &[&str]| json!(b.iter().map(|x| json!({ "name": "t", "bucket": x, "link": format!("https://github.com/demo/shop/actions/runs/{x}") })).collect::<Vec<_>>());
+        assert_eq!(ci_of_checks(&ch(&["pass", "fail", "pending"]), "OPEN"), json!({ "status": "failed", "url": "https://github.com/demo/shop/actions/runs/fail", "state": "opened" }));
+        assert_eq!(ci_of_checks(&ch(&["pass", "pending"]), "OPEN")["status"], "running");
+        assert_eq!(ci_of_checks(&ch(&["pass", "skipping"]), "MERGED"), json!({ "status": "passed", "url": "https://github.com/demo/shop/actions/runs/pass", "state": "merged" }));
+        assert_eq!(ci_of_checks(&json!([]), "CLOSED"), json!({ "status": "none", "url": null, "state": "closed" }));
+        let mut fl = Flows::default();
+        fl.list.insert("demo/shop#7".into(), Flow { key: "demo/shop#7".into(), path: "demo/shop".into(), forge: "github".into(), mr: "https://github.com/demo/shop/pull/12".into(), ..Default::default() });
+        assert_eq!(fl.open_mrs(), [("demo/shop#7".to_string(), "github.com".to_string(), "demo/shop".to_string(), 12, true)]);
+        assert!(!Flow::default().github(), "a flow from before GitHub is GitLab's");
     }
 
     #[test]

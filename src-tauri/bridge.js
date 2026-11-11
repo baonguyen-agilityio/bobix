@@ -70,6 +70,8 @@
     // with your own glab / gh into a folder you choose. dir / parent: given by the smoke run; the app asks with a dialog.
     linkFolder: (path, dir) => invoke('work_link', { path: String(path), dir: typeof dir === 'string' ? dir : null }),
     cloneProject: (path, parent) => invoke('work_clone', { path: String(path), parent: typeof parent === 'string' ? parent : null }),
+    workRepos: fresh => invoke('work_repos', { fresh: !!fresh }), // the repo picker: every repository glab / gh can reach, and the ticked ones
+    workPage: page => invoke('work_page', { page: Math.max(1, Math.floor(Number(page)) || 1) }), // the Work list's page, read again
     issueBrief: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_brief', { path, iid }) : Promise.resolve(null)), // title, description (read now), link
     // The ticket flow (#112): where a ticket would run, Start (a worktree, then Claude desktop or a terminal line),
     // Haiku's split (only on click), the plan's one approval, the log's assumptions seen, a Haiku summary, cleanup.
