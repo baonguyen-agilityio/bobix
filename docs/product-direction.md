@@ -39,7 +39,7 @@ Stays as it is: Bobix sets no standing rules (use Claude's own auto mode), reads
 Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (token counts times public API prices). They are not what a subscription is billed, and they will differ on other machines.
 
 - **Usage:** transcripts of the last 14 hours of active sessions. About 99% of turns were Opus. About 75 to 80% of the estimated cost was cache reads (long sessions re-reading their context every turn); output was about 8%. The main "lead" session cost about $1,300; sub-sessions cost $30 to $145 each.
-- **Skills:** about 300 skills installed (110 user, 84 project, 108 plugin), about 19k tokens of descriptions in every turn, with duplicate sets (`ck:*` and `ak:*`). The listing itself is only about 2 to 4% of cost.
+- **Skills:** about 300 skills installed (110 user, 84 project, 108 plugin), about 19k tokens of descriptions in every turn, with duplicate sets (one kit installed under two prefixes). The listing itself is only about 2 to 4% of cost.
 
 ---
 

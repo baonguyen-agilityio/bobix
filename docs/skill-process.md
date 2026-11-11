@@ -14,7 +14,7 @@ The file only says which skill to suggest. In the Start box the suggested skill 
   "name": "Shop team",
   "rules": [
     { "when": { "label": ["bug", "regression"] }, "skill": "fix-ticket" },
-    { "when": { "label": "enhancement", "role": "dev" }, "skill": "ak:cook" },
+    { "when": { "label": "enhancement", "role": "dev" }, "skill": "acme:build" },
     { "when": { "label": "spec", "role": "ba" }, "skill": "ba-qa-kit:write-stories" },
     { "when": { "role": "qa" }, "skill": "ba-qa-kit:write-test-cases" }
   ],

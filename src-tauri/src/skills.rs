@@ -178,8 +178,8 @@ mod tests {
 
     #[test]
     fn front_matter_values() {
-        let fm = front_matter("---\nname: ak:cook\ndescription: \"Fix bugs: \\\"fast\\\"\"\nwhen_to_use: >\n  Use it\n  for bugs.\nuser-invocable: false\n---\n# Body\nname: not this\n");
-        assert_eq!(fm, [("name".into(), "ak:cook".into()), ("description".into(), "Fix bugs: \"fast\"".into()), ("when_to_use".into(), "Use it for bugs.".into()), ("user-invocable".into(), "false".into())]);
+        let fm = front_matter("---\nname: acme:build\ndescription: \"Fix bugs: \\\"fast\\\"\"\nwhen_to_use: >\n  Use it\n  for bugs.\nuser-invocable: false\n---\n# Body\nname: not this\n");
+        assert_eq!(fm, [("name".into(), "acme:build".into()), ("description".into(), "Fix bugs: \"fast\"".into()), ("when_to_use".into(), "Use it for bugs.".into()), ("user-invocable".into(), "false".into())]);
         assert!(front_matter("# no front matter\nname: x").is_empty());
     }
 

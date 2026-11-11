@@ -401,8 +401,8 @@ mod tests {
         assert_eq!(s(json!({ "sleepHide": -5 }))["sleepHide"], 0);
         assert_eq!(defaults()["habitsOn"], false, "habits: off until you turn them on");
         let h = s(json!({ "habitsOn": true, "habitsNo": { "allow": 2, "x": "y" }, "habitsHidden": { "morning:/src/a#1": 1762650000000_i64 },
-            "habitsSkill": { "/src/shop": "/fix", "/src/a": "rm -rf", "/src/b": "ak:cook" }, "habitsPetDay": "2026-11-09" }));
-        assert_eq!((&h["habitsOn"], &h["habitsNo"], &h["habitsSkill"], &h["habitsPetDay"]), (&json!(true), &json!({ "allow": 2 }), &json!({ "/src/shop": "fix", "/src/b": "ak:cook" }), &json!("2026-11-09")));
+            "habitsSkill": { "/src/shop": "/fix", "/src/a": "rm -rf", "/src/b": "acme:build" }, "habitsPetDay": "2026-11-09" }));
+        assert_eq!((&h["habitsOn"], &h["habitsNo"], &h["habitsSkill"], &h["habitsPetDay"]), (&json!(true), &json!({ "allow": 2 }), &json!({ "/src/shop": "fix", "/src/b": "acme:build" }), &json!("2026-11-09")));
         assert_eq!(h["habitsHidden"], json!({ "morning:/src/a#1": 1762650000000_i64 }));
         assert_eq!(s(json!({ "habitsPetDay": "today" }))["habitsPetDay"], "");
         assert_eq!((defaults()["longWait"].clone(), s(json!({ "longWait": "25" }))["longWait"].clone(), s(json!({ "longWait": 0 }))["longWait"].clone(), s(json!({ "longWait": 999 }))["longWait"].clone()), (json!(10), json!(25), json!(1), json!(120)));
@@ -416,8 +416,8 @@ mod tests {
 
     #[test]
     fn skill_pins_and_imported_processes_are_checked() {
-        let pins = s(json!({ "skillPins": { "ak:cook": ["dev", "qa", "dev", "admin"], "ak:fix": [], "bad name": ["dev"], "x;rm": [], "ok": "dev" } }));
-        assert_eq!(pins["skillPins"], json!({ "ak:cook": ["dev", "qa"], "ak:fix": [] }), "skill names and roles only");
+        let pins = s(json!({ "skillPins": { "acme:build": ["dev", "qa", "dev", "admin"], "acme:fix": [], "bad name": ["dev"], "x;rm": [], "ok": "dev" } }));
+        assert_eq!(pins["skillPins"], json!({ "acme:build": ["dev", "qa"], "acme:fix": [] }), "skill names and roles only");
         let good = json!({ "version": 1, "rules": [{ "when": { "label": "bug" }, "skill": "fix-ticket" }] });
         let p = s(json!({ "skillProcess": { "Acme/Shop": good, "acme/bad": { "version": 1, "rules": [{ "when": { "label": "bug" }, "skill": "x y" }] }, "not a path": good } }));
         assert_eq!(p["skillProcess"].as_object().unwrap().keys().collect::<Vec<_>>(), ["acme/shop"], "only valid processes, for project paths");
