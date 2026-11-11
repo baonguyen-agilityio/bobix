@@ -140,6 +140,11 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .tk-as li{padding:6px 10px;border-radius:var(--r-md);background:var(--warn-bg);color:var(--ink);font-size:var(--t-sm);border-left:3px solid var(--warn)}
 .tk-as li.new{font-weight:600}
 .tk-as li.new::after{content:" ●";color:var(--warn)}
+.badge.ok{background:var(--ok-bg);color:var(--ok)}
+.b-sec h3 .badge,.b-dh .badge{margin-left:4px;vertical-align:1px}
+.tk-checks pre{max-height:180px;overflow:auto}
+.tk-warn{margin-top:8px;padding:10px 12px;border-radius:var(--r-md);background:var(--warn-bg);border-left:3px solid var(--warn);font-size:var(--t-sm)}
+.tk-warn p{margin:0}
 .tk-steps{margin:0;padding-left:20px;font-size:var(--t-sm);display:grid;gap:2px}
 .tk-opts{display:grid;gap:6px;margin-bottom:8px;font-size:var(--t-sm)}
 .tk-opts label{display:flex;gap:8px;align-items:baseline}
@@ -1530,6 +1535,7 @@ function overviewItems() {
   const sk = stuckList();
   [...sk.filter(x => !x.old), ...sk.filter(x => x.old)].forEach(x => it.push(stuckItem(x)));
   list.filter(s => s.usage?.warnings?.length).forEach(s => it.push(warnItem(s)));
+  tickets.list.filter(unchecked).forEach(f => it.push(nocheckItem(f)));
   it.push(...habitItems());
   run.forEach(s => it.push(sessItem(s, 'run')));
   return it;
@@ -1570,6 +1576,14 @@ function stuckItem(x) {
     detail: () => `${head(ico('clock', 'lg'), title, BOARD.short(x.project))}<p>${esc(stuckWhy(x).split(' · ').slice(1).join(' · '))}</p>
       <div class="acts" style="margin:0">${can ? `<button class="btn pri" type="button" data-nudge="${esc(x.id)}">${esc(nudgeLabel(x))}</button>` : ''}<button class="btn" type="button" data-skip="${esc(x.id)}">${esc(T('day.skip'))}</button></div>`,
     acts: [...(can ? [[nudgeLabel(x), ['↵'], `data-nudge="${esc(x.id)}"`]] : []), [T('day.skip'), [CMD, '⌫'], `data-skip="${esc(x.id)}"`]] };
+}
+// A ticket done without checks: a nudge (it is not blocked), opening its flow under Work.
+function nocheckItem(f) {
+  const go = `data-tab-go="work" data-set="f:${esc(f.key)}"`;
+  return { id: 'nock:' + f.key, grp: 'warn', kind: 'board', lead: ico('alert', 'warn'), label: T('tk.nochecks.item', { n: f.iid }), sub: `${BOARD.short(f.path)} · ${f.title}`,
+    detail: () => `${head(ico('alert', 'warn lg'), T('tk.nochecks.item', { n: f.iid }), `${BOARD.short(f.path)} · ${f.title}`)}<p>${esc(T('tk.nochecks.why'))}</p>
+      <div class="acts" style="margin:0"><button class="btn pri" type="button" ${go}>${esc(T('tk.openWork'))}</button>${bridge ? `<button class="btn" type="button" data-copy="${esc(CHECKS_ASK)}">${esc(T('tk.nochecks.copy'))}</button>` : ''}</div>`,
+    acts: [[T('tk.openWork'), ['↵'], go]] };
 }
 function warnItem(s) {
   const ws = USAGE.warns(s.usage, T), sel = `data-sel="${esc(s.id)}"`;
@@ -1745,14 +1759,24 @@ function workItems() {
     acts: bridge && work.status === 'off' ? [[T('work.toSettings'), ['↵'], 'data-tab-go="settings" data-set="set:work"']] : [] });
   return it;
 }
+// Done is the session's word; Checks are its evidence (commands with their output) and the review. Done without
+// checks warns (it is not blocked): the ask below is what you paste to the session.
+const CHECKS_ASK = 'Run the project\'s tests, build and lint (from CLAUDE.md). Under ## Checks in .bobix-log/work-log.md, add one line per command with its last lines of output, then review the change against the plan with /code-review and add a "- Review: " line. Then set the status again.';
+const unchecked = f => f.status === 'done' && !f.cleaned && !(f.parsed?.ran > 0);
+function checkBadges(f) {
+  const p = f.parsed || {};
+  if (!['done', 'blocked'].includes(f.status) || (f.status === 'blocked' && !(p.ran > 0))) return ''; // a blocked flow is not expected to have checks
+  return (p.ran > 0 ? `<span class="badge ok">✓ ${esc(T(p.ran === 1 ? 'tk.checks.1' : 'tk.checks.n', { n: p.ran }))}</span>` : `<span class="badge warn">⚠ ${esc(T('tk.checks.none'))}</span>`)
+    + (p.reviewed ? `<span class="badge ok">✓ ${esc(T('tk.reviewed'))}</span>` : '');
+}
 function flowItem(f) {
   const s = f.session && list.find(x => x.id === f.session), k = esc(f.key), acts = [];
   if (bridge && f.status === 'approve' && s?.answer) acts.push([T('tk.approve'), ['↵'], `data-tk-ok="${k}"`], [T('tk.change'), [CMD, '⌫'], `data-tk-no="${k}"`]);
   if (s) acts.push([T('b.showSession'), acts.length ? [CMD, 'O'] : ['↵'], `data-sel="${esc(s.id)}"`]);
-  if (bridge && !f.cleaned && ['done', 'blocked'].includes(f.status)) acts.push([T('tk.clean'), acts.length ? [CMD, '⇧', 'K'] : ['↵'], `data-tk-clean="${k}"`]);
+  if (bridge && !f.cleaned && ['done', 'blocked'].includes(f.status)) acts.push([T('tk.review'), acts.length ? [CMD, '⇧', 'V'] : ['↵'], `data-tk-review="${k}"`], [T('tk.clean'), [CMD, '⇧', 'K'], `data-tk-clean="${k}"`]);
   return { id: 'f:' + f.key, grp: FGRP[f.status] || 'frun', kind: 'board', cls: f.status === 'approve' ? 'hot' : '', lead: s ? pet(s) : projectPet(f.path),
     label: `#${f.iid} ${f.title}`, sub: [BOARD.short(f.path), T('tk.st.' + f.status), f.cleaned ? T('tk.cleaned') : ''].filter(Boolean).join(' · '),
-    meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
+    meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${checkBadges(f)}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
 }
 function flowHTML(f, s) {
   const p = f.parsed || {}, at = BOARD.FLOW.indexOf(BOARD.flowStep(f.status)), k = esc(f.key), asks = f.status === 'approve', held = asks && !!s?.answer && bridge;
@@ -1769,6 +1793,8 @@ function flowHTML(f, s) {
     <section class="b-sec"><h3>${esc(T('tk.assume'))}${f.new ? ` <span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}</h3>
       ${as.length ? `<ul class="tk-as">${as.map((a, n) => `<li${n >= f.seen ? ' class="new"' : ''}>${esc(a)}</li>`).join('')}</ul>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}</section>
     <section class="b-sec"><h3>${esc(T('tk.steps'))}</h3>${p.steps?.length ? `<ol class="tk-steps">${p.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}</section>
+    <section class="b-sec"><h3>${esc(T('tk.checks'))} ${checkBadges(f)}</h3>${p.checksText ? `<div class="report md tk-checks">${markdown(p.checksText)}</div>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}
+      ${unchecked(f) ? `<div class="tk-warn"><p><strong>${esc(T('tk.nochecks.t'))}</strong> ${esc(T('tk.nochecks.why'))}</p><div class="cmd"><code>${esc(CHECKS_ASK)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(CHECKS_ASK)}">${esc(T('work.copy'))}</button>` : ''}</div></div>` : ''}</section>
     ${p.result ? `<section class="b-sec"><h3>${esc(T(f.status === 'blocked' ? 'tk.blocked' : 'tk.result'))}</h3><div class="report md${f.status === 'blocked' ? ' stop' : ''}">${markdown(p.result)}</div></section>` : ''}
     ${f.summary ? `<section class="b-sec"><h3>${esc(T('tk.summary'))}</h3><div class="report md">${markdown(f.summary)}</div></section>` : ''}
     ${f.status === 'starting' && f.cmd ? `<section class="b-sec"><h3>${esc(T('tk.waiting'))}</h3><p class="note">${esc(T('tk.waiting.note'))}</p><div class="cmd"><code>${esc(f.cmd)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(f.cmd)}">${esc(T('work.copy'))}</button>` : ''}</div></section>` : ''}
@@ -1777,9 +1803,10 @@ function flowHTML(f, s) {
       <dt>${esc(T('tk.dir'))}</dt><dd><code>${esc(home(f.dir))}</code>${f.cleaned ? ` · ${esc(T('tk.cleaned'))}` : ''}</dd>
       <dt>${esc(T('tk.models'))}</dt><dd>${esc(modelsLine(f.models))}</dd>
       ${s ? `<dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>` : ''}</dl></section>
-    ${bridge ? `<div class="acts" style="margin:0">${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `<button class="btn pri" type="button" data-tk-clean="${k}">${esc(T('tk.clean'))}</button>` : ''}
+    ${bridge ? `<div class="acts" style="margin:0">${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `<button class="btn pri" type="button" data-tk-review="${k}">${esc(T('tk.review'))}</button><button class="btn" type="button" data-tk-review-cli="${k}">${esc(T('tk.review.cli'))}</button><button class="btn" type="button" data-tk-clean="${k}">${esc(T('tk.clean'))}</button>` : ''}
       ${f.session ? `<button class="btn" type="button" data-tk-sum="${k}"${tkBusy.has(f.key) ? ' disabled' : ''}>${esc(T(tkBusy.has(f.key) ? 'tk.ask.busy' : 'tk.sum'))}</button>` : ''}
       ${f.url ? `<button class="btn" type="button" data-url="${esc(f.url)}">${esc(T('work.open'))}</button>` : ''}</div>
+      ${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `<p class="note">${esc(T('tk.review.note'))}</p>` : ''}
       ${f.session ? `<p class="note">${esc(T('tk.sum.note'))}</p>` : ''}` : ''}
     <p class="note">${esc(T('tk.local'))}</p>`;
 }
@@ -1862,6 +1889,12 @@ async function tkSum(key) {
   if (!r?.ok) toast(T('tk.sum.fail', { e: r?.error || '' }));
   render();
 }
+async function tkReview(key, how) {
+  const r = await bridge.ticketReview(key, how);
+  if (how === 'cli' && r?.cmd) { try { await navigator.clipboard.writeText(r.cmd); toast(T('tk.cli.done')); } catch { toast(r.cmd); } return; }
+  if (r?.prompt) try { await navigator.clipboard.writeText(r.prompt); } catch {}
+  toast(r?.ok ? T('tk.review.done') : T('tk.review.fail', { e: r?.error === 'running' ? T('tk.st.running') : r?.error || '' }));
+}
 async function tkClean(key) {
   const r = await bridge.ticketClean(key);
   toast(r?.ok ? T('tk.cleaned.t') : T('tk.clean.fail', { e: r?.error === 'running' ? T('tk.st.running') : r?.error || '' }));
@@ -1871,7 +1904,7 @@ function flowPaneHTML(s) {
   const f = tickets.list.find(x => x.key === s.flow);
   if (!f) return '';
   const p = f.parsed || {};
-  return `<section class="b-sec"><h3>${esc(T('tk.log'))} · ${esc(T('tk.st.' + f.status))}</h3>
+  return `<section class="b-sec"><h3>${esc(T('tk.log'))} · ${esc(T('tk.st.' + f.status))} ${checkBadges(f)}</h3>
     ${p.assumptions?.length ? `<ul class="tk-as">${p.assumptions.map((a, n) => `<li${n >= f.seen ? ' class="new"' : ''}>${esc(a)}</li>`).join('')}</ul>` : ''}
     ${p.steps?.length ? `<ol class="tk-steps">${p.steps.slice(-5).map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}
     <button class="lnk" type="button" data-tab-go="work" data-set="f:${esc(f.key)}">${esc(T('tk.openWork'))}</button></section>`;
@@ -2630,6 +2663,8 @@ async function onAct(e) {
   if (d.tkNo) return tkAnswer(d.tkNo, false);
   if (d.tkSum) return tkSum(d.tkSum);
   if (d.tkClean) return tkClean(d.tkClean);
+  if (d.tkReview) return tkReview(d.tkReview, 'desktop');
+  if (d.tkReviewCli) return tkReview(d.tkReviewCli, 'cli');
   if (d.copy) { try { await navigator.clipboard.writeText(d.copy); toast(T('work.copied')); } catch {} return; }
   if (d.act === 'refresh') { b.disabled = true; await bridge.refreshWork(); }
 }

@@ -45,7 +45,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 ### Xem mỗi session dùng bao nhiêu
 - Với mỗi session đang chạy: token, phần dành để **đọc lại ngữ cảnh**, các model đã dùng (cả subagent) và thời gian làm việc, đọc từ transcript mà Claude Code ghi trên máy bạn.
 - So **với mức thường ngày của bạn**: "3,7× phiên thường ngày", học từ chính các session trước của bạn. Số đô chỉ là ước tính theo giá API, có ghi rõ, và tắt được; hạn mức thật vẫn xem bằng `/usage` trong Claude.
-- **Cảnh báo kèm lý do và cách xử lý**: session quá dài (chạy `/compact` hoặc mở session mới), model nặng cho việc nhẹ (`/model sonnet`), hay đọc khám phá liên tục (nhờ một subagent Haiku).
+- **Cảnh báo kèm lý do và cách xử lý**: session quá dài (mở session mới từ một bản tóm tắt ngắn, hoặc `/clear` nếu đổi việc), model nặng cho việc nhẹ (`/model sonnet`), hay đọc khám phá liên tục (nhờ subagent Explore có sẵn, chạy Haiku).
 
 ### Giữ bộ skill gọn gàng, chọn đúng model
 - **Rà soát skill theo project**: mọi skill Claude nạp ở đó, phần mô tả của chúng tốn bao nhiêu token mỗi lượt, skill không dùng trong 30 ngày và các bộ trùng nhau (`acme:build` và `team:build`).

@@ -1103,6 +1103,24 @@ async fn ticket_summary(key: String, b: B<'_>) -> Result<Value, ()> {
     }).await.map_err(|_| ())
 }
 
+// Review a done flow in a second session in its worktree, against the plan and the assumptions; it changes no code and
+// notes what it found under ## Checks. how: desktop (a new Claude desktop session) | cli (the line to paste, in auto mode).
+#[tauri::command]
+async fn ticket_review(key: String, how: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
+        if f.cleaned || !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
+        let prompt = tickets::review_prompt(&f.branch, &f.base);
+        let cmd = tickets::cli_in_mode(&f.dir, &tickets::review_model(&f.models), "auto", &prompt);
+        if how == "cli" { return json!({ "ok": true, "mode": "cli", "cmd": cmd, "prompt": prompt }); }
+        match tauri_plugin_opener::open_url(work::new_session_link(&f.dir, &prompt), None::<&str>) {
+            Ok(_) => json!({ "ok": true, "mode": "new", "cmd": cmd, "prompt": prompt }),
+            Err(e) => json!({ "ok": false, "error": e.to_string(), "cmd": cmd, "prompt": prompt }),
+        }
+    }).await.map_err(|_| ())
+}
+
 // Clean up a finished flow's worktree (git refuses when work is not committed; Bobix never forces). The log is kept.
 #[tauri::command]
 async fn ticket_clean(key: String, b: B<'_>) -> Result<Value, ()> {
@@ -1402,7 +1420,7 @@ fn pet_reset(id: String, b: B) -> Value {
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean"];
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1498,7 +1516,7 @@ fn main() {
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
             settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
-            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean,
+            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

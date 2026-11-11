@@ -19,14 +19,14 @@ const DAY_MS: u64 = 86_400_000;
 const DAYS: u64 = 30;
 
 pub const RULES: &str = "## When to split, which model
-- Read-only exploration (search, read, map code): a Haiku subagent.
+- Read-only exploration (search, read, map code): the built-in
+  Explore subagent (Haiku).
 - Edits and tests: Sonnet.
 - A risky change to review, or a design choice: Opus.
 - Small task (one area, under ~30 min): one Sonnet session, no split.
-- Keep the lead session thin: hand out work, collect results,
-  /compact when context passes 60%.
-- One session per ticket. Past 2× your usual length, start fresh
-  with a summary.";
+- Keep the lead session thin: hand out work, collect results.
+- One session per ticket; /clear between unrelated tasks. Past 2×
+  your usual length, start a new session from a short summary.";
 const OPEN: &str = "<!-- bobix:routing (added by Bobix; take it out from Bobix's Skills screen) -->";
 const CLOSE: &str = "<!-- /bobix:routing -->";
 
