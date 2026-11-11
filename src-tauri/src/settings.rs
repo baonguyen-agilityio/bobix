@@ -472,8 +472,10 @@ mod tests {
         assert!(s(json!({ "gitlabUrl": "https://x" })).get("gitlabUrl").is_none());
         assert_eq!(s(json!({ "workProjects": ["Team/Shop-App", "team/shop-app", "g/sub/p", "nopath", "../x", 3, "a/b c"] }))["workProjects"], json!(["team/shop-app", "g/sub/p"]));
         assert_eq!(s(json!({ "workProjects": "team/x" }))["workProjects"], json!([]));
-        assert_eq!(s(json!({ "workDirs": { "Acme/Web-Shop": { "dir": "/Users/me/code/web-shop", "how": "found" }, "a/b": { "dir": "relative/x" }, "x": { "dir": "/x" }, "c/d": { "dir": "/c/d", "how": "evil" } } }))["workDirs"],
-            json!({ "acme/web-shop": { "dir": "/Users/me/code/web-shop", "how": "found" }, "c/d": { "dir": "/c/d", "how": "chosen" } }), "absolute folders of project paths only");
+        let abs = |p: &str| if cfg!(windows) { format!("C:{p}") } else { p.to_string() }; // absolute on this system
+        let (shop, cd) = (abs("/Users/me/code/web-shop"), abs("/c/d"));
+        assert_eq!(s(json!({ "workDirs": { "Acme/Web-Shop": { "dir": shop, "how": "found" }, "a/b": { "dir": "relative/x" }, "x": { "dir": abs("/x") }, "c/d": { "dir": cd, "how": "evil" } } }))["workDirs"],
+            json!({ "acme/web-shop": { "dir": shop, "how": "found" }, "c/d": { "dir": cd, "how": "chosen" } }), "absolute folders of project paths only");
         assert_eq!(s(json!({ "workDirsOff": ["Acme/Web-Shop", "nope"] }))["workDirsOff"], json!(["acme/web-shop"]));
         assert_eq!(s(json!({ "workKeys": { "Team/App": "BAK", "x": "BAK", "a/b": "bad" } }))["workKeys"], json!({ "team/app": "BAK" }));
     }

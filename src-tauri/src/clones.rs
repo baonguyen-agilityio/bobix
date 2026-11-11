@@ -135,15 +135,16 @@ mod tests {
         let r = roots(&home, &[]);
         assert_eq!(r, [home.join("code"), home.join("Documents")]);
         let found = scan(&r, &hosts, &wanted);
-        assert_eq!(found.get("acme/web-shop").map(String::as_str), Some(&*shop.to_string_lossy()), "the shallowest of two (a fork's upstream counts too)");
-        assert_eq!(found.get("acme/api-gateway").map(String::as_str), Some(&*api.to_string_lossy()), "an upstream remote, three levels down");
+        let at = |m: &HashMap<String, String>, p: &str| m.get(p).map(PathBuf::from); // compared as paths: Windows mixes / and \
+        assert_eq!(at(&found, "acme/web-shop"), Some(shop), "the shallowest of two (a fork's upstream counts too)");
+        assert_eq!(at(&found, "acme/api-gateway"), Some(api), "an upstream remote, three levels down");
         assert!(!found.contains_key("acme/docs") && !found.contains_key("acme/deep"), "node_modules and too deep are left out: {found:?}");
         assert!(scan(&r, &hosts, &HashSet::new()).is_empty());
         // the parents of folders sessions ran in are looked in too, once
         let elsewhere = repo(&home, "elsewhere/acme-docs", &[("origin", "git@gitlab.example.test:acme/docs.git")]);
         let r2 = roots(&home, &[home.join("elsewhere/other").to_string_lossy().into_owned(), home.join("code/acme/x").to_string_lossy().into_owned()]);
         assert_eq!(r2, [home.join("code"), home.join("Documents"), home.join("elsewhere")]);
-        assert_eq!(scan(&r2, &hosts, &wanted).get("acme/docs").map(String::as_str), Some(&*elsewhere.to_string_lossy()));
+        assert_eq!(at(&scan(&r2, &hosts, &wanted), "acme/docs"), Some(elsewhere));
         assert_eq!(clone_dest(&home.join("code"), "acme/web-shop"), home.join("code/web-shop"));
         let _ = fs::remove_dir_all(&home);
     }
