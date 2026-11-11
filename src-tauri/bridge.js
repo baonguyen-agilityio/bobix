@@ -84,6 +84,7 @@
     ticketAnswer: (key, approve, change) => invoke('ticket_answer', { key: String(key), approve: !!approve, change: typeof change === 'string' ? change : null }),
     ticketSeen: key => invoke('ticket_seen', { key: String(key) }),
     ticketSummary: key => invoke('ticket_summary', { key: String(key) }),
+    usageEffects: () => invoke('usage_effects'),
     ticketDetail: key => invoke('ticket_detail', { key: String(key) }),
     ticketRemove: (key, act) => invoke('ticket_remove', { key: String(key), act: ['check', 'keep', 'delete'].includes(act) ? act : 'check' }),
     ticketClean: (key, force) => invoke('ticket_clean', { key: String(key), force: force === true }), // force: also with commits not pushed
