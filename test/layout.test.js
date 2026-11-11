@@ -124,7 +124,7 @@ const prelude = lang => `(() => {
 // Every box worth watching, by a name that survives a redraw, in page coordinates.
 const BOXES = `(() => { const o = {}, r = el => { const b = el.getBoundingClientRect(); return [b.x, b.y + scrollY, b.width, b.height].map(v => Math.round(v * 2) / 2); };
   const add = (k, el) => { if (el && el.getClientRects().length && !(k in o)) o[k] = r(el); };
-  for (const s of ['.b-search', '#bq', '#bq-x', '#scopes', '.b-split', '#b-list', '#b-bar', '#cmdk-ft', '#fb-dialog h2', '#fb-dialog .acts', '#st-text']) add(s, document.querySelector(s));
+  for (const s of ['.b-search', '#bq', '#bq-n', '#bq-x', '#scopes', '.b-split', '#b-list', '#b-bar', '#cmdk-ft', '#fb-dialog h2', '#fb-dialog .acts', '#st-text']) add(s, document.querySelector(s));
   for (const el of document.querySelectorAll('#scopes .tab')) add('tab:' + el.dataset.tab, el);
   // Narrow, the list sits above its detail in one scroll: their tops stay, their heights are the scope's content.
   if (getComputedStyle(document.querySelector('.b-split')).gridTemplateColumns.split(' ').length > 1) add('#b-detail', document.querySelector('#b-detail'));
@@ -181,12 +181,38 @@ async function panel(b, url, { width, height, lang, dark }) {
       await b.ev(`(() => { const s = document.querySelector('[data-proj]'); s.value = s.options[1].value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       await sleep(100); await frameStill('project picked', '');
     });
-    // Typing in the search: its clear button shows up.
+    // Typing in the search: its result count and clear button show up in their own places, the page does not widen.
+    const searched = async what => { const now = await frameStill(what, '');
+      for (const k of ['#bq-n', '#bq-x']) if (!same(now[k], frame[k])) fail(`${what}: ${k} ${frame[k]} → ${now[k]}`);
+      const over = await b.ev('document.documentElement.scrollWidth - innerWidth'); if (over > 0) fail(`${what}: the page is ${over}px wider than the window`); };
+    // What the list shows: its rows, the marked parts, the count, the "nothing matches" boxes and the screens offered.
+    const seen = () => b.ev(`(() => ({ rows: document.querySelectorAll('#b-list .b-it').length, marks: [...document.querySelectorAll('#b-list .b-it mark')].map(m => m.textContent),
+      n: document.querySelector('#bq-n').textContent, nOn: getComputedStyle(document.querySelector('#bq-n')).visibility === 'visible',
+      empty: [document.querySelectorAll('#b-list .b-empty').length, document.querySelectorAll('#b-dyn .b-empty').length],
+      other: [...document.querySelectorAll('#b-list [data-bq-tab]')].map(e => e.dataset.bqTab + ' ' + e.querySelector('.n').textContent) }))()`);
+    const search = async (t, q) => { if (t) await tab(t); await b.click('#bq'); await b.ev(`document.querySelector('#bq').select()`); await b.type(q); await sleep(150); return seen(); };
     await part('search', async () => {
-      await b.click('#bq'); await b.type('ac'); await sleep(100);
-      const typed = await frameStill('search typed', '');
-      if (!same(typed['#bq-x'], frame['#bq-x'])) fail(`search clear button ${frame['#bq-x']} → ${typed['#bq-x']}`);
+      let v = await search(null, 'ac');
+      await searched('search typed');
+      if (!v.rows || !v.nOn || !v.n.startsWith(String(v.rows))) fail(`search "ac": ${v.rows} rows, count "${v.n}"${v.nOn ? '' : ' (hidden)'}`);
+      if (!v.marks.length || v.marks.some(m => m.toLowerCase() !== 'ac')) fail(`search "ac": marked ${JSON.stringify(v.marks)}`);
+      // The letters under the accents: dang nhap finds đăng nhập, and marks those words as written.
+      if (lang === 'vi') {
+        v = await search('settings', 'dang nhap');
+        if (!v.rows || v.marks.join(' ') !== 'đăng nhập') fail(`search "dang nhap" in Settings: ${v.rows} rows, marked ${JSON.stringify(v.marks)}`);
+      }
+      // Nothing here: said once, in the list, with the screens that have it; picking one keeps the search.
+      v = await search('work', 'cart');
+      await searched('search, nothing here');
+      const there = +(v.other.find(o => o.startsWith('sessions '))?.split(' ')[1] || 0);
+      if (v.rows || v.empty.join() !== '1,0' || !there) fail(`search "cart" in Work: ${v.rows} rows, empty boxes ${v.empty}, offered ${JSON.stringify(v.other)}`);
+      await b.click('#b-list [data-bq-tab="sessions"]'); await sleep(150);
+      v = await seen();
+      const at = await b.ev(`[document.querySelector('#scopes [aria-selected="true"]').dataset.tab, document.querySelector('#bq').value, document.activeElement.id]`);
+      if (at.join() !== 'sessions,cart,bq' || v.rows !== there) fail(`search "cart", Sessions picked: on ${at[0]}, search "${at[1]}", focus ${at[2]}, ${v.rows} rows`);
+      await searched('search, the screen that has it');
       await b.ev(`document.querySelector('#bq-x').click()`); await sleep(100);
+      if ((await seen()).nOn) fail('search cleared: the count still shows');
     });
     // Work: Prepare says it is busy (reading the issue) in a button of the same size.
     await part('Prepare', async () => {

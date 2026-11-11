@@ -253,6 +253,29 @@
     return `${T('su.head', { d: new Date(now).toLocaleDateString(locale) })}\n\n${[sec('su.yesterday', done), sec('su.today', today), sec('su.stuck', stuck.map(x => `- ${x.text}: ${x.why}`))].join('\n\n')}\n`;
   }
 
-  const api = { FLOW, flowStep, flowPrompt, gb, PRI, STEPS, day, stages, loose, short, folder, waited, stuck, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill, suggest, installHint, TEAM };
+  // The panel's search: a word matches the letters under the accents and case (ngon finds Ngôn ngữ, dang nhap finds
+  // đăng nhập). fold keeps, for each folded letter, where it came from in the text, so a hit maps back to the text.
+  function fold(s) {
+    const src = String(s ?? '').normalize('NFC'), from = [], to = [];
+    let t = '', i = 0;
+    for (const ch of src) {
+      const f = ch.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/đ/g, 'd');
+      for (let k = 0; k < f.length; k++) { from.push(i); to.push(i + ch.length); }
+      t += f; i += ch.length;
+    }
+    return { src, t, from, to };
+  }
+  const words = q => fold(q).t.split(/\s+/).filter(Boolean);
+  const matches = (text, ws) => { const t = fold(text).t; return ws.every(w => t.includes(w)); };
+  // The parts of the text the words hit, as [start, end) in src (the text in NFC), in order and merged.
+  function hits(text, ws) {
+    const f = fold(text), r = [], out = [];
+    for (const w of ws) for (let k = f.t.indexOf(w); k >= 0; k = f.t.indexOf(w, k + w.length)) r.push([f.from[k], f.to[k + w.length - 1]]);
+    r.sort((a, b) => a[0] - b[0]);
+    for (const x of r) { const l = out.at(-1); if (l && x[0] <= l[1]) l[1] = Math.max(l[1], x[1]); else out.push(x); }
+    return { src: f.src, r: out };
+  }
+
+  const api = { FLOW, flowStep, flowPrompt, gb, PRI, STEPS, day, stages, loose, short, folder, waited, stuck, report, stepOf, why, dups, lastWorkday, standup, next, brief, skillFor, withSkill, suggest, installHint, TEAM, words, matches, hits };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.BOARD = api;
 })(this);

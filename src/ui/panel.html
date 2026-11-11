@@ -45,12 +45,15 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .b-win{height:100vh;height:100dvh;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;background:var(--surface)}
 .b-search{display:flex;align-items:center;gap:12px;height:62px;padding:0 16px 0 18px;border-bottom:1px solid var(--line);color:var(--ink-3)}
 .b-search svg.i{width:20px;height:20px}
-.b-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:19px;color:var(--ink)}
+.b-search input{flex:1;min-width:0;width:0;border:0;outline:0;background:transparent;font-size:16px;color:var(--ink)}
 .b-search input::placeholder{color:var(--ink-3)}
 .b-search input::-webkit-search-cancel-button{display:none}
 .nb{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--ink-3)}
 .nb:hover{background:var(--surface-3);color:var(--ink)}
 .nb.off{visibility:hidden}
+/* the search's result count: a slot of its own size, there while empty too, so the field does not narrow */
+.b-cnt{flex:none;width:84px;height:18px;font-size:12px;line-height:18px;color:var(--ink-3);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.b-cnt.off{visibility:hidden}
 .conn{font-size:var(--t-xs);font-weight:600;color:var(--accent-ink);white-space:nowrap}
 /* One height whether or not a scope has a picker (Sessions, Skills): the list below never moves on a tab switch. */
 .b-scope{display:flex;align-items:center;gap:2px;height:39px;padding:6px 10px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
@@ -82,6 +85,8 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .b-tx{display:flex;flex-direction:column;min-width:0}
 .b-tx .lb{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .b-tx .lb.mono{font-family:var(--f-mono);font-size:12px}
+/* what the search matched: a tint only, the text keeps its width */
+.b-list mark{background:color-mix(in oklch,var(--accent) 30%,transparent);color:var(--ink);border-radius:2px}
 .b-tx .sb{font-size:12px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .b-it .mt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);white-space:nowrap}
 .b-it.hot .sb{color:var(--accent-ink)}
@@ -514,7 +519,6 @@ input[type=number]{width:104px}
   .b-detail.wait{display:none} /* below the list here: it would move down when the list fills in */
   .b-pane{padding:16px 16px 24px}
   .b-search{height:56px}
-  .b-search input{font-size:17px}
   .b-search .kbd,.b-scope .ver{display:none}
   .b-scope{flex-wrap:wrap;align-content:flex-start;height:auto;min-height:67px;overflow:visible}.b-scope .sp{display:none}.b-scope .sel{max-width:100%} /* a second row for the picker, kept on every scope */
   .b-it{min-height:48px}
@@ -568,7 +572,7 @@ input[type=number]{width:104px}
   <symbol id="i-cpu" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.5V4M9.5 1.5V4M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5"/></symbol>
 </svg>
 <div class="b-win" id="win">
-  <div class="b-search"><svg class="i"><use href="#i-search"/></svg><input id="bq" type="search" autocomplete="off" spellcheck="false" role="combobox" aria-controls="b-list" aria-expanded="true"><button class="nb off" type="button" id="bq-x"><svg class="i"><use href="#i-x"/></svg></button><span class="conn" id="conn" role="status" hidden></span><span class="kbd">esc</span></div>
+  <div class="b-search"><svg class="i"><use href="#i-search"/></svg><input id="bq" type="search" autocomplete="off" spellcheck="false" role="combobox" aria-controls="b-list" aria-expanded="true"><span class="b-cnt off" id="bq-n" aria-live="polite"></span><button class="nb off" type="button" id="bq-x"><svg class="i"><use href="#i-x"/></svg></button><span class="conn" id="conn" role="status" hidden></span><span class="kbd">esc</span></div>
   <nav class="b-scope" role="tablist" id="scopes"></nav>
   <div class="b-split">
     <div class="b-list" id="b-list" role="listbox"></div>
@@ -1553,6 +1557,7 @@ const two = (on, a, b) => `<span class="two"><span>${esc(on ? b : a)}</span><spa
 const projectPet = (p, cls = '') => `<span class="b-ico pet ${cls}">${creature(p, 'idle')}</span>`;
 const oneLine = t => String(t || '').replace(/\s+/g, ' ').trim();
 const times = x => `${x < 10 ? x.toFixed(1) : Math.round(x)}×`;
+let bw = []; // the search's words, folded (BOARD.words)
 let scope = 'overview', bq = '', items = [], cur = null, curKey = '', nextFocus = null, pendingSel = selected, proj = 'all';
 let st = BOARD.stages(null, []), logo = '';
 const bsel = {}, lastIdx = {};
@@ -2676,8 +2681,8 @@ function render(force) {
   dup = BOARD.dups(model, list);
   const all = buildItems(scope), order = [...new Set(all.map(x => x.grp || ''))];
   all.sort((a, b) => order.indexOf(a.grp || '') - order.indexOf(b.grp || '')); // one block per group, in first-seen order
-  const words = bq.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  items = words.length ? all.filter(x => { const t = `${x.label} ${x.sub || ''} ${grpName(x.grp, 0)}`.toLowerCase(); return words.every(w => t.includes(w)); }) : all;
+  bw = BOARD.words(bq);
+  items = bw.length ? all.filter(x => BOARD.matches(hay(x), bw)) : all;
   // the picked item, or the one now at its place when it went (an answered request: the next one)
   const sel = items.find(x => x.id === bsel[scope]) || items[Math.min(Math.max(0, lastIdx[scope] ?? 0), items.length - 1)] || null;
   const key = `${scope}|${sel?.id}`, changed = force || key !== curKey;
@@ -2688,6 +2693,22 @@ function render(force) {
   nextFocus = null;
   const n = waitingList().length;
   document.title = n ? `(${n}) ${T('app.name')}` : T('app.name');
+}
+// What the search looks in, and the text with what it matched marked.
+const hay = x => `${x.label} ${x.sub || ''} ${grpName(x.grp, 0)}`;
+function hl(text) {
+  if (!bw.length) return esc(text);
+  const { src, r } = BOARD.hits(text, bw);
+  let o = '', i = 0;
+  for (const [a, b] of r) { o += `${esc(src.slice(i, a))}<mark>${esc(src.slice(a, b))}</mark>`; i = b; }
+  return o + esc(src.slice(i));
+}
+// Nothing here: said once, with the screens that do have it (their data as it is now; none is loaded for this).
+function noMatch() {
+  const other = SCOPES.filter(k => k !== scope && !(k === 'room' && !rm.v))
+    .map(k => [k, buildItems(k).filter(x => !x.wait && BOARD.matches(hay(x), bw)).length]).filter(([, n]) => n);
+  return `<div class="b-empty"><p>${esc(T('b.noMatch', { q: bq.trim() }))}</p>${other.length ? `<p>${esc(T('b.elsewhere'))}</p><div class="acts">${other.map(([k, n]) =>
+    `<button class="btn" type="button" data-bq-tab="${k}" data-f="bq-tab:${k}">${esc(T('tab.' + k))} <span class="n">${n}</span></button>`).join('')}</div>` : ''}</div>`;
 }
 function drawScopes() {
   const n = waitingList().length, projs = scope === 'sessions' ? [...new Set(st.todo.map(x => x[1].path))] : [];
@@ -2700,15 +2721,18 @@ function drawScopes() {
   q.placeholder = T('b.search.' + scope);
   q.setAttribute('aria-label', T('b.search.' + scope));
   $('#bq-x').classList.toggle('off', !bq);
+  const found = items.filter(x => !x.wait).length;
+  $('#bq-n').textContent = bw.length ? T(found === 1 ? 'b.found.1' : 'b.found', { n: found }) : '';
+  $('#bq-n').classList.toggle('off', !bw.length);
   $('#scopes').setAttribute('aria-label', T('b.scopes'));
 }
 function drawList() {
   const groups = [];
   for (const x of items) { const g = groups.at(-1), k = x.grp || ''; if (g && g.k === k) g.xs.push(x); else groups.push({ k, xs: [x] }); }
-  const it = x => `<button type="button" class="b-it ${x.cls || ''}" role="option" id="bi-${items.indexOf(x)}" data-bsel="${esc(x.id)}" data-f="it:${esc(x.id)}" aria-selected="${x === cur}">${x.lead}<span class="b-tx"><span class="lb${x.mono ? ' mono' : ''}">${esc(x.label)}</span>${x.sub ? `<span class="sb">${esc(x.sub)}</span>` : ''}</span><span class="mt">${x.meta || ''}</span></button>`;
+  const it = x => `<button type="button" class="b-it ${x.cls || ''}" role="option" id="bi-${items.indexOf(x)}" data-bsel="${esc(x.id)}" data-f="it:${esc(x.id)}" aria-selected="${x === cur}">${x.lead}<span class="b-tx"><span class="lb${x.mono ? ' mono' : ''}">${hl(x.label)}</span>${x.sub ? `<span class="sb">${hl(x.sub)}</span>` : ''}</span><span class="mt">${x.meta || ''}</span></button>`;
   const refresh = bridge && work.status !== 'off' ? `<span class="sp"></span>${work.at ? `<span>${esc(ago(work.at))}</span>` : ''}<button class="ib" type="button" data-act="refresh" aria-label="${esc(T('work.refresh'))}" title="${esc(T('work.refresh'))}"${work.status === 'loading' ? ' disabled' : ''}>${ic('refresh')}</button>` : '';
-  swap($('#b-list'), groups.map(({ k, xs }) => `<div class="b-g" data-grp="${k}" role="group"${k ? ` aria-label="${esc(grpName(k, xs.length))}"` : ''}>${k ? `<div class="b-grp" role="presentation"><span>${esc(grpName(k, xs.length))}</span><span class="n">${xs.length}</span>${k === 'todo' ? refresh : ''}</div>` : ''}${xs.map(it).join('')}</div>`).join('')
-    || `<div class="b-empty"><p>${esc(bq ? T('b.noMatch', { q: bq }) : T('b.empty'))}</p></div>`);
+  swap($('#b-list'), groups.map(({ k, xs }) => `<div class="b-g" data-grp="${k}" role="group"${k ? ` aria-label="${esc(grpName(k, xs.length))}"` : ''}>${k ? `<div class="b-grp" role="presentation"><span>${hl(grpName(k, xs.length))}</span><span class="n">${xs.length}</span>${k === 'todo' ? refresh : ''}</div>` : ''}${xs.map(it).join('')}</div>`).join('')
+    || (bw.length ? noMatch() : `<div class="b-empty"><p>${esc(T('b.empty'))}</p></div>`));
   $('#b-list').setAttribute('aria-label', T('tab.' + scope));
   const q = $('#bq');
   if (cur) q.setAttribute('aria-activedescendant', 'bi-' + items.indexOf(cur)); else q.removeAttribute('aria-activedescendant');
@@ -2720,7 +2744,7 @@ function drawDetail(changed) {
   for (const k of ['settings', 'skills', 'setup']) $('#' + k).hidden = kind !== k;
   if (changed) $('#b-detail').scrollTop = 0;
   if (!dyn.hidden) {
-    if (swap(dyn, cur ? cur.detail() : `<div class="b-empty"><p>${esc(bq ? T('b.noMatch', { q: bq }) : T('b.empty'))}</p></div>`)) showMore(dyn);
+    if (swap(dyn, cur ? cur.detail() : bw.length ? '' : `<div class="b-empty"><p>${esc(T('b.empty'))}</p></div>`)) showMore(dyn);
     return;
   }
   if (!changed) return;
@@ -2735,11 +2759,12 @@ function drawBar() {
 }
 
 // ---------- moving around ----------
-function showTab(name) {
+function showTab(name, keepSearch) {
   if (name === 'feedback') return openFeedback(); // from the tray, over whichever screen is open
   if (name === 'setup') { name = 'settings'; bsel.settings = 'setup'; }
   if (!SCOPES.includes(name)) name = 'overview';
-  scope = name; bq = ''; $('#bq').value = '';
+  scope = name;
+  if (!keepSearch) { bq = ''; $('#bq').value = ''; }
   if (name === 'skills') loadSkillLists();
   render(true);
 }
@@ -2771,6 +2796,8 @@ $('#scopes').addEventListener('change', e => {
 $('#b-list').addEventListener('click', e => {
   const r = e.target.closest('[data-act="refresh"]');
   if (r) { r.disabled = true; return bridge?.refreshWork(); }
+  const o = e.target.closest('[data-bq-tab]');
+  if (o) { showTab(o.dataset.bqTab, true); return $('#bq').focus(); } // the same search, on the screen that has it
   const b = e.target.closest('.b-it');
   if (!b) return;
   bsel[scope] = b.dataset.bsel; nextFocus = 'it:' + b.dataset.bsel;
