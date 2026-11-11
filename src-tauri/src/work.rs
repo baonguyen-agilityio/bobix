@@ -1,5 +1,6 @@
 // Work items: a session's local git status (no network), and the GitLab / GitHub issues assigned to you, read through
-// your own `glab` / `gh` (Bobix keeps no token, writes nothing to either). Commands get argument lists, never a shell.
+// your own `glab` / `gh` (Bobix keeps no token, and writes nothing to either from here; the ticket flow's Open MR,
+// on your click, is in tickets.rs). Commands get argument lists, never a shell.
 // Port of the 0.1 (Electron) app's core/work.js, plus the Work tab's state from src/main.js (workView, takeIssue, startIssue...).
 use crate::{js::{head16, len16}, links::ClaudeSession, model::{self, Model, Review}, procs};
 use fancy_regex::Regex;

@@ -242,6 +242,16 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     let f = wait(ticket_secs() / 3, &|f| f["log"].as_str().is_some_and(|l| l.contains("Review (second session)")));
     r["reviewNoted"] = json!(f["log"].as_str().is_some_and(|l| l.contains("Review (second session)")));
     r["checks"] = f["parsed"]["checks"].clone();
+    // Open MR: Clean up first says the commits are not pushed (and does nothing); then Open MR… shows what is sent,
+    // and Push and open MR pushes the branch and runs glab mr create (a stand-in in the e2e run); the flow keeps the link
+    r["mr"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
+        const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
+        showTab('work'); bsel.work = 'f:' + k; render(); await w(300); const r = {{}}; \
+        q('[data-tk-clean]').click(); r.unpushed = await until(() => tkUnpushed[k] > 0, 10000) ? tkUnpushed[k] : 0; \
+        q('[data-tk-mr-open]').click(); await until(() => q('[data-tk-mr-body]'), 5000); const body = q('[data-tk-mr-body]').value; \
+        r.bodyHasPlan = body.includes('## Plan'); r.bodyHasChecks = body.includes('## Checks'); r.closes = body.startsWith('Closes #'); \
+        q('[data-tk-mr-go]').click(); r.opened = await until(() => tickets.list.find(f => f.key === k)?.mr, 90000); \
+        r.url = tickets.list.find(f => f.key === k)?.mr || null; r.link = !!document.querySelector('#b-dyn [data-url*=\"merge_requests\"]'); return r; }})()"), 120);
     // the log's own view, then Haiku's summary and the cleanup, clicked in Work
     r["finish"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
         const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
@@ -254,7 +264,8 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     r["worktreeGone"] = json!(!std::path::Path::new(&fdir).exists());
     r["pass"] = json!(r["start"]["rules"] == true && r["worktree"] == true && r["plan"].as_u64().unwrap_or(0) > 0 && r["approve"] == true
         && r["status"] == "done" && r["parsed"]["steps"].as_array().is_some_and(|a| !a.is_empty()) && r["finish"]["summary"] == true
-        && r["parsed"]["ran"].as_u64().unwrap_or(0) > 0 && r["review"] == true && r["reviewNoted"] == true);
+        && r["parsed"]["ran"].as_u64().unwrap_or(0) > 0 && r["review"] == true && r["reviewNoted"] == true
+        && r["mr"]["unpushed"].as_u64().unwrap_or(0) > 0 && r["mr"]["opened"] == true && r["mr"]["bodyHasChecks"] == true);
     r
 }
 

@@ -151,6 +151,8 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .tk-prompt,.tk-ch textarea{width:100%;box-sizing:border-box;padding:var(--s2) var(--s3);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font:var(--t-xs)/1.5 var(--f-mono, ui-monospace, monospace);resize:vertical}
 .tk-ch{display:grid;gap:4px;font-size:var(--t-sm);color:var(--ink-2)}
 .tk-ch textarea{font-family:inherit;font-size:var(--t-sm)}
+.tk-ch input{width:100%;box-sizing:border-box;padding:var(--s2) var(--s3);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font:inherit}
+.tk-mr .tk-ch{margin-bottom:8px}.tk-mr .tk-ch textarea.tk-prompt{font:var(--t-xs)/1.5 var(--f-mono)}
 .risk{margin:0;font-size:var(--t-xs);font-weight:600;color:var(--accent-ink)}
 .uw{margin:0;font-size:var(--t-xs);color:var(--accent-ink)}
 .why{margin:0;font-size:var(--t-xs);color:var(--ink-3)}
@@ -1745,6 +1747,8 @@ let tickets = { list: [] };
 const tkPrep = {}; // per issue ("path#iid"): the Start box (where, the description, the model proposal, the prompt as edited)
 const tkChange = {}; // per flow: what to change in its plan, as typed
 const tkBusy = new Set(); // flows waiting on Haiku's summary
+const tkMr = {}; // per flow: the merge request box (open, its title and description as edited, busy)
+const tkUnpushed = {}; // per flow: commits not pushed, when Clean up said so (the next click cleans up anyway)
 const FGRP = { approve: 'fapprove', starting: 'frun', planning: 'frun', running: 'frun', done: 'fdone', blocked: 'fdone' };
 const tkSplit = k => { const n = k.lastIndexOf('#'); return [k.slice(0, n), Number(k.slice(n + 1))]; };
 const tkIssue = k => { const [p, n] = tkSplit(k); return st.todo.find(([i, g]) => g.path === p && i.iid === n && g.dir); };
@@ -1773,10 +1777,25 @@ function flowItem(f) {
   const s = f.session && list.find(x => x.id === f.session), k = esc(f.key), acts = [];
   if (bridge && f.status === 'approve' && s?.answer) acts.push([T('tk.approve'), ['↵'], `data-tk-ok="${k}"`], [T('tk.change'), [CMD, '⌫'], `data-tk-no="${k}"`]);
   if (s) acts.push([T('b.showSession'), acts.length ? [CMD, 'O'] : ['↵'], `data-sel="${esc(s.id)}"`]);
+  if (bridge && !f.cleaned && f.status === 'done' && !f.mr) acts.push([T('tk.mr'), acts.length ? [CMD, '⇧', 'M'] : ['↵'], `data-tk-mr-open="${k}"`]);
+  if (f.mr) acts.push([T('tk.mr.view', { n: mrRef(f.mr) }), acts.length ? [CMD, '⇧', 'M'] : ['↵'], `data-url="${esc(f.mr)}"`]);
   if (bridge && !f.cleaned && ['done', 'blocked'].includes(f.status)) acts.push([T('tk.review'), acts.length ? [CMD, '⇧', 'V'] : ['↵'], `data-tk-review="${k}"`], [T('tk.clean'), [CMD, '⇧', 'K'], `data-tk-clean="${k}"`]);
   return { id: 'f:' + f.key, grp: FGRP[f.status] || 'frun', kind: 'board', cls: f.status === 'approve' ? 'hot' : '', lead: s ? pet(s) : projectPet(f.path),
     label: `#${f.iid} ${f.title}`, sub: [BOARD.short(f.path), T('tk.st.' + f.status), f.cleaned ? T('tk.cleaned') : ''].filter(Boolean).join(' · '),
     meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${checkBadges(f)}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
+}
+const mrRef = u => '!' + ((String(u).match(/merge_requests\/(\d+)/) || [])[1] || '');
+// Open MR: what will be sent (the plan, the assumptions, the checks; editable), then push and glab mr create on your click.
+function mrHTML(f) {
+  const k = esc(f.key), m = tkMr[f.key];
+  if (f.mr) return `<section class="b-sec"><h3>${esc(T('tk.mr.h'))}</h3><p><button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(mrRef(f.mr))} ${esc(f.title)}</button></p></section>`;
+  if (!bridge || f.cleaned || f.status !== 'done' || !m?.open) return '';
+  return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h'))}</h3>
+    ${unchecked(f) ? `<p class="risk">⚠ ${esc(T('tk.mr.nochecks'))}</p>` : ''}
+    <label class="tk-ch"><span>${esc(T('tk.mr.title'))}</span><input type="text" data-tk-mr-title="${k}" data-f="tkmt:${k}" value="${esc(m.title)}"></label>
+    <label class="tk-ch"><span>${esc(T('tk.mr.body'))}</span><textarea class="tk-prompt" rows="10" spellcheck="false" data-tk-mr-body="${k}" data-f="tkmb:${k}">${esc(m.body)}</textarea></label>
+    <p class="note">${esc(T('tk.mr.note', { b: f.branch }))}</p>
+    <div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-mr-go="${k}"${m.busy ? ' disabled' : ''}>${esc(T(m.busy ? 'tk.mr.busy' : 'tk.mr.go'))}</button><button class="btn" type="button" data-tk-mr-cancel="${k}">${esc(T('pd.cancel'))}</button></div></section>`;
 }
 function flowHTML(f, s) {
   const p = f.parsed || {}, at = BOARD.FLOW.indexOf(BOARD.flowStep(f.status)), k = esc(f.key), asks = f.status === 'approve', held = asks && !!s?.answer && bridge;
@@ -1796,6 +1815,9 @@ function flowHTML(f, s) {
     <section class="b-sec"><h3>${esc(T('tk.checks'))} ${checkBadges(f)}</h3>${p.checksText ? `<div class="report md tk-checks">${markdown(p.checksText)}</div>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}
       ${unchecked(f) ? `<div class="tk-warn"><p><strong>${esc(T('tk.nochecks.t'))}</strong> ${esc(T('tk.nochecks.why'))}</p><div class="cmd"><code>${esc(CHECKS_ASK)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(CHECKS_ASK)}">${esc(T('work.copy'))}</button>` : ''}</div></div>` : ''}</section>
     ${p.result ? `<section class="b-sec"><h3>${esc(T(f.status === 'blocked' ? 'tk.blocked' : 'tk.result'))}</h3><div class="report md${f.status === 'blocked' ? ' stop' : ''}">${markdown(p.result)}</div></section>` : ''}
+    ${mrHTML(f)}
+    ${tkUnpushed[f.key] ? `<div class="tk-warn"><p><strong>${esc(T('tk.unpushed.t', { n: tkUnpushed[f.key], b: f.branch }))}</strong> ${esc(T('tk.unpushed.why'))}</p>
+      <div class="acts" style="margin:8px 0 0"><button class="btn sm danger" type="button" data-tk-clean-force="${esc(f.key)}">${esc(T('tk.unpushed.go'))}</button>${!f.mr && f.status === 'done' ? `<button class="btn sm" type="button" data-tk-mr-open="${esc(f.key)}">${esc(T('tk.mr'))}</button>` : ''}</div></div>` : ''}
     ${f.summary ? `<section class="b-sec"><h3>${esc(T('tk.summary'))}</h3><div class="report md">${markdown(f.summary)}</div></section>` : ''}
     ${f.status === 'starting' && f.cmd ? `<section class="b-sec"><h3>${esc(T('tk.waiting'))}</h3><p class="note">${esc(T('tk.waiting.note'))}</p><div class="cmd"><code>${esc(f.cmd)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(f.cmd)}">${esc(T('work.copy'))}</button>` : ''}</div></section>` : ''}
     <section class="b-sec"><dl class="kv">
@@ -1803,7 +1825,7 @@ function flowHTML(f, s) {
       <dt>${esc(T('tk.dir'))}</dt><dd><code>${esc(home(f.dir))}</code>${f.cleaned ? ` · ${esc(T('tk.cleaned'))}` : ''}</dd>
       <dt>${esc(T('tk.models'))}</dt><dd>${esc(modelsLine(f.models))}</dd>
       ${s ? `<dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>` : ''}</dl></section>
-    ${bridge ? `<div class="acts" style="margin:0">${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `<button class="btn pri" type="button" data-tk-review="${k}">${esc(T('tk.review'))}</button><button class="btn" type="button" data-tk-review-cli="${k}">${esc(T('tk.review.cli'))}</button><button class="btn" type="button" data-tk-clean="${k}">${esc(T('tk.clean'))}</button>` : ''}
+    ${bridge ? `<div class="acts" style="margin:0">${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `${f.status === 'done' && !f.mr && !tkMr[f.key]?.open ? `<button class="btn pri" type="button" data-tk-mr-open="${k}">${esc(T('tk.mr'))}</button>` : ''}<button class="btn${f.status === 'done' && !f.mr ? '' : ' pri'}" type="button" data-tk-review="${k}">${esc(T('tk.review'))}</button><button class="btn" type="button" data-tk-review-cli="${k}">${esc(T('tk.review.cli'))}</button><button class="btn" type="button" data-tk-clean="${k}">${esc(T('tk.clean'))}</button>` : ''}
       ${f.session ? `<button class="btn" type="button" data-tk-sum="${k}"${tkBusy.has(f.key) ? ' disabled' : ''}>${esc(T(tkBusy.has(f.key) ? 'tk.ask.busy' : 'tk.sum'))}</button>` : ''}
       ${f.url ? `<button class="btn" type="button" data-url="${esc(f.url)}">${esc(T('work.open'))}</button>` : ''}</div>
       ${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `<p class="note">${esc(T('tk.review.note'))}</p>` : ''}
@@ -1895,8 +1917,28 @@ async function tkReview(key, how) {
   if (r?.prompt) try { await navigator.clipboard.writeText(r.prompt); } catch {}
   toast(r?.ok ? T('tk.review.done') : T('tk.review.fail', { e: r?.error === 'running' ? T('tk.st.running') : r?.error || '' }));
 }
-async function tkClean(key) {
-  const r = await bridge.ticketClean(key);
+function tkMrOpen(key) {
+  const f = tickets.list.find(x => x.key === key);
+  if (!f) return;
+  tkMr[key] = { open: true, title: tkMr[key]?.title ?? f.mrTitle ?? f.title, body: tkMr[key]?.body ?? f.mrBody ?? '' };
+  delete tkUnpushed[key];
+  bsel.work = 'f:' + key; nextFocus = 'tkmb:' + key;
+  render();
+}
+async function tkMrGo(key) {
+  const m = tkMr[key];
+  if (!m || m.busy) return;
+  m.busy = true; render();
+  const r = await bridge.ticketMr(key, m.title, m.body).catch(e => ({ ok: false, error: String(e) }));
+  m.busy = false;
+  if (r?.ok) { delete tkMr[key]; toast(T('tk.mr.done', { n: mrRef(r.url) })); }
+  else toast(T('tk.mr.fail', { e: ['gitlab', 'noglab', 'notdone'].includes(r?.error) ? T('tk.mr.e.' + r.error) : r?.error || '' }));
+  render();
+}
+async function tkClean(key, force) {
+  const r = await bridge.ticketClean(key, force);
+  if (r?.error === 'unpushed') { tkUnpushed[key] = r.n; return render(); }
+  delete tkUnpushed[key];
   toast(r?.ok ? T('tk.cleaned.t') : T('tk.clean.fail', { e: r?.error === 'running' ? T('tk.st.running') : r?.error || '' }));
 }
 // What the session's work log says, in its details (the full view is under Work).
@@ -2664,6 +2706,10 @@ async function onAct(e) {
   if (d.tkSum) return tkSum(d.tkSum);
   if (d.tkClean) return tkClean(d.tkClean);
   if (d.tkReview) return tkReview(d.tkReview, 'desktop');
+  if (d.tkMrOpen) return tkMrOpen(d.tkMrOpen);
+  if (d.tkMrGo) return tkMrGo(d.tkMrGo);
+  if (d.tkMrCancel) { delete tkMr[d.tkMrCancel]; return render(); }
+  if (d.tkCleanForce) return tkClean(d.tkCleanForce, true);
   if (d.tkReviewCli) return tkReview(d.tkReviewCli, 'cli');
   if (d.copy) { try { await navigator.clipboard.writeText(d.copy); toast(T('work.copied')); } catch {} return; }
   if (d.act === 'refresh') { b.disabled = true; await bridge.refreshWork(); }
@@ -2674,6 +2720,8 @@ $('#b-dyn').addEventListener('input', e => {
   const d = e.target.dataset;
   if (d.tkPrompt && tkPrep[d.tkPrompt]) tkPrep[d.tkPrompt].prompt = e.target.value;
   if (d.tkText) tkChange[d.tkText] = e.target.value;
+  if (d.tkMrTitle && tkMr[d.tkMrTitle]) tkMr[d.tkMrTitle].title = e.target.value;
+  if (d.tkMrBody && tkMr[d.tkMrBody]) tkMr[d.tkMrBody].body = e.target.value;
 });
 $('#b-dyn').addEventListener('change', e => { if (e.target.dataset.tkM) tkModels(e.target.dataset.tkM, e.target.value); });
 $('#b-bar').addEventListener('click', onAct);

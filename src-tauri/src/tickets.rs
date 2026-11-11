@@ -25,6 +25,7 @@ pub struct Flow {
     pub status: String, pub session: Option<String>, pub plan: String, pub log: String,
     pub seen: usize, // assumptions you have seen; more in the log put a mark on the pet
     pub summary: String, pub models: Value, pub at: u64, pub cleaned: bool,
+    pub mr: String, // the merge request Bobix opened for it (its link), on your click
 }
 
 pub fn key_of(path: &str, iid: i64) -> String { format!("{path}#{iid}") }
@@ -38,6 +39,41 @@ impl Flow {
         else if st == "running" && self.status == "planning" && !self.plan.is_empty() { self.status = "running".into(); }
     }
 }
+// The merge request's text, from the work log: the issue it closes, the plan, the assumptions, the checks. Shown to you
+// (and editable) before anything is sent: the work log itself stays on this machine.
+pub fn mr_title(f: &Flow) -> String { head16(&f.title, 200).to_string() }
+pub fn mr_body(f: &Flow) -> String {
+    let p = parse_log(&f.log);
+    let plan = p["plan"].as_str().filter(|x| !x.is_empty()).map(String::from).unwrap_or_else(|| f.plan.clone());
+    let list = |k: &str| p[k].as_array().into_iter().flatten().filter_map(|x| x.as_str()).map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n");
+    let checks = p["checksText"].as_str().unwrap_or("").to_string();
+    let mut b = format!("Closes #{}\n", f.iid);
+    for (h, t) in [("Plan", plan), ("Assumptions", list("assumptions")), ("Checks", if checks.is_empty() { "None pasted.".into() } else { checks })] {
+        if !t.trim().is_empty() { b += &format!("\n## {h}\n\n{}\n", t.trim()); }
+    }
+    head16(&b, 20_000).to_string()
+}
+// The merge request's link in what glab printed.
+pub fn mr_url(out: &str) -> Option<String> {
+    static U: std::sync::LazyLock<fancy_regex::Regex> = std::sync::LazyLock::new(|| fancy_regex::Regex::new(r"https?://\S+/-/merge_requests/\d+").unwrap());
+    U.find(out).ok().flatten().map(|m| m.as_str().to_string())
+}
+// Commits on the ticket's branch that no remote has.
+pub fn unpushed(dir: &str, branch: &str) -> u64 {
+    let r = git(dir, &["rev-list", "--count", branch, "--not", "--remotes"]);
+    if r.ok { r.out.trim().parse().unwrap_or(0) } else { 0 }
+}
+// Push the ticket's branch (never the default one) and open its merge request with your own glab. → the MR's link.
+pub fn open_mr(glab: &str, host: &str, f: &Flow, title: &str, body: &str) -> Result<String, String> {
+    if f.branch.is_empty() || ["main", "master", "develop"].contains(&f.branch.as_str()) { return Err("not a ticket branch".into()); }
+    let r = git(&f.dir, &["push", "-u", "origin", &f.branch]);
+    if !r.ok { return Err(format!("git push: {}", one_line(&r))); }
+    let repo = format!("https://{host}/{}", f.path);
+    let r = procs::exec(glab, &["mr", "create", "--repo", &repo, "--source-branch", &f.branch, "--title", title, "--description", body, "--yes"], 60, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1")]);
+    let out = format!("{}\n{}", r.out, r.err);
+    match mr_url(&out) { Some(u) => Ok(u), None => Err(format!("glab mr create: {}", one_line(&r))) }
+}
+
 // The model of the review: the split's review step, else Opus (a strong reviewer, read-only).
 pub fn review_model(models: &Value) -> String {
     models["steps"].as_array().into_iter().flatten().find(|s| s["step"] == "review").and_then(|s| s["model"].as_str())
@@ -287,6 +323,7 @@ impl Flows {
             v["new"] = json!(assumptions(&f.log).saturating_sub(f.seen));
             v["parsed"] = log;
             v["cmd"] = json!(if f.cleaned || f.session.is_some() { String::new() } else { cli_command(&f.dir, &main_model(&f.models), "") });
+            if matches!(f.status.as_str(), "done" | "blocked") && !f.cleaned && f.mr.is_empty() { v["mrTitle"] = json!(mr_title(f)); v["mrBody"] = json!(mr_body(f)); }
             v
         }).collect();
         json!({ "list": list, "free": free, "room": room(free), "need": WORKTREE_BYTES })
@@ -408,6 +445,19 @@ mod tests {
     }
 
     #[test]
+    fn merge_request_text_and_link() {
+        let mut f = Flow { iid: 7, title: "Add subtract".into(), plan: "1. add it".into(), ..Default::default() };
+        f.log = template(7, "Add subtract").replace("## Assumptions\n", "## Assumptions\n- ints only\n").replace("## Checks\n", "## Checks\n- `npm test`\n```\nok 2\n```\n");
+        let b = mr_body(&f);
+        assert!(b.starts_with("Closes #7\n\n## Plan\n\n1. add it\n\n## Assumptions\n\n- ints only\n\n## Checks\n\n- `npm test`\n```\nok 2\n```"), "{b}");
+        f.log = template(7, "x");
+        assert!(mr_body(&f).contains("## Checks\n\nNone pasted."), "no checks: said so");
+        assert_eq!(mr_url("Creating merge request for 7-x into main in demo/shop\n\nhttps://gitlab.example.test/demo/shop/-/merge_requests/12\n").as_deref(), Some("https://gitlab.example.test/demo/shop/-/merge_requests/12"));
+        assert_eq!(mr_url("error"), None);
+        assert!(open_mr("glab", "h", &Flow { branch: "main".into(), ..Default::default() }, "t", "b").is_err(), "never the default branch");
+    }
+
+    #[test]
     fn worktree_made_and_removed_with_git() {
         let root = std::env::temp_dir().join(format!("bobix-wt-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
@@ -426,6 +476,7 @@ mod tests {
         remove_worktree(&r, &dir.to_string_lossy()).unwrap();
         assert!(!dir.exists());
         assert!(git(&r, &["rev-parse", "--verify", "refs/heads/7-add-subtract"]).ok, "the branch stays");
+        assert_eq!(unpushed(&r, "7-add-subtract"), 1, "no remote has it");
         let _ = fs::remove_dir_all(&root);
     }
 }
