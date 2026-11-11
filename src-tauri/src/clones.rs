@@ -4,7 +4,7 @@
 // remembered in Bobix's settings (`workDirs`) and can be forgotten in Settings → Work.
 use crate::{model, procs};
 use serde_json::{json, Value};
-use std::{collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}};
+use std::{collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}, sync::LazyLock};
 
 // Where people keep their clones, under the home folder; the parents of the folders sessions ran in are added.
 pub const ROOTS: [&str; 10] = ["code", "projects", "src", "dev", "Desktop", "Documents", "work", "Developer", "repos", "git"];
@@ -12,6 +12,35 @@ const DEPTH: usize = 3; // ~/code/<group>/<repo>, ~/Documents/a/b/<repo>
 const MAX_DIRS: usize = 20_000; // a home with a huge Documents folder stops here
 // Folders never worth walking into for a clone.
 const SKIP: [&str; 9] = ["node_modules", "target", "dist", "build", "vendor", "Pods", "Library", "Applications", "Pictures"];
+
+// `~/.ssh/config` aliases → their real host ("Host gh-work" … "HostName github.com"): a remote through an alias counts
+// for that host. Only Host and HostName lines; a pattern (* or ?) is no alias; the first HostName of a block wins, as
+// in ssh. Read once per run (ponytail: an alias added later counts after a restart).
+pub fn ssh_aliases(text: &str) -> HashMap<String, String> {
+    let (mut out, mut names): (HashMap<String, String>, Vec<String>) = (HashMap::new(), vec![]);
+    for l in text.lines() {
+        let l = l.trim();
+        let Some((k, v)) = l.split_once(|c: char| c.is_whitespace() || c == '=') else { continue };
+        let v = v.trim_start_matches(|c: char| c.is_whitespace() || c == '=').trim();
+        match k.to_lowercase().as_str() {
+            "host" => names = v.split_whitespace().filter(|n| !n.contains(['*', '?', '!'])).map(str::to_lowercase).collect(),
+            "match" => names.clear(),
+            "hostname" => for n in names.drain(..) { out.entry(n).or_insert_with(|| v.to_lowercase()); },
+            _ => {}
+        }
+    }
+    out
+}
+static SSH: LazyLock<HashMap<String, String>> = LazyLock::new(|| ssh_aliases(&fs::read_to_string(crate::paths::home().join(".ssh").join("config")).unwrap_or_default()));
+// A remote's URL with an ssh alias for its host replaced by the real one (git@gh-work:a/b.git → git@github.com:a/b.git,
+// ssh://git@gh-work/a/b → ssh://git@github.com/a/b). https URLs and unknown hosts stay as they are.
+pub fn unalias(url: &str) -> String { unalias_with(url, &SSH) }
+fn unalias_with(url: &str, aliases: &HashMap<String, String>) -> String {
+    let (pre, rest) = match url.split_once("://") { Some((s, r)) if s.eq_ignore_ascii_case("ssh") || s.eq_ignore_ascii_case("git+ssh") => (format!("{s}://"), r), Some(_) => return url.into(), None => (String::new(), url) };
+    let (user, rest) = match rest.split_once('@') { Some((u, r)) if !u.contains(['/', ':']) => (format!("{u}@"), r), _ => (String::new(), rest) };
+    let end = rest.find([':', '/']).unwrap_or(rest.len());
+    match aliases.get(&rest[..end].to_lowercase()) { Some(h) => format!("{pre}{user}{h}{}", &rest[end..]), None => url.into() }
+}
 
 // The URLs of every remote in a repository's `.git/config` (a `.git` folder; a worktree's or submodule's `.git` file is
 // left out: its main checkout is found instead).
@@ -24,6 +53,7 @@ pub fn remotes_of(repo: &Path) -> Vec<String> {
         if !in_remote { continue; }
         if let Some((k, v)) = t.split_once('=') {
             let v = v.trim().trim_matches('"').to_string();
+            let v = unalias(&v);
             if matches!(k.trim(), "url" | "pushurl") && !v.is_empty() && !out.contains(&v) { out.push(v); }
         }
     }
@@ -147,6 +177,21 @@ mod tests {
         assert_eq!(at(&scan(&r2, &hosts, &wanted), "acme/docs"), Some(elsewhere));
         assert_eq!(clone_dest(&home.join("code"), "acme/web-shop"), home.join("code/web-shop"));
         let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn ssh_aliases_count_for_their_real_host() {
+        let a = ssh_aliases("Host *\n  ServerAliveInterval 30\nHost gh-work gh-me\n  HostName github.com\n  HostName ignored.example\n  User git\n\
+            Host=lab\n\thostname = GitLab.Example.Test\nMatch host x\n  HostName nope\nHost plain\n  Port 22\n");
+        assert_eq!(a.get("gh-work").map(String::as_str), Some("github.com"));
+        assert_eq!(a.get("gh-me").map(String::as_str), Some("github.com"), "every name of a Host line");
+        assert_eq!(a.get("lab").map(String::as_str), Some("gitlab.example.test"), "key=value and spaces round =");
+        assert_eq!(a.len(), 3, "the pattern, Match and an alias without HostName count for nothing: {a:?}");
+        assert_eq!(unalias_with("git@gh-work:Acme/Shop.git", &a), "git@github.com:Acme/Shop.git");
+        assert_eq!(unalias_with("ssh://git@lab:2222/g/p.git", &a), "ssh://git@gitlab.example.test:2222/g/p.git");
+        assert_eq!(unalias_with("gh-me:acme/shop.git", &a), "github.com:acme/shop.git");
+        for same in ["https://gh-work/acme/shop.git", "git@other:acme/shop.git", "/local/path/repo.git"] { assert_eq!(unalias_with(same, &a), same); }
+        assert_eq!(model::project_path(&unalias_with("git@gh-work:Acme/Shop.git", &a), "github.com").as_deref(), Some("acme/shop"), "https, ssh and aliases all name it");
     }
 
     #[test]
