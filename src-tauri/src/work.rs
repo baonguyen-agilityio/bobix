@@ -101,6 +101,7 @@ fn listed_hosts(f: Forge) -> Vec<String> {
 // How long one host's sign-in check may take. `glab auth status` on its own checks every host in turn, so one host that
 // does not answer (gitlab.com listed with no token: about 31 s) used to hide the others.
 pub const HOST_SECS: u64 = 10;
+pub const PAR_READS: usize = 8; // GitLab projects read at the same time, at most
 // Each host on its own, all at once: `<cli> auth status --hostname <host>`. The hosts signed in, and the others with why
 // (named in the Work tab, ignored for the read), and the account each one signed in reads with. None when the CLI is missing.
 pub fn check_hosts(f: Forge, bin: &str, hosts: &[String], secs: u64) -> Option<(Vec<String>, Vec<Value>, HashMap<String, String>)> {
@@ -217,14 +218,21 @@ impl Forge {
     // search per 30 repositories (ponytail: GitHub's query length limit; the chunks are merged like GitLab's projects);
     // GitLab, each project's own list. `filter`: all | mine | unassigned. Each issue gets `mine` (assigned to `me`).
     // { ok, issues, failed: [{ host, detail }] } (a GitLab project that fails is left out and named) or a failed read.
+    // GitLab projects are read at the same time (PAR_READS at most), each for HOST_SECS at most: the first one that
+    // does not answer in time marks the host as hanging, its other projects are not asked, and the host is named once
+    // (`hung`: its reviews and closed issues are not asked either). A project that fails otherwise (404, 403) is named
+    // on its own and the others still show. GitHub: one search per 30 repositories, as before, each in HOST_SECS.
     pub fn page(self, bin: &str, host: &str, repos: &[String], filter: &str, need: usize, me: Option<&str>) -> Value {
         let per = need.clamp(1, 100);
+        let late = || json!({ "ok": false, "reason": "timeout", "detail": format!("no answer in {HOST_SECS} s, ignored") });
         // the pages a list needs, `args(page)` each, until one comes back short
         let get = |args: &dyn Fn(usize) -> Vec<String>, items: fn(&Value) -> Option<&Vec<Value>>| -> Result<Vec<Value>, Value> {
             let mut out = vec![];
             for page in 1..=need.div_ceil(100) {
                 let a = args(page);
-                let r = procs::exec(bin, &a.iter().map(String::as_str).collect::<Vec<_>>(), 30, self.env());
+                let t = std::time::Instant::now();
+                let r = procs::exec(bin, &a.iter().map(String::as_str).collect::<Vec<_>>(), HOST_SECS, self.env());
+                if !r.ok && t.elapsed().as_secs() >= HOST_SECS { return Err(late()); }
                 if !r.ok { return Err(failed(&format!("{} {}", r.err, r.out))); }
                 let v: Value = serde_json::from_str(&r.out).map_err(|_| json!({ "ok": false, "reason": "error", "detail": "unexpected answer" }))?;
                 let list = items(&v).cloned().unwrap_or_default();
@@ -234,7 +242,7 @@ impl Forge {
             }
             Ok(out)
         };
-        let (mut issues, mut bad) = (vec![], vec![]);
+        let (mut issues, mut bad, mut hung) = (vec![], vec![], false);
         match self {
             Forge::GitHub => {
                 let f = match filter { "mine" => " assignee:@me", "unassigned" => " no:assignee", _ => "" };
@@ -244,27 +252,48 @@ impl Forge {
                         "-f", &format!("per_page={per}"), "-f", &format!("page={page}")].iter().map(|x| x.to_string()).collect();
                     match get(&args, |v| v["items"].as_array()) {
                         Ok(a) => issues.extend(a.iter().filter_map(slim_gh_issue)),
-                        Err(e) => return e,
+                        Err(mut e) => { if e["reason"] == "timeout" { e["hung"] = json!(true); } return e; }
                     }
                 }
             }
             Forge::GitLab => {
                 let f = match filter { "mine" => "&scope=assigned_to_me", "unassigned" => "&assignee_id=None", _ => "" };
-                for p in repos {
-                    let args = |page: usize| vec!["api".into(), "--hostname".into(), host.into(),
-                        format!("projects/{}/issues?state=opened&order_by=updated_at&sort=desc&per_page={per}&page={page}{f}", enc(p))];
-                    match get(&args, |v| v.as_array()) {
-                        Ok(a) => issues.extend(a.iter().map(slim_issue)),
-                        Err(e) if e["reason"] == "auth" => return e,
-                        Err(e) => bad.push(json!({ "host": host, "detail": format!("{p}: {}", e["detail"].as_str().unwrap_or("")) })),
+                let stuck = std::sync::atomic::AtomicBool::new(false);
+                let next = std::sync::atomic::AtomicUsize::new(0);
+                let done: std::sync::Mutex<Vec<Option<Result<Vec<Value>, Value>>>> = std::sync::Mutex::new(vec![None; repos.len()]);
+                std::thread::scope(|s| for _ in 0..PAR_READS.min(repos.len()) {
+                    s.spawn(|| loop {
+                        let n = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let Some(p) = repos.get(n) else { break };
+                        if stuck.load(std::sync::atomic::Ordering::SeqCst) { continue; } // the host hangs: not asked
+                        let args = |page: usize| vec!["api".into(), "--hostname".into(), host.into(),
+                            format!("projects/{}/issues?state=opened&order_by=updated_at&sort=desc&per_page={per}&page={page}{f}", enc(p))];
+                        let r = get(&args, |v| v.as_array());
+                        if r.as_ref().is_err_and(|e| e["reason"] == "timeout") { stuck.store(true, std::sync::atomic::Ordering::SeqCst); }
+                        done.lock().unwrap()[n] = Some(r);
+                    });
+                });
+                hung = stuck.into_inner();
+                let mut answered = false;
+                for (p, r) in repos.iter().zip(done.into_inner().unwrap()) {
+                    match r {
+                        Some(Ok(a)) => { answered = true; issues.extend(a.iter().map(slim_issue)); }
+                        Some(Err(e)) if e["reason"] == "auth" => return e,
+                        Some(Err(e)) if e["reason"] == "timeout" => {}
+                        Some(Err(e)) => bad.push(json!({ "host": host, "detail": format!("{p}: {}", e["detail"].as_str().unwrap_or("")) })),
+                        None => {} // not asked: the host hangs
                     }
+                }
+                if hung {
+                    if !answered && bad.is_empty() { let mut e = late(); e["hung"] = json!(true); return e; }
+                    bad.push(json!({ "host": host, "detail": late()["detail"] }));
                 }
             }
         }
         for i in issues.iter_mut() { i["mine"] = json!(me.is_some_and(|me| i["assignees"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str().is_some_and(|x| x.eq_ignore_ascii_case(me)))))); }
         newest_first(&mut issues);
         issues.truncate(need);
-        json!({ "ok": true, "issues": issues, "failed": bad })
+        json!({ "ok": true, "issues": issues, "failed": bad, "hung": hung })
     }
     fn env(self) -> &'static [(&'static str, &'static str)] { if self == Forge::GitHub { GH_ENV } else { &[] } }
     // One open issue, read on its own (GET), marked `linked`: one a session here works on (its branch or its start
@@ -421,6 +450,16 @@ pub fn group_issues(issues: &[Value], live: &[Live], known: &HashMap<String, Str
     (local, away)
 }
 
+// A folder you chose or cloned (Choose folder…, Change folder…, Clone…) wins over the folder a session works in: Start
+// works there. A found one does not (a session's folder is the surer guess).
+fn pin_chosen(local: &mut [Value], settings: &Value, known: &HashMap<String, String>) {
+    for g in local {
+        let p = g["path"].as_str().unwrap_or("").to_string();
+        let how = &settings["workDirs"][&p]["how"];
+        if let (Some("chosen" | "cloned"), Some(d)) = (how.as_str(), known.get(&p)) { g["dir"] = json!(d); g["via"] = how.clone(); }
+    }
+}
+
 // A new Claude desktop session in `dir`, its prompt box filled with `prompt` (q, Claude's documented link: nothing is
 // sent until you press Enter there). Claude cuts q at about 14 000 characters; Bobix stops a bit earlier.
 pub fn new_session_link(dir: &str, prompt: &str) -> String {
@@ -472,11 +511,15 @@ pub struct Work {
     // "project#iid" of the issues sessions worked on that were read on their own (Forge::issue), so each is asked once
     pub asked: std::collections::HashSet<String>,
     pub page: usize, // the page of the issue list shown, from 1
+    // A read you asked for (filter, page, ticked repos, Refresh) bumps `gen`; a tracker's read keeps its answer only when
+    // no newer one was asked meanwhile (`read_gen`: the ask its kept answer is for). Older answers are dropped.
+    pub gen: u64,
+    pub read_gen: [u64; 2],
 }
 
 impl Default for Work {
     fn default() -> Self {
-        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default(), page: 1 }
+        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default(), page: 1, gen: 0, read_gen: [0; 2] }
     }
 }
 
@@ -487,6 +530,8 @@ pub fn key_of(settings: &Value, p: &str) -> String {
 
 impl Work {
     pub fn feed(&mut self, f: Forge) -> &mut Feed { &mut self.feeds[f as usize] }
+    // A read you asked for has not answered yet (the panel shows "Reading your issues…" in place of the list).
+    pub fn reading(&self, settings: &Value) -> bool { FORGES.into_iter().any(|f| f.on(settings) && self.read_gen[f as usize] < self.gen) }
     fn on(&self, settings: &Value) -> Vec<&Feed> {
         FORGES.iter().filter(|f| f.on(settings)).map(|f| &self.feeds[*f as usize]).collect()
     }
@@ -558,6 +603,7 @@ impl Work {
         let all: Vec<Value> = self.list(settings).into_iter().filter(|i| if i["linked"] == true { works_on(i) } else { shown.contains(i) || works_on(i) }).cloned().collect();
         let known = crate::clones::dirs(settings);
         let (mut local, mut away) = group_issues(&all, &live, &known);
+        pin_chosen(&mut local, settings, &known);
         for (g, here) in local.iter_mut().map(|g| (g, true)).chain(away.iter_mut().map(|g| (g, false))) {
             let p = g["path"].as_str().unwrap_or("").to_string();
             g["key"] = json!(key_of(settings, &p));
@@ -580,6 +626,11 @@ impl Work {
         // a read made for an earlier page: this page shows once the read for it is in
         view["filling"] = json!(self.on(settings).into_iter().any(|f| f.issues["need"].as_u64().is_some_and(|n| (n as usize) < need_for(page))));
         view["filter"] = settings["workFilter"].clone();
+        view["reading"] = json!(self.reading(settings));
+        view["gen"] = json!(self.gen); // reads asked for so far: the panel waits for it to move after its ask
+        view["dirs"] = json!(known); // the remembered folders that still exist (Start's folder for a code project)
+        // the ones you chose or cloned: they win over a session's folder, also for a code project with no issue listed
+        view["pinned"] = json!(known.keys().filter_map(|p| crate::clones::pinned(settings, p).map(|d| (p.clone(), d))).collect::<HashMap<_, _>>());
         // the repositories ticked on the hosts read (none: the list asks you to pick some), and a warning for many GitLab
         // projects, each read on its own
         let ticked = |f: &Feed| f.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str()).map(|h| settings["workRepos"][h].as_array().map_or(0, |a| a.len())).sum::<usize>();
@@ -610,6 +661,71 @@ mod tests {
         assert_eq!(w.source_of(&on, "t/a", 7).map(|x| x.2), Some("ghe.example.com:8443".into()), "the signed-in host, port and all");
         assert!(w.source_of(&on, "acme/app", 55).is_none(), "only issues Bobix listed");
         assert!(w.source_of(&json!({ "github": false }), "acme/app", 54).is_none(), "GitHub off");
+    }
+
+    // GitLab projects are read at the same time (8 at most), each for 10 s at most: a project that hangs makes the host
+    // named once and its other projects not asked, and the read still ends in about 10 s with the others' issues; a
+    // project that is only slow is waited for; a 404 leaves out that project only; nothing is left running.
+    #[cfg(unix)]
+    #[test]
+    fn gitlab_projects_read_at_once_and_a_hanging_host_is_cut_off() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("bobix-par-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("runs")).unwrap();
+        let bin = root.join("glab-stand-in");
+        // the project is in the 4th argument; each run leaves runs/<pid> while it runs and logs how many runs there are
+        std::fs::write(&bin, format!(r#"#!/bin/sh
+d="{dir}"; touch "$d/runs/$$"; ls "$d/runs" | wc -l >> "$d/at-once"
+p=$(echo "$4" | sed 's#projects/\([^/]*\)/issues.*#\1#; s#%2F#/#')
+case "$p" in g/slow) sleep 30;; g/snail*) sleep 2;; g/tick*) sleep 1;; g/gone) rm -f "$d/runs/$$"; echo '{{"message":"404 Project Not Found"}}'; echo 'glab: 404 Not Found' >&2; exit 1;; esac
+n=$(echo "$p" | tr -dc 0-9); n=${{n:-0}}
+echo "[{{\"iid\": 1$n, \"title\": \"t\", \"web_url\": \"https://h/$p/-/issues/1\", \"references\": {{\"full\": \"$p#1$n\"}}, \"labels\": [], \"updated_at\": \"2026-11-10T08:00:$(printf %02d $n)Z\", \"assignees\": []}}]"
+rm -f "$d/runs/$$"
+"#, dir = root.display())).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let b = bin.to_string_lossy().into_owned();
+        let read = |repos: &[&str]| { let t = std::time::Instant::now(); let r = Forge::GitLab.page(&b, "h", &repos.iter().map(|x| x.to_string()).collect::<Vec<_>>(), "all", 21, None); (r, t.elapsed().as_secs_f64()) };
+        let projects = |r: &Value| r["issues"].as_array().unwrap().iter().map(|i| i["project"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        // a) one project hangs: about 10 s, the others shown newest first, the host named once
+        let (r, secs) = read(&["g/a1", "g/slow", "g/b2"]);
+        assert!(secs < 12.0, "the read ends in about 10 s: {secs}");
+        assert_eq!((r["ok"].clone(), r["hung"].clone(), projects(&r)), (json!(true), json!(true), vec!["g/b2".to_string(), "g/a1".into()]));
+        assert_eq!(r["failed"], json!([{ "host": "h", "detail": "no answer in 10 s, ignored" }]));
+        assert!(!procs::exec("pgrep", &["-f", &b], 5, &[]).ok, "nothing of it is left running");
+        assert!(read(&["g/slow"]).0["ok"] == false, "a host whose every project hangs failed: the read names it");
+        // b) all slow but in time: all shown, read at the same time
+        let (r, secs) = read(&["g/snail1", "g/snail2", "g/snail3"]);
+        assert!(secs < 5.0 && r["hung"] == false && r["failed"] == json!([]) && projects(&r).len() == 3, "{secs} {r}");
+        // c) a 404: that project only, named; the host is not cut off
+        let (r, _) = read(&["g/a1", "g/gone"]);
+        assert_eq!((projects(&r), r["hung"].clone()), (vec!["g/a1".to_string()], json!(false)));
+        assert!(r["failed"][0]["detail"].as_str().unwrap().starts_with("g/gone: "), "{r}");
+        // e) 12 projects of 1 s: 8 at a time at most, two rounds
+        let _ = std::fs::remove_file(root.join("at-once"));
+        let _ = std::fs::remove_dir_all(root.join("runs")); // the killed runs never took their mark away
+        std::fs::create_dir_all(root.join("runs")).unwrap();
+        let many: Vec<String> = (10..22).map(|n| format!("g/tick{n}")).collect();
+        let (r, secs) = read(&many.iter().map(String::as_str).collect::<Vec<_>>());
+        let most = std::fs::read_to_string(root.join("at-once")).unwrap().split_whitespace().filter_map(|x| x.parse::<usize>().ok()).max().unwrap();
+        assert!(most <= PAR_READS && projects(&r).len() == 12 && secs < 4.0, "{most} at once, {secs} s");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Reading: from the ask (filter, page, Refresh) until every tracker that is on kept an answer to it; an older ask's
+    // answer does not end it, and a tracker that is off never holds it up.
+    #[test]
+    fn reading_lasts_until_the_newest_ask_is_answered() {
+        let mut w = Work::default();
+        let both = json!({ "gitlab": true, "github": true });
+        assert!(!w.reading(&both), "nothing asked yet");
+        w.gen = 2;
+        w.read_gen = [1, 2];
+        assert!(w.reading(&both), "GitLab answered an older ask only");
+        assert!(!w.reading(&json!({ "gitlab": false, "github": true })), "GitLab off: not waited for");
+        w.read_gen = [2, 2];
+        assert!(!w.reading(&both));
+        assert!(!w.reading(&json!({ "gitlab": false, "github": false })));
     }
 
     #[test]
@@ -743,6 +859,12 @@ mod tests {
         assert!(away.is_empty());
         let dir = |p: &str| local.iter().find(|g| g["path"] == p).unwrap()["dir"].clone();
         assert_eq!((dir("g/away"), dir("g/here")), (json!("/src/away"), json!("/src/here")));
+        // unless you chose (or cloned) it: then yours wins, a found one does not
+        let mut pinned = local.clone();
+        pin_chosen(&mut pinned, &json!({ "workDirs": { "g/here": { "dir": "/elsewhere", "how": "chosen" }, "g/away": { "dir": "/src/away", "how": "found" } } }), &known);
+        let dir = |p: &str| pinned.iter().find(|g| g["path"] == p).unwrap()["dir"].clone();
+        assert_eq!((dir("g/away"), dir("g/here")), (json!("/src/away"), json!("/elsewhere")));
+        assert_eq!(pinned.iter().find(|g| g["path"] == "g/here").unwrap()["via"], "chosen");
         assert_eq!(slim_issue(&json!({ "iid": 7, "title": "T", "web_url": "https://h/g/p/-/issues/7", "references": { "full": "G/P#7" }, "labels": ["Bug"], "due_date": "2026-11-20" })),
             json!({ "iid": 7, "title": "T", "url": "https://h/g/p/-/issues/7", "project": "g/p", "labels": ["Bug"], "due": "2026-11-20", "updated": null, "assignees": [] }));
         assert_eq!(slim_issue(&json!({ "updated_at": "2026-11-10T08:00:00.000Z", "assignees": [{ "username": "me" }] }))["assignees"], json!(["me"]));
