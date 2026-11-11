@@ -12,7 +12,7 @@ pub fn defaults() -> Value {
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "longWait": 10, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true, "badge": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false, "tourSeen": [],
-        "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "petImages": {},
+        "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "workDirs": {}, "workDirsOff": [], "petImages": {},
         "habitsOn": false, "habitsNo": {}, "habitsHidden": {}, "habitsSkill": {}, "habitsPetDay": "",
         "habitScan": false, // habits become skills (habit_skills.rs): the weekly scan, also needs usageContent
         // usage per session (usage.rs): the API-equivalent estimate shown, prompt kinds read (opt-in), the warnings and when.
@@ -192,7 +192,16 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
                     .filter_map(|(p, x)| Some((p.to_lowercase(), crate::process::parse(&x.to_string()).ok()?))).take(50).collect();
                 out.insert(k.into(), Value::Object(m));
             }
-        } else if k == "workProjects" {
+        } else if k == "workDirs" { // project path → { dir (absolute), how: found | chosen | cloned }: local clones (clones.rs)
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter().filter(|(p, _)| project_path(p)).filter_map(|(p, e)| {
+                    let d = e["dir"].as_str().filter(|d| std::path::Path::new(d).is_absolute() && d.encode_utf16().count() < 1024)?;
+                    let how = e["how"].as_str().filter(|h| ["found", "chosen", "cloned"].contains(h)).unwrap_or("chosen");
+                    Some((p.to_lowercase(), json!({ "dir": d, "how": how })))
+                }).take(300).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "workDirsOff" || k == "workProjects" {
             if let Some(a) = v.as_array() {
                 let mut seen: Vec<String> = Vec::new();
                 for p in a.iter().filter_map(|p| p.as_str()).filter(|p| project_path(p)) {
@@ -463,6 +472,11 @@ mod tests {
         assert!(s(json!({ "gitlabUrl": "https://x" })).get("gitlabUrl").is_none());
         assert_eq!(s(json!({ "workProjects": ["Team/Shop-App", "team/shop-app", "g/sub/p", "nopath", "../x", 3, "a/b c"] }))["workProjects"], json!(["team/shop-app", "g/sub/p"]));
         assert_eq!(s(json!({ "workProjects": "team/x" }))["workProjects"], json!([]));
+        let abs = |p: &str| if cfg!(windows) { format!("C:{p}") } else { p.to_string() }; // absolute on this system
+        let (shop, cd) = (abs("/Users/me/code/web-shop"), abs("/c/d"));
+        assert_eq!(s(json!({ "workDirs": { "Acme/Web-Shop": { "dir": shop, "how": "found" }, "a/b": { "dir": "relative/x" }, "x": { "dir": abs("/x") }, "c/d": { "dir": cd, "how": "evil" } } }))["workDirs"],
+            json!({ "acme/web-shop": { "dir": shop, "how": "found" }, "c/d": { "dir": cd, "how": "chosen" } }), "absolute folders of project paths only");
+        assert_eq!(s(json!({ "workDirsOff": ["Acme/Web-Shop", "nope"] }))["workDirsOff"], json!(["acme/web-shop"]));
         assert_eq!(s(json!({ "workKeys": { "Team/App": "BAK", "x": "BAK", "a/b": "bad" } }))["workKeys"], json!({ "team/app": "BAK" }));
     }
 

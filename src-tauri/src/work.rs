@@ -235,8 +235,10 @@ pub struct Live { pub id: String, pub path: Option<String>, pub dir: String, pub
 
 // Issues by project, local repositories first (a session of theirs runs here), the rest "not on this machine". Each
 // issue gets `sessions`: the ids working on it. In progress first, then by due date, then newest.
-pub fn group_issues(issues: &[Value], live: &[Live]) -> (Vec<Value>, Vec<Value>) {
-    let dir_of: HashMap<&str, &str> = live.iter().filter_map(|r| Some((r.path.as_deref()?, r.dir.as_str()))).collect();
+// `known`: the local clones Bobix remembers (clones.rs), for projects no session works in here.
+pub fn group_issues(issues: &[Value], live: &[Live], known: &HashMap<String, String>) -> (Vec<Value>, Vec<Value>) {
+    let mut dir_of: HashMap<&str, &str> = known.iter().map(|(p, d)| (p.as_str(), d.as_str())).collect();
+    dir_of.extend(live.iter().filter_map(|r| Some((r.path.as_deref()?, r.dir.as_str()))));
     let mut groups: indexmap::IndexMap<String, Vec<Value>> = Default::default();
     for i in issues {
         let p = i["project"].as_str().unwrap_or("").to_string();
@@ -402,10 +404,12 @@ impl Work {
         // an issue read only because a session worked on it leaves with its last session
         let all: Vec<Value> = self.list(settings).into_iter().filter(|i| i["linked"] != true
             || live.iter().any(|s| s.path.as_deref() == i["project"].as_str() && s.iid.is_some() && s.iid == i["iid"].as_i64())).cloned().collect();
-        let (mut local, mut away) = group_issues(&all, &live);
+        let known = crate::clones::dirs(settings);
+        let (mut local, mut away) = group_issues(&all, &live, &known);
         for (g, here) in local.iter_mut().map(|g| (g, true)).chain(away.iter_mut().map(|g| (g, false))) {
             let p = g["path"].as_str().unwrap_or("").to_string();
             g["key"] = json!(key_of(settings, &p));
+            if here && !live.iter().any(|s| s.path.as_deref() == Some(p.as_str())) { g["via"] = settings["workDirs"][&p]["how"].clone(); } // no session here yet
             g["autoKey"] = json!(key_for(&p));
             for i in g["issues"].as_array_mut().into_iter().flatten() {
                 let mi = m.issue(&p, i["iid"].as_i64().unwrap_or(-1));
@@ -516,9 +520,9 @@ mod tests {
     fn issues_count_the_sessions_on_them() {
         let issues = [json!({ "iid": 29, "project": "g/a", "title": "x", "labels": [], "due": null, "url": "u" })];
         let live = |id: &str, p: &str, iid| Live { id: id.into(), path: Some(p.into()), dir: String::new(), iid: Some(iid) };
-        let (local, away) = group_issues(&issues, &[]);
+        let (local, away) = group_issues(&issues, &[], &HashMap::new());
         assert!(local.is_empty() && away[0]["issues"][0]["sessions"] == json!([]));
-        let (local, _) = group_issues(&issues, &[live("s1", "g/a", 29), live("s2", "g/b", 29), live("s3", "g/a", 290)]);
+        let (local, _) = group_issues(&issues, &[live("s1", "g/a", 29), live("s2", "g/b", 29), live("s3", "g/a", 290)], &HashMap::new());
         assert_eq!(local[0]["issues"][0]["sessions"], json!(["s1"]), "same number in another project does not count");
     }
 
@@ -527,12 +531,18 @@ mod tests {
         let mk = |p: &str, iid: i64, due: Value| json!({ "iid": iid, "project": p, "title": format!("t{iid}"), "labels": [], "due": due, "url": format!("u{iid}") });
         let issues = [mk("g/away", 1, Value::Null), mk("g/here", 2, json!("2026-12-01")), mk("g/here", 3, json!("2026-11-10")), mk("g/here", 4, Value::Null)];
         let live = [Live { id: "s".into(), path: Some("g/here".into()), dir: "/src/here".into(), iid: Some(4) }, Live { id: "x".into(), path: None, dir: "/tmp/x".into(), iid: None }];
-        let (local, away) = group_issues(&issues, &live);
+        let (local, away) = group_issues(&issues, &live, &HashMap::new());
         assert_eq!(local.len(), 1);
         assert_eq!((local[0]["path"].as_str(), local[0]["dir"].as_str()), (Some("g/here"), Some("/src/here")));
         assert_eq!(local[0]["issues"].as_array().unwrap().iter().map(|i| i["iid"].as_i64().unwrap()).collect::<Vec<_>>(), [4, 3, 2]);
         assert_eq!(away[0]["path"], "g/away");
         assert!(away[0].get("dir").is_none());
+        // a clone Bobix knows (found, chosen or cloned) makes its project local too; a session's folder wins
+        let known: HashMap<String, String> = [("g/away".to_string(), "/src/away".to_string()), ("g/here".to_string(), "/elsewhere".to_string())].into();
+        let (local, away) = group_issues(&issues, &live, &known);
+        assert!(away.is_empty());
+        let dir = |p: &str| local.iter().find(|g| g["path"] == p).unwrap()["dir"].clone();
+        assert_eq!((dir("g/away"), dir("g/here")), (json!("/src/away"), json!("/src/here")));
         assert_eq!(slim_issue(&json!({ "iid": 7, "title": "T", "web_url": "https://h/g/p/-/issues/7", "references": { "full": "G/P#7" }, "labels": ["Bug"], "due_date": "2026-11-20" })),
             json!({ "iid": 7, "title": "T", "url": "https://h/g/p/-/issues/7", "project": "g/p", "labels": ["Bug"], "due": "2026-11-20" }));
     }

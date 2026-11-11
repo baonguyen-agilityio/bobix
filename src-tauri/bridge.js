@@ -66,6 +66,10 @@
     processStatus: () => invoke('process_status'), // per project: the repository's .bobix/skills.json and the imported process
     // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one
     importProcess: (project, v) => (typeof project === 'string' ? invoke('process_import', { project, text: v?.text ?? null, url: v?.url ?? null, remove: v?.remove ?? null }) : Promise.resolve(null)),
+    // A project not seen on this computer (#163): link the folder you cloned it to (its remote is checked), or clone it
+    // with your own glab / gh into a folder you choose. dir / parent: given by the smoke run; the app asks with a dialog.
+    linkFolder: (path, dir) => invoke('work_link', { path: String(path), dir: typeof dir === 'string' ? dir : null }),
+    cloneProject: (path, parent) => invoke('work_clone', { path: String(path), parent: typeof parent === 'string' ? parent : null }),
     issueBrief: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_brief', { path, iid }) : Promise.resolve(null)), // title, description (read now), link
     // The ticket flow (#112): where a ticket would run, Start (a worktree, then Claude desktop or a terminal line),
     // Haiku's split (only on click), the plan's one approval, the log's assumptions seen, a Haiku summary, cleanup.
