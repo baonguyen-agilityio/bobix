@@ -6,6 +6,7 @@
 mod answers;
 mod autostart;
 mod clones;
+mod effects;
 mod feedback;
 mod hooks;
 mod i18n;
@@ -424,6 +425,7 @@ fn claude_bin() -> Result<String, String> {
 }
 fn habit_run(model: &str, tools: &str, prompt: &str) -> Result<String, String> {
     let secs = if model == "haiku" { 180 } else { 420 };
+    effects::own(&paths::data_dir(), if tools.is_empty() { "scan" } else { "draft" }, model, None, state::now()); // text answer: no tokens
     habit_skills::claude(&claude_bin()?, &paths::data_dir().join("habit-skills/work"), model, tools, prompt, secs)
 }
 
@@ -454,6 +456,7 @@ fn room_serve(data: &std::path::Path) -> Value {
     match room::serve(std::net::IpAddr::V4(ip), port, host) { Ok(a) => json!({ "serving": a.to_string() }), Err(e) => json!({ "serving": null, "error": format!("port {port}: {e}") }) }
 }
 fn room_run(model: &str, tools: &str, prompt: &str) -> Result<String, String> {
+    effects::own(&paths::data_dir(), "room", model, None, state::now());
     habit_skills::claude(&claude_bin()?, &paths::data_dir().join("rooms/work"), model, tools, prompt, 300)
 }
 fn room_act(act: &str, a: &Value) -> Value {
@@ -524,6 +527,7 @@ async fn habit_skills(act: String, id: Option<String>, text: Option<String>, v: 
             "remove" => habit_skills::remove(&home, &data, &id),
             _ => json!({ "ok": false, "error": "unknown" }),
         };
+        if matches!(act.as_str(), "approve" | "restore" | "undo") && r["ok"] == true { effects::record(&data, "habit", None, &format!("{act} {id}"), now); } // a personal skill: every project
         let mut view = habit_skills::view(&home, &data, &st, now);
         view["result"] = r;
         view
@@ -1275,10 +1279,11 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
             c.tickets.list.shift_remove(&key);
             let forge = c.work.source_of(&c.settings, &path, iid).map(|x| x.0.key()).unwrap_or("gitlab").to_string();
             c.tickets.list.insert(key.clone(), tickets::Flow { key: key.clone(), path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
-                dir: dir.clone(), branch, base, status: "starting".into(), models, forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, ..Default::default() });
+                dir: dir.clone(), branch, base, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, ..Default::default() });
             c.tickets.save();
             c.work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": title }));
         }
+        effects::record(&paths::data_dir(), "split", Some(&dir), if models["size"] == "large" { "on" } else { "off" }, state::now());
         // the repository picked becomes the next Start's suggestion for this issue repository's issues
         let mut all = b.core.lock().unwrap().settings["workCode"].clone();
         if !all.is_object() { all = json!({}); }
@@ -1378,6 +1383,21 @@ async fn ticket_clean(key: String, force: Option<bool>, b: B<'_>) -> Result<Valu
         { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.new_for.shift_remove(&f.dir); }
         b.broadcast();
         json!({ "ok": true })
+    }).await.map_err(|_| ())
+}
+
+// Did your changes help? Your own sessions per project, each change Bobix made against the sessions around it, the
+// model split per ticket and Bobix's own calls (effects.rs). This computer only; read when the screen opens.
+#[tauri::command]
+async fn usage_effects(b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let flows: Vec<(String, String, bool)> = b.core.lock().unwrap().tickets.list.values()
+            .filter_map(|f| Some((f.session.clone()?, f.key.clone(), f.models["size"] == "large"))).collect();
+        let (past, prices) = b.usage.lock().unwrap().history();
+        let data = paths::data_dir();
+        let own: Vec<Value> = std::fs::read_to_string(data.join("own-calls.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        effects::view(&past, &effects::changes(&data), &own, &flows, &prices, state::now())
     }).await.map_err(|_| ())
 }
 
@@ -1482,7 +1502,12 @@ async fn skills_audit(dir: Option<String>, b: B<'_>) -> Result<Value, ()> {
 async fn skills_change(dir: Option<String>, key: String, act: String, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, dir) {
-        Ok(d) => skill_audit::apply(&paths::home(), d.as_deref(), &paths::data_dir(), &key, &act),
+        Ok(d) => {
+            let r = skill_audit::apply(&paths::home(), d.as_deref(), &paths::data_dir(), &key, &act);
+            // noted for "did it help?": the skill's own repository, or every project for a personal one
+            if r["ok"] == true { effects::record(&paths::data_dir(), &format!("skill-{act}"), Some(&key), std::path::Path::new(&key).file_name().map(|n| n.to_string_lossy()).as_deref().unwrap_or(&key), state::now()); }
+            r
+        }
         Err(e) => e,
     }).await.map_err(|_| ())
 }
@@ -1496,7 +1521,15 @@ async fn skills_backups() -> Result<Value, ()> {
 // Undoes one change. { ok, exact? } or { ok: false, error }.
 #[tauri::command]
 async fn skills_undo(id: String) -> Result<Value, ()> {
-    tauri::async_runtime::spawn_blocking(move || skill_audit::undo(&paths::data_dir(), &id)).await.map_err(|_| ())
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = paths::data_dir();
+        let e = skill_audit::backups(&data).as_array().into_iter().flatten().find(|e| e["id"] == id.as_str()).cloned();
+        let r = skill_audit::undo(&data, &id);
+        if let (true, Some(e)) = (r["ok"] == true, e) { // an undo is a change too
+            effects::record(&data, "undo", e["path"].as_str(), &format!("{} {}", e["kind"].as_str().unwrap_or(""), e["name"].as_str().unwrap_or("")), state::now());
+        }
+        r
+    }).await.map_err(|_| ())
 }
 
 // The "When to split, which model" block of the project's CLAUDE.md: { file, present, text, block, undo } (add: false),
@@ -1505,7 +1538,11 @@ async fn skills_undo(id: String) -> Result<Value, ()> {
 async fn skills_rules(dir: String, add: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, Some(dir)) {
-        Ok(Some(d)) if add == Some(true) => skill_audit::rules_add(&d, &paths::data_dir()),
+        Ok(Some(d)) if add == Some(true) => {
+            let r = skill_audit::rules_add(&d, &paths::data_dir());
+            if r["ok"] == true { effects::record(&paths::data_dir(), "rules", d.to_str(), "CLAUDE.md", state::now()); }
+            r
+        }
         Ok(Some(d)) => skill_audit::rules_status(&d, &paths::data_dir()),
         Ok(None) => Value::Null,
         Err(e) => e,
@@ -1547,7 +1584,14 @@ async fn ticket_ci(key: String, b: B<'_>) -> Result<Value, ()> {
 async fn claude_tests(dir: String, cmd: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, Some(dir)) {
-        Ok(Some(d)) => match cmd { Some(c) => skill_audit::tests_add(&d, &paths::data_dir(), &c), None => skill_audit::claude_check(&d, &paths::data_dir()) },
+        Ok(Some(d)) => match cmd {
+            Some(c) => {
+                let r = skill_audit::tests_add(&d, &paths::data_dir(), &c);
+                if r["ok"] == true { effects::record(&paths::data_dir(), "tests", d.to_str(), c.trim(), state::now()); }
+                r
+            }
+            None => skill_audit::claude_check(&d, &paths::data_dir()),
+        },
         Ok(None) => Value::Null,
         Err(e) => e,
     }).await.map_err(|_| ())
@@ -1775,7 +1819,7 @@ fn pet_reset(id: String, b: B) -> Value {
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove"];
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1881,7 +1925,7 @@ fn main() {
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
             settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
-            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove,
+            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove, usage_effects,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

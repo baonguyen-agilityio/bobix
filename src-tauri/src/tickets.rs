@@ -356,13 +356,14 @@ pub fn keep_log(data: &Path, f: &Flow) {
 }
 
 // ---------- Haiku, only when you click: through your own `claude -p`, no tools, no hooks (no pet for it) ----------
-fn haiku(claude: &str, prompt: &str, schema: Option<&str>) -> Result<Value, String> {
+fn haiku(what: &str, claude: &str, prompt: &str, schema: Option<&str>) -> Result<Value, String> {
     let mut a = vec!["-p", "--model", "haiku", "--tools", "", "--no-session-persistence", "--strict-mcp-config", "--settings", r#"{"disableAllHooks":true}"#, "--output-format", "json"];
     if let Some(s) = schema { a.extend(["--json-schema", s]); }
     a.push(prompt);
     let r = procs::exec(claude, &a, 120, &[]);
     if r.missing { return Err("claude is not installed".into()); }
     let v: Value = serde_json::from_str(r.out.trim()).map_err(|_| one_line(&r))?;
+    crate::effects::own(&crate::paths::data_dir(), what, "haiku", Some(&v), crate::state::now()); // Bobix's own cost, counted
     if v["is_error"] == true { return Err(head16(v["result"].as_str().unwrap_or("claude -p failed"), 300).into()); }
     Ok(v)
 }
@@ -370,7 +371,7 @@ const SCHEMA: &str = r#"{"type":"object","properties":{"size":{"enum":["small","
 // Small or large, and which model for exploring, editing and reviewing. { size, why, steps }.
 pub fn classify(claude: &str, title: &str, body: &str) -> Result<Value, String> {
     let p = format!("Classify this ticket for a Claude Code session. small: one session does it. large: split it, exploring with a cheap subagent and reviewing with a strong one. Say why in one sentence.\n\nTicket: {}\n\n{}", head16(title, 300), head16(body, 3000));
-    let v = haiku(claude, &p, Some(SCHEMA))?;
+    let v = haiku("size", claude, &p, Some(SCHEMA))?;
     let o = &v["structured_output"];
     if !o["size"].is_string() { return Err("no classification in the answer".into()); }
     Ok(json!({ "size": o["size"], "why": head16(o["why"].as_str().unwrap_or(""), 400), "steps": o["steps"], "by": "haiku" }))
@@ -382,7 +383,7 @@ pub fn summarize(claude: &str, f: &Flow) -> Result<String, String> {
     let stat = git(&f.dir, &["diff", "--stat", &f.base]).out;
     let p = format!("Summarize this coding session's work for its developer in at most 8 short lines: what was done, what is left or blocked. Only from the facts below.\n\nWork log:\n{}\n\nCommits:\n{}\n\nChanged files:\n{}",
         head16(&f.log, 8000), head16(&commits, 3000), head16(&stat, 3000));
-    let v = haiku(claude, &p, None)?;
+    let v = haiku("summary", claude, &p, None)?;
     Ok(head16(v["result"].as_str().unwrap_or("").trim(), 2000).to_string())
 }
 

@@ -206,6 +206,7 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .fold>summary h3{display:inline}
 .fold>summary::after{content:" ▾";color:var(--ink-3);font-size:11px}
 .fold[open]>summary{margin-bottom:8px}
+.ef-tab{overflow-x:auto}.ef-tab table{border-collapse:collapse;font-size:var(--t-sm);width:100%}.ef-tab th,.ef-tab td{text-align:right;padding:var(--s1) var(--s2);border-top:1px solid var(--line);white-space:nowrap}.ef-tab th:first-child,.ef-tab td:first-child{text-align:left}.ef-tab th{color:var(--ink-3);font-weight:500}.ef-list li p{margin:2px 0}
 .log{list-style:none;margin:0;padding:0;font-size:var(--t-sm)}
 .log li{display:grid;grid-template-columns:max-content 8px minmax(0,1fr);align-items:baseline;gap:var(--s2) var(--s3);padding:var(--s2) 0;border-top:1px solid var(--line)}
 .log time{grid-column:1;grid-row:1;font-size:var(--t-xs);color:var(--ink-3);white-space:nowrap}
@@ -1561,7 +1562,7 @@ const toolOf = s => s.askTool ? I18N.askLabel(lang, s.askTool) : T('status.waiti
 function isPlan(s) { return s.askTool === 'ExitPlanMode'; }
 const hhmm = t => new Date(t).toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const answerAttrs = (s, c) => `data-choice="${c}" data-s="${esc(s.id)}"`;
-const GRP = { aq: 'day.aq', stuck: 'day.stuck', warn: 'b.warnings', hab: 'hab.title', run: 'b.running', doing: 'day.doing', verify: 'day.verify', todo: 'day.todo', done: 'day.done', loose: 'day.loose', rest: 'b.rest', you: 'b.you', projects: 'sk.projects', audit: 'sk.grp.audit', dups: 'sk.grp.dups', fapprove: 'tk.g.approve', frun: 'tk.g.run', fdone: 'tk.g.done', frepos: 'work.g.repos', fstart: 'tk.g.start', fquick: 'tk.g.quick', off: 'sk.grp.off', unused: 'sk.grp.unused', inuse: 'sk.grp.inuse' };
+const GRP = { aq: 'day.aq', stuck: 'day.stuck', warn: 'b.warnings', hab: 'hab.title', run: 'b.running', doing: 'day.doing', verify: 'day.verify', todo: 'day.todo', done: 'day.done', loose: 'day.loose', rest: 'b.rest', you: 'b.you', projects: 'sk.projects', audit: 'sk.grp.audit', dups: 'sk.grp.dups', eff: 'ef.g', fapprove: 'tk.g.approve', frun: 'tk.g.run', fdone: 'tk.g.done', frepos: 'work.g.repos', fstart: 'tk.g.start', fquick: 'tk.g.quick', off: 'sk.grp.off', unused: 'sk.grp.unused', inuse: 'sk.grp.inuse' };
 const grpName = (k, n) => (k === 'stuckOld' ? T('day.stuckOld', { n, d: stuckCfg().stuckMaxAge ?? 14 }) : GRP[k] ? T(GRP[k]) : '');
 const head = (lead, title, note = '') => `<div class="b-dh">${lead}<div><h2>${esc(title)}</h2>${note ? `<p class="note">${esc(note)}</p>` : ''}</div></div>`;
 // A session as a row inside a detail (a ticket's sessions, side sessions); a click shows it.
@@ -2234,7 +2235,7 @@ function skillItems() {
   const role = state.settings.role || '', pins = Object.keys(state.settings.skillPins || {}), picked = Object.entries(state.settings.habitsSkill || {});
   const it = [{ id: 'role', grp: 'you', kind: 'skills', lead: ico('user'), label: T('set.role'), sub: role ? ROLE_NAME[role] : T('set.role.none') },
     { id: 'mine', grp: 'you', kind: 'skills', lead: ico('pin'), label: T('set.skillPins'), sub: mySkills ? T('b.pinned', { n: pins.length, m: mySkills.length }) : T('work.loading') }];
-  const [top0, skills] = audItems(), top = [...hsItems(), ...top0]; // from your habits and the audit first, the long skill list last
+  const [top0, skills] = audItems(), top = [effItem(), ...hsItems(), ...top0]; // did it help, from your habits and the audit first, the long skill list last
   if (!procs || !procs.length) return [...top, ...it, { id: 'proc:', grp: 'projects', kind: 'skills', lead: ico('layers'), label: T('sk.projects'), sub: T(procs ? 'set.skillProcess.noProjects' : 'work.loading') }, ...skills];
   it.unshift(...top);
   for (const p of procs) {
@@ -2365,7 +2366,7 @@ function audHTML() {
     <div class="b-stats four"><div class="b-stat"><b>${s.skills}</b><span>${esc(T('sk.aud.installed'))}</span></div>
       <div class="b-stat"><b class="${s.unused ? 'hot' : ''}">${s.unused}</b><span>${esc(T('sk.aud.unused', { n: a.days }))}</span></div>
       <div class="b-stat"><b>${s.duplicateGroups}</b><span>${esc(T('sk.aud.dups'))}</span></div>
-      <div class="b-stat"><b>≈ ${esc(kTok(s.tokensPerTurn))}</b><span>${esc(T('sk.aud.tokens', { c: kTok(s.descriptionChars) }))}</span></div></div>
+      <div class="b-stat"><b>≈ ${esc(kTok(s.tokensPerTurn))}</b><span>${esc(T('sk.aud.tokens', { c: kTok(s.descriptionChars) }))} ${efTag('estimate')}</span></div></div>
     <p class="note">${esc(src)}${aud.busy ? ` · ${esc(T('sk.aud.loading'))}` : ''}</p>
     <section class="b-sec"><h3>${esc(T('sk.grp.dups'))}</h3>${a.duplicates.length ? `<ul class="rows">${a.duplicates.map((g, i) => { const ms = a.skills.filter(x => x.dup === i);
       return `<li><button class="row" type="button" data-sk-go="dup:${i}">${ico('layers')}<span class="b-tx"><span class="lb">${esc(dupLabel(g, ms))}</span><span class="sb">${esc(g.names.join(' · '))}</span></span><span class="mt">${esc(T(g.why === 'name' ? 'sk.dup.name' : 'sk.dup.desc', { n: ms.length }))}</span></button></li>`; }).join('')}</ul>` : `<p class="note">${esc(T('sk.dup.noneAll'))}</p>`}</section>
@@ -2420,7 +2421,7 @@ function skillHTML(x) {
   return `<div class="b-dh"><span class="b-ico lg tx">${tag(x)}</span><div><h2 style="font-family:var(--f-mono);font-size:15px">${esc(x.name)}</h2><p class="note">${esc(srcOf(x))}</p></div></div>${errHTML(id)}
     <div class="badges">${x.unused ? `<span class="badge warn">${esc(T('sk.grp.unused'))}</span>` : `<span class="badge ok">${esc(T('sk.grp.inuse'))}</span>`}${x.dup != null ? `<button class="badge lnk" type="button" data-sk-go="dup:${x.dup}">⚠ ${esc(T('sk.dupOf'))}</button>` : ''}${x.hidden ? `<span class="badge">${esc(T('sk.hidden'))}</span>` : ''}</div>
     <dl class="kv"><dt>${esc(T('sk.lastUsed'))}</dt><dd>${esc(lastUsed(x))}</dd><dt>${esc(T('sk.uses'))}</dt><dd>${x.uses}</dd>
-      <dt>${esc(T('sk.size'))}</dt><dd>${esc(T('sk.chars', { n: x.size, t: Math.round(x.size / 4) }))}</dd><dt>${esc(T('sk.folder'))}</dt><dd><code>${esc(home(x.key))}</code></dd></dl>
+      <dt>${esc(T('sk.size'))}</dt><dd>${esc(T('sk.chars', { n: x.size, t: Math.round(x.size / 4) }))} ${efTag('estimate')}</dd><dt>${esc(T('sk.folder'))}</dt><dd><code>${esc(home(x.key))}</code></dd></dl>
     ${x.description ? `<section class="b-sec"><h3>${esc(T('sk.size'))}</h3><p>${esc(x.description)}</p></section>` : ''}
     ${c.can ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-sk="disable" data-key="${esc(x.key)}">${esc(T('sk.disable'))}</button><button class="btn danger" type="button" data-sk="remove" data-key="${esc(x.key)}">${esc(T('sk.remove'))}…</button></div>` : ''}
     <p class="note">${esc(why)}</p>`;
@@ -2498,6 +2499,57 @@ const hsErr = id => (hs.err?.id === id ? `<p class="note err" role="alert">${esc
 const hsBusy = id => hs.busy === id;
 const hsWhy = w => T('hs.why.' + w);
 const per = (n, u) => (u ? (n / u).toFixed(1) : '0');
+// ---------- Did your changes help? (effects.rs) ----------
+// Your own sessions on this computer, before and after each change Bobix made: read when this opens (and Read again),
+// "not enough data yet" below the minimum, every number labelled measured or estimate.
+let ef = null; // { busy } | the app's answer
+async function efLoad() {
+  ef = { ...(ef || {}), busy: true }; render();
+  ef = await bridge.usageEffects().catch(e => ({ error: String(e) })); render();
+}
+const efPct = x => (x > 0 ? '+' : x < 0 ? '−' : '±') + Math.abs(Math.round(x * 100)) + '%';
+const efDate = t => new Date(t).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' });
+const efMin = ms => Math.round(ms / 60000);
+const efTag = k => `<span class="badge${k === 'estimate' ? ' warn' : ''}">${esc(T('ef.' + k))}</span>`;
+function effItem() {
+  const ch = ef?.changes || [], ok = ch.filter(c => c.status === 'ok').length;
+  return { id: 'eff', grp: 'eff', kind: 'board', lead: ico('gauge'), label: T('ef.t'), sub: !ef || ef.busy && !ef.changes ? T('ef.sub') : T('ef.sub.n', { n: ch.length, m: ok }),
+    detail: () => { if (!ef && bridge) setTimeout(efLoad); return effHTML(); }, acts: [[T('ef.again'), ['↵'], 'data-ef-load="1"']] };
+}
+function effChange(c) {
+  const what = `<strong>${esc(T('ef.k.' + c.kind.replace('-', '')))}${c.n > 1 ? ' ×' + c.n : ''}</strong>${c.name ? ' · ' + esc(c.kind === 'split' ? T('ef.split.' + c.name) : c.name) : ''} · ${esc(c.project ? BOARD.short(c.project) : T('ef.all'))} · ${esc(efDate(c.at))}`;
+  let body;
+  if (c.status === 'short') body = `<p class="note">${esc(T('ef.short', { b: c.sessions[0], a: c.sessions[1], need: c.need }))}</p>`;
+  else if (c.status === 'ticket') body = `<p class="note">${esc(T('ef.ticket'))}</p>`;
+  else if (c.status === 'overlap') body = `<p class="risk">${esc(T('ef.overlap', { x: c.with.map(o => T('ef.k.' + o.kind.replace('-', '')) + (o.n > 1 ? ' ×' + o.n : '') + ' ' + efDate(o.at)).join(', ') }))}</p>`;
+  else {
+    const r = c.result, line = (label, x) => `<p>${esc(label)}: <b>${esc(efPct(x.change))}</b> ${esc(T('ef.nr', { b: c.sessions[0], a: c.sessions[1], lo: efPct(x.low), hi: efPct(x.high) }))} ${efTag('measured')}${x.noise ? ` <span class="badge">${esc(T('ef.noise'))}</span>` : ''}</p>`;
+    body = line(T(c.metric === 'first' ? 'ef.m.first' : 'ef.m.tokens'), r) + (c.metric === 'first' ? line(T('ef.m.tokens'), c.tokens) : '')
+      + `<p class="note">${esc(T('ef.medians', { b: kTok(r.before), a: kTok(r.after) }))}</p>`
+      + (c.mix ? `<p class="risk">${esc(T('ef.mix', { b: Math.round(c.mix.before * 100), a: Math.round(c.mix.after * 100) }))}</p>` : '')
+      + (c.models ? `<p class="risk">${esc(T('ef.models', { b: c.models[0], a: c.models[1] }))}</p>` : '');
+  }
+  return `<li><p>${what}</p>${body}</li>`;
+}
+function effHTML() {
+  const top = `${head(ico('gauge', 'lg'), T('ef.t'), T('ef.local'))}<p class="note">${esc(T('ef.note', { n: ef?.minSide || 10, w: ef?.window || 20 }))}</p>`;
+  if (!ef || (ef.busy && !ef.changes)) return `${top}<p class="note" aria-busy="true">${esc(T('ef.loading'))}</p>`;
+  if (ef.error) return `${top}<p class="note err">${esc(ef.error)}</p>`;
+  const again = ef.busy ? `<p class="note" aria-busy="true">${esc(T('ef.loading'))}</p>` : '';
+  const ch = ef.changes.length ? `<ul class="rows ef-list">${ef.changes.map(effChange).join('')}</ul>` : `<p class="note">${esc(T('ef.none'))}</p>`;
+  const s = ef.split, split = s.tokens ? `<p>${esc(T('ef.split.tok'))}: <b>${esc(efPct(s.tokens.change))}</b> ${esc(T('ef.nr', { b: s.n[1], a: s.n[0], lo: efPct(s.tokens.low), hi: efPct(s.tokens.high) }))} ${efTag('measured')}${s.tokens.noise ? ` <span class="badge">${esc(T('ef.noise'))}</span>` : ''}</p>
+      ${s.usd ? `<p>${esc(T('ef.split.usd'))}: <b>${esc(efPct(s.usd.change))}</b> ${efTag('estimate')} <span class="note">${esc(T('ef.prices', { d: s.date || '?' }))}</span></p>` : `<p class="note">${esc(T('ef.split.nousd', { m: (s.unpriced || []).join(', ') }))}</p>`}`
+    : `<p class="note">${esc(T('ef.split.short', { w: s.n[0], o: s.n[1], need: s.need }))}</p>`;
+  const proj = ef.projects.length ? `<div class="ef-tab"><table><thead><tr><th>${esc(T('ef.p.project'))}</th><th>n</th><th>${esc(T('ef.p.tokens'))}</th><th>${esc(T('ef.p.first'))}</th><th>${esc(T('ef.p.reread'))}</th><th>${esc(T('ef.p.turns'))}</th><th>${esc(T('ef.p.prompts'))}</th><th>${esc(T('ef.p.min'))}</th><th>${esc(T('ef.p.ticket'))}</th></tr></thead><tbody>
+    ${ef.projects.map(p => p.enough ? `<tr><td title="${esc(p.project)}">${esc(BOARD.short(p.project))}</td><td>${p.n}</td><td>${esc(kTok(p.tokens))}</td><td>${esc(kTok(p.first))}</td><td>${Math.round(p.reread * 100)}%</td><td>${Math.round(p.turns)}</td><td>${Math.round(p.prompts)}</td><td>${efMin(p.activeMs)}</td><td>${p.ticketTokens != null ? esc(kTok(p.ticketTokens)) + ` <span class="note">(${p.tickets})</span>` : '–'}</td></tr>`
+      : `<tr><td title="${esc(p.project)}">${esc(BOARD.short(p.project))}</td><td>${p.n}</td><td colspan="7" class="note">${esc(T('ef.short1', { n: p.n, need: ef.minSide }))}</td></tr>`).join('')}</tbody></table></div><p class="note">${efTag('measured')} ${esc(T('ef.p.note'))}</p>`
+    : `<p class="note">${esc(T('ef.p.none'))}</p>`;
+  const o = ef.own, by = Object.entries(o.by || {}).map(([k, n]) => `${T('ef.own.' + k)} ${n}`).join(' · ');
+  const own = `<p>${esc(T('ef.own.n', { n: o.calls }))}${by ? ' · ' + esc(by) : ''}</p>${o.calls ? `<p>${esc(T('ef.own.tok', { t: kTok(o.tokens), k: o.withTokens, n: o.calls }))} ${efTag('measured')}</p>` : ''}`;
+  return `${top}${again}<section class="b-sec"><h3>${esc(T('ef.h.changes'))}</h3>${ch}</section><section class="b-sec"><h3>${esc(T('ef.h.split'))}</h3>${split}</section>
+    <section class="b-sec"><h3>${esc(T('ef.h.usual'))}</h3>${proj}</section><section class="b-sec"><h3>${esc(T('ef.h.own'))}</h3>${own}</section>
+    <div class="acts" style="margin:0"><button class="btn" type="button" data-ef-load="1"${ef.busy ? ' disabled' : ''}>${esc(T('ef.again'))}</button></div>`;
+}
 function hsItems() {
   if (!bridge?.habitSkills || !state) return [];
   const v = hs.v, it = [], sc = v?.scan || {};
@@ -3023,6 +3075,7 @@ async function onAct(e) {
   if (d.tkMrGo) return tkMrGo(d.tkMrGo);
   if (d.tkMrCancel) { delete tkMr[d.tkMrCancel]; return render(); }
   if (d.tkCleanForce) return tkClean(d.tkCleanForce, true);
+  if (d.efLoad) return efLoad();
   if (d.tkRm) return tkRmAsk(d.tkRm);
   if (d.tkRmKeep) return tkRmGo(d.tkRmKeep, 'keep');
   if (d.tkRmDel) return tkRmGo(d.tkRmDel, 'delete');

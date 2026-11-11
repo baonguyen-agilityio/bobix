@@ -15,10 +15,12 @@ const RECENT: usize = 10;
 // median far below any real working session).
 const MIN_PAST: usize = 5;
 const MIN_TURNS: u64 = 10;
-const PAST_KEEP: usize = 200;
-// Past transcripts read once to learn the normal: modified in the last 30 days, quiet for 30 min, the newest 40.
-const BACKFILL_DAYS: u64 = 30;
-const BACKFILL_MAX: usize = 40;
+// Enough past sessions per project for a before/after of a change (effects.rs): numbers only, a few hundred bytes each.
+const PAST_KEEP: usize = 1000;
+// Past transcripts read once to learn the normal and each project's own history: modified in the last 90 days, quiet
+// for 30 min, the newest 400.
+const BACKFILL_DAYS: u64 = 90;
+const BACKFILL_MAX: usize = 400;
 const BACKFILL_PER_TICK: usize = 4;
 
 // ---------- tokens and prices ----------
@@ -108,6 +110,9 @@ pub struct Tally {
     run: u32, run_model: String,            // read-only tool calls in a row, and the model making them
     tasks: BTreeMap<String, u32>,           // opt-in: prompts by kind
     last_task: Option<String>,
+    cwd: String,                            // the folder it ran in (its first line that says), for its project
+    first: u64,                             // what its first turn read: the context every session starts with
+    prompts: u32,                           // prompts you typed (counted, the text is not kept)
 }
 
 // Tools that only read. Bash counts only with the content opt-in (its command is content).
@@ -184,7 +189,9 @@ impl Tally {
         let kind = j["type"].as_str().unwrap_or("");
         if kind != "assistant" && kind != "user" { return; }
         if let Some(t) = j["timestamp"].as_str().and_then(iso_ms) { self.minutes.insert(t / 60_000); }
+        if !side && self.cwd.is_empty() { if let Some(c) = j["cwd"].as_str() { self.cwd = c.into(); } }
         if kind == "user" {
+            if !side && j["isMeta"] != true && prompt_text(&j["message"]["content"]).is_some() { self.prompts += 1; }
             if content && !side && j["isMeta"] != true { if let Some(k) = prompt_kind(&j["message"]["content"]) { *self.tasks.entry(k.into()).or_default() += 1; self.last_task = Some(k.into()); } }
             return;
         }
@@ -202,6 +209,7 @@ impl Tally {
         f.last_id = id;
         f.last = Some((key, t));
         if side { return; }
+        if self.first == 0 { self.first = t.context(); }
         self.ctx = t.context();
         if !same {
             self.recent.push_back(Turn { model: model.into(), ..Default::default() });
@@ -250,7 +258,8 @@ impl Tally {
     fn past(&self, id: &str, end: u64) -> Past {
         let mut models: BTreeMap<String, Tok> = BTreeMap::new();
         for ((m, _), t) in &self.models { models.entry(m.clone()).or_default().add(t); }
-        Past { id: id.into(), end, active_ms: self.active_ms(), turns: self.main_turns(), models, tasks: self.tasks.clone() }
+        let project = crate::effects::project_of(&self.cwd).unwrap_or_default();
+        Past { id: id.into(), end, active_ms: self.active_ms(), turns: self.main_turns(), models, tasks: self.tasks.clone(), project, first: self.first, prompts: self.prompts }
     }
 }
 
@@ -278,19 +287,21 @@ fn subagent_files(transcript: &Path) -> Vec<PathBuf> {
 
 // ---------- past sessions: the normal ----------
 #[derive(Clone, Debug, PartialEq)]
-pub struct Past { pub id: String, pub end: u64, pub active_ms: u64, pub turns: u64, pub models: BTreeMap<String, Tok>, pub tasks: BTreeMap<String, u32> }
+pub struct Past { pub id: String, pub end: u64, pub active_ms: u64, pub turns: u64, pub models: BTreeMap<String, Tok>, pub tasks: BTreeMap<String, u32>,
+    pub project: String, pub first: u64, pub prompts: u32 } // its repository folder ("" unknown), first turn's input, prompts typed
 
 impl Past {
     fn json(&self) -> Value {
         let models: Map<String, Value> = self.models.iter().map(|(m, t)| (m.clone(), json!(t.arr()))).collect();
-        json!({ "id": self.id, "end": self.end, "activeMs": self.active_ms, "turns": self.turns, "models": models, "tasks": self.tasks })
+        json!({ "id": self.id, "end": self.end, "activeMs": self.active_ms, "turns": self.turns, "models": models, "tasks": self.tasks, "project": self.project, "first": self.first, "prompts": self.prompts })
     }
     fn from(v: &Value) -> Option<Past> {
         let models = v["models"].as_object()?.iter().filter_map(|(m, a)| Some((m.clone(), Tok::from_arr(&a.as_array()?.iter().filter_map(Value::as_u64).collect::<Vec<_>>())))).collect();
         let tasks = v["tasks"].as_object().map(|o| o.iter().filter_map(|(k, n)| Some((k.clone(), n.as_u64()? as u32))).collect()).unwrap_or_default();
-        Some(Past { id: v["id"].as_str()?.into(), end: v["end"].as_u64()?, active_ms: v["activeMs"].as_u64().unwrap_or(0), turns: v["turns"].as_u64().unwrap_or(0), models, tasks })
+        Some(Past { id: v["id"].as_str()?.into(), end: v["end"].as_u64()?, active_ms: v["activeMs"].as_u64().unwrap_or(0), turns: v["turns"].as_u64().unwrap_or(0), models, tasks,
+            project: v["project"].as_str().unwrap_or("").into(), first: v["first"].as_u64().unwrap_or(0), prompts: v["prompts"].as_u64().unwrap_or(0) as u32 })
     }
-    fn weight(&self, p: &Prices) -> f64 { self.models.iter().filter_map(|(m, t)| p.cost(m, t)).map(|c| c.0).sum() }
+    pub fn weight(&self, p: &Prices) -> f64 { self.models.iter().filter_map(|(m, t)| p.cost(m, t)).map(|c| c.0).sum() }
 }
 
 // The median API-equivalent weight of past sessions, and how many it is taken over. Weighted by price, not raw
@@ -391,7 +402,7 @@ impl Store {
     fn backfill(&mut self, live: &[(String, String)], now: u64, content: bool) -> bool {
         if self.queue.is_none() {
             let Some(root) = live.iter().find_map(|(_, f)| Path::new(f).parent()?.parent().map(Path::to_path_buf)) else { return false };
-            let known: Vec<String> = self.past().iter().map(|p| p.id.clone()).collect();
+            let known: Vec<String> = self.past().iter().filter(|p| !p.project.is_empty()).map(|p| p.id.clone()).collect(); // read before projects were kept: again
             let mut q: Vec<(String, PathBuf, u64)> = fs::read_dir(root).into_iter().flatten().flatten().filter(|e| e.path().is_dir())
                 .flat_map(|d| fs::read_dir(d.path()).into_iter().flatten().flatten())
                 .filter_map(|e| { let p = e.path(); let id = p.file_stem()?.to_str()?.to_string(); (p.extension()? == "jsonl").then_some(())?; let m = mtime_ms(&p)?; Some((id, p, m)) })
@@ -437,6 +448,9 @@ impl Store {
         live.iter().map(|(id, _)| (id.clone(), self.tallies.get(id).and_then(|t| view(t, &p, st, n)))).collect()
     }
 
+    // Every past session (oldest first) and the price table: for effects.rs.
+    pub fn history(&mut self) -> (Vec<Past>, Prices) { let p = self.prices().clone(); (self.past().clone(), p) }
+
     // For the pages: the price table's date and state, and what the normal is taken over (no dollars).
     pub fn meta(&mut self) -> Value {
         let p = self.prices().clone();
@@ -458,6 +472,32 @@ mod tests {
     }
     fn u(i: u64, o: u64, cw: u64, h1: u64, cr: u64) -> Value { json!({ "input_tokens": i, "output_tokens": o, "cache_creation_input_tokens": cw, "cache_read_input_tokens": cr, "cache_creation": { "ephemeral_1h_input_tokens": h1 } }) }
     fn st() -> Value { crate::settings::defaults() }
+
+    // For "did it help?" (effects.rs): a session's project (a worktree counts as its repository), what its first turn
+    // read, and how many prompts were typed; the prompt text is never kept, with or without the content opt-in.
+    #[test]
+    fn a_session_keeps_its_project_first_turn_and_prompt_count() {
+        let d = tmp("project");
+        let repo = d.join("code/shop");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        let wt = repo.join(".claude/worktrees/bobix-7");
+        fs::create_dir_all(&wt).unwrap();
+        let user = |t: &str| json!({ "type": "user", "cwd": wt, "timestamp": "2026-11-10T10:00:00.000Z", "message": { "role": "user", "content": t } }).to_string() + "\n";
+        let tool_result = json!({ "type": "user", "cwd": wt, "message": { "content": [{ "type": "tool_result", "content": "x" }] } }).to_string() + "\n";
+        let f = d.join("s1.jsonl");
+        fs::write(&f, [user("fix the cart total"), asst("a1", "claude-sonnet-5-5", "2026-11-10T10:00:05.000Z", u(5, 10, 30000, 0, 0), &[]), tool_result,
+            asst("a2", "claude-sonnet-5-5", "2026-11-10T10:01:00.000Z", u(1, 10, 100, 0, 30000), &[]), user("now the tests"), user("<command-name>/clear</command-name>")].concat()).unwrap();
+        let mut t = Tally::default();
+        t.update(&f.to_string_lossy(), false);
+        let p = t.past("s1", 9);
+        assert_eq!((p.project.as_str(), p.first, p.prompts), (repo.to_string_lossy().as_ref(), 30005, 2), "two typed prompts; a tool result and Claude Code's own line are not");
+        let back = Past::from(&p.json()).unwrap();
+        assert_eq!(back, p, "kept in usage.json");
+        assert!(!p.json().to_string().contains("cart total"), "numbers only");
+        let old = Past::from(&json!({ "id": "x", "end": 1, "models": {} })).unwrap();
+        assert_eq!((old.project.as_str(), old.first, old.prompts), ("", 0, 0), "an entry from before: no project, left out of before/after");
+        let _ = fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn seed_prices_and_matching() {
@@ -593,7 +633,7 @@ mod tests {
     #[test]
     fn normal_is_a_median_of_past_sessions() {
         let p = seed();
-        let past = |id: &str, out: u64, turns: u64| Past { id: id.into(), end: 1, active_ms: 0, turns, models: BTreeMap::from([("claude-opus-5-5".into(), Tok { output: out, turns, ..Default::default() })]), tasks: Default::default() };
+        let past = |id: &str, out: u64, turns: u64| Past { id: id.into(), end: 1, active_ms: 0, turns, models: BTreeMap::from([("claude-opus-5-5".into(), Tok { output: out, turns, ..Default::default() })]), tasks: Default::default(), project: String::new(), first: 0, prompts: 0 };
         let mut v: Vec<Past> = (1..=4).map(|i| past(&format!("p{i}"), i * 1_000_000, 10)).collect();
         assert_eq!(normal(&v, &p), None, "too few sessions yet");
         v.push(past("tiny", 9_000_000, 9)); // under MIN_TURNS: left out
