@@ -53,7 +53,7 @@ Installers have fixed names (`Bobix-mac-arm64.dmg`, `Bobix-mac-x64.dmg`, `Bobix-
 1. Bump `version` in `package.json` (the app reads it from there) and commit on the branch you release from (`develop`, or `v1` for a v0.1.x fix).
 2. Push a tag such as `v0.2.0`. The release workflow builds on macOS, Windows and Ubuntu and attaches the installers to a GitHub Release. A tag with a dash (`v0.2.0-rc.1`) makes a pre-release, which does not become "latest".
 3. Add release notes to the release.
-4. For a release with changes people should know about, rewrite the tour's steps (`STEPS` in `src/ui/tour.js`, each pointing at a real element, with its `tour.<key>.title` / `.body` strings in EN and VI) and `NEWS` in `src/ui/i18n.js` before tagging: the panel walks everyone updating to that version through it once (Skip or Done marks it seen), never a new install; Setup → "Show the tour again" shows it again.
+4. For a release with changes people should know about, rewrite the tour's steps (`STEPS` in `src/ui/tour.js`, each pointing at a real element, with its `tour.<key>.title` / `.body` strings in EN and VI), mark the one about this release `news: true`, and set `NEWS` in `src/ui/i18n.js` before tagging: the panel shows everyone updating to that version that one step once, as a single bubble (Done marks every step seen), never a new install; Setup → "Show the tour again" shows the whole tour. What a group or a setting does goes on its "?" instead (`HELP` in `src/ui/tour.js`, strings `help.grp.<key>` / `help.row.<key>`).
 
 ## CI
 

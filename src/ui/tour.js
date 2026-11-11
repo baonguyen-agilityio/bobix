@@ -1,10 +1,13 @@
-// The guided tour of what is new: its steps, and where its bubble goes next to the element a step points at.
-// Works in the browser (window.TOUR) and in Node (require). The panel draws it (see "tour" in panel.html); it opens
-// by itself with the steps not seen yet (settings.tourSeen: a new install counts today's as seen), and whole from Setup.
+// The guided tour of what is new: its steps, and where its bubble goes next to the element a step points at; and the
+// "?" help next to the panel's groups and trickier settings: which ones have it, and where its tip goes.
+// Works in the browser (window.TOUR) and in Node (require). The panel draws both (see "tour" and "help" in panel.html).
+// After an update the tour opens by itself with only the news step(s) not seen yet, as one bubble (settings.tourSeen: a
+// new install counts today's as seen); Setup shows it whole.
 (function (root) {
   // Each step: the screen it shows (and the item it picks there), the elements it points at (the first one on screen wins; none: the bubble stands in
   // the middle), and its strings tour.<key>.title / tour.<key>.body. open: what the panel opens first: a ticket (one with a ⚠ if there is one), or the Start box of the issue Next up suggests.
-  // alt: where to point instead when none of `at` is there (another screen).
+  // alt: where to point instead when none of `at` is there (another screen). news: what this release adds, the only
+  // step that opens by itself after an update.
   const STEPS = [
     { key: 'flat', tab: 'settings', item: 'set:place', at: ['#preview'], art: true },
     { key: 'launcher', tab: 'overview', at: ['.b-search'] },
@@ -18,7 +21,26 @@
     { key: 'audit', tab: 'skills', item: 'aud', at: ['[data-grp="audit"]'] },
     { key: 'usage', tab: 'overview', item: 'today', at: ['#d-use'] },
     { key: 'standup', tab: 'overview', item: 'today', at: ['#b-dyn [data-standup]'] },
+    { key: 'help', tab: 'overview', at: ['#b-list .help'], alt: { tab: 'settings', item: 'set:stuck', at: ['#settings .help'] }, news: true },
   ];
+
+  // Where the panel has a "?": a list group's heading (grp: its key in drawList) or a settings row (row: its data-row),
+  // each with its words help.<grp|row>.<key>. stuckOld shares stuck's.
+  const HELP = {
+    grp: ['aq', 'stuck', 'warn', 'hab', 'doing', 'verify', 'todo', 'done', 'loose', 'fstart', 'fapprove', 'fdone', 'you', 'projects', 'audit', 'dups', 'off', 'unused'],
+    row: ['stuckNoPr', 'stuckNoReview', 'stuckBranch', 'stuckIdle'],
+  };
+  const helpKey = (kind, k) => (kind === 'grp' && k === 'stuckOld' ? 'stuck' : HELP[kind].includes(k) ? k : null);
+
+  // Where a tip goes: { left, top } in the viewport, for a w × h tip by the "?" at r. Below it, centred on it; above
+  // when there is no room below; never closer than TIP_EDGE to the window's sides (the panel goes down to 420 px).
+  const TIP_GAP = 6, TIP_EDGE = 8;
+  function tip(r, vw, vh, w, h) {
+    const left = Math.round(Math.min(Math.max(TIP_EDGE, r.left + r.width / 2 - w / 2), vw - w - TIP_EDGE));
+    const below = r.top + r.height + TIP_GAP, above = r.top - TIP_GAP - h;
+    const top = below + h <= vh - TIP_EDGE ? below : above >= TIP_EDGE ? above : vh - h - TIP_EDGE;
+    return { left: Math.max(TIP_EDGE, left), top: Math.round(Math.max(TIP_EDGE, top)) };
+  }
 
   const GAP = 12, EDGE = 12, NARROW = 560;
 
@@ -38,9 +60,9 @@
     return { left, top: Math.round(Math.max(EDGE, top)), width };
   }
 
-  // The steps not seen yet, in order.
-  const fresh = seen => STEPS.filter(s => !(seen || []).includes(s.key));
+  // What opens by itself after an update: the news steps not seen yet (one bubble), in order.
+  const fresh = seen => STEPS.filter(s => s.news && !(seen || []).includes(s.key));
 
-  const api = { STEPS, place, NARROW, fresh };
+  const api = { STEPS, place, NARROW, fresh, HELP, helpKey, tip };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.TOUR = api;
 })(this);
