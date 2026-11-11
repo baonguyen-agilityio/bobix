@@ -50,9 +50,11 @@ fn append(f: &Path, v: Value) {
 // changes are matched by it.
 pub fn project_of(dir: &str) -> Option<String> {
     if dir.is_empty() { return None; }
-    let norm = dir.replace('\\', "/");
-    let main = norm.split("/.claude/worktrees/").next().unwrap_or(&norm).to_string();
-    Path::new(&main).ancestors().find(|d| d.join(".git").exists()).map(|d| d.to_string_lossy().into_owned())
+    let p = Path::new(dir);
+    // <repo>/.claude/worktrees/<name>/…: the repository above it (by path parts, so "\\" and "/" both count)
+    let main = p.ancestors().find(|a| a.file_name().is_some_and(|n| n == "worktrees") && a.parent().and_then(Path::file_name).is_some_and(|n| n == ".claude"))
+        .and_then(|w| w.parent()?.parent()).unwrap_or(p);
+    main.ancestors().find(|d| d.join(".git").exists()).map(|d| d.to_string_lossy().into_owned())
 }
 
 // kind: skill-disable | skill-remove | undo | tests | rules | habit | split. project: a repository folder, or "" for
@@ -305,12 +307,15 @@ mod tests {
         let repo = d.join("code/shop");
         fs::create_dir_all(repo.join(".git")).unwrap();
         fs::create_dir_all(repo.join(".claude/worktrees/bobix-7/src")).unwrap();
-        assert_eq!(project_of(&repo.join(".claude/worktrees/bobix-7/src").to_string_lossy()).as_deref(), Some(repo.to_string_lossy().as_ref()), "a worktree is its repository");
+        let wt = repo.join(".claude").join("worktrees").join("bobix-7").join("src");
+        assert!(project_of(&wt.to_string_lossy()).is_some_and(|p| crate::paths::same_dir(&p, &repo.to_string_lossy())), "a worktree is its repository");
+        assert!(project_of(&repo.join("src").to_string_lossy()).is_some_and(|p| crate::paths::same_dir(&p, &repo.to_string_lossy())));
         assert_eq!(project_of(&d.to_string_lossy()), None);
         record(&d, "tests", Some(&repo.to_string_lossy()), "npm test", 5);
         record(&d, "skill-remove", None, "x", 6);
         let c = changes(&d);
-        assert_eq!((c.len(), &c[0]["project"], &c[1]["project"]), (2, &json!(repo.to_string_lossy()), &json!("")));
+        assert_eq!((c.len(), &c[1]["project"]), (2, &json!("")));
+        assert!(crate::paths::same_dir(c[0]["project"].as_str().unwrap(), &repo.to_string_lossy()));
         own(&d, "size", "haiku", Some(&json!({ "usage": { "input_tokens": 10, "output_tokens": 5 }, "total_cost_usd": 0.001 })), 7);
         own(&d, "scan", "sonnet", None, 8);
         let o = read_list(&own_file(&d));

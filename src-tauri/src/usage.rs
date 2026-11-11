@@ -490,7 +490,8 @@ mod tests {
         let mut t = Tally::default();
         t.update(&f.to_string_lossy(), false);
         let p = t.past("s1", 9);
-        assert_eq!((p.project.as_str(), p.first, p.prompts), (repo.to_string_lossy().as_ref(), 30005, 2), "two typed prompts; a tool result and Claude Code's own line are not");
+        assert!(crate::paths::same_dir(&p.project, &repo.to_string_lossy()), "a worktree is its repository: {}", p.project);
+        assert_eq!((p.first, p.prompts), (30005, 2), "two typed prompts; a tool result and Claude Code's own line are not");
         let back = Past::from(&p.json()).unwrap();
         assert_eq!(back, p, "kept in usage.json");
         assert!(!p.json().to_string().contains("cart total"), "numbers only");
