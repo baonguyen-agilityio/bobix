@@ -383,9 +383,14 @@ pub fn newest_first(list: &mut [Value]) {
     list.sort_by(|a, b| b["updated"].as_str().unwrap_or("").cmp(a["updated"].as_str().unwrap_or("")));
 }
 
-// The repositories active since `since` (ISO time): the first ticks of the repo picker.
-pub fn recent(repos: &[Value], since: &str) -> Vec<String> {
-    repos.iter().filter(|r| r["at"].as_str().is_some_and(|t| t >= since)).filter_map(|r| r["path"].as_str().map(String::from)).collect()
+// The first ticks of the repo picker: the FIRST_TICKS most recently active repositories since `since` (ISO time), and
+// how many more were active since then (a big organisation: hundreds; each ticked one is read every 5 minutes).
+pub const FIRST_TICKS: usize = 10;
+pub fn recent(repos: &[Value], since: &str) -> (Vec<String>, usize) {
+    let mut r: Vec<(&str, &str)> = repos.iter().filter_map(|r| Some((r["path"].as_str()?, r["at"].as_str().filter(|t| *t >= since)?))).collect();
+    r.sort_by(|a, b| b.1.cmp(a.1));
+    let more = r.len().saturating_sub(FIRST_TICKS);
+    (r.into_iter().take(FIRST_TICKS).map(|(p, _)| p.to_string()).collect(), more)
 }
 
 // The fields Bobix shows of one issue from GitLab's API.
@@ -515,12 +520,22 @@ pub struct Work {
     // no newer one was asked meanwhile (`read_gen`: the ask its kept answer is for). Older answers are dropped.
     pub gen: u64,
     pub read_gen: [u64; 2],
+    // The clone search ran for this tracker (by Forge): once per app start, and again after Refresh.
+    pub scanned: [bool; 2],
+    // A host's first read ticked only its FIRST_TICKS most recent repositories: how many more were active lately (memory
+    // only; the repo picker says so until you save your ticks).
+    pub more_repos: HashMap<String, usize>,
 }
 
 impl Default for Work {
     fn default() -> Self {
-        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default(), page: 1, gen: 0, read_gen: [0; 2] }
+        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default(), page: 1, gen: 0, read_gen: [0; 2], scanned: [false; 2], more_repos: HashMap::new() }
     }
+}
+
+impl Work {
+    // The folder New / Start waits on that is `dir` (compared as folders: Windows spells one folder several ways).
+    pub fn wait_key(&self, dir: &str) -> Option<String> { self.new_for.keys().find(|k| crate::paths::same_dir(k, dir)).cloned() }
 }
 
 // A project's code in session names: the one set in Settings, else the one made from its name.
@@ -636,6 +651,7 @@ impl Work {
         let ticked = |f: &Feed| f.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str()).map(|h| settings["workRepos"][h].as_array().map_or(0, |a| a.len())).sum::<usize>();
         view["ticked"] = json!(self.on(settings).into_iter().map(ticked).sum::<usize>());
         view["many"] = json!(Forge::GitLab.on(settings) && ticked(&self.feeds[Forge::GitLab as usize]) > MANY_GITLAB);
+        view["moreRepos"] = json!(self.more_repos.values().sum::<usize>());
         view
     }
 }
@@ -824,7 +840,14 @@ rm -f "$d/runs/$$"
         assert_eq!((need_for(0), need_for(1), need_for(3), need_for(10_000)), (21, 21, 61, MAX_PAGE * PER_PAGE + 1), "a read is capped, whatever the page");
         // the repo picker's first ticks: active in the last 90 days
         let repos = [json!({ "path": "a/new", "at": "2026-11-01T00:00:00Z" }), json!({ "path": "a/old", "at": "2026-01-01T00:00:00Z" }), json!({ "path": "a/never", "at": null })];
-        assert_eq!(recent(&repos, "2026-08-13T00:00:00Z"), ["a/new"]);
+        assert_eq!(recent(&repos, "2026-08-13T00:00:00Z"), (vec!["a/new".to_string()], 0));
+        // a big organisation: only the 10 most recently active are ticked, and the rest are counted
+        let big: Vec<Value> = (0..300).map(|n| json!({ "path": format!("org/p{n:03}"), "at": format!("2026-10-{:02}T{:02}:00:00Z", 1 + n % 28, n % 24) })).collect();
+        let (t, more) = recent(&big, "2026-08-13T00:00:00Z");
+        assert_eq!((t.len(), more), (10, 290));
+        let newest = |p: &String| big.iter().find(|r| r["path"] == p.as_str()).unwrap()["at"].as_str().unwrap().to_string();
+        let cut = t.iter().map(newest).min().unwrap();
+        assert!(big.iter().filter(|r| !t.contains(&r["path"].as_str().unwrap().to_string())).all(|r| r["at"].as_str().unwrap() <= cut.as_str()), "the newest ones");
         // whose issues are yours: the account each host reads with
         let gh = "github.com\n  ✓ Logged in to github.com account first (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account Second (keyring)\n  - Active account: true\n\
             ghe.example.com\n  ✓ Logged in to ghe.example.com as old (oauth_token)\n";

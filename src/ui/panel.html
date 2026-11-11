@@ -1741,7 +1741,17 @@ const whoText = i => !Array.isArray(i.assignees) ? '' : i.mine ? T('work.who.min
 // `of`: the issue's repository, when g is the repository its code is in (Start's "Fix it in which project?").
 const whereHTML = (g, of) => { const o = of ? ` data-wk-of="${esc(of)}"` : '';
   return `<div class="tk-warn"><p><strong>${esc(T('work.where.t'))}</strong> ${esc(T('work.where.why', { p: g.path }))}</p>
-  <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-wk-link="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T('work.link'))}</button><button class="btn sm" type="button" data-wk-clone="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T(wkBusy.has(g.path) ? 'work.clone.busy' : 'work.clone'))}</button></div></div>`; };
+  <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-wk-link="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T('work.link'))}</button><button class="btn sm" type="button" data-wk-clone="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T(wkBusy.has(g.path) ? 'work.clone.busy' : 'work.clone'))}</button><button class="btn sm" type="button" data-wk-find="${esc(g.path)}"${o}${wkFinding.has(g.path) ? ' disabled aria-busy="true"' : ''}>${esc(T(wkFinding.has(g.path) ? 'work.find.busy' : MAC ? 'work.find.mac' : 'work.find'))}</button></div>
+  <p class="note">${esc(T(MAC ? 'work.find.note.mac' : 'work.find.note'))}</p></div>`; };
+const MAC = /Mac/.test(navigator.platform);
+const wkFinding = new Set(); // projects being looked for (Find on this Mac)
+async function wkFind(path, of) {
+  wkFinding.add(path); render();
+  const r = await bridge.findClone(path, of).catch(() => null);
+  wkFinding.delete(path); render();
+  toast(r?.ok ? T('work.link.done', { p: path, dir: home(r.dir) }) : T('work.find.none', { p: path }));
+  if (r?.ok) for (const k of Object.keys(tkPrep)) if (tkCode(k) === path && tkHow[k] !== 'quick') tkPrepare(k);
+}
 const wkBusy = new Set(); // projects being cloned
 // A read of the issues you asked for (filter, page, ticked repos, Refresh): "Reading your issues…" in place of the list
 // at once, before the app answers, then for as long as the app says the newest ask is not answered (work.reading; it
@@ -1810,7 +1820,22 @@ const tkChange = {}; // per flow: what to change in its plan, as typed
 const tkBusy = new Set(); // flows waiting on Haiku's summary
 const tkMr = {}; // per flow: the merge request box (open, its title and description as edited, busy)
 const tkUnpushed = {}; // per flow: commits not pushed, when Clean up said so (the next click cleans up anyway)
-const FGRP = { approve: 'fapprove', starting: 'frun', planning: 'frun', running: 'frun', done: 'fdone', blocked: 'fdone' };
+const tkRm = {}; // per flow: Remove asked (busy while Bobix checks; then what it found: live, changed, unpushed, exists, dir)
+// A flow's texts (its log in sections, plan, summary, the MR's draft) are not in the state the app sends with every
+// update: read here when its details show, again when the flow changes (its `at`). null until the first answer.
+const tkDet = {};
+function tkDetail(f) {
+  if (!bridge) return f.parsed?.steps ? f : null; // a page without the app (tests) has them inline
+  const d = tkDet[f.key];
+  if ((!d || d.at !== f.at) && !d?.busy) {
+    tkDet[f.key] = { ...(d || {}), busy: true };
+    bridge.ticketDetail(f.key).catch(() => null).then(x => { tkDet[f.key] = x || { at: f.at, failed: true }; render(); });
+  }
+  return tkDet[f.key]?.parsed ? tkDet[f.key] : null;
+}
+const tkReading = f => !!bridge && !!tkDet[f.key]?.busy;
+const FGRP = { approve: 'fapprove', starting: 'frun', planning: 'frun', running: 'frun', stopped: 'frun', done: 'fdone', blocked: 'fdone' };
+const tkOpen = f => !f.cleaned && !['done', 'blocked'].includes(f.status); // not finished: Remove… (finished: Clean up)
 // A flow's key is its issue's ("group/app#7"), with ">group/api" after it when its code is in another repository.
 const tkSplit = k => { const b = k.split('>')[0], n = b.lastIndexOf('#'); return [b.slice(0, n), Number(b.slice(n + 1))]; };
 const tkIssue = k => { const [p, n] = tkSplit(k); for (const g of [...(work.local || []), ...(work.away || [])]) { const i = g.path === p && (g.issues || []).find(x => x.iid === n); if (i) return [i, g]; } return null; };
@@ -1855,13 +1880,14 @@ const draftCount = () => Object.values(rpDraft()).reduce((n, x) => n + x.size, 0
 const rpShown = r => !rp.q || r.path.includes(rp.q.toLowerCase());
 function reposItem() {
   const n = tickedCount();
-  return { id: 'repos', grp: 'frepos', kind: 'board', lead: ico('work', work.many || !n ? 'warn' : ''), label: T('work.repos.t'), sub: n ? T('work.repos.sub', { n }) : T('work.none.repos'),
+  const more = work.moreRepos ? ' · ' + T('work.repos.more', { n: work.moreRepos }) : '';
+  return { id: 'repos', grp: 'frepos', kind: 'board', lead: ico('work', work.many || !n || work.moreRepos ? 'warn' : ''), label: T('work.repos.t'), sub: (n ? T('work.repos.sub', { n }) : T('work.none.repos')) + more,
     detail: reposHTML, acts: [[T('work.repos.choose'), ['↵'], 'data-rp-load="1"']] };
 }
 function reposHTML() {
   if (!rp.list && !rp.busy && !rp.tried) { rp.tried = true; setTimeout(() => loadRepos(false)); } // once; Read again asks again
   if (rp.list) rpDraft();
-  const top = `${head(ico('work', 'lg'), T('work.repos.t'), rp.list ? T('work.repos.count', { n: draftCount(), all: (rp.list || []).reduce((a, h) => a + h.repos.length, 0) }) : '')}<p class="note">${esc(T('work.repos.note', { d: 90 }))}</p>`;
+  const top = `${head(ico('work', 'lg'), T('work.repos.t'), rp.list ? T('work.repos.count', { n: draftCount(), all: (rp.list || []).reduce((a, h) => a + h.repos.length, 0) }) : '')}<p class="note">${esc(T('work.repos.note', { d: 90 }))}</p>${work.moreRepos ? `<div class="tk-warn"><p><strong>${esc(T('work.repos.first.t', { k: 10 }))}</strong> ${esc(T('work.repos.first', { n: work.moreRepos }))}</p></div>` : ''}`;
   if (!rp.list) return `${top}<p class="note">${esc(T('work.repos.loading'))}</p>`;
   if (!rp.list.length) return `${top}<p class="blank">${esc(T('work.repos.nohost'))}</p>`;
   const many = (rp.list || []).filter(h => h.forge === 'gitlab').reduce((n, h) => n + (rp.draft[h.host]?.size || 0), 0) > 20;
@@ -1915,6 +1941,7 @@ function flowItem(f) {
   if (bridge && !f.cleaned && f.status === 'done' && !f.mr) acts.push([T('tk.mr', fw(f)), acts.length ? [CMD, '⇧', 'M'] : ['↵'], `data-tk-mr-open="${k}"`]);
   if (f.mr) acts.push([T('tk.mr.view', { ...fw(f), n: mrRef(f.mr) }), acts.length ? [CMD, '⇧', 'M'] : ['↵'], `data-url="${esc(f.mr)}"`]);
   if (bridge && !f.cleaned && ['done', 'blocked'].includes(f.status)) acts.push([T('tk.review'), acts.length ? [CMD, '⇧', 'V'] : ['↵'], `data-tk-review="${k}"`], [T('tk.clean'), [CMD, '⇧', 'K'], `data-tk-clean="${k}"`]);
+  if (bridge && tkOpen(f)) acts.push([T('tk.rm'), acts.length ? [CMD, '⇧', 'K'] : ['↵'], `data-tk-rm="${k}"`]);
   return { id: 'f:' + f.key, grp: FGRP[f.status] || 'frun', kind: 'board', cls: f.status === 'approve' ? 'hot' : '', lead: s ? pet(s) : projectPet(f.path),
     label: `#${f.iid} ${f.title}`, sub: [BOARD.short(f.path) + (f.code ? ' → ' + f.code : ''), T('tk.st.' + f.status), f.cleaned ? T('tk.cleaned') : ''].filter(Boolean).join(' · '),
     meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${checkBadges(f)}${f.mr ? ciBadge(f) : ''}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
@@ -1942,13 +1969,15 @@ function mrHTML(f) {
     <div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-mr-go="${k}"${m.busy ? ' disabled' : ''}>${esc(T(m.busy ? 'tk.mr.busy' : 'tk.mr.go', fw(f)))}</button><button class="btn" type="button" data-tk-mr-cancel="${k}">${esc(T('pd.cancel'))}</button></div></section>`;
 }
 function flowHTML(f, s) {
-  const p = f.parsed || {}, at = BOARD.FLOW.indexOf(BOARD.flowStep(f.status)), k = esc(f.key), asks = f.status === 'approve', held = asks && !!s?.answer && bridge;
+  const det = tkDetail(f), p = det?.parsed || f.parsed || {}, at = BOARD.FLOW.indexOf(BOARD.flowStep(f.status)), k = esc(f.key), asks = f.status === 'approve', held = asks && !!s?.answer && bridge;
+  const loading = !det && bridge ? `<p class="note" aria-busy="true">${esc(T('tk.det.loading'))}</p>` : tkReading(f) ? `<p class="note" aria-busy="true">${esc(T('tk.det.again'))}</p>` : '';
   if (f.new && bridge) queueMicrotask(() => bridge.ticketSeen(f.key)); // you see its assumptions now: the pet's mark goes
   const steps = `<ol class="stp" aria-label="${esc(T('stage.label'))}">${BOARD.FLOW.map((x, n) => `<li class="${n === at ? 'cur' : n < at ? 'past' : ''}"${n === at ? ' aria-current="step"' : ''}>${esc(T('tk.step.' + x))}</li>`).join('')}</ol>`;
-  const plan = f.plan || p.plan, as = p.assumptions || [];
+  const plan = det?.plan || f.plan || p.plan, as = p.assumptions || [];
   return `${head(s ? pet(s, 'lg') : projectPet(f.path, 'lg'), `#${f.iid} ${f.title}`, `${f.path}${f.code ? ' → ' + f.code : ''} · ${T('tk.st.' + f.status)}`)}
     <div class="stg">${steps}<p class="why">${esc(T('tk.why.' + f.status))}</p></div>
     ${flowsHTML(f.path, f.iid, f.key)}
+    ${rmHTML(f)}${loading}
     ${asks ? `<div class="ask"><strong>${esc(T('tk.gate'))}</strong> ${esc(T('tk.gate.note'))}</div>` : ''}
     ${plan ? `<section class="b-sec"><h3>${esc(T('tk.plan'))}</h3>${asks ? `<div class="report md">${markdown(plan)}</div>` : moreHTML('tkp:' + f.key, markdown(plan), 'report md')}</section>` : ''}
     ${asks ? (held ? `<label class="tk-ch"><span>${esc(T('tk.change.l'))}</span><textarea rows="2" data-tk-text="${k}" data-f="tkch:${k}" placeholder="${esc(T('tk.change.ph'))}">${esc(tkChange[f.key] || '')}</textarea></label>
@@ -1963,7 +1992,7 @@ function flowHTML(f, s) {
     ${mrHTML(f)}
     ${tkUnpushed[f.key] ? `<div class="tk-warn tk-unpushed"><p><strong>${esc(T('tk.unpushed.t', { n: tkUnpushed[f.key], b: f.branch }))}</strong> ${esc(T('tk.unpushed.why'))}</p>
       <div class="acts" style="margin:8px 0 0"><button class="btn sm danger" type="button" data-tk-clean-force="${esc(f.key)}">${esc(T('tk.unpushed.go'))}</button>${!f.mr && f.status === 'done' ? `<button class="btn sm" type="button" data-tk-mr-open="${esc(f.key)}">${esc(T('tk.mr', fw(f)))}</button>` : ''}</div></div>` : ''}
-    ${f.summary ? `<section class="b-sec"><h3>${esc(T('tk.summary'))}</h3><div class="report md">${markdown(f.summary)}</div></section>` : ''}
+    ${det?.summary ? `<section class="b-sec"><h3>${esc(T('tk.summary'))}</h3><div class="report md">${markdown(det.summary)}</div></section>` : ''}
     ${f.status === 'starting' && f.cmd ? `<section class="b-sec"><h3>${esc(T('tk.waiting'))}</h3><p class="note">${esc(T('tk.waiting.note'))}</p><div class="cmd"><code>${esc(f.cmd)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(f.cmd)}">${esc(T('work.copy'))}</button>` : ''}</div></section>` : ''}
     <section class="b-sec"><dl class="kv">
       <dt>${esc(T('tk.branch'))}</dt><dd><code>${esc(f.branch)}</code></dd>
@@ -1972,6 +2001,7 @@ function flowHTML(f, s) {
       ${s ? `<dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>` : ''}</dl></section>
     ${bridge ? `<div class="acts" style="margin:0">${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `${f.status === 'done' && !f.mr && !tkMr[f.key]?.open ? `<button class="btn pri" type="button" data-tk-mr-open="${k}">${esc(T('tk.mr', fw(f)))}</button>` : ''}<button class="btn${f.status === 'done' && !f.mr ? '' : ' pri'}" type="button" data-tk-review="${k}">${esc(T('tk.review'))}</button><button class="btn" type="button" data-tk-review-cli="${k}">${esc(T('tk.review.cli'))}</button><button class="btn" type="button" data-tk-clean="${k}">${esc(T('tk.clean'))}</button>` : ''}
       ${f.session ? `<button class="btn" type="button" data-tk-sum="${k}"${tkBusy.has(f.key) ? ' disabled' : ''}>${esc(T(tkBusy.has(f.key) ? 'tk.ask.busy' : 'tk.sum'))}</button>` : ''}
+      ${tkOpen(f) && !tkRm[f.key] ? `<button class="btn" type="button" data-tk-rm="${k}">${esc(T('tk.rm'))}</button>` : ''}
       ${f.url ? `<button class="btn" type="button" data-url="${esc(f.url)}">${esc(T('work.open'))}</button>` : ''}<button class="btn" type="button" data-tk-again="${esc(f.path + '#' + f.iid)}">${esc(T('tk.again'))}</button></div>
       ${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `<p class="note">${esc(T('tk.review.note'))}</p>` : ''}
       ${f.session ? `<p class="note">${esc(T('tk.sum.note'))}</p>` : ''}` : ''}
@@ -1989,6 +2019,7 @@ function startItem([i, g]) {
     : i.resume && bridge ? [[T('work.resume'), ['↵'], `data-start="${i.iid}" data-path="${esc(g.path)}"`]]
     : !dir ? [[T('work.link'), ['↵'], `data-wk-link="${esc(code)}"${of}`], [T('work.clone'), [CMD, '⇧', 'L'], `data-wk-clone="${esc(code)}"${of}`]]
     : tkHow[k] === 'quick' ? [[T(i.sessions?.length ? 'work.resume' : 'tk.quick.go'), ['↵'], i.sessions?.length ? `data-start="${i.iid}" data-path="${esc(g.path)}"` : quickAttrs(i, g, dir)]]
+    : pr?.prep?.ok && (pr.prep.room === 0 || pr.disk) ? [[T('tk.start.anyway'), ['↵'], `data-tk-any="${ek}"`], [T('tk.quick.instead'), [CMD, '⇧', 'C'], `data-tk-quick="${ek}"`]]
     : pr?.prep?.ok ? [[T('tk.start'), ['↵'], `data-tk-go="${ek}"`], [T('tk.cli'), [CMD, '⇧', 'C'], `data-tk-cli="${ek}"`]] : [[T('tk.prep'), ['↵'], `data-tk-prep="${ek}"`]];
   return { id: 'n:' + k, grp: 'fstart', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, cls: od ? 'hot' : '',
     sub: [g.path, code !== g.path ? '→ ' + code : '', whoText(i), od ? T('day.overdue') : '', wait ? T('work.wait') : '', ...(i.labels || []).slice(0, 2)].filter(Boolean).join(' · '),
@@ -2024,18 +2055,19 @@ function startHTML(i, g, k) {
   if (!p) return `${full}<div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-prep="${ek}" data-f="tkprep:${ek}"${pr?.loading ? ' disabled' : ''}>${esc(T(pr?.loading ? 'tk.prep.busy' : 'tk.prep'))}</button>${open}</div>`;
   if (!p.ok) return `${full}<p class="note err">${esc(T('work.new.fail'))}</p>`;
   const disk = p.room == null ? T('tk.disk.unknown') : T(p.room > 0 ? 'tk.disk.ok' : 'tk.disk.full', { n: p.room, free: BOARD.gb(p.free), need: BOARD.gb(p.need) });
-  const c = pr.cls, off = p.exists || p.room === 0 || pr.busy ? ' disabled' : '';
+  const c = pr.cls, off = p.exists || pr.busy ? ' disabled' : '', low = p.room === 0 || pr.disk;
   const opt = (v, label) => `<label><input type="radio" name="tkm-${ek}" data-tk-m="${ek}" value="${v}"${pr.sel === v ? ' checked' : ''}> <span>${esc(label)}</span></label>`;
   const cm = p.claude, cmWarn = cm && (!cm.exists || !cm.test) ? `<div class="tk-warn"><p><strong>${esc(T(cm.exists ? 'cm.notest' : 'cm.none'))}</strong> ${esc(T('cm.why'))}</p>
-    <div class="acts" style="margin:8px 0 0"><button class="btn sm" type="button" data-tk-claude="${esc(p.repo)}">${esc(T('cm.fix'))}</button><button class="btn sm" type="button" data-copy="/init">${esc(T('cm.init'))}</button></div></div>` : '';
+    <div class="acts" style="margin:8px 0 0"><button class="btn sm" type="button" data-tk-claude="${esc(p.repo)}">${esc(T('cm.fix'))}</button><button class="btn sm" type="button" data-copy="/init">${esc(T('cm.init'))}</button></div>
+    <p class="note">${esc(T('cm.where', { dir: home(p.repo) }))}</p></div>` : '';
   const flow = p.exists && tickets.list.find(f => !f.cleaned && f.path === g.path && f.iid === i.iid && (f.code || f.path) === code);
-  return `${full}${p.exists ? `<p class="note err">${esc(T('tk.exists'))}${flow ? ` <button class="lnk" type="button" data-sel-flow="${esc(flow.key)}">${esc(T('tk.exists.go'))}</button>` : ''}</p>` : ''}${cmWarn}<p class="${p.room === 0 ? 'risk' : 'note'}">${esc(disk)}</p>
+  return `${full}${p.exists ? `<p class="note err">${esc(T('tk.exists'))}${flow ? ` <button class="lnk" type="button" data-sel-flow="${esc(flow.key)}">${esc(T('tk.exists.go'))}</button>` : ''}</p>` : ''}${cmWarn}<p class="${low ? 'risk' : 'note'}">${esc(low ? T('tk.disk.low', { free: BOARD.gb(p.free), need: BOARD.gb(p.need) }) : disk)}</p>
     <section class="b-sec"><h3>${esc(T('tk.models'))}</h3><div class="tk-opts">${opt('small', T('tk.m.small'))}${c?.ok ? opt('haiku', T('tk.m.haiku', { x: modelsLine(c) })) + `<p class="note">${esc(c.why)}</p>` : ''}</div>
       ${c && !c.ok ? `<p class="note err">${esc(c.error || '')}</p>` : ''}
       <div class="acts" style="margin:0"><button class="btn sm" type="button" data-tk-ask="${ek}"${pr.asking ? ' disabled' : ''}>${esc(T(pr.asking ? 'tk.ask.busy' : 'tk.ask'))}</button></div><p class="note">${esc(T('tk.ask.note'))}</p></section>
     <section class="b-sec"><h3>${esc(T('tk.prompt'))}</h3><textarea class="tk-prompt" rows="12" spellcheck="false" data-tk-prompt="${ek}" data-f="tkp:${ek}" aria-label="${esc(T('tk.prompt'))}">${esc(pr.prompt)}</textarea>
       <p class="note">${esc(T('tk.where', { dir: home(p.dir), b: p.branch }))}</p></section>
-    <div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-go="${ek}"${off}>${esc(T('tk.start'))}</button><button class="btn" type="button" data-tk-cli="${ek}"${off}>${esc(T('tk.cli'))}</button></div>
+    <div class="acts" style="margin:0">${low ? `<button class="btn pri" type="button" data-tk-any="${ek}" data-f="tkany:${ek}"${off}>${esc(T('tk.start.anyway'))}</button><button class="btn" type="button" data-tk-quick="${ek}">${esc(T('tk.quick.instead'))}</button>` : `<button class="btn pri" type="button" data-tk-go="${ek}"${off}>${esc(T('tk.start'))}</button><button class="btn" type="button" data-tk-cli="${ek}"${off}>${esc(T('tk.cli'))}</button>`}</div>
     <p class="note">${esc(T('tk.start.note'))}</p>`;
 }
 async function tkClone(k) {
@@ -2079,20 +2111,25 @@ async function tkAsk(k) {
   pr.asking = false;
   pr.cls?.ok ? tkModels(k, 'haiku') : render();
 }
-async function tkGo(k, how) {
+async function tkGo(k, how, anyway) {
   const pr = tkPrep[k], [path, iid] = tkSplit(k);
   if (!pr?.prep?.ok || pr.busy) return;
   pr.busy = true; render();
   if (how !== 'cli') try { await navigator.clipboard.writeText(pr.prompt); } catch {}
-  const r = await bridge.ticketStart(path, iid, pr.prompt, pr.sel === 'haiku' && pr.cls?.ok ? pr.cls : { size: 'small' }, how, tkCode(k));
+  const r = await bridge.ticketStart(path, iid, pr.prompt, pr.sel === 'haiku' && pr.cls?.ok ? pr.cls : { size: 'small' }, how, tkCode(k), anyway === true);
   pr.busy = false;
   if (!r?.ok && r?.reason !== undefined && !r.dir) {
-    toast(r.reason === 'disk' ? T('tk.disk.full', { free: BOARD.gb(r.free), need: BOARD.gb(pr.prep.need) }) : r.reason === 'exists' ? T('tk.exists') : r.reason === 'git' ? T('tk.fail.git', { e: r.detail }) : T('work.new.fail'));
+    if (r.reason === 'disk') pr.disk = true; // the box offers Start anyway and Quick start now
+    toast(r.reason === 'disk' ? T('tk.disk.low', { free: BOARD.gb(r.free), need: BOARD.gb(pr.prep.need) }) : r.reason === 'exists' ? T('tk.exists') : r.reason === 'git' ? T('tk.fail.git', { e: r.detail }) : T('work.new.fail'));
     return render();
   }
-  if (how === 'cli') { try { await navigator.clipboard.writeText(r.cmd); toast(T('tk.cli.done')); } catch { toast(r.cmd); } }
-  else toast(T(r.ok ? 'tk.start.done' : 'tk.start.open'));
+  // offline: it started from the last fetched copy, and says from when; your Tests line went into its folder too
+  const after = [r.fetch && !r.fetch.ok ? T('tk.fetch.off', { b: r.fetch.from, x: r.fetch.at ? ago(r.fetch.at) : T('tk.fetch.never') }) : '', r.tests ? T('tk.tests.carried') : ''].filter(Boolean).join(' ');
+  if (how === 'cli') { try { await navigator.clipboard.writeText(r.cmd); toast([T('tk.cli.done'), after].filter(Boolean).join(' ')); } catch { toast(r.cmd); } }
+  else toast([T(r.ok ? 'tk.start.done' : 'tk.start.open'), after].filter(Boolean).join(' '));
   delete tkPrep[k]; tkAgain.delete(k);
+  // the app sends its state at most 4 times a second: select the new flow once it is in the list
+  for (let t = 0; t < 2000 && r.key && !tickets.list.some(f => f.key === r.key); t += 50) await new Promise(o => setTimeout(o, 50));
   bsel.work = 'f:' + (r.key || k);
   render();
 }
@@ -2124,7 +2161,8 @@ async function tkReview(key, how) {
 function tkMrOpen(key) {
   const f = tickets.list.find(x => x.key === key);
   if (!f) return;
-  tkMr[key] = { open: true, title: tkMr[key]?.title ?? f.mrTitle ?? f.title, body: tkMr[key]?.body ?? f.mrBody ?? '' };
+  const d = tkDet[key];
+  tkMr[key] = { open: true, title: tkMr[key]?.title ?? d?.mrTitle ?? f.mrTitle ?? f.title, body: tkMr[key]?.body ?? d?.mrBody ?? f.mrBody ?? '' };
   delete tkUnpushed[key];
   bsel.work = 'f:' + key; nextFocus = 'tkmb:' + key;
   render();
@@ -2141,6 +2179,33 @@ async function tkMrGo(key) {
   else toast(T('tk.mr.fail', { ...fw(f), e: ['nogh', 'noglab', 'notdone'].includes(r?.error) ? T('tk.mr.e.' + r.error) : r?.error || '' }));
   render();
 }
+// Remove…: Bobix checks first (is its session still open, what is not committed or pushed), shown in the details;
+// then Remove (the folder stays, the default) or Remove and delete the folder. Bobix never closes a Claude session.
+function rmHTML(f) {
+  const r = tkRm[f.key], k = esc(f.key);
+  if (!r || !bridge) return '';
+  if (r.busy) return `<div class="tk-warn tk-rm"><p aria-busy="true">${esc(T('tk.rm.checking'))}</p></div>`;
+  const risk = [r.exists ? '' : T('tk.rm.gone'), r.changed ? T(r.changed === 1 ? 'tk.rm.changed.1' : 'tk.rm.changed', { n: r.changed, dir: home(r.dir) }) : '', r.unpushed ? T(r.unpushed === 1 ? 'tk.rm.unpushed.1' : 'tk.rm.unpushed', { n: r.unpushed, b: r.branch }) : ''].filter(Boolean);
+  return `<div class="tk-warn tk-rm"><p><strong>${esc(T(r.live ? 'tk.rm.liveT' : 'tk.rm.t'))}</strong> ${esc(T(r.live ? 'tk.rm.live' : 'tk.rm.why', { dir: home(r.dir) }))}</p>
+    ${risk.length ? `<ul class="tk-as">${risk.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-tk-rm-keep="${k}" data-f="tkrm:${k}"${r.going ? ' disabled' : ''}>${esc(T(r.live ? 'tk.rm.stop' : 'tk.rm.keep'))}</button>${r.live || !r.exists ? '' : `<button class="btn sm danger" type="button" data-tk-rm-del="${k}"${r.going ? ' disabled' : ''}>${esc(T('tk.rm.del'))}</button>`}<button class="btn sm" type="button" data-tk-rm-no="${k}">${esc(T('pd.cancel'))}</button></div></div>`;
+}
+async function tkRmAsk(key) {
+  bsel.work = 'f:' + key; tkRm[key] = { busy: true }; render();
+  const r = await bridge.ticketRemove(key, 'check').catch(e => ({ ok: false, error: String(e) }));
+  if (!r?.ok) { delete tkRm[key]; toast(T('tk.rm.fail', { e: r?.error || '' })); return render(); }
+  tkRm[key] = r; nextFocus = 'tkrm:' + key; render();
+  document.querySelector('#b-dyn .tk-rm')?.scrollIntoView({ block: 'nearest' });
+}
+async function tkRmGo(key, act) {
+  const f = tickets.list.find(x => x.key === key);
+  if (!tkRm[key]) return;
+  tkRm[key].going = true; render();
+  const r = await bridge.ticketRemove(key, act).catch(e => ({ ok: false, error: String(e) }));
+  delete tkRm[key];
+  toast(r?.ok ? T(act === 'keep' ? 'tk.rm.done.keep' : 'tk.rm.done.del', { n: f ? '#' + f.iid : '', dir: home(f?.dir || '') }) : T('tk.rm.fail', { e: r?.error === 'live' ? T('tk.rm.liveT') : r?.error || '' }));
+  render();
+}
 async function tkClean(key, force) {
   const r = await bridge.ticketClean(key, force);
   if (r?.error === 'unpushed') { tkUnpushed[key] = r.n; render(); return document.querySelector('#b-dyn .tk-unpushed')?.scrollIntoView({ block: 'nearest' }); }
@@ -2151,8 +2216,8 @@ async function tkClean(key, force) {
 function flowPaneHTML(s) {
   const f = tickets.list.find(x => x.key === s.flow);
   if (!f) return '';
-  const p = f.parsed || {};
-  return `<section class="b-sec"><h3>${esc(T('tk.log'))} · ${esc(T('tk.st.' + f.status))} ${checkBadges(f)}</h3>
+  const det = tkDetail(f), p = det?.parsed || f.parsed || {};
+  return `<section class="b-sec"><h3>${esc(T('tk.log'))} · ${esc(T('tk.st.' + f.status))} ${checkBadges(f)}</h3>${!det && bridge ? `<p class="note" aria-busy="true">${esc(T('tk.det.loading'))}</p>` : ''}
     ${p.assumptions?.length ? `<ul class="tk-as">${p.assumptions.map((a, n) => `<li${n >= f.seen ? ' class="new"' : ''}>${esc(a)}</li>`).join('')}</ul>` : ''}
     ${p.steps?.length ? `<ol class="tk-steps">${p.steps.slice(-5).map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}
     <button class="lnk" type="button" data-tab-go="work" data-set="f:${esc(f.key)}">${esc(T('tk.openWork'))}</button></section>`;
@@ -2958,6 +3023,13 @@ async function onAct(e) {
   if (d.tkMrGo) return tkMrGo(d.tkMrGo);
   if (d.tkMrCancel) { delete tkMr[d.tkMrCancel]; return render(); }
   if (d.tkCleanForce) return tkClean(d.tkCleanForce, true);
+  if (d.tkRm) return tkRmAsk(d.tkRm);
+  if (d.tkRmKeep) return tkRmGo(d.tkRmKeep, 'keep');
+  if (d.tkRmDel) return tkRmGo(d.tkRmDel, 'delete');
+  if (d.tkRmNo) { delete tkRm[d.tkRmNo]; return render(); }
+  if (d.tkAny) return tkGo(d.tkAny, undefined, true);
+  if (d.tkQuick) { tkHow[d.tkQuick] = 'quick'; return render(); }
+  if (d.wkFind) return wkFind(d.wkFind, d.wkOf);
   if (d.tkReviewCli) return tkReview(d.tkReviewCli, 'cli');
   if (d.copy) { try { await navigator.clipboard.writeText(d.copy); toast(T('work.copied')); } catch {} return; }
   if (d.act === 'refresh') return askIssues(() => bridge.refreshWork());

@@ -70,6 +70,7 @@
     // with your own glab / gh into a folder you choose. dir / parent: given by the smoke run; the app asks with a dialog.
     // `of`: the issue's project when `path` is the repository its code is in (it may have no issue listed itself)
     linkFolder: (path, dir, of) => invoke('work_link', { path: String(path), dir: typeof dir === 'string' ? dir : null, of: typeof of === 'string' ? of : null }),
+    findClone: (path, of) => invoke('work_find', { path: String(path), of: typeof of === 'string' ? of : null }),
     cloneProject: (path, parent, of) => invoke('work_clone', { path: String(path), parent: typeof parent === 'string' ? parent : null, of: typeof of === 'string' ? of : null }),
     workRepos: fresh => invoke('work_repos', { fresh: !!fresh }), // the repo picker: every repository glab / gh can reach, and the ticked ones
     workPage: page => invoke('work_page', { page: Math.max(1, Math.floor(Number(page)) || 1) }), // the Work list's page, read again
@@ -78,11 +79,13 @@
     // Haiku's split (only on click), the plan's one approval, the log's assumptions seen, a Haiku summary, cleanup.
     // `code`: the repository the code is in, when not the issue's own
     ticketPrep: (path, iid, code) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_prep', { path, iid, code: typeof code === 'string' ? code : null }) : Promise.resolve(null)),
-    ticketStart: (path, iid, prompt, models, how, code) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_start', { path, iid, code: typeof code === 'string' ? code : null, prompt: String(prompt || ''), models: models || null, how: how === 'cli' ? 'cli' : 'desktop' }) : Promise.resolve(null)),
+    ticketStart: (path, iid, prompt, models, how, code, anyway) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_start', { path, iid, code: typeof code === 'string' ? code : null, prompt: String(prompt || ''), models: models || null, how: how === 'cli' ? 'cli' : 'desktop' , anyway: anyway === true }) : Promise.resolve(null)),
     ticketClassify: (title, body) => invoke('ticket_classify', { title: String(title || ''), body: String(body || '') }),
     ticketAnswer: (key, approve, change) => invoke('ticket_answer', { key: String(key), approve: !!approve, change: typeof change === 'string' ? change : null }),
     ticketSeen: key => invoke('ticket_seen', { key: String(key) }),
     ticketSummary: key => invoke('ticket_summary', { key: String(key) }),
+    ticketDetail: key => invoke('ticket_detail', { key: String(key) }),
+    ticketRemove: (key, act) => invoke('ticket_remove', { key: String(key), act: ['check', 'keep', 'delete'].includes(act) ? act : 'check' }),
     ticketClean: (key, force) => invoke('ticket_clean', { key: String(key), force: force === true }), // force: also with commits not pushed
     ticketCi: key => invoke('ticket_ci', { key: String(key) }), // the MR's pipeline, read now (glab api, a GET)
     // the project's CLAUDE.md: does it name a test command? With cmd: add the one-line Tests entry (backed up, undoable)

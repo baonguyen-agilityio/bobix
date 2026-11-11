@@ -14,6 +14,8 @@ pub const WORKTREE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 pub const LOG_DIR: &str = ".bobix-log";
 pub const LOG_FILE: &str = "work-log.md";
 const LOG_MAX: usize = 64 * 1024;
+// Cleaned flows kept in the list (and tickets.json); their logs stay in worklogs/ either way.
+pub const CLEANED_KEEP: usize = 20;
 
 // One ticket in the flow. status: starting (worktree made, no session yet) | planning | approve (its plan waits for
 // you) | running | done | blocked. cleaned: its worktree was removed (the log stays, copied into Bobix's folder).
@@ -31,6 +33,7 @@ pub struct Flow {
     // The repository its code is in, when not the issue's own (an issue of a product repository whose code lives in
     // a service repository): the worktree, the MR / PR and its CI are there. Empty: the issue's repository.
     pub code: String,
+    pub pid: Option<u32>, // its session's claude process, as last seen: alive after Bobix restarts means it still runs
 }
 
 pub fn key_of(path: &str, iid: i64) -> String { format!("{path}#{iid}") }
@@ -168,7 +171,7 @@ pub fn branch_for(iid: i64, title: &str, path: &str, code: &str) -> String {
     if s.is_empty() { format!("{t}{iid}-ticket") } else { format!("{t}{iid}-{s}") }
 }
 // Where Claude itself keeps worktrees (`claude -w`, Claude desktop): <repo>/.claude/worktrees/<name>.
-pub fn worktree_dir(repo: &str, iid: i64, path: &str, code: &str) -> PathBuf { Path::new(repo).join(".claude/worktrees").join(format!("bobix-{}{iid}", from_tag(path, code))) }
+pub fn worktree_dir(repo: &str, iid: i64, path: &str, code: &str) -> PathBuf { Path::new(repo).join(".claude").join("worktrees").join(format!("bobix-{}{iid}", from_tag(path, code))) }
 
 // Free bytes on the disk that holds `dir`; None where Bobix can't tell (Windows), and then nothing is capped.
 #[cfg(unix)]
@@ -272,30 +275,71 @@ When you are done, add one line under `## Checks` in that work log: `- Review (s
 }
 pub fn assumptions(log: &str) -> usize { parse_log(log)["assumptions"].as_array().map_or(0, |a| a.len()) }
 
-fn git(dir: &str, args: &[&str]) -> procs::Ran {
+fn git(dir: &str, args: &[&str]) -> procs::Ran { git_for(dir, args, 60) }
+fn git_for(dir: &str, args: &[&str], secs: u64) -> procs::Ran {
     let mut a = vec!["-C", dir];
     a.extend_from_slice(args);
-    procs::exec("git", &a, 60, &[("LC_ALL", "C"), ("GIT_TERMINAL_PROMPT", "0")])
+    procs::exec("git", &a, secs, &[("LC_ALL", "C"), ("GIT_TERMINAL_PROMPT", "0")])
+}
+// A fetch before a Full start gets this long; offline it fails at once, a slow network is not waited for.
+pub const FETCH_SECS: u64 = 30;
+
+// What a ticket branch starts from: the remote's default branch (`name`, "origin/main"; `commit`, its id), fetched
+// first. `fetched` false: the fetch failed or took too long (offline, VPN down), so it is the copy from the last fetch
+// (`at`, ms, when git knows it).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Base { pub name: String, pub commit: String, pub fetched: bool, pub at: Option<u64> }
+pub fn base_of(repo: &str) -> Result<Base, String> {
+    let remotes = git(repo, &["remote"]).out;
+    let remote = remotes.lines().map(str::trim).find(|r| *r == "origin").or_else(|| remotes.lines().map(str::trim).find(|r| !r.is_empty()))
+        .ok_or("this repository has no remote to start from")?.to_string();
+    let fetched = git_for(repo, &["fetch", "--quiet", &remote], FETCH_SECS).ok;
+    let has = |r: &str| git(repo, &["rev-parse", "--verify", "--quiet", &format!("{r}^{{commit}}")]).ok;
+    let head = format!("{remote}/HEAD");
+    if !has(&head) && fetched { let _ = git_for(repo, &["remote", "set-head", &remote, "--auto"], FETCH_SECS); } // asks the remote which branch
+    let name = if has(&head) { git(repo, &["rev-parse", "--abbrev-ref", &head]).out.trim().to_string() } else {
+        ["main", "master"].iter().map(|b| format!("{remote}/{b}")).find(|b| has(b))
+            .ok_or_else(|| format!("no default branch of {remote} was found (no {remote}/HEAD, main or master); fetch it once in a terminal"))?
+    };
+    let commit = git(repo, &["rev-parse", &format!("{name}^{{commit}}")]).out.trim().to_string();
+    if commit.is_empty() { return Err(format!("{name} could not be read")); }
+    let fh = git(repo, &["rev-parse", "--git-path", "FETCH_HEAD"]).out.trim().to_string();
+    let at = fs::metadata(Path::new(repo).join(&fh)).or_else(|_| fs::metadata(&fh)).and_then(|m| m.modified()).ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
+    Ok(Base { name, commit, fetched, at })
 }
 fn one_line(r: &procs::Ran) -> String { head16(&format!("{} {}", r.err, r.out).split_whitespace().collect::<Vec<_>>().join(" "), 300).to_string() }
 
-// A new worktree for the ticket, on a new branch from the remote's default branch (else from HEAD), with the work log's
-// template in its self-ignoring folder. A branch of that name already there is checked out instead. → the base used.
-pub fn create_worktree(repo: &str, dir: &Path, branch: &str, log: &str) -> Result<String, String> {
-    if dir.exists() { return Err(format!("{} is already there", dir.display())); }
+// A new worktree for the ticket, on a new branch from the remote's default branch (fetched first: base_of), with the
+// work log's template in its self-ignoring folder. A branch of that name already there is checked out instead; the
+// worktree of a flow you removed but kept (on that branch) is used again, its log kept. → the base used.
+pub fn create_worktree(repo: &str, dir: &Path, branch: &str, log: &str) -> Result<Base, String> {
     let d = dir.to_string_lossy();
-    let base = ["origin/HEAD", "HEAD"].into_iter().find(|b| git(repo, &["rev-parse", "--verify", "--quiet", b]).ok).ok_or("no commit to start from")?;
-    let has = git(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).ok;
-    let r = if has { git(repo, &["worktree", "add", &d, branch]) } else { git(repo, &["worktree", "add", "-b", branch, &d, base]) };
-    if !r.ok { return Err(one_line(&r)); }
+    let kept = dir.exists() && git(&d, &["rev-parse", "--abbrev-ref", "HEAD"]).out.trim() == branch;
+    if dir.exists() && !kept { return Err(format!("{} is already there", dir.display())); }
+    let base = base_of(repo)?;
+    if !kept {
+        let has = git(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).ok;
+        let r = if has { git(repo, &["worktree", "add", &d, branch]) } else { git(repo, &["worktree", "add", "-b", branch, &d, &base.commit]) };
+        if !r.ok { return Err(one_line(&r)); }
+    }
     let l = dir.join(LOG_DIR);
-    fs::create_dir_all(&l).and_then(|_| fs::write(l.join(".gitignore"), "*\n")).and_then(|_| fs::write(l.join(LOG_FILE), log)).map_err(|e| e.to_string())?;
-    Ok(base.into())
+    let write_log = !l.join(LOG_FILE).exists();
+    fs::create_dir_all(&l).and_then(|_| fs::write(l.join(".gitignore"), "*\n")).and_then(|_| if write_log { fs::write(l.join(LOG_FILE), log) } else { Ok(()) }).map_err(|e| e.to_string())?;
+    Ok(base)
 }
-// `git worktree remove` without --force: git refuses when there is work not committed, and says so.
-pub fn remove_worktree(repo: &str, dir: &str) -> Result<(), String> {
+// What would be lost with a flow's worktree: files changed and not committed, and commits no remote has (they stay on
+// the branch either way). None when the folder is gone.
+pub fn at_risk(dir: &str, branch: &str) -> Option<(usize, u64)> {
+    if !Path::new(dir).is_dir() { return None; }
+    let changed = git(dir, &["status", "--porcelain"]).out.lines().filter(|l| !l.trim().is_empty()).count();
+    Some((changed, unpushed(dir, branch)))
+}
+// `git worktree remove`: without `force`, git refuses when there is work not committed, and says so. With it (Remove
+// and delete the folder, after you saw what is not committed), that work goes; the branch and its commits stay.
+pub fn remove_worktree(repo: &str, dir: &str, force: bool) -> Result<(), String> {
     if !Path::new(dir).exists() { let _ = git(repo, &["worktree", "prune"]); return Ok(()); }
-    let r = git(repo, &["worktree", "remove", dir]);
+    let r = if force { git(repo, &["worktree", "remove", "--force", dir]) } else { git(repo, &["worktree", "remove", dir]) };
     if r.ok { Ok(()) } else { Err(one_line(&r)) }
 }
 pub fn read_log(dir: &str) -> Option<String> {
@@ -349,29 +393,36 @@ pub struct Flows { pub list: indexmap::IndexMap<String, Flow>, file: Option<Path
 impl Flows {
     pub fn load(file: PathBuf) -> Flows {
         let list = fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Vec<Flow>>(&t).ok()).unwrap_or_default();
-        Flows { list: list.into_iter().map(|f| (f.key.clone(), f)).collect(), file: Some(file) }
+        let mut f = Flows { list: list.into_iter().map(|f| (f.key.clone(), f)).collect(), file: Some(file) };
+        f.prune();
+        f
     }
-    pub fn save(&self) {
+    pub fn save(&mut self) {
+        self.prune();
         let Some(f) = &self.file else { return };
         let v: Vec<&Flow> = self.list.values().collect();
         if let Some(d) = f.parent() { let _ = fs::create_dir_all(d); }
         let _ = crate::paths::write_private(f, &serde_json::to_string_pretty(&v).unwrap_or_default());
     }
-    pub fn by_dir(&mut self, dir: &str) -> Option<&mut Flow> { self.list.values_mut().find(|f| !f.cleaned && f.dir == dir) }
+    pub fn by_dir(&mut self, dir: &str) -> Option<&mut Flow> { self.list.values_mut().find(|f| !f.cleaned && crate::paths::same_dir(&f.dir, dir)) }
     pub fn by_session(&self, id: &str) -> Option<&Flow> { self.list.values().find(|f| f.session.as_deref() == Some(id)) }
     pub fn by_session_mut(&mut self, id: &str) -> Option<&mut Flow> { self.list.values_mut().find(|f| f.session.as_deref() == Some(id)) }
 
     // A hook event of the session working on a flow (or the first one started in its worktree). Returns true when the
     // flow changed. `plan`: the plan Claude asks you to approve (ExitPlanMode's input).
-    pub fn on_event(&mut self, sid: &str, cwd: &str, ev: &str, tool: &str, plan: Option<&str>, now: u64) -> bool {
+    pub fn on_event(&mut self, sid: &str, cwd: &str, ev: &str, tool: &str, plan: Option<&str>, pid: Option<u32>, now: u64) -> bool {
         let known = self.by_session(sid).is_some();
         let f = if known { self.by_session_mut(sid) } else { self.by_dir(cwd) };
         let Some(f) = f else { return false };
         let before = f.clone();
+        if known && pid.is_some() { f.pid = pid; }
+        // stopped (its session seemed gone, or Bobix restarted), and it speaks again: followed again
+        if known && f.status == "stopped" && !f.cleaned { f.status = if f.plan.is_empty() { "planning" } else { "running" }.into(); }
         if !known {
             // the first session started in its worktree takes the flow; a later one (a review) only refreshes its log
             if !(ev == "SessionStart" && f.session.is_none()) { f.reread(); return if *f != before { f.at = now; true } else { false }; }
             f.session = Some(sid.into());
+            f.pid = pid;
             f.status = "planning".into();
         }
         if ev == "PermissionRequest" && tool == "ExitPlanMode" {
@@ -405,18 +456,50 @@ impl Flows {
     // A new assumption since you last looked: the pet gets a mark (the session does not stop).
     pub fn marked(&self, sid: &str) -> bool { self.by_session(sid).is_some_and(|f| !f.cleaned && assumptions(&f.log) > f.seen) }
 
-    // What the pages see: each flow with its log read into sections, and how much disk is left for more.
+    // What the pages get with every update: each flow without its texts (the log, the plan, the summary, the MR's draft:
+    // up to ~150 KB each, sent on every hook event before), with what the list shows of its log; and how much disk is
+    // left for more. A flow's texts are read when its details are open (detail).
     pub fn view(&self, free: Option<u64>) -> Value {
         let list: Vec<Value> = self.list.values().rev().map(|f| {
             let mut v = serde_json::to_value(f).unwrap_or_default();
+            if let Some(o) = v.as_object_mut() { for k in ["log", "plan", "summary"] { o.remove(k); } }
             let log = parse_log(&f.log);
-            v["new"] = json!(assumptions(&f.log).saturating_sub(f.seen));
-            v["parsed"] = log;
+            v["new"] = json!(log["assumptions"].as_array().map_or(0, |a| a.len()).saturating_sub(f.seen));
+            v["parsed"] = json!({ "status": log["status"], "ran": log["ran"], "reviewed": log["reviewed"] });
             v["cmd"] = json!(if f.cleaned || f.session.is_some() { String::new() } else { cli_command(&f.dir, &main_model(&f.models), "") });
-            if matches!(f.status.as_str(), "done" | "blocked") && !f.cleaned && f.mr.is_empty() { v["mrTitle"] = json!(mr_title(f)); v["mrBody"] = json!(mr_body(f)); }
             v
         }).collect();
         json!({ "list": list, "free": free, "room": room(free), "need": WORKTREE_BYTES })
+    }
+    // A flow's texts, for its details: its log read into sections, the plan, the summary, and the MR's draft.
+    pub fn detail(&self, key: &str) -> Option<Value> {
+        let f = self.list.get(key)?;
+        let mut v = json!({ "key": f.key, "at": f.at, "parsed": parse_log(&f.log), "plan": f.plan, "summary": f.summary });
+        if matches!(f.status.as_str(), "done" | "blocked") && !f.cleaned && f.mr.is_empty() { v["mrTitle"] = json!(mr_title(f)); v["mrBody"] = json!(mr_body(f)); }
+        Some(v)
+    }
+    // Flows whose session ended before done or blocked (it left Bobix's list and its claude process is gone; after a
+    // restart Bobix knows no session until it speaks, so only the process counts): stopped, with Remove offered. Its log
+    // is read once more first (it may have set done just before). True when one changed.
+    pub fn stop_gone(&mut self, listed: impl Fn(&str) -> bool, alive: impl Fn(u32) -> bool, now: u64) -> bool {
+        let mut changed = false;
+        for f in self.list.values_mut().filter(|f| !f.cleaned && matches!(f.status.as_str(), "planning" | "approve" | "running")) {
+            let Some(sid) = f.session.as_deref() else { continue };
+            if listed(sid) || f.pid.is_some_and(&alive) { continue; }
+            f.reread();
+            if matches!(f.status.as_str(), "done" | "blocked") { f.at = now; changed = true; continue; }
+            f.status = "stopped".into();
+            f.at = now;
+            changed = true;
+        }
+        changed
+    }
+    // Cleaned flows are history: the newest CLEANED_KEEP stay (each one's log is in worklogs/), older ones go.
+    fn prune(&mut self) {
+        let mut cleaned: Vec<(u64, String)> = self.list.values().filter(|f| f.cleaned).map(|f| (f.at, f.key.clone())).collect();
+        if cleaned.len() <= CLEANED_KEEP { return; }
+        cleaned.sort();
+        for (_, k) in &cleaned[..cleaned.len() - CLEANED_KEEP] { self.list.shift_remove(k); }
     }
 }
 
@@ -501,29 +584,29 @@ mod tests {
         let d = dir.to_string_lossy().to_string();
         let mut fl = Flows::default();
         fl.list.insert("g/shop#7".into(), Flow { key: "g/shop#7".into(), path: "g/shop".into(), iid: 7, dir: d.clone(), status: "starting".into(), ..Default::default() });
-        assert!(!fl.on_event("s1", "/elsewhere", "SessionStart", "", None, 1), "another folder");
-        fl.on_event("s1", &d, "PreToolUse", "Read", None, 1);
+        assert!(!fl.on_event("s1", "/elsewhere", "SessionStart", "", None, None, 1), "another folder");
+        fl.on_event("s1", &d, "PreToolUse", "Read", None, None, 1);
         assert!(fl.list[0].session.is_none() && fl.list[0].status == "starting", "only a session that starts there takes it");
-        assert!(fl.on_event("s1", &d, "SessionStart", "", None, 2));
+        assert!(fl.on_event("s1", &d, "SessionStart", "", None, None, 2));
         assert_eq!((fl.list[0].status.as_str(), fl.list[0].session.as_deref()), ("planning", Some("s1")));
-        assert!(!fl.on_event("s2", &d, "SessionStart", "", None, 3), "taken: a second session there is not the flow's");
-        assert!(!fl.on_event("s2", &d, "PermissionRequest", "ExitPlanMode", Some("other"), 3) && fl.list[0].status == "planning", "its plan is not the flow's");
-        assert!(fl.on_event("s1", &d, "PermissionRequest", "ExitPlanMode", Some("1. add it\n## Assumptions\n- ints"), 4));
+        assert!(!fl.on_event("s2", &d, "SessionStart", "", None, None, 3), "taken: a second session there is not the flow's");
+        assert!(!fl.on_event("s2", &d, "PermissionRequest", "ExitPlanMode", Some("other"), None, 3) && fl.list[0].status == "planning", "its plan is not the flow's");
+        assert!(fl.on_event("s1", &d, "PermissionRequest", "ExitPlanMode", Some("1. add it\n## Assumptions\n- ints"), None, 4));
         assert_eq!((fl.list[0].status.as_str(), fl.list[0].plan.as_str()), ("approve", "1. add it\n## Assumptions\n- ints"));
         fl.answered("s1", true, 5);
         assert_eq!(fl.list[0].status, "running");
         assert!(!fl.marked("s1"));
         write(&template(7, "Add subtract").replace("## Assumptions\n", "## Assumptions\n- Integers only\n"));
-        assert!(fl.on_event("s1", &d, "PostToolUse", "Edit", None, 6));
+        assert!(fl.on_event("s1", &d, "PostToolUse", "Edit", None, None, 6));
         assert!(fl.marked("s1"), "a new assumption marks the pet");
         fl.list[0].seen = 1;
         assert!(!fl.marked("s1"), "seen");
         write(&fl.list[0].log.replace("Status: planning", "Status: done"));
-        assert!(fl.on_event("s1", &d, "Stop", "", None, 7));
+        assert!(fl.on_event("s1", &d, "Stop", "", None, None, 7));
         assert_eq!(fl.list[0].status, "done");
         // a review session in the worktree notes its result: the flow's log is read again on its events
         write(&fl.list[0].log.replace("## Checks\n", "## Checks\n- Review (second session): no issues\n"));
-        assert!(fl.on_event("r1", &d, "Stop", "", None, 8) && fl.list[0].log.contains("second session") && fl.list[0].session.as_deref() == Some("s1"));
+        assert!(fl.on_event("r1", &d, "Stop", "", None, None, 8) && fl.list[0].log.contains("second session") && fl.list[0].session.as_deref() == Some("s1"));
         let v = fl.view(Some(WORKTREE_BYTES * 3));
         assert_eq!((&v["room"], &v["list"][0]["parsed"]["status"], &v["list"][0]["new"]), (&json!(3), &json!("done"), &json!(0)));
         // sent back with changes
@@ -536,6 +619,103 @@ mod tests {
         a.list = fl.list.clone();
         a.save();
         assert_eq!(Flows::load(file).list, fl.list);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // A session that ends (or a Bobix restart that finds its claude process gone) before done or blocked leaves its
+    // flow stopped, never hanging; the same session speaking again picks it up. Its log is read once more first.
+    #[test]
+    fn a_flow_whose_session_is_gone_is_stopped() {
+        let root = std::env::temp_dir().join(format!("bobix-stop-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("wt");
+        fs::create_dir_all(dir.join(LOG_DIR)).unwrap();
+        fs::write(dir.join(LOG_DIR).join(LOG_FILE), template(7, "x")).unwrap();
+        let d = dir.to_string_lossy().to_string();
+        let mut fl = Flows::default();
+        for (k, st) in [("a#1", "planning"), ("a#2", "running"), ("a#3", "starting"), ("a#4", "done")] {
+            fl.list.insert(k.into(), Flow { key: k.into(), dir: d.clone(), status: st.into(), session: (st != "starting").then(|| format!("s-{k}")), pid: Some(4242), ..Default::default() });
+        }
+        assert!(!fl.stop_gone(|_| true, |_| false, 1), "listed: still followed");
+        assert!(!fl.stop_gone(|_| false, |_| true, 1), "after a restart, its claude process still runs: still followed");
+        assert!(fl.stop_gone(|_| false, |_| false, 2));
+        let st: Vec<&str> = fl.list.values().map(|f| f.status.as_str()).collect();
+        assert_eq!(st, ["stopped", "stopped", "starting", "done"], "a flow with no session yet waits; done stays done");
+        assert!(fl.on_event("s-a#1", &d, "UserPromptSubmit", "", None, Some(99), 3) && fl.list[0].status == "planning" && fl.list[0].pid == Some(99), "it speaks again");
+        // it set done just before it ended: done, not stopped
+        fs::write(dir.join(LOG_DIR).join(LOG_FILE), template(7, "x").replace("Status: planning", "Status: done")).unwrap();
+        fl.list[0].pid = None;
+        assert!(fl.stop_gone(|_| false, |_| false, 4) && fl.list[0].status == "done");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // The pages get each flow without its texts (sent on every hook event, they were the bulk of it); a flow's details
+    // read them. Cleaned flows past CLEANED_KEEP leave the list (their logs stay in worklogs/).
+    #[test]
+    fn the_pages_get_flows_without_their_texts() {
+        let big = format!("{}\n## Steps\n{}", template(7, "x").replace("Status: planning", "Status: done").split("## Steps").next().unwrap(), "- step\n".repeat(8000));
+        let mut fl = Flows::default();
+        for n in 0..(CLEANED_KEEP + 30) {
+            let k = format!("g/a#{n}");
+            fl.list.insert(k.clone(), Flow { key: k, iid: n as i64, log: big.clone(), plan: "p".repeat(20_000), status: "done".into(), cleaned: n < CLEANED_KEEP + 25, at: n as u64, ..Default::default() });
+        }
+        let v = fl.view(None);
+        let one = &v["list"][0];
+        assert!(one.get("log").is_none() && one.get("plan").is_none() && one.get("mrBody").is_none());
+        assert_eq!((&one["parsed"]["status"], &one["parsed"]["ran"]), (&json!("done"), &json!(0)));
+        assert!(v.to_string().len() < 50 * 1024, "{} bytes for {} flows", v.to_string().len(), fl.list.len());
+        let d = fl.detail("g/a#49").unwrap();
+        assert_eq!(d["parsed"]["steps"].as_array().unwrap().len(), 8000);
+        assert!(d["mrBody"].as_str().unwrap().starts_with("Closes #49") && d["plan"].as_str().unwrap().len() == 20_000);
+        assert!(fl.detail("nope").is_none());
+        let root = std::env::temp_dir().join(format!("bobix-prune-{}", std::process::id()));
+        let _ = fs::create_dir_all(&root);
+        let mut saved = Flows::load(root.join("tickets.json"));
+        saved.list = fl.list.clone();
+        saved.save();
+        let cleaned: Vec<i64> = saved.list.values().filter(|f| f.cleaned).map(|f| f.iid).collect();
+        assert_eq!(cleaned, (25..CLEANED_KEEP as i64 + 25).collect::<Vec<_>>(), "the newest cleaned ones stay");
+        assert_eq!(saved.list.values().filter(|f| !f.cleaned).count(), 5, "flows not cleaned all stay");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // Full start: the remote's default branch, fetched first; offline, the last copy and said so; no default branch:
+    // refused with why. A worktree kept from a removed flow is used again.
+    #[test]
+    fn a_worktree_starts_from_the_fetched_default_branch() {
+        let root = std::env::temp_dir().join(format!("bobix-base-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let r = |p: &Path| p.to_string_lossy().into_owned();
+        let g = |dir: &Path, a: &[&str]| { let x = git(&r(dir), a); assert!(x.ok, "{a:?}: {}", x.err); x.out };
+        let (up, me) = (root.join("up"), root.join("me"));
+        fs::create_dir_all(&up).unwrap();
+        g(&up, &["init", "-q", "-b", "trunk"]);
+        g(&up, &["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "one"]);
+        assert!(procs::exec("git", &["clone", "-q", &r(&up), &r(&me)], 30, &[]).ok);
+        g(&up, &["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "two"]);
+        let new = g(&up, &["rev-parse", "HEAD"]).trim().to_string();
+        let b = base_of(&r(&me)).unwrap();
+        assert_eq!((b.name.as_str(), b.commit.as_str(), b.fetched), ("origin/trunk", new.as_str(), true), "fetched first: the newest commit");
+        assert!(b.at.is_some());
+        let wt = root.join("me/.claude/worktrees/bobix-7");
+        assert_eq!(create_worktree(&r(&me), &wt, "7-x", "log").unwrap().commit, new);
+        fs::write(wt.join(LOG_DIR).join(LOG_FILE), "my notes").unwrap();
+        assert!(create_worktree(&r(&me), &wt, "7-x", "log").is_ok(), "kept from a removed flow: used again");
+        assert_eq!(fs::read_to_string(wt.join(LOG_DIR).join(LOG_FILE)).unwrap(), "my notes", "its log kept");
+        assert!(create_worktree(&r(&me), &wt, "8-other", "log").is_err(), "a folder there for another branch: refused");
+        // offline: the remote is gone; the last copy, and said so
+        fs::rename(&up, root.join("up-away")).unwrap();
+        let b = base_of(&r(&me)).unwrap();
+        assert_eq!((b.commit.as_str(), b.fetched), (new.as_str(), false));
+        // no default branch: refused, not started from whatever is checked out
+        let lone = root.join("lone");
+        fs::create_dir_all(&lone).unwrap();
+        g(&lone, &["init", "-q"]);
+        g(&lone, &["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "x"]);
+        assert!(base_of(&r(&lone)).unwrap_err().contains("no remote"));
+        g(&lone, &["remote", "add", "origin", &r(&root.join("nowhere"))]);
+        assert!(base_of(&r(&lone)).unwrap_err().contains("no default branch"));
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -596,19 +776,26 @@ mod tests {
     fn worktree_made_and_removed_with_git() {
         let root = std::env::temp_dir().join(format!("bobix-wt-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let repo = root.join("repo");
-        fs::create_dir_all(&repo).unwrap();
+        let (up, repo) = (root.join("up"), root.join("repo"));
+        fs::create_dir_all(&up).unwrap();
+        let u = up.to_string_lossy().to_string();
+        for a in [&["init", "-q", "-b", "main"][..], &["-c", "user.email=demo@example.test", "-c", "user.name=demo", "commit", "-q", "--allow-empty", "-m", "init"]] { assert!(git(&u, a).ok); }
+        assert!(procs::exec("git", &["clone", "-q", &u, &repo.to_string_lossy()], 30, &[]).ok);
         let r = repo.to_string_lossy().to_string();
-        for a in [&["init", "-q", "-b", "main"][..], &["-c", "user.email=demo@example.test", "-c", "user.name=demo", "commit", "-q", "--allow-empty", "-m", "init"]] { assert!(git(&r, a).ok); }
         let dir = worktree_dir(&r, 7, "g/r", "");
-        assert_eq!(create_worktree(&r, &dir, "7-add-subtract", "log").unwrap(), "HEAD");
+        assert_eq!(create_worktree(&r, &dir, "7-add-subtract", "log").unwrap().name, "origin/main");
         assert_eq!(read_log(&dir.to_string_lossy()).as_deref(), Some("log"));
         assert!(git(&dir.to_string_lossy(), &["status", "--porcelain"]).out.trim().is_empty(), "the log folder ignores itself");
-        assert!(create_worktree(&r, &dir, "7-add-subtract", "log").is_err(), "already there");
+        assert!(create_worktree(&r, &dir, "8-other", "log").is_err(), "already there, for another branch");
+        assert_eq!(at_risk(&dir.to_string_lossy(), "7-add-subtract"), Some((0, 0)));
         fs::write(dir.join("new.txt"), "x").unwrap();
-        assert!(remove_worktree(&r, &dir.to_string_lossy()).is_err(), "work not committed: git refuses, Bobix never forces");
-        fs::remove_file(dir.join("new.txt")).unwrap();
-        remove_worktree(&r, &dir.to_string_lossy()).unwrap();
+        assert_eq!(at_risk(&dir.to_string_lossy(), "7-add-subtract"), Some((1, 0)), "what would be lost is counted first");
+        assert!(remove_worktree(&r, &dir.to_string_lossy(), false).is_err(), "work not committed: Clean up never forces");
+        remove_worktree(&r, &dir.to_string_lossy(), true).unwrap();
+        assert!(!dir.exists() && at_risk(&dir.to_string_lossy(), "7-add-subtract").is_none(), "Remove and delete the folder, after you saw it");
+        create_worktree(&r, &dir, "7-add-subtract", "log").unwrap();
+        assert!(git(&dir.to_string_lossy(), &["-c", "user.email=demo@example.test", "-c", "user.name=demo", "commit", "-q", "--allow-empty", "-m", "work"]).ok);
+        remove_worktree(&r, &dir.to_string_lossy(), false).unwrap();
         assert!(!dir.exists());
         assert!(git(&r, &["rev-parse", "--verify", "refs/heads/7-add-subtract"]).ok, "the branch stays");
         assert_eq!(unpushed(&r, "7-add-subtract"), 1, "no remote has it");

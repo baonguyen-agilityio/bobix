@@ -394,6 +394,15 @@ pub fn tests_add(dir: &Path, data: &Path, cmd: &str) -> Value {
     add_block(dir, data, "tests", TOPEN, &format!("{TOPEN}\nTests: `{c}`\n{TCLOSE}\n"))
 }
 
+// The Tests line Bobix added to a main folder's CLAUDE.md (`from`; not committed, so a worktree cut from the remote
+// lacks it) put into the worktree's CLAUDE.md (`to`) when that names no test command: the session there reads it.
+pub fn carry_tests(from: &Path, to: &Path, data: &Path) -> bool {
+    let Ok(t) = fs::read_to_string(claude_md(from)) else { return false };
+    let Some(cmd) = t.find(TOPEN).and_then(|i| t[i..].lines().find_map(|l| l.strip_prefix("Tests: `")?.strip_suffix('`'))) else { return false };
+    if fs::read_to_string(claude_md(to)).is_ok_and(|x| has_test_command(&x)) { return false; }
+    tests_add(to, data, cmd)["ok"] == true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
