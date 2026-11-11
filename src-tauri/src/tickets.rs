@@ -26,6 +26,7 @@ pub struct Flow {
     pub seen: usize, // assumptions you have seen; more in the log put a mark on the pet
     pub summary: String, pub models: Value, pub at: u64, pub cleaned: bool,
     pub mr: String, // the merge request Bobix opened for it (its link), on your click
+    pub ci: Value,  // its head pipeline, as last read: { status: passed | running | failed | other | none, url, state, since, at }
 }
 
 pub fn key_of(path: &str, iid: i64) -> String { format!("{path}#{iid}") }
@@ -58,6 +59,27 @@ pub fn mr_url(out: &str) -> Option<String> {
     static U: std::sync::LazyLock<fancy_regex::Regex> = std::sync::LazyLock::new(|| fancy_regex::Regex::new(r"https?://\S+/-/merge_requests/\d+").unwrap());
     U.find(out).ok().flatten().map(|m| m.as_str().to_string())
 }
+// The merge request's number, from its link.
+pub fn mr_iid(url: &str) -> Option<i64> { url.rsplit_once("/merge_requests/")?.1.split(['/', '?', '#']).next()?.parse().ok() }
+// The MR's head pipeline as the flow shows it (GitLab's statuses folded into four), and the MR's own state.
+pub fn ci_of(mr: &Value) -> Value {
+    let p = &mr["head_pipeline"];
+    let st = match p["status"].as_str() {
+        Some("success") => "passed",
+        Some("failed") => "failed",
+        Some("running" | "pending" | "created" | "preparing" | "waiting_for_resource" | "scheduled" | "manual") => "running",
+        Some(_) => "other",
+        None => "none",
+    };
+    json!({ "status": st, "url": p["web_url"], "state": mr["state"] })
+}
+// Reads the MR (a GET through your own glab) for its pipeline. None when the read fails.
+pub fn read_ci(glab: &str, host: &str, path: &str, iid: i64) -> Option<Value> {
+    let api = format!("projects/{}/merge_requests/{iid}", crate::work::enc(path));
+    let r = procs::exec(glab, &["api", "--hostname", host, &api], 30, &[("NO_PROMPT", "1"), ("NO_COLOR", "1")]);
+    serde_json::from_str::<Value>(&r.out).ok().filter(|v| v.is_object()).map(|v| ci_of(&v))
+}
+
 // Commits on the ticket's branch that no remote has.
 pub fn unpushed(dir: &str, branch: &str) -> u64 {
     let r = git(dir, &["rev-list", "--count", branch, "--not", "--remotes"]);
@@ -312,6 +334,21 @@ impl Flows {
     pub fn answered(&mut self, sid: &str, approved: bool, now: u64) {
         if let Some(f) = self.by_session_mut(sid).filter(|f| f.status == "approve") { f.status = if approved { "running" } else { "planning" }.into(); f.at = now; }
     }
+    // The pipeline read for a flow's MR; `since` keeps when it turned red (for "CI red for …"). True when it changed.
+    pub fn set_ci(&mut self, key: &str, mut ci: Value, now: u64) -> bool {
+        let Some(f) = self.list.get_mut(key) else { return false };
+        let same = |a: &Value, b: &Value| a["status"] == b["status"] && a["url"] == b["url"] && a["state"] == b["state"];
+        if same(&f.ci, &ci) { f.ci["at"] = json!(now); return false; }
+        ci["since"] = if ci["status"] == "failed" && f.ci["status"] == "failed" { f.ci["since"].clone() } else { json!(now) };
+        ci["at"] = json!(now);
+        f.ci = ci;
+        true
+    }
+    // Flows whose MR is still open: their pipeline is worth reading again.
+    pub fn open_mrs(&self) -> Vec<(String, String, String, i64)> {
+        self.list.values().filter(|f| !f.mr.is_empty() && !matches!(f.ci["state"].as_str(), Some("merged" | "closed")))
+            .filter_map(|f| Some((f.key.clone(), tauri::Url::parse(&f.mr).ok()?.host_str()?.to_string(), f.path.clone(), mr_iid(&f.mr)?))).collect()
+    }
     // A new assumption since you last looked: the pet gets a mark (the session does not stop).
     pub fn marked(&self, sid: &str) -> bool { self.by_session(sid).is_some_and(|f| !f.cleaned && assumptions(&f.log) > f.seen) }
 
@@ -455,6 +492,24 @@ mod tests {
         assert_eq!(mr_url("Creating merge request for 7-x into main in demo/shop\n\nhttps://gitlab.example.test/demo/shop/-/merge_requests/12\n").as_deref(), Some("https://gitlab.example.test/demo/shop/-/merge_requests/12"));
         assert_eq!(mr_url("error"), None);
         assert!(open_mr("glab", "h", &Flow { branch: "main".into(), ..Default::default() }, "t", "b").is_err(), "never the default branch");
+    }
+
+    #[test]
+    fn ci_status_of_the_merge_request() {
+        assert_eq!(mr_iid("https://h/g/p/-/merge_requests/12"), Some(12));
+        assert_eq!(mr_iid("https://h/g/p/-/merge_requests/12/pipelines"), Some(12));
+        let ci = |st: Value| ci_of(&json!({ "state": "opened", "head_pipeline": { "status": st, "web_url": "https://h/g/p/-/pipelines/9" } }))["status"].clone();
+        assert_eq!([ci(json!("success")), ci(json!("failed")), ci(json!("pending")), ci(json!("canceled"))], [json!("passed"), json!("failed"), json!("running"), json!("other")]);
+        assert_eq!(ci_of(&json!({ "state": "opened", "head_pipeline": null }))["status"], "none");
+        let mut fl = Flows::default();
+        fl.list.insert("g/p#7".into(), Flow { key: "g/p#7".into(), path: "g/p".into(), mr: "https://h/g/p/-/merge_requests/12".into(), ..Default::default() });
+        assert_eq!(fl.open_mrs(), [("g/p#7".to_string(), "h".to_string(), "g/p".to_string(), 12)]);
+        let red = || ci_of(&json!({ "state": "opened", "head_pipeline": { "status": "failed", "web_url": "u" } }));
+        assert!(fl.set_ci("g/p#7", red(), 100));
+        assert!(!fl.set_ci("g/p#7", red(), 200), "still red: no change");
+        assert_eq!((&fl.list[0].ci["since"], &fl.list[0].ci["at"]), (&json!(100), &json!(200)), "red since the first read");
+        assert!(fl.set_ci("g/p#7", ci_of(&json!({ "state": "merged", "head_pipeline": { "status": "success", "web_url": "u" } })), 300));
+        assert!(fl.open_mrs().is_empty(), "merged: not read again");
     }
 
     #[test]

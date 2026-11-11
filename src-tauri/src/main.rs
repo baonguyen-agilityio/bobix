@@ -606,6 +606,7 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
         let linked = { let c = b.core.lock().unwrap(); model::Model::build(&c.settings, &c.sessions, &c.work).linked() };
         let hosts = bin.as_deref().and_then(|x| f.hosts(x));
         let at = state::now();
+        let read_ok;
         let (next, reviews) = match (&bin, hosts) {
             (_, None) => (json!({ "status": f.missing(), "at": at }), vec![]), // look again next time: it may be installed by then
             (_, Some(h)) if h.is_empty() => (json!({ "status": f.signed_out(), "hosts": h, "at": at }), vec![]),
@@ -638,10 +639,12 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
             feed.bin = if next["status"] == f.missing() { None } else { bin };
             feed.busy = false;
             feed.reviews = if on { reviews } else { vec![] };
+            read_ok = on && f == work::Forge::GitLab && next["status"] == "ok";
             feed.issues = if on { next } else { json!({ "status": "off" }) }; // switched off meanwhile
         }
         read_claude_list(&b);
         b.broadcast();
+        if read_ok { refresh_ci(&b, None); } // the ticket flow's merge requests
     });
 }
 
@@ -1013,7 +1016,7 @@ async fn ticket_prep(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
         let (repo, _, wt, branch) = match ticket_place(&b, &path, iid) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
         let exists = b.core.lock().unwrap().tickets.list.get(&tickets::key_of(&path, iid)).is_some_and(|f| !f.cleaned);
-        json!({ "ok": true, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+        json!({ "ok": true, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
     }).await.map_err(|_| ())
 }
 
@@ -1226,6 +1229,44 @@ async fn skills_rules(dir: String, add: Option<bool>, b: B<'_>) -> Result<Value,
     tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, Some(dir)) {
         Ok(Some(d)) if add == Some(true) => skill_audit::rules_add(&d, &paths::data_dir()),
         Ok(Some(d)) => skill_audit::rules_status(&d, &paths::data_dir()),
+        Ok(None) => Value::Null,
+        Err(e) => e,
+    }).await.map_err(|_| ())
+}
+
+// The pipelines of the merge requests the ticket flow opened, read again (GET, your own glab); with `key`, that one only.
+fn refresh_ci(b: &Arc<Bobix>, key: Option<&str>) -> bool {
+    let (mrs, bin) = { let mut c = b.core.lock().unwrap(); (c.tickets.open_mrs(), c.work.feed(work::Forge::GitLab).bin.clone()) };
+    let mrs: Vec<_> = mrs.into_iter().filter(|m| key.is_none_or(|k| k == m.0)).collect();
+    if mrs.is_empty() { return false; }
+    let Some(glab) = bin.or_else(|| find_bin("glab")) else { return false };
+    let now = state::now();
+    let mut changed = false;
+    for (k, host, path, iid) in mrs {
+        if let Some(ci) = tickets::read_ci(&glab, &host, &path, iid) { changed |= b.core.lock().unwrap().tickets.set_ci(&k, ci, now); }
+    }
+    b.core.lock().unwrap().tickets.save();
+    if changed { b.broadcast(); }
+    true
+}
+// Check CI on a flow: its MR's pipeline, read now. { ok, ci }
+#[tauri::command]
+async fn ticket_ci(key: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let read = refresh_ci(&b, Some(&key));
+        let ci = b.core.lock().unwrap().tickets.list.get(&key).map(|f| f.ci.clone()).unwrap_or(Value::Null);
+        json!({ "ok": read && !ci.is_null(), "ci": ci })
+    }).await.map_err(|_| ())
+}
+
+// Does the project's CLAUDE.md say how to check the work? { file, exists, test, suggest, undo }; with `cmd`: adds the
+// one-line Tests entry (after a backup; undone like the rule block).
+#[tauri::command]
+async fn claude_tests(dir: String, cmd: Option<String>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, Some(dir)) {
+        Ok(Some(d)) => match cmd { Some(c) => skill_audit::tests_add(&d, &paths::data_dir(), &c), None => skill_audit::claude_check(&d, &paths::data_dir()) },
         Ok(None) => Value::Null,
         Err(e) => e,
     }).await.map_err(|_| ())
@@ -1453,7 +1494,7 @@ fn pet_reset(id: String, b: B) -> Value {
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr"];
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1549,7 +1590,7 @@ fn main() {
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
             settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
-            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr,
+            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

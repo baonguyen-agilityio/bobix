@@ -141,6 +141,7 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .tk-as li.new{font-weight:600}
 .tk-as li.new::after{content:" ●";color:var(--warn)}
 .badge.ok{background:var(--ok-bg);color:var(--ok)}
+.badge.err{background:color-mix(in oklch,var(--err) 14%,transparent);color:var(--err)}
 .b-sec h3 .badge,.b-dh .badge{margin-left:4px;vertical-align:1px}
 .tk-checks pre{max-height:180px;overflow:auto}
 .tk-warn{margin-top:8px;padding:10px 12px;border-radius:var(--r-md);background:var(--warn-bg);border-left:3px solid var(--warn);font-size:var(--t-sm)}
@@ -746,7 +747,17 @@ async function habNo(id) {
 // Work that stands still (BOARD.stuck), minus what you skipped (kept in Bobix's settings; outside the app, in this
 // page only); nothing while Settings → "Nudge about stuck work" is off.
 const stuckCfg = () => ({ ...state?.settings, stuckSkipped: { ...state?.settings?.stuckSkipped, ...skippedHere } });
-const stuckList = () => BOARD.stuck(model, list, stuckCfg());
+const stuckList = () => [...BOARD.stuck(model, list, stuckCfg()), ...ciRed(stuckCfg())];
+// A ticket's merge request whose pipeline is red (the ticket flow reads it): "CI red for {x}", from when it turned red.
+function ciRed(cfg, now = Date.now()) {
+  if (cfg?.stuckOn === false) return [];
+  const skipped = cfg?.stuckSkipped || {};
+  return tickets.list.filter(f => f.mr && f.ci?.status === 'failed' && f.ci.state !== 'merged' && f.ci.state !== 'closed' && f.ci.since)
+    .map(f => ({ id: 'cired:' + f.key, kind: 'cired', project: f.path, iid: f.iid, title: f.title, ms: now - f.ci.since, limit: 0, at: f.ci.since, url: f.mr, review: 'mr', key: f.key, old: false }))
+    .filter(x => !(skipped[x.id] >= x.at));
+}
+// What to paste to the ticket's session when its MR's pipeline is red.
+const fixCiPrompt = f => `CI failed on merge request ${mrRef(f.mr)} (${f.ci?.url || f.mr}). Read the failing job's log (glab ci view, or glab ci trace <job>), fix the cause on ${f.branch}, run the checks again and paste them under ## Checks in .bobix-log/work-log.md, then commit and push ${f.branch}.`;
 const forgeOf = p => (model?.repos || []).find(r => r.path === p)?.forge;
 const prOf = x => ((x.review || (forgeOf(x.project) === 'gitlab' ? 'mr' : 'pr')) === 'mr' ? 'MR' : 'PR'); // GitLab says merge request
 const refOf = x => { const n = (String(x.url || '').match(/(\d+)\/?$/) || [])[1]; return n ? (x.review === 'mr' ? '!' : '#') + n : ''; };
@@ -754,11 +765,11 @@ function stuckWhy(x) {
   const v = { x: ago(Date.now() - x.ms), n: x.limit, pr: prOf(x), ref: refOf(x), c: x.commits };
   return `${BOARD.short(x.project)} · ${T('why.' + x.kind, v)}`;
 }
-const nudgeLabel = x => (x.kind === 'noreview' ? T('nudge.ask') : x.branch && x.kind !== 'idle' ? T('nudge.newReview', { pr: prOf(x) }) : T('nudge.open'));
+const nudgeLabel = x => (x.kind === 'cired' ? T('nudge.fixci') : x.kind === 'noreview' ? T('nudge.ask') : x.branch && x.kind !== 'idle' ? T('nudge.newReview', { pr: prOf(x) }) : T('nudge.open'));
 // Skip: kept with the last activity it had, so it comes back only once it moves again. In the app it goes to Bobix's
 // own settings (the newest 300); elsewhere this page keeps it.
 async function skip(id) {
-  const x = BOARD.stuck(model, list, { ...state?.settings, stuckSkipped: {} }).find(y => y.id === id);
+  const cfg = { ...state?.settings, stuckSkipped: {} }, x = [...BOARD.stuck(model, list, cfg), ...ciRed(cfg)].find(y => y.id === id);
   if (!x) return;
   if (bridge && state) {
     const next = Object.entries({ ...state.settings.stuckSkipped, [id]: x.at }).sort((a, b) => b[1] - a[1]).slice(0, 300);
@@ -771,6 +782,11 @@ async function skip(id) {
 async function nudge(id) {
   const x = stuckList().find(y => y.id === id);
   if (!x) return;
+  if (x.kind === 'cired') {
+    const f = tickets.list.find(y => y.key === x.key), t = f ? fixCiPrompt(f) : x.url;
+    try { await navigator.clipboard.writeText(t); } catch { return toast(t); }
+    return toast(T('tk.ci.fixCopied'));
+  }
   if (x.kind === 'noreview') {
     try { await navigator.clipboard.writeText(x.url); } catch { return toast(x.url); }
     return toast(T('nudge.copied', { pr: prOf(x), ref: refOf(x) }));
@@ -1782,13 +1798,21 @@ function flowItem(f) {
   if (bridge && !f.cleaned && ['done', 'blocked'].includes(f.status)) acts.push([T('tk.review'), acts.length ? [CMD, '⇧', 'V'] : ['↵'], `data-tk-review="${k}"`], [T('tk.clean'), [CMD, '⇧', 'K'], `data-tk-clean="${k}"`]);
   return { id: 'f:' + f.key, grp: FGRP[f.status] || 'frun', kind: 'board', cls: f.status === 'approve' ? 'hot' : '', lead: s ? pet(s) : projectPet(f.path),
     label: `#${f.iid} ${f.title}`, sub: [BOARD.short(f.path), T('tk.st.' + f.status), f.cleaned ? T('tk.cleaned') : ''].filter(Boolean).join(' · '),
-    meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${checkBadges(f)}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
+    meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${f.mr ? ciBadge(f) : checkBadges(f)}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
 }
+// The MR's pipeline as a badge: ✓ CI / … CI / ✗ CI.
+const ciBadge = f => { const c = f.ci?.status; return !f.mr || !c || c === 'none' || c === 'other' ? '' : `<span class="badge ${c === 'passed' ? 'ok' : c === 'failed' ? 'err' : ''}">${c === 'passed' ? '✓' : c === 'failed' ? '✗' : '…'} ${esc(T('tk.ci.b.' + c))}</span>`; };
 const mrRef = u => '!' + ((String(u).match(/merge_requests\/(\d+)/) || [])[1] || '');
 // Open MR: what will be sent (the plan, the assumptions, the checks; editable), then push and glab mr create on your click.
 function mrHTML(f) {
   const k = esc(f.key), m = tkMr[f.key];
-  if (f.mr) return `<section class="b-sec"><h3>${esc(T('tk.mr.h'))}</h3><p><button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(mrRef(f.mr))} ${esc(f.title)}</button></p></section>`;
+  if (f.mr) {
+    const ci = f.ci?.status || 'unknown', red = ci === 'failed';
+    return `<section class="b-sec"><h3>${esc(T('tk.mr.h'))} ${ciBadge(f)}</h3><p><button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(mrRef(f.mr))} ${esc(f.title)}</button></p>
+      <p class="note">${esc(T('tk.ci.' + ci, { x: f.ci?.since ? ago(f.ci.since) : '' }))}${f.ci?.at ? ` · ${esc(T('tk.ci.read', { x: ago(f.ci.at) }))}` : ''}</p>
+      ${red ? `<div class="tk-warn"><p><strong>${esc(T('tk.ci.redT'))}</strong> ${esc(T('tk.ci.redWhy'))}</p><div class="cmd"><code>${esc(fixCiPrompt(f))}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(fixCiPrompt(f))}">${esc(T('tk.ci.fix'))}</button>` : ''}</div></div>` : ''}
+      ${bridge ? `<div class="acts" style="margin:8px 0 0"><button class="btn sm" type="button" data-tk-ci="${k}"${tkBusy.has('ci:' + f.key) ? ' disabled' : ''}>${esc(T('tk.ci.check'))}</button>${f.ci?.url ? `<button class="btn sm" type="button" data-url="${esc(f.ci.url)}">${esc(T('tk.ci.open'))}</button>` : ''}</div>` : ''}</section>`;
+  }
   if (!bridge || f.cleaned || f.status !== 'done' || !m?.open) return '';
   return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h'))}</h3>
     ${unchecked(f) ? `<p class="risk">⚠ ${esc(T('tk.mr.nochecks'))}</p>` : ''}
@@ -1845,7 +1869,9 @@ function startHTML(i, g, k) {
   const disk = p.room == null ? T('tk.disk.unknown') : T(p.room > 0 ? 'tk.disk.ok' : 'tk.disk.full', { n: p.room, free: BOARD.gb(p.free), need: BOARD.gb(p.need) });
   const c = pr.cls, off = p.exists || p.room === 0 || pr.busy ? ' disabled' : '';
   const opt = (v, label) => `<label><input type="radio" name="tkm-${ek}" data-tk-m="${ek}" value="${v}"${pr.sel === v ? ' checked' : ''}> <span>${esc(label)}</span></label>`;
-  return `${top}${p.exists ? `<p class="note err">${esc(T('tk.exists'))}</p>` : ''}<p class="${p.room === 0 ? 'risk' : 'note'}">${esc(disk)}</p>
+  const cm = p.claude, cmWarn = cm && (!cm.exists || !cm.test) ? `<div class="tk-warn"><p><strong>${esc(T(cm.exists ? 'cm.notest' : 'cm.none'))}</strong> ${esc(T('cm.why'))}</p>
+    <div class="acts" style="margin:8px 0 0"><button class="btn sm" type="button" data-tk-claude="${esc(p.repo)}">${esc(T('cm.fix'))}</button><button class="btn sm" type="button" data-copy="/init">${esc(T('cm.init'))}</button></div></div>` : '';
+  return `${top}${p.exists ? `<p class="note err">${esc(T('tk.exists'))}</p>` : ''}${cmWarn}<p class="${p.room === 0 ? 'risk' : 'note'}">${esc(disk)}</p>
     <section class="b-sec"><h3>${esc(T('tk.models'))}</h3><div class="tk-opts">${opt('small', T('tk.m.small'))}${c?.ok ? opt('haiku', T('tk.m.haiku', { x: modelsLine(c) })) + `<p class="note">${esc(c.why)}</p>` : ''}</div>
       ${c && !c.ok ? `<p class="note err">${esc(c.error || '')}</p>` : ''}
       <div class="acts" style="margin:0"><button class="btn sm" type="button" data-tk-ask="${ek}"${pr.asking ? ' disabled' : ''}>${esc(T(pr.asking ? 'tk.ask.busy' : 'tk.ask'))}</button></div><p class="note">${esc(T('tk.ask.note'))}</p></section>
@@ -1909,6 +1935,13 @@ async function tkSum(key) {
   const r = await bridge.ticketSummary(key).catch(e => ({ ok: false, error: String(e) }));
   tkBusy.delete(key);
   if (!r?.ok) toast(T('tk.sum.fail', { e: r?.error || '' }));
+  render();
+}
+async function tkCi(key) {
+  tkBusy.add('ci:' + key); render();
+  const r = await bridge.ticketCi(key).catch(() => null);
+  tkBusy.delete('ci:' + key);
+  if (!r?.ok) toast(T('tk.ci.fail'));
   render();
 }
 async function tkReview(key, how) {
@@ -2038,16 +2071,16 @@ async function loadAudit() {
   const dir = audDir ?? null, seq = ++audSeq, fail = e => ({ ok: false, error: String(e?.message || e) });
   aud = { ...(aud.dir === dir ? aud : {}), dir, busy: true };
   render();
-  const [a, rules, backups] = await Promise.all([bridge.skillsAudit(dir).catch(fail), dir ? bridge.routingRules(dir).catch(fail) : null, bridge.skillBackups().catch(() => [])]);
+  const [a, rules, backups, claude] = await Promise.all([bridge.skillsAudit(dir).catch(fail), dir ? bridge.routingRules(dir).catch(fail) : null, bridge.skillBackups().catch(() => []), dir ? bridge.claudeTests(dir).catch(() => null) : null]);
   if (seq !== audSeq) return; // another project was picked meanwhile
-  aud = { dir, a: a?.skills ? a : null, rules: rules?.text ? rules : null, busy: false, err: aud.err,
+  aud = { dir, a: a?.skills ? a : null, rules: rules?.text ? rules : null, claude: claude?.file ? claude : null, testCmd: claude?.suggest || '', busy: false, err: aud.err,
     fail: (a?.skills ? '' : a?.error || '?') || (rules && !rules.text ? rules.error || '?' : '') };
   skBackups = Array.isArray(backups) ? backups : [];
   render();
 }
 // The folder a project skill's backup came from loads here: it is this folder or one of its parents.
 const owner = p => String(p).replace(/[\\/]\.claude[\\/]skills[\\/][^\\/]+$/, '');
-const backupHere = e => e.kind !== 'rules' && (e.source === 'personal' || (!!aud.dir && (aud.dir === owner(e.path) || inDir(aud.dir, owner(e.path)))));
+const backupHere = e => e.kind !== 'rules' && e.kind !== 'tests' && (e.source === 'personal' || (!!aud.dir && (aud.dir === owner(e.path) || inDir(aud.dir, owner(e.path)))));
 const lastUsed = r => (r.lastUsed ? ago(r.lastUsed) : T('sk.never'));
 const tag = r => esc((r.name.includes(':') ? r.name.split(':')[0] : r.name).slice(0, 2));
 const srcOf = r => T('skill.src.' + r.source) + (r.plugin ? ` · ${r.plugin}` : '');
@@ -2065,6 +2098,10 @@ function audItems() {
   if (r) top.push({ id: 'aud:rules', grp: 'audit', kind: 'board', lead: ico('cpu', r.present ? 'ok' : ''), label: T('sk.rules.label'),
     sub: r.present ? T(r.undo ? 'sk.rules.inKept' : 'sk.rules.in') : T('sk.rules.t'), detail: rulesHTML,
     acts: r.present ? (r.undo ? [[T('sk.rules.rm'), ['↵'], 'data-sk="rulesRm"']] : []) : [[T('sk.rules.add'), ['↵'], 'data-sk="rulesAdd"'], [T('sk.rules.copy'), [CMD, '⇧', 'C'], 'data-sk="rulesCopy"']] });
+  const c = aud.claude;
+  if (c) top.push({ id: 'aud:claude', grp: 'audit', kind: 'board', lead: ico('file', c.test ? 'ok' : 'warn'), label: T('cm.label'), cls: '',
+    sub: T(!c.exists ? 'cm.none' : c.test ? 'cm.ok' : 'cm.notest'), detail: claudeHTML,
+    acts: c.test ? (c.undo ? [[T('cm.rm'), ['↵'], 'data-sk="testsRm"']] : []) : [[T('cm.add'), ['↵'], 'data-sk="testsAdd"'], [T('cm.init'), [CMD, '⇧', 'I'], 'data-copy="/init"']] });
   top.push({ id: 'aud:backups', grp: 'audit', kind: 'board', lead: ico('clock'), label: T('sk.aud.backups'), sub: skBackups.length ? T('sk.aud.backups.sub', { n: skBackups.length }) : T('sk.aud.backups.none'),
     detail: backupsHTML, acts: skBackups.length ? [[T('sk.aud.undoLatest'), ['↵'], `data-sk="undo" data-id="${esc(skBackups[0].id)}"`]] : [] });
   if (!a) return [top, skills];
@@ -2107,9 +2144,19 @@ function rulesHTML() {
       : `<button class="btn pri" type="button" data-sk="rulesAdd">${esc(T('sk.rules.add'))}…</button><button class="btn" type="button" data-sk="rulesCopy">${esc(T('sk.rules.copy'))}</button>`}</div>
     <p class="note">${esc(T(r.present && !r.undo ? 'sk.rules.byHand' : 'sk.rules.how'))}</p>`;
 }
+// Does CLAUDE.md tell Claude how to check its work? The single most useful line for the ticket flow's checks.
+function claudeHTML() {
+  const c = aud.claude;
+  return `${head(ico('file', 'lg'), T('cm.label'), T('cm.note'))}${errHTML('aud:claude')}
+    <dl class="kv"><dt>${esc(T('sk.rules.file'))}</dt><dd><code>${esc(home(c.file))}</code><span class="badge ${c.test ? 'ok' : 'warn'}">${esc(T(!c.exists ? 'cm.none' : c.test ? 'cm.ok' : 'cm.notest'))}</span></dd></dl>
+    ${c.test ? (c.undo ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-sk="testsRm">${esc(T('cm.rm'))}</button></div>` : '')
+      : `<label class="tk-ch"><span>${esc(T('cm.cmd'))}</span><input type="text" data-cm-cmd data-f="cmcmd" value="${esc(aud.testCmd)}" placeholder="npm test" spellcheck="false"></label>
+      <div class="acts" style="margin:0"><button class="btn pri" type="button" data-sk="testsAdd">${esc(T('cm.add'))}…</button><button class="btn" type="button" data-copy="/init">${esc(T('cm.init'))}</button></div>
+      <p class="note">${esc(T('cm.how'))}</p>`}`;
+}
 function backupsHTML() {
   return `${head(ico('clock', 'lg'), T('sk.aud.backups'), T('sk.aud.backups.note'))}${errHTML('aud:backups')}
-    ${skBackups.length ? `<ul class="rows">${skBackups.map(e => `<li><div class="row">${ico(e.kind === 'rules' ? 'cpu' : e.kind === 'disable' ? 'x' : 'alert')}<span class="b-tx"><span class="lb">${esc(T('sk.kind.' + e.kind))} · <code>${esc(e.name)}</code></span><span class="sb" title="${esc(e.path)}">${esc(ago(e.at))} · ${esc(home(e.path))}</span></span>
+    ${skBackups.length ? `<ul class="rows">${skBackups.map(e => `<li><div class="row">${ico(e.kind === 'rules' ? 'cpu' : e.kind === 'tests' ? 'file' : e.kind === 'disable' ? 'x' : 'alert')}<span class="b-tx"><span class="lb">${esc(T('sk.kind.' + e.kind))} · <code>${esc(e.name)}</code></span><span class="sb" title="${esc(e.path)}">${esc(ago(e.at))} · ${esc(home(e.path))}</span></span>
       <span class="acts"><button class="btn sm" type="button" data-sk="undo" data-id="${esc(e.id)}">${esc(T(e.kind === 'disable' ? 'sk.enable' : 'sk.undo'))}</button></span></div></li>`).join('')}</ul>`
       : `<p class="blank">${esc(T('sk.aud.backups.none'))}</p>`}`;
 }
@@ -2175,7 +2222,15 @@ async function skAct(d) {
       if (ids.length) undoToast(T('sk.dup.kept', { k: k.name, n: ids.length }), ids); }); }
   if (d.sk === 'undo') { const e = skBackups.find(x => x.id === d.id); if (!e) return;
     return skDo(at, async () => { const r = await bridge.undoSkill(e.id); if (!r?.ok) return skFail(at, r);
-      toast(e.kind === 'rules' ? T(r.exact === false ? 'sk.rules.removedEdit' : 'sk.rules.removed') : T('sk.restored', { n: e.name })); }); }
+      toast(e.kind === 'rules' ? T(r.exact === false ? 'sk.rules.removedEdit' : 'sk.rules.removed') : e.kind === 'tests' ? T('cm.removed') : T('sk.restored', { n: e.name })); }); }
+  const c = aud.claude;
+  if (c && dir && d.sk === 'testsAdd') {
+    const cmd = String(aud.testCmd || '').trim();
+    if (!cmd) { aud.err = { id: 'aud:claude', text: T('cm.empty') }; return render(); }
+    return skAsk(T('cm.addQ'), T('sk.rules.addBody', { f: home(c.file) }), blockHTML(`Tests: \`${cmd}\``, '+'), T('cm.add'), () => skDo(at, async () => {
+      const x = await bridge.claudeTests(dir, cmd); if (!x?.ok) return skFail(at, x); undoToast(T('cm.added'), [x.id]); }));
+  }
+  if (c && d.sk === 'testsRm' && c.undo) return skDo(at, async () => { const x = await bridge.undoSkill(c.undo); if (!x?.ok) return skFail(at, x); toast(T('cm.removed')); });
   const r = aud.rules;
   if (!r || !dir) return;
   if (d.sk === 'rulesCopy') { try { await navigator.clipboard.writeText(r.text); toast(T('sk.rules.copied')); } catch { toast(r.text); } return; }
@@ -2707,6 +2762,8 @@ async function onAct(e) {
   if (d.tkClean) return tkClean(d.tkClean);
   if (d.tkReview) return tkReview(d.tkReview, 'desktop');
   if (d.tkMrOpen) return tkMrOpen(d.tkMrOpen);
+  if (d.tkCi) return tkCi(d.tkCi);
+  if (d.tkClaude) { audDir = d.tkClaude; aud = { busy: true }; bsel.skills = 'aud:claude'; showTab('skills'); return loadAudit(); }
   if (d.tkMrGo) return tkMrGo(d.tkMrGo);
   if (d.tkMrCancel) { delete tkMr[d.tkMrCancel]; return render(); }
   if (d.tkCleanForce) return tkClean(d.tkCleanForce, true);
@@ -2721,6 +2778,7 @@ $('#b-dyn').addEventListener('input', e => {
   if (d.tkPrompt && tkPrep[d.tkPrompt]) tkPrep[d.tkPrompt].prompt = e.target.value;
   if (d.tkText) tkChange[d.tkText] = e.target.value;
   if (d.tkMrTitle && tkMr[d.tkMrTitle]) tkMr[d.tkMrTitle].title = e.target.value;
+  if (d.cmCmd !== undefined) aud.testCmd = e.target.value;
   if (d.tkMrBody && tkMr[d.tkMrBody]) tkMr[d.tkMrBody].body = e.target.value;
 });
 $('#b-dyn').addEventListener('change', e => { if (e.target.dataset.tkM) tkModels(e.target.dataset.tkM, e.target.value); });

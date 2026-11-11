@@ -76,6 +76,9 @@
     ticketSeen: key => invoke('ticket_seen', { key: String(key) }),
     ticketSummary: key => invoke('ticket_summary', { key: String(key) }),
     ticketClean: (key, force) => invoke('ticket_clean', { key: String(key), force: force === true }), // force: also with commits not pushed
+    ticketCi: key => invoke('ticket_ci', { key: String(key) }), // the MR's pipeline, read now (glab api, a GET)
+    // the project's CLAUDE.md: does it name a test command? With cmd: add the one-line Tests entry (backed up, undoable)
+    claudeTests: (dir, cmd) => invoke('claude_tests', { dir: String(dir), cmd: typeof cmd === 'string' ? cmd : null }),
     ticketMr: (key, title, description) => invoke('ticket_mr', { key: String(key), title: String(title || ''), description: String(description || '') }), // push + glab mr create, on your click
     ticketReview: (key, how) => invoke('ticket_review', { key: String(key), how: how === 'cli' ? 'cli' : 'desktop' }), // a second session reviews a done flow
     onSettings: on('settings'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),

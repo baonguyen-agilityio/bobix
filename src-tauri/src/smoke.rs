@@ -197,10 +197,10 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         if (!await until(() => items.some(x => x.id === 'n:' + k))) return {{ error: 'issue not listed', items: items.map(x => x.id), work: work.status, local: (work.local || []).map(g => g.path + ' ' + g.issues.length), todo: st.todo.length, problems: work.problems }}; \
         bsel.work = 'n:' + k; render(); document.querySelector('#b-dyn [data-tk-prep]').click(); \
         if (!await until(() => document.querySelector('#b-dyn .tk-prompt'))) return {{ error: 'no Start box' }}; \
-        const prompt = tkPrep[k].prompt, disk = document.querySelector('#b-dyn .note, #b-dyn .risk') && tkPrep[k].prep.room; \
+        const prompt = tkPrep[k].prompt, disk = document.querySelector('#b-dyn .note, #b-dyn .risk') && tkPrep[k].prep.room, claudeWarn = !!document.querySelector('#b-dyn [data-tk-claude]'), claudeDir = tkPrep[k].prep.repo; \
         document.querySelector('#b-dyn [data-tk-cli]').click(); \
         if (!await until(() => tickets.list.some(f => f.key === k))) return {{ error: 'not started' }}; \
-        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work }}; }})()"), 40);
+        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir }}; }})()"), 40);
     let f = flow();
     let fdir = f["dir"].as_str().unwrap_or("").to_string();
     r["worktree"] = json!(std::path::Path::new(&fdir).join(".bobix-log/work-log.md").is_file());
@@ -252,6 +252,24 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         r.bodyHasPlan = body.includes('## Plan'); r.bodyHasChecks = body.includes('## Checks'); r.closes = body.startsWith('Closes #'); \
         q('[data-tk-mr-go]').click(); r.opened = await until(() => tickets.list.find(f => f.key === k)?.mr, 90000); \
         r.url = tickets.list.find(f => f.key === k)?.mr || null; r.link = !!document.querySelector('#b-dyn [data-url*=\"merge_requests\"]'); return r; }})()"), 120);
+    // CI: Check CI reads the MR's pipeline (red at first in the e2e run): the flow shows it with Fix CI and the Overview
+    // lists "CI red"; once the run turns it green (it waits for <dir>/ticket-ci.json), Check CI shows it passed
+    r["ci"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s), f = () => tickets.list.find(x => x.key === k); \
+        showTab('work'); bsel.work = 'f:' + k; render(); await w(300); q('[data-tk-ci]').click(); for (let t = 0; t < 20000 && !f()?.ci?.status; t += 200) await w(200); await w(300); \
+        return {{ status: f()?.ci?.status || null, fix: !!q('[data-copy*=\"CI failed on merge request\"]'), badge: q('h3 .badge.err')?.textContent || null, stuck: stuckList().some(x => x.kind === 'cired' && x.key === k) }}; }})()"), 30);
+    let _ = fs::write(dir.join("ticket-ci.json"), json!({ "key": key, "status": r["ci"]["status"] }).to_string());
+    r["ciGreen"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), f = () => tickets.list.find(x => x.key === k); \
+        for (let t = 0; t < 60000 && f()?.ci?.status !== 'passed'; t += 2500) {{ await bridge.ticketCi(k); await w(2500); }} return f()?.ci?.status || null; }})()"), 70);
+    // CLAUDE.md: the Start box said this project has none; its Tests line is added from the Skills screen (after the
+    // confirm that shows it), then taken out again
+    let cdir = json!(r["start"]["claudeDir"]);
+    r["claudeMd"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
+        const until = async (g, ms) => {{ for (let t = 0; t < ms; t += 100) {{ if (g()) return true; await w(100); }} return false; }}; \
+        audDir = {cdir}; aud = {{ busy: true }}; bsel.skills = 'aud:claude'; showTab('skills'); await loadAudit(); bsel.skills = 'aud:claude'; render(); await w(300); \
+        const r = {{ before: aud.claude?.test ?? null, suggest: aud.testCmd }}; q('[data-sk=testsAdd]').click(); \
+        await until(() => $('#sk-dialog').open, 5000); r.lines = $('#sk-dialog .b-code').textContent.includes('Tests: `npm test`'); $('#sk-dialog [data-sk-yes]').click(); \
+        r.added = await until(() => aud.claude?.test === true && !!aud.claude.undo, 8000); bsel.skills = 'aud:claude'; render(); await w(200); \
+        q('[data-sk=testsRm]').click(); r.removed = await until(() => aud.claude && aud.claude.test === false, 8000); return r; }})()"), 30);
     // the log's own view, then Haiku's summary and the cleanup, clicked in Work
     r["finish"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
         const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
@@ -265,7 +283,9 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     r["pass"] = json!(r["start"]["rules"] == true && r["worktree"] == true && r["plan"].as_u64().unwrap_or(0) > 0 && r["approve"] == true
         && r["status"] == "done" && r["parsed"]["steps"].as_array().is_some_and(|a| !a.is_empty()) && r["finish"]["summary"] == true
         && r["parsed"]["ran"].as_u64().unwrap_or(0) > 0 && r["review"] == true && r["reviewNoted"] == true
-        && r["mr"]["unpushed"].as_u64().unwrap_or(0) > 0 && r["mr"]["opened"] == true && r["mr"]["bodyHasChecks"] == true);
+        && r["mr"]["unpushed"].as_u64().unwrap_or(0) > 0 && r["mr"]["opened"] == true && r["mr"]["bodyHasChecks"] == true
+        && r["ci"]["status"] == "failed" && r["ci"]["fix"] == true && r["ci"]["stuck"] == true && r["ciGreen"] == "passed"
+        && r["start"]["claudeWarn"] == true && r["claudeMd"]["added"] == true && r["claudeMd"]["removed"] == true);
     r
 }
 
