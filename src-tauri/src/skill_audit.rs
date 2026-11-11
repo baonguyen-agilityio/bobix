@@ -2,7 +2,7 @@
 // backed up first in Bobix's own folder (<data>/skill-backups/<id>/) and can be undone from there.
 //   audit    every skill Claude loads in a project (skills::all: personal, project, plugin, synced, managed), the size
 //            of its description, its uses in the last 30 days and the last one, and duplicates (the same base name in
-//            two sets, as ak:cook / ck:cook, or near-identical descriptions). Uses come from Claude Code's transcripts
+//            two sets, as acme:build / team:build, or near-identical descriptions). Uses come from Claude Code's transcripts
 //            (~/.claude/projects/*/*.jsonl and their subagents/): the Skill tool's calls, and typed /commands only
 //            with Settings → usageContent on. Only the skill's name and the time are kept, never any text.
 //   disable  moves a personal or project skill's folder into the backup; remove copies it there, then deletes it;
@@ -380,8 +380,8 @@ mod tests {
         let t = scratch("list");
         let (home, repo) = (t.join("home"), t.join("repo"));
         let c = home.join(".claude");
-        write(&c.join("skills/ak-cook/SKILL.md"), "---\nname: ak:cook\ndescription: Implement features, plans, and fixes with a structured workflow\n---\n");
-        write(&c.join("skills/ck-cook/SKILL.md"), "---\nname: ck:cook\ndescription: Something else entirely here\n---\n");
+        write(&c.join("skills/acme-build/SKILL.md"), "---\nname: acme:build\ndescription: Implement features, plans, and fixes with a structured workflow\n---\n");
+        write(&c.join("skills/team-build/SKILL.md"), "---\nname: team:build\ndescription: Something else entirely here\n---\n");
         write(&c.join("skills/plan/SKILL.md"), "---\nname: plan\ndescription: Plan implementations and design architectures with detailed phases\n---\n");
         write(&c.join("skills/roadmap/SKILL.md"), "---\nname: roadmap\ndescription: Plan implementations and design architectures, with detailed phases\n---\n");
         write(&c.join("skills/quiet/SKILL.md"), "---\nname: quiet\nuser-invocable: false\ndescription: Only Claude\n---\n");
@@ -389,21 +389,21 @@ mod tests {
         write(&repo.join(".claude/skills/plan/SKILL.md"), "---\nname: plan\ndescription: the repo's own\n---\n");
         let now = iso_ms("2026-11-10T12:00:00.000Z").unwrap();
         let p = c.join("projects/-repo");
-        let mut text = tool_line("ak-cook", "2026-11-09T10:00:00.000Z") + &tool_line("ak:cook", "2026-11-10T09:00:00.000Z") + &tool_line("plan", "2026-09-01T09:00:00.000Z");
+        let mut text = tool_line("acme-build", "2026-11-09T10:00:00.000Z") + &tool_line("acme:build", "2026-11-10T09:00:00.000Z") + &tool_line("plan", "2026-09-01T09:00:00.000Z");
         text += &(json!({ "type": "user", "timestamp": "2026-11-08T10:00:00.000Z", "message": { "content": "<command-name>/roadmap</command-name>\n<command-args>my plan</command-args>" } }).to_string() + "\n");
         write(&p.join("s1.jsonl"), &text);
         write(&p.join("s1/subagents/a.jsonl"), &tool_line("quiet", "2026-11-10T08:00:00.000Z"));
         let a = audit(&home, Some(&repo), now, false);
         let row = |n: &str, src: &str| a["skills"].as_array().unwrap().iter().find(|r| r["name"] == n && r["source"] == src).cloned().unwrap();
-        assert_eq!(row("ak:cook", "personal")["uses"], 2, "by name and by folder");
-        assert_eq!(row("ak:cook", "personal")["lastUsed"], iso_ms("2026-11-10T09:00:00.000Z").unwrap());
+        assert_eq!(row("acme:build", "personal")["uses"], 2, "by name and by folder");
+        assert_eq!(row("acme:build", "personal")["lastUsed"], iso_ms("2026-11-10T09:00:00.000Z").unwrap());
         assert_eq!(row("plan", "personal")["unused"], true, "a use older than 30 days doesn't count");
         assert_eq!(row("roadmap", "personal")["uses"], 0, "typed /commands only with usageContent on");
         assert_eq!(row("quiet", "personal")["uses"], 1, "subagents' calls count; skills only Claude calls are listed");
         assert_eq!(row("plan", "project")["source"], "project", "a shadowed duplicate is listed too");
         let groups: Vec<(String, Vec<String>)> = a["duplicates"].as_array().unwrap().iter()
             .map(|g| (g["why"].as_str().unwrap().into(), g["names"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_string()).collect())).collect();
-        assert!(groups.contains(&("name".into(), vec!["ak:cook".into(), "ck:cook".into()])), "{groups:?}");
+        assert!(groups.contains(&("name".into(), vec!["acme:build".into(), "team:build".into()])), "{groups:?}");
         assert!(groups.iter().any(|(_, n)| n.contains(&"roadmap".to_string()) && n.contains(&"plan".to_string())), "near-identical descriptions: {groups:?}");
         assert_eq!(a["summary"]["skills"], 6);
         let on = audit(&home, Some(&repo), now, true);
@@ -416,8 +416,8 @@ mod tests {
     fn remove_then_undo_restores_the_files_byte_for_byte() {
         let t = scratch("undo");
         let (home, data) = (t.join("home"), t.join("data"));
-        let s = home.join(".claude/skills/ak-cook");
-        write(&s.join("SKILL.md"), "---\nname: ak:cook\ndescription: Cook\n---\nbody\n");
+        let s = home.join(".claude/skills/acme-build");
+        write(&s.join("SKILL.md"), "---\nname: acme:build\ndescription: Cook\n---\nbody\n");
         fs::create_dir_all(s.join("scripts")).unwrap();
         fs::write(s.join("scripts/run.bin"), (0u8..=255).collect::<Vec<u8>>()).unwrap();
         #[cfg(unix)] std::os::unix::fs::symlink("../SKILL.md", s.join("scripts/link")).unwrap();

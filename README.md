@@ -48,7 +48,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - **Warnings with the reason and the fix**: a session that is too long (run `/compact` or start fresh), a heavy model on light work (`/model sonnet`), or a long run of read-only exploration (ask for a Haiku subagent).
 
 ### Keep your skills lean, and route models
-- **Skills audit per project**: every skill Claude loads there, what its descriptions cost in every turn, those unused for 30 days and duplicate sets (`ak:cook` and `ck:cook`).
+- **Skills audit per project**: every skill Claude loads there, what its descriptions cost in every turn, those unused for 30 days and duplicate sets (`acme:build` and `team:build`).
 - **Disable or remove** a personal or project skill in one click; each change keeps a backup and can be undone.
 - **Model rules for `CLAUDE.md`**: a short "when to split, which model" block, shown before it is added, and undone byte for byte.
 

@@ -204,7 +204,7 @@ mod tests {
         for c in ["/clear", "/compact", "/help", "/model sonnet", "/resume", "/config"] {
             assert_eq!(skill_of(&json!({ "hook_event_name": "UserPromptSubmit", "prompt": c })), None, "{c}: Claude Code's own command, not a skill");
         }
-        assert_eq!(skill_of(&json!({ "hook_event_name": "PreToolUse", "tool_name": "Skill", "tool_input": { "skill": "ak:cook" } })).as_deref(), Some("ak:cook"));
+        assert_eq!(skill_of(&json!({ "hook_event_name": "PreToolUse", "tool_name": "Skill", "tool_input": { "skill": "acme:build" } })).as_deref(), Some("acme:build"));
     }
 
     #[test]

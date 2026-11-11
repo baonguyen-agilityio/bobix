@@ -48,7 +48,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - **Cảnh báo kèm lý do và cách xử lý**: session quá dài (chạy `/compact` hoặc mở session mới), model nặng cho việc nhẹ (`/model sonnet`), hay đọc khám phá liên tục (nhờ một subagent Haiku).
 
 ### Giữ bộ skill gọn gàng, chọn đúng model
-- **Rà soát skill theo project**: mọi skill Claude nạp ở đó, phần mô tả của chúng tốn bao nhiêu token mỗi lượt, skill không dùng trong 30 ngày và các bộ trùng nhau (`ak:cook` và `ck:cook`).
+- **Rà soát skill theo project**: mọi skill Claude nạp ở đó, phần mô tả của chúng tốn bao nhiêu token mỗi lượt, skill không dùng trong 30 ngày và các bộ trùng nhau (`acme:build` và `team:build`).
 - **Tắt hoặc xoá** một skill cá nhân hay của project bằng một cú bấm; mỗi thay đổi đều có bản sao lưu và hoàn tác được.
 - **Quy tắc chọn model cho `CLAUDE.md`**: một khối ngắn "khi nào tách phiên, dùng model nào", hiện cho bạn xem trước khi thêm, và gỡ trả lại đúng từng byte.
 

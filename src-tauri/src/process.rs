@@ -98,7 +98,7 @@ mod tests {
     fn a_valid_process_file() {
         let p = parse(r#"{ "version": 1, "name": "Shop team",
             "rules": [ { "when": { "label": ["Bug", "regression"] }, "skill": "fix-ticket" },
-                       { "when": { "label": "enhancement", "role": "dev" }, "skill": "ak:cook" },
+                       { "when": { "label": "enhancement", "role": "dev" }, "skill": "acme:build" },
                        { "when": { "role": "qa", "stage": "todo" }, "skill": "ba-qa-kit:write-test-cases" } ],
             "install": { "ba-qa-kit:write-test-cases": "/plugin install ba-qa-kit@ba-qa-kit" } }"#).unwrap();
         assert_eq!(p["rules"][0], json!({ "when": { "label": ["bug", "regression"] }, "skill": "fix-ticket" }), "labels lower case, one label becomes a list");
