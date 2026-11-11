@@ -5,6 +5,7 @@
 
 mod answers;
 mod autostart;
+mod clones;
 mod feedback;
 mod hooks;
 mod i18n;
@@ -645,7 +646,97 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
         read_claude_list(&b);
         b.broadcast();
         if read_ok { refresh_ci(&b, None); } // the ticket flow's merge requests
+        find_clones(&b, f);
     });
+}
+
+// The local clones of this tracker's projects that no session works in here: looked for by their git remotes in the
+// usual code folders (clones.rs; only `.git/config` is read) after each read of the issues, and remembered (`workDirs`,
+// how: found). A project you forgot in Settings (`workDirsOff`) is not looked for again.
+fn find_clones(b: &Arc<Bobix>, f: work::Forge) {
+    let (hosts, wanted, known) = {
+        let c = b.core.lock().unwrap();
+        let feed = &c.work.feeds[f as usize];
+        let hosts: Vec<String> = feed.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str().map(String::from)).collect();
+        let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
+        let off: Vec<&str> = c.settings["workDirsOff"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect();
+        let listed: std::collections::HashSet<String> = feed.issues["list"].as_array().into_iter().flatten().filter_map(|i| i["project"].as_str().map(String::from)).collect();
+        let wanted: std::collections::HashSet<String> = view["away"].as_array().into_iter().flatten().filter_map(|g| g["path"].as_str().map(String::from))
+            .filter(|p| listed.contains(p) && !off.contains(&p.as_str())).collect();
+        let known: Vec<String> = c.sessions.values().map(|s| s.cwd.clone()).filter(|d| std::path::Path::new(d).is_absolute()).collect();
+        (hosts, wanted, known)
+    };
+    if wanted.is_empty() || hosts.is_empty() { return; }
+    let found = clones::scan(&clones::roots(&paths::home(), &known), &hosts, &wanted);
+    if found.is_empty() { return; }
+    let mut dirs = b.core.lock().unwrap().settings["workDirs"].clone();
+    if !dirs.is_object() { dirs = json!({}); }
+    for (p, d) in found { if dirs.get(&p).is_none() { dirs[&p] = json!({ "dir": d, "how": "found" }); } }
+    update_settings(b, json!({ "workDirs": dirs }));
+    b.broadcast();
+}
+
+// Remembers `dir` as the clone of `path` (how: found | chosen | cloned), and takes it off the forgotten list.
+fn remember_dir(b: &Arc<Bobix>, path: &str, dir: &str, how: &str) {
+    let (mut dirs, off) = { let c = b.core.lock().unwrap(); (c.settings["workDirs"].clone(), c.settings["workDirsOff"].clone()) };
+    if !dirs.is_object() { dirs = json!({}); }
+    dirs[path] = json!({ "dir": dir, "how": how });
+    let off: Vec<Value> = off.as_array().into_iter().flatten().filter(|p| p.as_str() != Some(path)).cloned().collect();
+    update_settings(b, json!({ "workDirs": dirs, "workDirsOff": off }));
+    b.broadcast();
+}
+// A project Bobix lists issues for: its tracker, that tracker's CLI and the signed-in host of its issues' links.
+fn project_source(b: &Bobix, path: &str) -> Option<(work::Forge, String, String, Vec<String>)> {
+    let c = b.core.lock().unwrap();
+    work::FORGES.into_iter().filter(|f| f.on(&c.settings)).find_map(|f| {
+        let feed = &c.work.feeds[f as usize];
+        let i = feed.issues["list"].as_array()?.iter().find(|i| i["project"] == path)?;
+        let url_host = i["url"].as_str().and_then(|u| tauri::Url::parse(u).ok())?.host_str()?.to_lowercase();
+        let hosts: Vec<String> = feed.issues["hosts"].as_array()?.iter().filter_map(|h| h.as_str().map(String::from)).collect();
+        let host = hosts.iter().find(|h| h.split(':').next() == Some(url_host.as_str()))?.clone();
+        Some((f, feed.bin.clone()?, host, hosts))
+    })
+}
+fn pick_folder(b: &Bobix, title: &str) -> Option<std::path::PathBuf> {
+    use tauri_plugin_dialog::DialogExt;
+    b.app.get()?.dialog().file().set_title(title).blocking_pick_folder().and_then(|f| f.into_path().ok())
+}
+
+// "Already on this machine": a folder you choose (`dir`, else the folder dialog) is remembered for `path` once one of
+// its git remotes names that project. { ok, dir } | { ok: false, reason: cancel | notgit | other | gone, found? }
+#[tauri::command]
+async fn work_link(path: String, dir: Option<String>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some((_, _, _, hosts)) = project_source(&b, &path) else { return json!({ "ok": false, "reason": "gone" }) };
+        let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "work.link.pick", &[("p", &path)]);
+        let Some(d) = dir.map(std::path::PathBuf::from).or_else(|| pick_folder(&b, &title)) else { return json!({ "ok": false, "reason": "cancel" }) };
+        match clones::check(&d, &path, &hosts) {
+            Ok(top) => { remember_dir(&b, &path, &top, "chosen"); json!({ "ok": true, "dir": top }) }
+            Err(mut e) => { e["ok"] = json!(false); e }
+        }
+    }).await.map_err(|_| ())
+}
+
+// "Clone…": into a parent folder you choose (`parent`, else the folder dialog), with your own glab / gh, then
+// remembered. Only on your click. { ok, dir } | { ok: false, reason: cancel | exists | gone | other | error, detail }
+#[tauri::command]
+async fn work_clone(path: String, parent: Option<String>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some((forge, bin, host, hosts)) = project_source(&b, &path) else { return json!({ "ok": false, "reason": "gone" }) };
+        let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "work.clone.pick", &[("p", &path)]);
+        let Some(p) = parent.map(std::path::PathBuf::from).or_else(|| pick_folder(&b, &title)) else { return json!({ "ok": false, "reason": "cancel" }) };
+        let dest = clones::clone_dest(&p, &path);
+        if dest.exists() { return json!({ "ok": false, "reason": "exists", "dir": dest }); }
+        match clones::clone(&bin, forge == work::Forge::GitLab, &host, &path, &dest) {
+            Ok(d) => match clones::check(std::path::Path::new(&d), &path, &hosts) {
+                Ok(top) => { remember_dir(&b, &path, &top, "cloned"); json!({ "ok": true, "dir": top }) }
+                Err(mut e) => { e["ok"] = json!(false); e }
+            },
+            Err(e) => json!({ "ok": false, "reason": "error", "detail": e }),
+        }
+    }).await.map_err(|_| ())
 }
 
 // The panel's button on an issue: Resume opens the session working on it, exactly like a click on its pet; New opens a
@@ -1183,7 +1274,8 @@ async fn skills_mine() -> Result<Value, ()> {
 fn audit_dir(b: &Arc<Bobix>, dir: Option<String>) -> Result<Option<std::path::PathBuf>, Value> {
     let Some(d) = dir else { return Ok(None) };
     let p = std::path::PathBuf::from(&d);
-    let known = b.core.lock().unwrap().sessions.values().any(|s| !s.cwd.is_empty() && (std::path::Path::new(&s.cwd) == p || skills::repo_root(std::path::Path::new(&s.cwd)) == p));
+    let known = { let c = b.core.lock().unwrap(); c.sessions.values().any(|s| !s.cwd.is_empty() && (std::path::Path::new(&s.cwd) == p || skills::repo_root(std::path::Path::new(&s.cwd)) == p))
+        || clones::dirs(&c.settings).values().any(|d| std::path::Path::new(d) == p) }; // or a local clone Bobix remembers
     if known && p.is_dir() { Ok(Some(p)) } else { Err(json!({ "ok": false, "error": "not a folder a session here works in" })) }
 }
 
@@ -1493,7 +1585,7 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
+    "work_brief", "work_link", "work_clone", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
     "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
@@ -1589,7 +1681,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_clone, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {

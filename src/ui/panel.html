@@ -293,6 +293,8 @@ input[type=number]{width:104px}
 .zone .pair{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--s3);align-items:center}
 .zone .pair label{font-size:var(--t-xs);color:var(--ink-2);min-width:40px}
 .zone .rng{width:100%}
+.wdirs{display:grid;width:100%}.wdirs .wd{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px var(--s2);padding:var(--s2) 0;border-top:1px solid var(--line)}.wdirs .wd:first-child{border-top:0}
+.wdirs .p{font-weight:500;overflow-wrap:anywhere}.wdirs .d{grid-column:1 / -1;justify-self:start;font-size:var(--t-xs);color:var(--ink-2);overflow-wrap:anywhere}
 .keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;min-height:28px;padding:0 8px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);text-transform:uppercase}
 
 /* skills */
@@ -1047,6 +1049,7 @@ const SECTIONS = [
     { k: 'gitlab', type: 'switch' },
     { k: 'github', type: 'switch' },
     { k: 'workKeys', type: 'keys', wide: true },
+    { k: 'workDirs', type: 'dirs', wide: true },
   ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
@@ -1077,6 +1080,12 @@ function control(r, s) {
     const gs = [...(work.local || []), ...(work.away || [])];
     if (!gs.length) return `<p class="note">${T('set.workKeys.none')}</p>`;
     return `<div class="keys">${gs.map(g => `<label><span>${esc(g.path)}</span><input type="text" data-key-of="${esc(g.path)}" value="${esc((s.workKeys || {})[g.path] || '')}" placeholder="${esc(g.autoKey)}" maxlength="10" spellcheck="false" autocapitalize="characters"></label>`).join('')}</div>`;
+  }
+  if (r.type === 'dirs') { // the local clones Bobix remembers for projects no session ran in (found, chosen, cloned), each with Forget
+    const ds = Object.entries(s.workDirs || {}).sort((a, b) => a[0].localeCompare(b[0]));
+    if (!ds.length) return `<p class="note">${T('set.workDirs.none')}</p>`;
+    return `<div class="wdirs">${ds.map(([p, e]) => `<div class="wd"><span class="p">${esc(p)} <span class="badge">${esc(T('set.workDirs.' + e.how))}</span></span>
+      <button class="btn sm" type="button" data-wk-forget="${esc(p)}">${esc(T('set.workDirs.forget'))}</button><code class="d" title="${esc(e.dir)}">${esc(home(e.dir))}</code></div>`).join('')}</div>`;
   }
   if (r.type === 'prices') return `${usageMeta.error ? `<p class="note err">${esc(T('set.prices.err', { e: usageMeta.error }))}</p>` : ''}<button class="btn" type="button" data-act="prices">${T('set.prices.open')}</button>`;
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
@@ -1245,6 +1254,12 @@ $('#settings').addEventListener('click', async e => {
   const t = e.target.closest('button');
   if (!t) return;
   if (t.dataset.zone) { const [a, b] = ZONES[t.dataset.zone]; return save({ zoneStart: a, zoneEnd: b }); }
+  if (t.dataset.wkForget) { // forget a remembered clone; a found one is not looked for again (workDirsOff)
+    const p = t.dataset.wkForget, dirs = { ...(state.settings.workDirs || {}) }, off = [...new Set([...(state.settings.workDirsOff || []), p])];
+    delete dirs[p];
+    await save({ workDirs: dirs, workDirsOff: off });
+    return toast(T('set.workDirs.forgot', { p }));
+  }
   if (t.dataset.k) { const r = ROWS.find(x => x.k === t.dataset.k); return save(r.set ? r.set(t.dataset.v) : { [r.k]: t.dataset.v }); }
   if (t.dataset.act === 'habits-ask') { habConfirm = true; renderSettings(); return $('[data-act="habits-keep"]')?.focus(); }
   if (t.dataset.act === 'habits-keep') { habConfirm = false; renderSettings(); return $('[data-act="habits-ask"]')?.focus(); }
@@ -1530,7 +1545,7 @@ const toolOf = s => s.askTool ? I18N.askLabel(lang, s.askTool) : T('status.waiti
 function isPlan(s) { return s.askTool === 'ExitPlanMode'; }
 const hhmm = t => new Date(t).toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const answerAttrs = (s, c) => `data-choice="${c}" data-s="${esc(s.id)}"`;
-const GRP = { aq: 'day.aq', stuck: 'day.stuck', warn: 'b.warnings', hab: 'hab.title', run: 'b.running', doing: 'day.doing', verify: 'day.verify', todo: 'day.todo', done: 'day.done', loose: 'day.loose', rest: 'b.rest', you: 'b.you', projects: 'sk.projects', audit: 'sk.grp.audit', dups: 'sk.grp.dups', fapprove: 'tk.g.approve', frun: 'tk.g.run', fdone: 'tk.g.done', fstart: 'tk.g.start', off: 'sk.grp.off', unused: 'sk.grp.unused', inuse: 'sk.grp.inuse' };
+const GRP = { aq: 'day.aq', stuck: 'day.stuck', warn: 'b.warnings', hab: 'hab.title', run: 'b.running', doing: 'day.doing', verify: 'day.verify', todo: 'day.todo', done: 'day.done', loose: 'day.loose', rest: 'b.rest', you: 'b.you', projects: 'sk.projects', audit: 'sk.grp.audit', dups: 'sk.grp.dups', fapprove: 'tk.g.approve', frun: 'tk.g.run', fdone: 'tk.g.done', fstart: 'tk.g.start', faway: 'work.g.away', off: 'sk.grp.off', unused: 'sk.grp.unused', inuse: 'sk.grp.inuse' };
 const grpName = (k, n) => (k === 'stuckOld' ? T('day.stuckOld', { n, d: stuckCfg().stuckMaxAge ?? 14 }) : GRP[k] ? T(GRP[k]) : '');
 const head = (lead, title, note = '') => `<div class="b-dh">${lead}<div><h2>${esc(title)}</h2>${note ? `<p class="note">${esc(note)}</p>` : ''}</div></div>`;
 // A session as a row inside a detail (a ticket's sessions, side sessions); a click shows it.
@@ -1710,16 +1725,38 @@ function issueItem([i, g]) {
   if (bridge && !wait) acts.push([!here ? T('day.web') : i.resume ? T('work.resume') : T('day.start'), ['↵'], here ? `data-start="${i.iid}" data-path="${esc(g.path)}"` : `data-url="${esc(i.url)}"`]);
   if (wait) acts.push([T('work.wait.cancel'), [CMD, '⌫'], `data-cancel="${esc(g.dir)}"`]);
   if (here && i.url) acts.push([T('work.open'), [CMD, 'O'], `data-url="${esc(i.url)}"`]);
+  if (bridge && !g.dir) acts.push([T('work.link'), [CMD, 'L'], `data-wk-link="${esc(g.path)}"`], [T('work.clone'), [CMD, '⇧', 'L'], `data-wk-clone="${esc(g.path)}"`]);
   return { id: `i:${g.path}#${i.iid}`, grp: 'todo', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, cls: od ? 'hot' : '',
     sub: [BOARD.short(g.path), od ? T('day.overdue') : '', wait ? T('work.wait') : '', !g.dir && bridge ? T('b.away') : ''].filter(Boolean).join(' · '),
     meta: i.resume ? `<span class="badge">${esc(T('work.resume'))}</span>` : '', detail: () => issueHTML(i, g), acts };
+}
+// A project Bobix has not seen on this computer (#163): link the folder you cloned it to (its remote is checked), or
+// clone it with your own glab / gh into a folder you choose. Nothing runs before the click.
+const awayHTML = g => `<div class="tk-warn"><p><strong>${esc(T('work.away.t'))}</strong> ${esc(T('work.away.why'))}</p>
+  <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-wk-link="${esc(g.path)}"${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T('work.link'))}</button><button class="btn sm" type="button" data-wk-clone="${esc(g.path)}"${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T(wkBusy.has(g.path) ? 'work.clone.busy' : 'work.clone'))}</button></div></div>`;
+// How Bobix knows a project's folder when no session ran there yet: found, chosen or cloned.
+const viaHTML = g => (g.via && g.dir ? `<p class="note">${esc(T('work.via.' + g.via, { dir: home(g.dir) }))}</p>` : '');
+const wkBusy = new Set(); // projects being cloned
+async function wkLink(path) {
+  const r = await bridge.linkFolder(path).catch(e => ({ ok: false, reason: 'error', detail: String(e) }));
+  if (r?.ok) return toast(T('work.link.done', { p: path, dir: home(r.dir) }));
+  if (r?.reason === 'cancel') return;
+  toast(r?.reason === 'notgit' ? T('work.link.notgit') : r?.reason === 'other' ? (r.found ? T('work.link.other', { p: path, x: r.found }) : T('work.link.none', { p: path })) : T('work.link.fail'));
+}
+async function wkClone(path) {
+  wkBusy.add(path); render();
+  const r = await bridge.cloneProject(path).catch(e => ({ ok: false, reason: 'error', detail: String(e) }));
+  wkBusy.delete(path); render();
+  if (r?.ok) return toast(T('work.clone.done', { p: path, dir: home(r.dir) }));
+  if (r?.reason === 'cancel') return;
+  toast(r?.reason === 'exists' ? T('work.clone.exists', { dir: home(r.dir) }) : T('work.clone.fail', { e: r?.detail || r?.reason || '' }));
 }
 function issueHTML(i, g, why) {
   const here = !!g.dir && !!bridge, wait = waiting.find(x => x.dir === g.dir && x.iid === i.iid);
   const tip = !here ? T('work.open') : i.resume ? T('work.resume.desc') : T('day.startDesc', { n: i.iid });
   return `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [BOARD.short(g.path), why].filter(Boolean).join(' · '))}
     ${i.due && i.due < today() ? `<p class="hot">${esc(T('day.overdue'))} · ${esc(i.due)}</p>` : ''}
-    <p class="note">${esc(wait ? T('work.wait.desc') : tip)}</p>${!g.dir && bridge ? `<p class="note">${esc(T('day.away'))}</p>` : ''}
+    <p class="note">${esc(wait ? T('work.wait.desc') : tip)}</p>${!g.dir && bridge ? awayHTML(g) : viaHTML(g)}
     ${bridge ? `<div class="acts" style="margin:0">${wait ? `<span class="badge">${esc(T('work.wait'))}</span><button class="btn" type="button" data-cancel="${esc(g.dir)}">${esc(T('work.wait.cancel'))}</button>`
       : here ? `<button class="btn pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" title="${esc(tip)}">${esc(i.resume ? T('work.resume') : T('day.start'))}</button>` : ''}${i.url ? `<button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button>` : ''}</div>` : ''}`;
 }
@@ -1774,6 +1811,7 @@ function workItems() {
   const it = [], fl = tickets.list, order = ['approve', 'starting', 'planning', 'running', 'blocked', 'done'];
   [...fl].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || a.cleaned - b.cleaned || b.at - a.at).forEach(f => it.push(flowItem(f)));
   if (bridge) st.todo.filter(([i, g]) => g.dir && !tkLive(g.path, i.iid)).sort(overdueFirst).forEach(x => it.push(startItem(x)));
+  if (bridge) st.todo.filter(([, g]) => !g.dir).sort(overdueFirst).forEach(x => it.push(awayItem(x)));
   if (!it.length) it.push({ id: 'tk:none', kind: 'board', lead: ico('work'), label: T('tk.none'), sub: T('tk.none.sub'),
     detail: () => `<div class="b-empty">${ico('work')}<h3>${esc(T('tk.none'))}</h3><p>${esc(T('tk.none.sub'))}</p>${bridge && work.status === 'off' ? `<button class="btn" type="button" data-tab-go="settings" data-set="set:work">${esc(T('work.toSettings'))}</button>` : ''}</div>`,
     acts: bridge && work.status === 'off' ? [[T('work.toSettings'), ['↵'], 'data-tab-go="settings" data-set="set:work"']] : [] });
@@ -1862,9 +1900,16 @@ function startItem([i, g]) {
   return { id: 'n:' + k, grp: 'fstart', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: [BOARD.short(g.path), ...(i.labels || []).slice(0, 3)].join(' · '),
     detail: () => startHTML(i, g, k), acts: pr?.prep?.ok ? [[T('tk.start'), ['↵'], `data-tk-go="${ek}"`], [T('tk.cli'), [CMD, '⇧', 'C'], `data-tk-cli="${ek}"`]] : [[T('tk.prep'), ['↵'], `data-tk-prep="${ek}"`]] };
 }
+// An issue of a project not on this computer yet, under Work: link or clone it, then it can start.
+function awayItem([i, g]) {
+  const p = esc(g.path);
+  return { id: 'a:' + g.path + '#' + i.iid, grp: 'faway', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, sub: `${BOARD.short(g.path)} · ${T('b.away')}`,
+    detail: () => `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, BOARD.short(g.path))}${awayHTML(g)}${i.url ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button></div>` : ''}`,
+    acts: [[T('work.link'), ['↵'], `data-wk-link="${p}"`], [T('work.clone'), [CMD, '⇧', 'L'], `data-wk-clone="${p}"`]] };
+}
 function startHTML(i, g, k) {
   const pr = tkPrep[k], ek = esc(k), p = pr?.prep;
-  const top = `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [BOARD.short(g.path), ...(i.labels || [])].join(' · '))}<p class="note">${esc(T('tk.flow.note'))}</p>`;
+  const top = `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [BOARD.short(g.path), ...(i.labels || [])].join(' · '))}<p class="note">${esc(T('tk.flow.note'))}</p>${viaHTML(g)}`;
   if (!p) return `${top}<div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-prep="${ek}" data-f="tkprep:${ek}"${pr?.loading ? ' disabled' : ''}>${esc(T(pr?.loading ? 'tk.prep.busy' : 'tk.prep'))}</button>${i.url ? `<button class="btn" type="button" data-url="${esc(i.url)}">${esc(T('work.open'))}</button>` : ''}</div>`;
   if (!p.ok) return `${top}<p class="note err">${esc(T('work.new.fail'))}</p>`;
   const disk = p.room == null ? T('tk.disk.unknown') : T(p.room > 0 ? 'tk.disk.ok' : 'tk.disk.full', { n: p.room, free: BOARD.gb(p.free), need: BOARD.gb(p.need) });
@@ -2753,6 +2798,8 @@ async function onAct(e) {
   if (d.url) return bridge.openIssue(d.url);
   if (d.start) return startIssue(b);
   if (d.cancel) return bridge.cancelNew(d.cancel);
+  if (d.wkLink) return wkLink(d.wkLink);
+  if (d.wkClone) return wkClone(d.wkClone);
   if (d.tkPrep) return tkPrepare(d.tkPrep);
   if (d.tkAsk) return tkAsk(d.tkAsk);
   if (d.tkGo) return tkGo(d.tkGo, 'desktop');
