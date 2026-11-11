@@ -45,7 +45,7 @@ async function browser(exe) {
   const acted = () => ev('window.__acts && __acts.push(performance.now())');
   const mouse = async (x, y) => { await acted(); for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }); };
   // Waits (up to 10 s, a busy runner is slow) for what the page should show next.
-  const until = async (x, what) => { for (let k = 0; k < 100; k++) { const v = await ev(x); if (v) return v; await sleep(100); }
+  const until = async (x, what, tries = 100) => { for (let k = 0; k < tries; k++) { const v = await ev(x); if (v) return v; await sleep(100); }
     throw new Error(`not seen in time: ${what} (page: ${await ev('window.__state ? __state() : ""').catch(() => '?')})`); };
   // A click where a person would click: the element's middle, once it is there, nothing covers it (off screen or
   // under the narrow window's sticky action bar, it is scrolled to the middle first) and it has held still for a poll
@@ -56,10 +56,14 @@ async function browser(exe) {
     if (!hit || (hit !== e && !e.contains(hit))) { e.scrollIntoView({ block: 'center' }); return null; }
     window.__aim = [x, y]; return was && was[0] === x && was[1] === y ? [x, y] : null; })()`, sel);
     await mouse(...at); };
+  // Picks a row of the list: a redraw between the press and the release (data arriving) loses the click, so it clicks
+  // again until the row is the one shown.
+  const pick = async sel => { for (let k = 0; ; k++) { await click(`#b-list ${sel}`);
+    try { return await until(`document.querySelector(${JSON.stringify('#b-list ' + sel)})?.dataset.bsel === (cur && cur.id)`, 'the picked row ' + sel, 20); } catch (e) { if (k === 4) throw e; } } };
   const key = async (k, code, vk, modifiers = 0) => { await acted(); for (const type of ['rawKeyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers }); };
   const type = async t => { await acted(); for (const c of t) await send('Input.insertText', { text: c }); };
   const close = async () => { try { ws.close(); } catch {} proc.kill(); await sleep(200); try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} };
-  return { send, once, ev, until, acted, click, mouse, key, type, close, errors };
+  return { send, once, ev, until, acted, click, pick, mouse, key, type, close, errors };
 }
 
 // Serves the pages as the app does: / is the panel, /pets the overlay, and under /ui/ only the files the app's server
@@ -126,8 +130,9 @@ const prelude = lang => `(() => {
     .observe({ type: 'layout-shift', buffered: true });
 })();\n` + fs.readFileSync(path.join(__dirname, '../src-tauri/bridge.js'), 'utf8');
 
-// Every box worth watching, by a name that survives a redraw, in page coordinates.
-const BOXES = `(() => { const o = {}, r = el => { const b = el.getBoundingClientRect(); return [b.x, b.y + scrollY, b.width, b.height].map(v => Math.round(v * 2) / 2); };
+// Every box worth watching, by a name that survives a redraw, in page coordinates; what sits over the page (an open
+// dialog, a toast) in the window's, since it stays put when the page scrolls under it.
+const BOXES = `(() => { const o = {}, r = el => { const b = el.getBoundingClientRect(), fixed = el.closest('dialog[open], .toasts'); return [b.x, b.y + (fixed ? 0 : scrollY), b.width, b.height].map(v => Math.round(v * 2) / 2); };
   const add = (k, el) => { if (el && el.getClientRects().length && !(k in o)) o[k] = r(el); };
   for (const s of ['.b-search', '#bq', '#bq-x', '#scopes', '.b-split', '#b-list', '#b-bar', '#cmdk-ft', '#fb-dialog h2', '#fb-dialog .acts', '#st-text']) add(s, document.querySelector(s));
   for (const el of document.querySelectorAll('#scopes .tab')) add('tab:' + el.dataset.tab, el);
@@ -196,7 +201,7 @@ async function panel(b, url, { width, height, lang, dark }) {
     // Work: Prepare says it is busy (reading the issue) in a button of the same size.
     await part('Prepare', async () => {
       await tab('work'); await sleep(300);
-      await b.click('#b-list [data-bsel^="n:acme/shop"]');
+      await b.pick('[data-bsel^="n:acme/shop"]');
       const prep = await b.until(`document.querySelector('#b-dyn [data-tk-prep]:not([disabled])')?.getBoundingClientRect().toJSON()`, 'Prepare');
       await b.click('#b-dyn [data-tk-prep]');
       const busy = await b.ev(`(() => { const e = document.querySelector('#b-dyn [data-tk-prep]'); return e && { ...e.getBoundingClientRect().toJSON(), off: e.disabled }; })()`);
@@ -223,7 +228,7 @@ async function panel(b, url, { width, height, lang, dark }) {
     await part('feedback', async () => {
       await tab('settings'); await sleep(300);
       await b.ev(`document.querySelector('#b-list [data-bsel="feedback"]').scrollIntoView({ block: 'center' })`);
-      await b.click('#b-list [data-bsel="feedback"]'); await sleep(100);
+      await b.pick('[data-bsel="feedback"]');
       await b.click('#settings [data-act="feedback"]'); await sleep(300);
       const f0 = await b.ev(BOXES);
       for (const k of ['idea', 'bug']) { await b.click(`#fb-kind [data-kind="${k}"]`); await sleep(100); for (const m of moved(f0, await b.ev(BOXES), ['#fb-dialog h2', '#fb-dialog .acts'])) fail(`feedback, ${k}: ${m}`); }
@@ -232,7 +237,7 @@ async function panel(b, url, { width, height, lang, dark }) {
     await part('Start box', async () => {
       await tab('sessions'); await sleep(300);
       await b.ev(`document.querySelector('#b-list [data-bsel="next"]').scrollIntoView({ block: 'center' })`);
-      await b.click('#b-list [data-bsel="next"]');
+      await b.pick('[data-bsel="next"]');
       await b.until(`cur?.id === 'next' && !!document.querySelector('#b-dyn [data-start]')`, 'the Next up detail');
       await b.click('#b-dyn [data-start]');
       await b.until(`document.querySelector('#st-dialog')?.open && !!document.querySelector('#st-all')`, 'the Start box with its skills'); await sleep(300);
