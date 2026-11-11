@@ -114,7 +114,11 @@ pub fn check(dir: &Path, path: &str, hosts: &[String]) -> Result<String, Value> 
 // Where a clone of `path` goes in `parent`: its last part ("acme/web-shop" → <parent>/web-shop).
 pub fn clone_dest(parent: &Path, path: &str) -> PathBuf { parent.join(path.rsplit('/').next().unwrap_or(path)) }
 
+// Free space a clone needs at least before Bobix starts it (the repository's own size is not known beforehand).
+pub const CLONE_MIN_BYTES: u64 = 1 << 30;
+
 // Clones `path` into `dest` with your own glab (GitLab) or gh (GitHub), signed in on `host`. → the clone's folder.
+// Never into or over a folder that is there; a clone that fails leaves nothing behind (the folder it began is removed).
 pub fn clone(bin: &str, gitlab: bool, host: &str, path: &str, dest: &Path) -> Result<String, String> {
     if dest.exists() { return Err(format!("{} is already there", dest.display())); }
     let d = dest.to_string_lossy();
@@ -124,6 +128,7 @@ pub fn clone(bin: &str, gitlab: bool, host: &str, path: &str, dest: &Path) -> Re
         procs::exec(bin, &["repo", "clone", path, &d], 600, &[("GH_HOST", host), ("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
     };
     if !r.ok || !dest.join(".git").exists() {
+        if dest.exists() { let _ = fs::remove_dir_all(dest); } // made by this clone: it was not there before
         let t = format!("{} {}", r.err, r.out);
         return Err(crate::js::head16(&t.split_whitespace().collect::<Vec<_>>().join(" "), 300).to_string());
     }
@@ -211,6 +216,32 @@ mod tests {
         assert_eq!((&e["reason"], &e["found"]), (&json!("other"), &json!("acme/web-shop")), "another project: said which");
         assert_eq!(check(&home, "acme/web-shop", &hosts).unwrap_err()["reason"], "notgit");
         assert!(clone("glab", true, "h", "acme/web-shop", &shop).is_err(), "never into a folder that is there");
+        assert!(shop.join("src").is_dir(), "and that folder is left as it was");
         let _ = fs::remove_dir_all(&home);
+    }
+
+    // A clone that fails (no access, network down, disk full) leaves nothing: the folder it began is removed; one that
+    // works gives the clone's folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_clone_leaves_no_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("bobix-clone-fail-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let bin = |name: &str, body: &str| {
+            let p = root.join(name);
+            fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        let no = bin("glab-no", r#"mkdir -p "$4/.git"; echo partial > "$4/README.md"; echo "remote: You are not allowed to download code from this project." >&2; exit 1"#);
+        let dest = root.join("web-shop");
+        let e = clone(&no, true, "gitlab.example.test", "acme/web-shop", &dest).unwrap_err();
+        assert!(e.contains("not allowed"), "the reason is shown: {e}");
+        assert!(!dest.exists(), "the partial folder is gone");
+        let yes = bin("glab-yes", r#"mkdir -p "$4/.git""#);
+        assert_eq!(clone(&yes, true, "gitlab.example.test", "acme/web-shop", &dest), Ok(dest.to_string_lossy().into_owned()));
+        let _ = fs::remove_dir_all(&root);
     }
 }

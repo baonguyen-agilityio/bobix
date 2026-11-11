@@ -482,11 +482,15 @@ pub struct Work {
     // "project#iid" of the issues sessions worked on that were read on their own (Forge::issue), so each is asked once
     pub asked: std::collections::HashSet<String>,
     pub page: usize, // the page of the issue list shown, from 1
+    // A read you asked for (filter, page, ticked repos, Refresh) bumps `gen`; a tracker's read keeps its answer only when
+    // no newer one was asked meanwhile (`read_gen`: the ask its kept answer is for). Older answers are dropped.
+    pub gen: u64,
+    pub read_gen: [u64; 2],
 }
 
 impl Default for Work {
     fn default() -> Self {
-        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default(), page: 1 }
+        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default(), page: 1, gen: 0, read_gen: [0; 2] }
     }
 }
 
@@ -497,6 +501,8 @@ pub fn key_of(settings: &Value, p: &str) -> String {
 
 impl Work {
     pub fn feed(&mut self, f: Forge) -> &mut Feed { &mut self.feeds[f as usize] }
+    // A read you asked for has not answered yet (the panel shows "Reading your issues…" in place of the list).
+    pub fn reading(&self, settings: &Value) -> bool { FORGES.into_iter().any(|f| f.on(settings) && self.read_gen[f as usize] < self.gen) }
     fn on(&self, settings: &Value) -> Vec<&Feed> {
         FORGES.iter().filter(|f| f.on(settings)).map(|f| &self.feeds[*f as usize]).collect()
     }
@@ -591,6 +597,9 @@ impl Work {
         // a read made for an earlier page: this page shows once the read for it is in
         view["filling"] = json!(self.on(settings).into_iter().any(|f| f.issues["need"].as_u64().is_some_and(|n| (n as usize) < need_for(page))));
         view["filter"] = settings["workFilter"].clone();
+        view["reading"] = json!(self.reading(settings));
+        view["gen"] = json!(self.gen); // reads asked for so far: the panel waits for it to move after its ask
+        view["dirs"] = json!(known); // the remembered folders that still exist (Start's folder for a code project)
         // the repositories ticked on the hosts read (none: the list asks you to pick some), and a warning for many GitLab
         // projects, each read on its own
         let ticked = |f: &Feed| f.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str()).map(|h| settings["workRepos"][h].as_array().map_or(0, |a| a.len())).sum::<usize>();
@@ -621,6 +630,22 @@ mod tests {
         assert_eq!(w.source_of(&on, "t/a", 7).map(|x| x.2), Some("ghe.example.com:8443".into()), "the signed-in host, port and all");
         assert!(w.source_of(&on, "acme/app", 55).is_none(), "only issues Bobix listed");
         assert!(w.source_of(&json!({ "github": false }), "acme/app", 54).is_none(), "GitHub off");
+    }
+
+    // Reading: from the ask (filter, page, Refresh) until every tracker that is on kept an answer to it; an older ask's
+    // answer does not end it, and a tracker that is off never holds it up.
+    #[test]
+    fn reading_lasts_until_the_newest_ask_is_answered() {
+        let mut w = Work::default();
+        let both = json!({ "gitlab": true, "github": true });
+        assert!(!w.reading(&both), "nothing asked yet");
+        w.gen = 2;
+        w.read_gen = [1, 2];
+        assert!(w.reading(&both), "GitLab answered an older ask only");
+        assert!(!w.reading(&json!({ "gitlab": false, "github": true })), "GitLab off: not waited for");
+        w.read_gen = [2, 2];
+        assert!(!w.reading(&both));
+        assert!(!w.reading(&json!({ "gitlab": false, "github": false })));
     }
 
     #[test]

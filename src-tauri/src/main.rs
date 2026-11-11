@@ -583,13 +583,22 @@ fn read_claude_list(b: &Bobix) {
 
 // Issues from every tracker, read again (in the background).
 fn refresh_issues(b: &Arc<Bobix>) { for f in work::FORGES { refresh_forge(b, f); } }
+// A read you asked for (filter, page, ticked repos, Refresh): the list shows "Reading your issues…" until it answers,
+// and only the newest ask's answer is kept (see refresh_forge).
+fn ask_issues(b: &Arc<Bobix>) {
+    b.core.lock().unwrap().work.gen += 1;
+    b.broadcast();
+    refresh_issues(b);
+}
 
-// One tracker's issues, read again. Does nothing while it is off, or while a read of it runs.
+// One tracker's issues, read again. Does nothing while it is off, or while a read of it runs: that read reads again
+// when a newer one was asked for meanwhile, and its own answer is dropped.
 fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
     let b = b.clone();
     thread::spawn(move || {
-        {
+        let gen = {
             let mut c = b.core.lock().unwrap();
+            let gen = c.work.gen;
             let on = f.on(&c.settings);
             let feed = c.work.feed(f);
             if !on {
@@ -601,7 +610,8 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
             if feed.busy { return; }
             feed.busy = true;
             if feed.issues["status"] == "off" { feed.issues = json!({ "status": "loading" }); drop(c); b.broadcast(); }
-        }
+            gen
+        };
         let bin = { let g = b.core.lock().unwrap().work.feed(f).bin.clone(); g.or_else(|| find_bin(f.bin())) };
         // the issues sessions here work on: one not in your list is read on its own below
         let linked = { let c = b.core.lock().unwrap(); model::Model::build(&c.settings, &c.sessions, &c.work).linked() };
@@ -642,9 +652,13 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
         {
             let mut c = b.core.lock().unwrap();
             let on = f.on(&c.settings);
+            let stale = on && c.work.gen != gen; // a newer read was asked for while this one ran: its answer goes
             let feed = c.work.feed(f);
             feed.bin = if next["status"] == f.missing() { None } else { bin };
             feed.busy = false;
+            if stale { drop(c); return refresh_forge(&b, f); }
+            c.work.read_gen[f as usize] = gen;
+            let feed = c.work.feed(f);
             feed.reviews = if on { reviews } else { vec![] };
             read_ok = on && next["status"] == "ok";
             feed.issues = if on { next } else { json!({ "status": "off" }) }; // switched off meanwhile
@@ -707,8 +721,7 @@ async fn work_repos(fresh: Option<bool>, b: B<'_>) -> Result<Value, ()> {
 fn work_page(page: usize, b: B) -> usize {
     let page = page.clamp(1, work::MAX_PAGE);
     b.core.lock().unwrap().work.page = page;
-    b.broadcast(); // the list says it is reading until the read for this page is in
-    refresh_issues(&b);
+    ask_issues(&b); // the list says it is reading until the read for this page is in
     page
 }
 
@@ -783,7 +796,8 @@ async fn work_link(path: String, dir: Option<String>, of: Option<String>, b: B<'
 }
 
 // "Clone…": into a parent folder you choose (`parent`, else the folder dialog), with your own glab / gh, then
-// remembered. Only on your click. { ok, dir } | { ok: false, reason: cancel | exists | gone | other | error, detail }
+// remembered. Only on your click. Never into a folder that is there, nor with under 1 GB free there.
+// { ok, dir } | { ok: false, reason: cancel | exists | disk | gone | other | error, detail }
 #[tauri::command]
 async fn work_clone(path: String, parent: Option<String>, of: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
@@ -793,6 +807,7 @@ async fn work_clone(path: String, parent: Option<String>, of: Option<String>, b:
         let Some(p) = parent.map(std::path::PathBuf::from).or_else(|| pick_folder(&b, &title)) else { return json!({ "ok": false, "reason": "cancel" }) };
         let dest = clones::clone_dest(&p, &path);
         if dest.exists() { return json!({ "ok": false, "reason": "exists", "dir": dest }); }
+        if let Some(free) = tickets::free_bytes(&p).filter(|f| *f < clones::CLONE_MIN_BYTES) { return json!({ "ok": false, "reason": "disk", "free": free }); }
         match clones::clone(&bin, forge == work::Forge::GitLab, &host, &path, &dest) {
             Ok(d) => match clones::check(std::path::Path::new(&d), &path, &hosts) {
                 Ok(top) => { remember_dir(&b, &path, &top, "cloned"); json!({ "ok": true, "dir": top }) }
@@ -901,7 +916,7 @@ pub fn update_settings(b: &Arc<Bobix>, patch: Value) -> Value {
         tray::badge(app, b, false);
     }
     answers::release_unseen(b);
-    if changed("workRepos") || changed("workFilter") { b.core.lock().unwrap().work.page = 1; refresh_issues(b); } // a new list: from its first page
+    if changed("workRepos") || changed("workFilter") { b.core.lock().unwrap().work.page = 1; ask_issues(b); } // a new list: from its first page
     else { for f in work::FORGES { if changed(f.key()) { refresh_forge(b, f); } } }
     if next["checkUpdates"] == true && prev["checkUpdates"] != true { let ub = b.clone(); thread::spawn(move || check_for_update(&ub)); }
     if next["checkUpdates"] != true && b.core.lock().unwrap().update.take().is_some() { if let Some(app) = b.app.get() { tray::build(app, b); } }
@@ -1087,7 +1102,7 @@ async fn feedback_send(v: Value, b: B<'_>) -> Result<Value, ()> {
 
 // Issues, read again now (only from the trackers that are on).
 #[tauri::command]
-fn work_refresh(b: B) { refresh_issues(&b); }
+fn work_refresh(b: B) { ask_issues(&b); }
 
 // In the browser; only links to the issues Bobix read open.
 #[tauri::command]
@@ -1949,10 +1964,11 @@ mod snapshot_tests {
         // the ticket flow's view (free disk differs per machine) and each session's flow and mark: none in this fixture
         let flows = got.as_object_mut().unwrap().shift_remove("tickets").expect("the ticket flow goes along");
         assert_eq!((&flows["list"], &flows["need"]), (&json!([]), &json!(tickets::WORKTREE_BYTES)));
-        // the list's page, its filter and the repositories ticked: one page (read in full), no filter set, none ticked in this fixture
+        // the list's page, its filter and the repositories ticked: one page (read in full), no filter set, none ticked in this fixture;
         let w = got["work"].as_object_mut().unwrap();
-        let paging: Vec<Option<Value>> = ["page", "more", "filling", "filter", "ticked", "many"].iter().map(|k| w.shift_remove(*k)).collect();
-        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false))]);
+        // no read asked for and not answered yet; no remembered folder
+        let paging: Vec<Option<Value>> = ["page", "more", "filling", "filter", "ticked", "many", "reading", "gen", "dirs"].iter().map(|k| w.shift_remove(*k)).collect();
+        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false)), Some(json!(false)), Some(json!(0)), Some(json!({}))]);
         for s in got["sessions"].as_array_mut().unwrap() {
             let o = s.as_object_mut().unwrap();
             assert_eq!((o.shift_remove("mark"), o.shift_remove("flow")), (Some(json!(false)), Some(Value::Null)));
