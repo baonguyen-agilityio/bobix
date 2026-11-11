@@ -421,6 +421,16 @@ pub fn group_issues(issues: &[Value], live: &[Live], known: &HashMap<String, Str
     (local, away)
 }
 
+// A folder you chose or cloned (Choose folder…, Change folder…, Clone…) wins over the folder a session works in: Start
+// works there. A found one does not (a session's folder is the surer guess).
+fn pin_chosen(local: &mut [Value], settings: &Value, known: &HashMap<String, String>) {
+    for g in local {
+        let p = g["path"].as_str().unwrap_or("").to_string();
+        let how = &settings["workDirs"][&p]["how"];
+        if let (Some("chosen" | "cloned"), Some(d)) = (how.as_str(), known.get(&p)) { g["dir"] = json!(d); g["via"] = how.clone(); }
+    }
+}
+
 // A new Claude desktop session in `dir`, its prompt box filled with `prompt` (q, Claude's documented link: nothing is
 // sent until you press Enter there). Claude cuts q at about 14 000 characters; Bobix stops a bit earlier.
 pub fn new_session_link(dir: &str, prompt: &str) -> String {
@@ -558,6 +568,7 @@ impl Work {
         let all: Vec<Value> = self.list(settings).into_iter().filter(|i| if i["linked"] == true { works_on(i) } else { shown.contains(i) || works_on(i) }).cloned().collect();
         let known = crate::clones::dirs(settings);
         let (mut local, mut away) = group_issues(&all, &live, &known);
+        pin_chosen(&mut local, settings, &known);
         for (g, here) in local.iter_mut().map(|g| (g, true)).chain(away.iter_mut().map(|g| (g, false))) {
             let p = g["path"].as_str().unwrap_or("").to_string();
             g["key"] = json!(key_of(settings, &p));
@@ -743,6 +754,12 @@ mod tests {
         assert!(away.is_empty());
         let dir = |p: &str| local.iter().find(|g| g["path"] == p).unwrap()["dir"].clone();
         assert_eq!((dir("g/away"), dir("g/here")), (json!("/src/away"), json!("/src/here")));
+        // unless you chose (or cloned) it: then yours wins, a found one does not
+        let mut pinned = local.clone();
+        pin_chosen(&mut pinned, &json!({ "workDirs": { "g/here": { "dir": "/elsewhere", "how": "chosen" }, "g/away": { "dir": "/src/away", "how": "found" } } }), &known);
+        let dir = |p: &str| pinned.iter().find(|g| g["path"] == p).unwrap()["dir"].clone();
+        assert_eq!((dir("g/away"), dir("g/here")), (json!("/src/away"), json!("/elsewhere")));
+        assert_eq!(pinned.iter().find(|g| g["path"] == "g/here").unwrap()["via"], "chosen");
         assert_eq!(slim_issue(&json!({ "iid": 7, "title": "T", "web_url": "https://h/g/p/-/issues/7", "references": { "full": "G/P#7" }, "labels": ["Bug"], "due_date": "2026-11-20" })),
             json!({ "iid": 7, "title": "T", "url": "https://h/g/p/-/issues/7", "project": "g/p", "labels": ["Bug"], "due": "2026-11-20", "updated": null, "assignees": [] }));
         assert_eq!(slim_issue(&json!({ "updated_at": "2026-11-10T08:00:00.000Z", "assignees": [{ "username": "me" }] }))["assignees"], json!(["me"]));

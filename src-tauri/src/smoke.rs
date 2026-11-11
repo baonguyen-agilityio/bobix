@@ -9,8 +9,12 @@ use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, M
 use tauri::{AppHandle, Manager};
 
 static PAGE: Mutex<Option<Value>> = Mutex::new(None);
+static OPENED: Mutex<Vec<String>> = Mutex::new(vec![]);
 
 pub fn page_result(v: Value) { *PAGE.lock().unwrap() = Some(v); }
+// A smoke run never opens other apps (a Start would open the person's own Claude app): the link is noted instead.
+pub fn active() -> bool { std::env::var_os("BOBIX_SMOKE").is_some() }
+pub fn opened(url: &str) { OPENED.lock().unwrap().push(url.to_string()); }
 
 fn log(m: &str) { println!("[bobix] smoke: {m}"); }
 
@@ -22,7 +26,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 };
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 150 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -167,6 +171,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         if let Ok(key) = std::env::var("BOBIX_SMOKE_TICKET") { report["ticket"] = ticket(&app, &b, &dir, &key); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_AGAIN") { report["again"] = again_step(&app, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_CLONES") { report["clones"] = clones_step(&app, &spec); }
+        if let Ok(spec) = std::env::var("BOBIX_SMOKE_START") { report["start"] = start_step(&app, b.port, &dir, &spec); }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
@@ -236,7 +241,7 @@ fn repos_step(app: &AppHandle, spec: &str) -> Value {
         const a = st.todo.find(x => x[1].path === {away}); if (a) {{ bsel.work = 'n:' + {away} + '#' + a[0].iid; render(); }} await w(300); \
         r.where = !!document.querySelector('#b-dyn [data-wk-link]') && !document.querySelector('#b-dyn [data-tk-prep]'); await w({hold}); \
         const ok = await bridge.linkFolder({away}, {dir}); r.linked = !!ok.ok; r.startable = await until(() => !!document.querySelector('#b-dyn [data-tk-prep]'), 15000); \
-        showTab('sessions'); const it = items.find(x => x.id.startsWith('i:')); if (it) {{ bsel.sessions = it.id; render(); }} await w(300); r.who = !!it && /assigned|giao/.test(it.sub); await w({hold}); \
+        const it = items.find(x => x.id.startsWith('n:') && /assigned|giao/.test(x.sub)); if (it) {{ bsel.work = it.id; render(); }} await w(300); r.who = !!it; await w({hold}); \
         showTab('settings'); bsel.settings = 'set:work'; render(); await w(300); await w({hold}); showTab('work'); return r; }})()",
         old = j(old), away = j(away), dir = j(dir), found = j(found), untick = j(untick), n = pre.split(',').count()), 180 + 8 * hold / 1000);
     let want: Vec<&str> = { let mut x: Vec<&str> = pre.split(',').collect(); x.sort(); x };
@@ -262,7 +267,7 @@ fn again_step(app: &AppHandle, spec: &str) -> Value {
         const [p, n] = tkSplit(ik), mine = () => tickets.list.filter(f => f.path === p && f.iid === n); \
         r.second = await until(() => mine().length >= 2, 20000); r.keys = mine().map(f => f.key); r.dirs = new Set(mine().map(f => f.dir)).size; \
         await w(300); r.listed = bsel.work.startsWith('f:') && !!q('[data-sel-flow]'); await w({hold}); \
-        showTab('sessions'); const it = items.find(x => ['t:', 'v:', 'i:'].some(p => x.id === p + ik)); if (it) {{ bsel.sessions = it.id; render(); await w(300); }} r.onIssue = !!it && q('.tk-flows')?.querySelectorAll('li').length >= 2; await w({hold}); \
+        bsel.work = 'f:' + k; render(); await w(300); r.onIssue = q('.tk-flows')?.querySelectorAll('li').length >= 1; await w({hold}); \
         showTab('work'); return r; }})()", first = json!(first), other = json!(other)), 60 + 3 * hold / 1000);
     r["pass"] = json!(["againButton", "box", "prepared", "second", "listed", "onIssue"].iter().all(|k| r[*k] == true) && r["dirs"] == 2);
     r
@@ -287,12 +292,57 @@ fn clones_step(app: &AppHandle, spec: &str) -> Value {
         const c = await bridge.cloneProject({clone}, {parent}); r.cloned = !!c.ok; r.cloneDir = c.dir || c.detail || null; \
         r.after = await until(() => local({link}) && local({clone}) && !away({link}) && !away({clone}), 15000); \
         r.how = Object.fromEntries(Object.entries(state.settings.workDirs || {{}}).map(([p, e]) => [p, e.how])); \
-        showTab('sessions'); const it = items.find(x => x.id.startsWith('i:' + {found} + '#')); if (it) {{ bsel.sessions = it.id; render(); }} await w(300); \
-        r.via = !!document.querySelector('#b-dyn .note') && document.querySelector('#b-dyn').textContent.includes('Found'); await w({hold}); \
+        const it = items.find(x => x.id.startsWith('n:' + {found} + '#')); if (it) {{ bsel.work = it.id; render(); }} await w(300); \
+        r.via = document.querySelector('#b-dyn .tk-dir .badge')?.textContent === T('set.workDirs.found'); await w({hold}); \
         showTab('settings'); bsel.settings = 'set:work'; render(); await w(400); \
         r.rows = document.querySelectorAll('[data-wk-forget]').length; document.querySelector('[data-row=workDirs]')?.scrollIntoView({{ block: 'center' }}); await w({hold}); \
         return r; }})()", found = j(found), link = j(link), wrong = j(wrong), right = j(right), clone = j(clone), parent = j(parent)), 120 + 3 * hold / 1000);
     r["pass"] = json!(["read", "found", "awayBefore", "awayButtons", "wrong", "linked", "cloned", "after"].iter().all(|k| r[*k] == true) && r["rows"].as_u64() >= Some(3));
+    r
+}
+
+// BOBIX_SMOKE_START=<project#iid>|<another clone of that project> (with BOBIX_HOME set; not in CI): #178, starting only
+// in Work. Sessions lists no issue to start (no To do, no Next up, no project picker); the issue's Start box in Work has
+// How (Full by default, Quick) and Change folder…, which (the bridge given the folder the dialog would return) replaces
+// the remembered folder and prepares the box again there. Quick opens the Start box in that folder and asks for a new
+// Claude session there (smoke mode notes the link; it never opens Claude); a session that starts there (through the
+// installed hook.js) takes the issue and shows in Work under Quick sessions, and Sessions' View in Work leads to it.
+fn start_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let Some((ik, other)) = spec.split_once('|') else { return json!("bad BOBIX_SMOKE_START") };
+    let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let (jik, jother) = (json!(ik), json!(other));
+    let pre = "const w = ms => new Promise(o => setTimeout(o, ms)), until = async (f, ms) => { for (let t = 0; t < ms; t += 200) { if (f()) return true; await w(200); } return false; }, q = s => document.querySelector('#b-dyn ' + s);";
+    let mut r = ask_for(app, panel::LABEL, &format!("(async () => {{ {pre} const r = {{}}, ik = {jik}, other = {jother}, [p, n] = tkSplit(ik); \
+        $('#toasts').replaceChildren(); await bridge.refreshWork(); r.listed = await until(() => st.todo.some(x => x[1].path === p && x[0].iid === n) && !!codeDir(p), 40000); \
+        showTab('sessions'); await w(400); r.noTodo = !items.some(x => x.grp === 'todo' || x.id === 'next' || x.id.startsWith('i:') || x.id === 'todo:status') && !document.querySelector('#b-list [data-grp=todo], #scopes [data-proj], #scopes [data-wfilter]'); await w({hold}); \
+        showTab('work'); bsel.work = 'n:' + ik; render(); await w(400); \
+        r.how = !!q('[data-tk-how][value=full]:checked') && !!q('[data-tk-how][value=quick]') && !!q('.tk-dir [data-tk-dir]'); \
+        q('[data-tk-prep]').click(); r.prepared = await until(() => !!q('.tk-prompt'), 20000); const before = tkPrep[ik]?.prep?.repo; await w({hold}); \
+        const lf = bridge.linkFolder; bridge.linkFolder = (path, d, of) => lf(path, other, of); q('[data-tk-dir]').click(); \
+        r.changed = await until(() => state.settings.workDirs?.[p]?.dir === other && state.settings.workDirs[p].how === 'chosen', 15000); \
+        r.reprepared = before !== other && await until(() => tkPrep[ik]?.prep?.repo === other && !!q('.tk-prompt'), 20000); \
+        r.shown = await until(() => q('.tk-dir code')?.title === other && codeDir(p) === other, 10000); bridge.linkFolder = lf; q('.tk-dir')?.scrollIntoView({{ block: 'center' }}); await w({hold}); \
+        q('[data-tk-how][value=quick]').click(); await w(400); const go = q('[data-start][data-dir]'); \
+        r.quickBox = !!go && go.dataset.dir === other && !q('.tk-prompt') && !q('[data-tk-prep]'); await w({hold}); \
+        navigator.clipboard.writeText = async () => {{}}; go.click(); \
+        r.dialog = await until(() => $('#st-dialog').open, 15000) && $('#st-dir').title === other && $('#st-text').value.startsWith('#' + n + ' '); await w({hold}); \
+        $('#st-go').click(); r.waiting = await until(() => waiting.some(x => x.dir === other && x.iid === n), 10000); \
+        await w(400); bsel.work = 'n:' + ik; render(); await w(300); r.waitShown = !!q('[data-cancel]'); await w({hold}); return r; }})()"), 90 + 5 * hold / 1000);
+    r["opened"] = json!(OPENED.lock().unwrap().iter().any(|u| u.starts_with(&format!("claude://code/new?folder={}&q=", crate::work::enc(other)))));
+    // the new session Claude would start in that folder, through the installed hook
+    let transcript = dir.join("quick-session.jsonl");
+    let _ = fs::write(&transcript, json!({ "type": "ai-title", "aiTitle": "Quick session" }).to_string() + "\n");
+    let start = json!({ "session_id": "9b2e4c1a-0d3f-4e5a-8b6c-7d8e9f0a1b2c", "cwd": other, "transcript_path": transcript, "hook_event_name": "SessionStart", "source": "startup" });
+    r["hookRun"] = json!(run_hook(&hooks::hook_target(&paths::home()), port, &start.to_string()));
+    let after = ask_for(app, panel::LABEL, &format!("(async () => {{ {pre} const r = {{}}, ik = {jik}; \
+        showTab('work'); r.inWork = await until(() => workItems().some(x => x.id === 'q:' + ik && x.grp === 'fquick'), 20000); bsel.work = 'q:' + ik; render(); await w(400); \
+        r.withSession = !!q('.rows [data-sel]'); await w({hold}); \
+        showTab('sessions'); await w(400); const t = items.find(x => x.id === 't:' + ik); if (t) {{ bsel.sessions = t.id; render(); await w(300); }} \
+        const v = q('[data-tab-go=work]'); r.viewButton = !!v && v.textContent === T('day.viewWork'); v?.click(); await w(400); \
+        r.viewInWork = scope === 'work' && bsel.work === 'q:' + ik && cur?.id === 'q:' + ik; await w({hold}); return r; }})()"), 40 + 3 * hold / 1000);
+    if let Some(o) = after.as_object() { for (k, v) in o { r[k] = v.clone(); } } else { r["after"] = after; }
+    r["pass"] = json!(["listed", "noTodo", "how", "prepared", "changed", "reprepared", "shown", "quickBox", "dialog", "waiting", "waitShown", "opened", "inWork", "withSession", "viewButton", "viewInWork"].iter().all(|k| r[*k] == true) && r["hookRun"] == "ok");
     r
 }
 

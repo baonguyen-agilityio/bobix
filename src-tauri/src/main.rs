@@ -804,9 +804,10 @@ async fn work_clone(path: String, parent: Option<String>, of: Option<String>, b:
 }
 
 // The panel's button on an issue: Resume opens the session working on it, exactly like a click on its pet; New opens a
-// new Claude desktop session in the project's folder (the link Claude documents, no prompt sent).
-// `dir`: for a project no session has open here now (the habits' morning suggestion), the folder the habit log names;
-// used only once its own git remote says it is that project.
+// new Claude desktop session in the project's folder (the link Claude documents, no prompt sent). With a prompt (the
+// Start box: Work's Quick) it is always New, even on an issue a Claude desktop session was named after.
+// `dir`: the folder to open it in (Work's Quick: the code project's folder; the habits' morning suggestion: the folder
+// the habit log names); used only once its own git remote names a project on your hosts.
 fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64, prompt: &str, dir: Option<&str>) -> Value {
     let gone = || json!({ "ok": false, "reason": "gone" });
     let (g, i, id, hosts) = {
@@ -821,30 +822,33 @@ fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64, prompt: &str, dir: Option<&
         let id = i["sessions"].as_array().into_iter().flatten().filter_map(|x| c.sessions.get(x.as_str()?)).max_by_key(|s| s.updated).map(|s| s.id.clone());
         (g, i, id, c.work.hosts(&c.settings))
     };
-    let g = match g {
-        Some(g) => g,
-        None => {
-            let Some(d) = dir.filter(|d| std::path::Path::new(d).is_absolute()) else { return gone() };
-            if !work::git_status(d).is_some_and(|(_, remotes)| model::path_in(&remotes, &hosts).as_deref() == Some(path)) { return gone(); }
-            json!({ "path": path, "dir": d })
-        }
+    let picked = dir.filter(|d| std::path::Path::new(d).is_absolute() && work::git_status(d).is_some_and(|(_, remotes)| model::path_in(&remotes, &hosts).is_some()));
+    let dir = match (picked, &g) {
+        (Some(d), _) => d.to_string(),
+        (None, Some(g)) => g["dir"].as_str().unwrap_or("").to_string(),
+        (None, None) => return gone(),
     };
     if let Some(id) = id {
         let mut r = b.open_session(&id, true, false);
         r.as_object_mut().unwrap().shift_insert(0, "mode".into(), json!("resume"));
         return r;
     }
-    if let Some(r) = i["resume"].as_str() { // named after the issue in Claude desktop, not seen by Bobix since it started
-        let ok = tauri_plugin_opener::open_url(format!("claude://code/continue?session={}", work::enc(r)), None::<&str>).is_ok();
+    if let Some(r) = i["resume"].as_str().filter(|_| prompt.is_empty()) { // named after the issue in Claude desktop, not seen by Bobix since it started
+        let ok = open_claude(&format!("claude://code/continue?session={}", work::enc(r))).is_ok();
         return if ok { json!({ "ok": true, "mode": "resume" }) } else { json!({ "ok": false, "mode": "resume", "reason": "notfound" }) };
     }
-    let dir = g["dir"].as_str().unwrap_or("").to_string();
     b.core.lock().unwrap().work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": i["title"] }));
     b.broadcast();
-    match tauri_plugin_opener::open_url(work::new_session_link(&dir, prompt), None::<&str>) {
+    match open_claude(&work::new_session_link(&dir, prompt)) {
         Ok(_) => json!({ "ok": true, "mode": "new", "dir": dir }),
         Err(e) => json!({ "ok": false, "mode": "new", "reason": e.to_string() }),
     }
+}
+
+// A claude:// link for the Claude app; a smoke run notes it instead of opening the person's own Claude app.
+fn open_claude(url: &str) -> Result<(), String> {
+    if smoke::active() { smoke::opened(url); return Ok(()); }
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
 // ---------- settings ----------
