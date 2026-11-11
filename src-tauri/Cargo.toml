@@ -34,6 +34,7 @@ tauri-winrt-notification = "0.7"
 [target.'cfg(target_os = "linux")'.dependencies]
 notify-rust = { version = "4", default-features = false, features = ["z"] }
 gtk = "0.18" # the same GTK as Tauri: the overlay's input shape
+gdkx11 = "0.18" # the X server's time, so GNOME brings the panel forward (panel.rs, focus)
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = "0.6"
