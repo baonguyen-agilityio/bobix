@@ -1,0 +1,280 @@
+// No layout shift: the control panel (src/ui/panel.html) and the pets' hover card in a real headless Chrome, with a
+// stand-in for the app (its commands answer after a short delay, as the real ones do; the event stream is pushed by
+// hand). Wide and narrow, English and Vietnamese, light and dark. What may not move: the window's frame (search, scope
+// tabs, the list and detail boxes, the action bar) on any tab switch, a count appearing, a picker or typing; rows and
+// fields once shown, while a scope's data arrives; a button whose label says it is busy; the command bar's footer while
+// typing; a toast when an older one goes; a dialog's heading when its form changes; the Start box's prompt while the
+// skill list is searched; the card's title while its session works on. Scrollbars come with classic tracks here (no
+// --hide-scrollbars), so their tracks may not come and go either. Needs Chrome (CHROME_PATH, or the usual install
+// place); without it the test is skipped.
+const { test } = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs'), path = require('path'), os = require('os'), http = require('http');
+const { spawn } = require('child_process');
+
+const UI = path.join(__dirname, '../src/ui');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function chrome() {
+  const c = [process.env.CHROME_PATH,
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'];
+  return c.find(p => p && fs.existsSync(p));
+}
+
+// ---- Chrome over the DevTools protocol (Node's own WebSocket) ----
+async function browser(exe) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-layout-'));
+  const proc = spawn(exe, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--mute-audio',
+    '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--window-size=1180,780', '--force-device-scale-factor=1', 'about:blank'], { stdio: 'ignore' });
+  let port;
+  for (let k = 0; k < 200 && !port; k++) { try { port = fs.readFileSync(path.join(dir, 'DevToolsActivePort'), 'utf8').split('\n')[0]; } catch { await sleep(50); } }
+  let page;
+  for (let k = 0; k < 100 && !page; k++) { try { page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => t.type === 'page'); } catch {} if (!page) await sleep(50); }
+  const ws = new WebSocket(page.webSocketDebuggerUrl), calls = new Map(), on = new Map(); let id = 0;
+  await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = no; });
+  ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id) { const c = calls.get(d.id); calls.delete(d.id); d.error ? c[1](new Error(d.error.message)) : c[0](d.result); } else on.get(d.method)?.(d.params); };
+  // A busy machine is slow, never silent: a call or an event that does not come fails the run instead of hanging it.
+  const late = (what, ms = 30e3) => new Promise((_, no) => setTimeout(() => no(new Error('no answer in time: ' + what)), ms).unref());
+  const send = (method, params = {}) => Promise.race([new Promise((ok, no) => { calls.set(++id, [ok, no]); ws.send(JSON.stringify({ id, method, params })); }), late(method)]);
+  const once = method => Promise.race([new Promise(ok => on.set(method, p => { on.delete(method); ok(p); })), late(method)]);
+  const errors = []; on.set('Runtime.exceptionThrown', p => errors.push(p.exceptionDetails.exception?.description || p.exceptionDetails.text));
+  const ev = async x => { const r = await send('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
+  const mouse = async (x, y) => { for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }); };
+  // A click where a person would click: the element's middle.
+  const click = async sel => { const at = await ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`);
+    if (!at) throw new Error('nothing to click: ' + sel); await mouse(...at); };
+  const key = async (k, code, vk, modifiers = 0) => { for (const type of ['rawKeyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers }); };
+  const type = async t => { for (const c of t) await send('Input.insertText', { text: c }); };
+  const close = async () => { try { ws.close(); } catch {} proc.kill(); await sleep(200); try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} };
+  return { send, once, ev, click, mouse, key, type, close, errors };
+}
+
+// Serves the pages as the app does: / is the panel, /pets the overlay, and under /ui/ only the files the app's server
+// lists (ASSETS in src-tauri/src/server.rs).
+const APP_ASSETS = JSON.parse(fs.readFileSync(path.join(__dirname, '../src-tauri/src/server.rs'), 'utf8').match(/const ASSETS: \[&str; \d+\] = (\[[^\]]*\])/)[1]);
+function server() {
+  const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' };
+  const s = http.createServer((q, r) => {
+    const u = new URL(q.url, 'http://x').pathname, f = u === '/' ? path.join(UI, 'panel.html') : u === '/pets' ? path.join(UI, 'pets.html') : u.startsWith('/ui/') && APP_ASSETS.includes(u.slice(4)) ? path.join(UI, u.slice(4)) : null;
+    if (!f || !fs.existsSync(f)) { r.writeHead(404); r.end(); return; }
+    r.writeHead(200, { 'content-type': types[path.extname(f)] || 'application/octet-stream' }); r.end(fs.readFileSync(f));
+  });
+  return new Promise(ok => s.listen(0, '127.0.0.1', () => ok(s)));
+}
+
+// ---- a made-up world ----
+const NOW = Date.now(), MIN = 60e3;
+const ses = (id, o) => ({ id, name: path.basename(o.cwd), cwd: o.cwd, project: o.cwd, title: '', transcript: '', state: 'working', since: NOW - 5 * MIN, updated: NOW - MIN, lv: 2, xp: 0,
+  quest: '', prompt: 'Make it work', tool: 'Edit', toolArg: '', askTool: '', ask: '', summary: '', report: '', hits: 0, ctx: 60, claudePid: null, hostSession: null, log: [], pet: 'auto',
+  parent: null, linking: false, image: null, pixel: false, whole: false, issue: null, ...o });
+const SESSIONS = [
+  ses('w1', { cwd: '/home/dev/acme-shop', state: 'waiting', askTool: 'Bash', ask: 'npm test', answer: { id: 'q1', until: null, full: 'npm test' }, issue: { iid: 41, title: 'Cart totals drift', url: 'https://gitlab.example.com/acme/shop/-/issues/41' } }),
+  ses('r1', { cwd: '/home/dev/acme-api', tool: 'Bash' }),
+  ses('d1', { cwd: '/home/dev/notes', state: 'done', summary: 'Release notes written.' }),
+];
+const issue = (iid, title, project, o = {}) => ({ iid, title, url: `https://gitlab.example.com/${project}/-/issues/${iid}`, project, labels: [], due: null, sessions: [], ...o });
+const WORK = { status: 'ok', at: NOW - MIN, problems: [], failed: [], hosts: ['gitlab.example.com'], away: [], closed: [],
+  local: [{ path: 'acme/shop', dir: '/home/dev/acme-shop', key: 'SHOP', autoKey: 'SHOP', issues: [issue(41, 'Cart totals drift', 'acme/shop', { stage: 'doing', sessions: ['w1'] }), issue(42, 'Show the delivery date', 'acme/shop')] },
+    { path: 'acme/api', dir: '/home/dev/acme-api', key: 'API', autoKey: 'API', issues: [issue(8, 'Rate-limit the export', 'acme/api')] }] };
+const event = (sessions, work = WORK) => ({ sessions, work, model: {}, waiting: [], waits: [], tickets: { list: [] }, usage: {} });
+const skill = (name, o = {}) => ({ key: `/home/dev/.claude/skills/${name}`, name, source: 'personal', uses: 3, lastUsed: NOW - 864e5, size: 800, unused: false, dup: null, change: { can: true }, description: `What ${name} does.`, ...o });
+// What the app's commands answer, and after how long (ms): the slow ones arrive after the tab's first paint.
+const APP = {
+  skills_mine: [[{ name: 'review', description: 'Review a change', source: 'personal' }], 150],
+  process_status: [[{ path: 'acme/shop', dir: '/home/dev/acme-shop', skills: [], repo: null, imported: null, missing: [] }], 150],
+  habit_skills: [{ content: true, on: true, scan: { at: NOW - 864e5, prompts: 90, next: NOW + 4 * 864e5 }, rules: { unusedDays: 30, minUses: 3, editsPerUse: 1, fixesPerUse: 1 },
+    suggestions: [{ id: 'x1', label: 'Weekly release notes', weeks: [3, 4], action: 'new', summary: 'Every Friday.', sessions: 5 }], made: [] }, 150],
+  skills_audit: [{ days: 30, slashCounted: true, summary: { skills: 4, unused: 1, duplicateGroups: 1, descriptionChars: 3200, tokensPerTurn: 800, bySource: { personal: 3, plugin: 1 } },
+    duplicates: [{ why: 'name', names: ['review', 'acme:review'] }], skills: [skill('review', { dup: 0 }), skill('acme:review', { dup: 0, source: 'plugin', plugin: 'acme', change: { can: false, why: 'plugin' } }), skill('notes'), skill('old', { unused: true, uses: 0, lastUsed: null })] }, 450],
+  skills_rules: [{ file: '/home/dev/acme-shop/CLAUDE.md', present: false, text: '## When to split, which model\n- Plan with Opus', block: '## When to split, which model\n', undo: null }, 450],
+  skills_backups: [[], 450],
+  room: [{ ok: true, tailnet: { me: { login: 'dev@example.com', name: 'Dev' }, ip: '100.64.0.10', port: 4748, serving: true }, hosted: [], joined: [] }, 300],
+  ticket_prep: [{ ok: true, dir: '/home/dev/acme-shop-42', branch: '42-delivery', room: 5, free: 50e9, need: 2e9, models: 'Plan with Opus.', rules: [], exists: false }, 300],
+  work_brief: [{ ok: true, body: 'Customers want to know when the order arrives.', labels: [], process: null,
+    skills: ['review', 'notes', 'deploy', 'perf', 'docs', 'tests', 'i18n', 'style'].map(name => ({ name, description: `What ${name} does, in a line long enough to wrap in the list.`, source: 'personal' })) }, 200],
+  feedback_info: [{ lines: ['Bobix', 'linux'], errs: [] }, 0],
+};
+const prelude = lang => `(() => {
+  const A = ${JSON.stringify(APP)}, settings = { language: '${lang}', tourSeen: [], seenVersion: '9.9.9', role: 'dev', skillPins: {}, habitsOn: false };
+  const state = { settings, version: '0.0.0', news: null, platform: 'linux', nodePath: '/usr/bin/node', lastEventAt: ${NOW}, screen: { width: 1920, height: 1080 }, displays: [],
+    hooks: { events: ['Stop'], complete: true, mode: 'node', port: 4747, stale: false, file: '/home/dev/.claude/settings.json' } };
+  window.__TAURI_INTERNALS__ = { invoke: (cmd, a) => {
+    if (cmd === 'state') { if (window.TOUR) settings.tourSeen = TOUR.STEPS.map(s => s.key); return Promise.resolve(state); }
+    if (cmd === 'settings_set') return Promise.resolve(Object.assign(settings, a.patch));
+    const [v, ms] = cmd === 'room' && a.act !== 'list' ? [null, 0] : A[cmd] || [null, 0];
+    return new Promise(ok => setTimeout(() => ok(v == null ? null : JSON.parse(JSON.stringify(v))), ms)); } };
+  window.EventSource = class { constructor() { window.__es = this; } close() {} };
+  window.__push = d => window.__es.onmessage({ data: JSON.stringify(d) });
+  window.__shifts = [];
+  new PerformanceObserver(l => { for (const e of l.getEntries()) window.__shifts.push({ v: e.value, input: e.hadRecentInput,
+    src: (e.sources || []).map(s => (s.node?.id || s.node?.className || s.node?.nodeName || '?') + ' ' + [s.previousRect.y, s.currentRect.y].map(Math.round).join('→')).join(', ') }); })
+    .observe({ type: 'layout-shift', buffered: true });
+})();\n` + fs.readFileSync(path.join(__dirname, '../src-tauri/bridge.js'), 'utf8');
+
+// Every box worth watching, by a name that survives a redraw, in page coordinates.
+const BOXES = `(() => { const o = {}, r = el => { const b = el.getBoundingClientRect(); return [b.x, b.y + scrollY, b.width, b.height].map(v => Math.round(v * 2) / 2); };
+  const add = (k, el) => { if (el && el.getClientRects().length && !(k in o)) o[k] = r(el); };
+  for (const s of ['.b-search', '#bq', '#bq-x', '#scopes', '.b-split', '#b-list', '#b-bar', '#cmdk-ft', '#fb-dialog h2', '#fb-dialog .acts', '#st-text']) add(s, document.querySelector(s));
+  for (const el of document.querySelectorAll('#scopes .tab')) add('tab:' + el.dataset.tab, el);
+  // Narrow, the list sits above its detail in one scroll: their tops stay, their heights are the scope's content.
+  if (getComputedStyle(document.querySelector('.b-split')).gridTemplateColumns.split(' ').length > 1) add('#b-detail', document.querySelector('#b-detail'));
+  else for (const k of ['.b-split', '#b-list']) o[k][3] = 0;
+  for (const el of document.querySelectorAll('#b-list [data-f], #b-dyn [data-f], #b-dyn .b-dh h2')) add(el.dataset.f || 'h2:' + el.textContent.slice(0, 30), el);
+  for (const el of document.querySelectorAll('.toast')) add('toast:' + el.dataset.text, el);
+  const sb = s => { const e = document.querySelector(s); return e.offsetWidth - e.clientWidth; };
+  o.$tracks = [sb('#b-list'), sb('#b-detail'), innerWidth - document.documentElement.clientWidth];
+  return o; })()`;
+const FRAME = ['.b-search', '#bq', '#scopes', '.b-split', '#b-list', '#b-detail', '#b-bar', 'tab:overview', 'tab:sessions', 'tab:work', 'tab:skills', 'tab:room', 'tab:settings'];
+const same = (a, b) => a && b && a.every((v, i) => Math.abs(v - b[i]) <= .5);
+const moved = (a, b, keys = Object.keys(a)) => keys.filter(k => k[0] !== '$' && a[k] && b[k] && !same(a[k], b[k])).map(k => `${k} ${a[k].join(',')} → ${b[k].join(',')}`);
+
+async function panel(b, url, { width, height, lang, dark }) {
+  const bad = [], fail = m => bad.push(m);
+  await b.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
+  const { identifier } = await b.send('Page.addScriptToEvaluateOnNewDocument', { source: prelude(lang) });
+  try {
+    const loaded = b.once('Page.loadEventFired'); await b.send('Page.navigate', { url }); await loaded;
+    await b.ev(`__push(${JSON.stringify(event(SESSIONS, { status: 'loading' }))})`);
+    await sleep(300);
+    await b.ev(`__push(${JSON.stringify(event(SESSIONS))})`);
+    await sleep(300);
+    const frame = await b.ev(BOXES), wide = width > 720;
+    const tab = async t => { await b.ev('scrollTo(0, 0)'); await b.click(`#scopes [data-tab="${t}"]`); }; // narrow: the tabs scroll with the page
+    const frameStill = async (what, at) => { const now = await b.ev(BOXES); for (const m of moved(frame, now, FRAME)) fail(`${what}${at}: ${m}`);
+      if (now.$tracks.join() !== frame.$tracks.join()) fail(`${what}${at}: scrollbar tracks ${frame.$tracks} → ${now.$tracks}`); return now; };
+    // Each tab, there and back: the frame stays, and once a row or field is shown it stays where it is as the data comes in.
+    for (const t of ['sessions', 'work', 'skills', 'room', 'settings', 'overview', 'skills', 'sessions', 'overview']) {
+      await tab(t);
+      let last = null;
+      for (const ms of [0, 250, 650]) {
+        await sleep(ms - (last ? last.ms : 0));
+        const now = await frameStill(`tab ${t}`, ` (+${ms} ms)`);
+        if (last) for (const m of moved(last.box, now).filter(m => !FRAME.some(k => m.startsWith(k + ' ')))) fail(`tab ${t}, as its data arrives (+${last.ms}→${ms} ms): ${m}`);
+        last = { ms, box: now };
+      }
+    }
+    // Each part on its own: one that cannot run is a failure, and the rest still run.
+    const part = async (name, fn) => { try { await b.ev(`document.querySelectorAll('dialog[open]').forEach(d => d.close())`); await fn(); } catch (e) { fail(`${name}: ${e.message.split('\n')[0]}`); } };
+    let before = [];
+    // A request answered, then a new one: the count on Overview comes and goes (seen from Settings, whose list stays).
+    await part('count', async () => {
+      await tab('settings'); await sleep(200);
+      await b.ev(`__push(${JSON.stringify(event(SESSIONS.map(s => s.id === 'w1' ? { ...s, state: 'working', answer: null, askTool: '', ask: '' } : s)))})`);
+      await frameStill('count gone', '');
+      await b.ev(`__push(${JSON.stringify(event(SESSIONS))})`);
+      await frameStill('count back', '');
+    });
+    await part('project picked', async () => {
+      await tab('sessions'); await sleep(300);
+      await b.ev(`(() => { const s = document.querySelector('[data-proj]'); s.value = s.options[1].value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await sleep(100); await frameStill('project picked', '');
+    });
+    // Typing in the search: its clear button shows up.
+    await part('search', async () => {
+      await b.click('#bq'); await b.type('ac'); await sleep(100);
+      const typed = await frameStill('search typed', '');
+      if (!same(typed['#bq-x'], frame['#bq-x'])) fail(`search clear button ${frame['#bq-x']} → ${typed['#bq-x']}`);
+      await b.ev(`document.querySelector('#bq-x').click()`); await sleep(100);
+    });
+    // Work: Prepare says it is busy (reading the issue) in a button of the same size.
+    await part('Prepare', async () => {
+      await tab('work'); await sleep(300);
+      await b.click('#b-list [data-bsel^="n:acme/shop"]'); await sleep(100);
+      const prep = await b.ev(`document.querySelector('#b-dyn [data-tk-prep]').getBoundingClientRect().toJSON()`);
+      await b.click('#b-dyn [data-tk-prep]'); await sleep(50);
+      const busy = await b.ev(`(() => { const e = document.querySelector('#b-dyn [data-tk-prep]'); return e && { ...e.getBoundingClientRect().toJSON(), off: e.disabled }; })()`);
+      if (!busy?.off) fail('Prepare: no busy state seen');
+      else if (Math.abs(busy.width - prep.width) > .5 || Math.abs(busy.x - prep.x) > .5) fail(`Prepare button while busy: ${Math.round(prep.x)}+${prep.width} → ${Math.round(busy.x)}+${busy.width}`);
+      await sleep(500);
+    });
+    // The command bar: its footer stays while the results change under it.
+    await part('command bar', async () => {
+      await b.key('k', 'KeyK', 75, 2); await sleep(150);
+      const k0 = await b.ev(BOXES);
+      for (const t of ['se', 'zzz']) { await b.type(t); await sleep(100); for (const m of moved(k0, await b.ev(BOXES), ['#cmdk-ft'])) fail(`command bar, typed ${t}: ${m}`); }
+    });
+    // Toasts: the older one (below) goes first, the newer one above stays where it is.
+    await part('toasts', async () => {
+      await b.ev(`toast('Removed the skill', { label: 'Undo', run() {} })`); await sleep(50);
+      await b.ev(`toast('Copied the link')`); await sleep(300);
+      await b.ev(`Promise.all([...document.querySelectorAll('.toast')].flatMap(e => e.getAnimations()).map(a => a.finished)).then(() => 0)`); // their rise in is on purpose
+      const t0 = await b.ev(BOXES);
+      await b.click('.toast[data-text="Removed the skill"] button'); await sleep(100);
+      for (const m of moved(t0, await b.ev(BOXES), ['toast:Copied the link'])) fail(`toast when an older one goes: ${m}`);
+    });
+    // Feedback: Bug / Idea changes the form under the heading, not the heading.
+    await part('feedback', async () => {
+      await tab('settings'); await sleep(300);
+      await b.ev(`document.querySelector('#b-list [data-bsel="feedback"]').scrollIntoView({ block: 'center' })`);
+      await b.click('#b-list [data-bsel="feedback"]'); await sleep(100);
+      await b.click('#settings [data-act="feedback"]'); await sleep(300);
+      const f0 = await b.ev(BOXES);
+      for (const k of ['idea', 'bug']) { await b.click(`#fb-kind [data-kind="${k}"]`); await sleep(100); for (const m of moved(f0, await b.ev(BOXES), ['#fb-dialog h2', '#fb-dialog .acts'])) fail(`feedback, ${k}: ${m}`); }
+    });
+    // The Start box: See all opens the list (the prompt goes down, as asked), then searching it moves nothing.
+    await part('Start box', async () => {
+      await tab('sessions'); await sleep(300);
+      await b.ev(`document.querySelector('#b-list [data-bsel="next"]').scrollIntoView({ block: 'center' })`);
+      await b.click('#b-list [data-bsel="next"]'); await sleep(100);
+      await b.click('#b-dyn [data-start]'); await sleep(500);
+      before = await b.ev('__shifts.splice(0)');
+      await b.click('#st-all'); await sleep(150);
+      await b.ev('__shifts.length = 0');
+      const s0 = await b.ev(BOXES);
+      for (const t of ['no', 'zz']) { await b.type(t); await sleep(100); for (const m of moved(s0, await b.ev(BOXES), ['#st-text'])) fail(`Start box, searched ${t}: ${m}`); }
+    });
+    await b.ev(`document.querySelectorAll('dialog[open]').forEach(d => d.close())`);
+    // Nothing the layout-shift API sees either (narrow: a tab switch moves the detail below the list, as asked).
+    for (const s of [...before, ...await b.ev('__shifts')]) if (!s.input || wide) fail(`layout shift ${s.v.toFixed(4)}${s.input ? ' (after input)' : ''}: ${s.src}`);
+    bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
+  } finally { await b.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }); }
+  return bad.map(m => `${width}×${height} ${lang}${dark ? ' dark' : ''}: ${m}`);
+}
+
+// The pets' card: its title stays put while the session works on (the card grows upward from the pet).
+async function card(b, url) {
+  const bad = [];
+  await b.send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 404, deviceScaleFactor: 1, mobile: false });
+  const { identifier } = await b.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => { const noop = () => {};
+    window.bobix = { onMouse: noop, onSettings: f => { window.__apply = f; }, getState: () => new Promise(noop), petClick: noop, setPet: noop, setRects: noop, answer: noop };
+    window.EventSource = class { constructor() { window.__es = this; } close() {} };
+    window.__push = list => window.__es.onmessage({ data: JSON.stringify({ sessions: list }) }); })();` });
+  try {
+    const loaded = b.once('Page.loadEventFired'); await b.send('Page.navigate', { url }); await loaded;
+    for (const lang of ['en', 'vi']) {
+      await b.ev(`__apply(${JSON.stringify({ language: lang, size: 64, opacity: 1, petsVisible: true, showIdle: true, edge: 'bottom', zoneStart: 0, zoneEnd: 100, walkDir: 'ltr', label: 'title', clickAction: 'panel', usageCost: true, petMode: 'edge', fadeNearCursor: false })})`);
+      const usage = n => ({ times: n, warnings: [], turns: 14, mainTurns: 12, activeMs: n * 30 * MIN, tokens: { input: 1, cacheWrite: 1, cacheRead: 1, output: 1 }, reread: .8, models: [{ model: 'claude-opus-5-5', turns: 12 }], cost: { usd: n * 10, date: '2026-11-01' } });
+      const push = o => b.ev(`__push(${JSON.stringify([ses('c1', { cwd: '/home/dev/acme-shop', title: 'Cart totals', quest: 'Fix the flaky cart test', tool: 'Read', usage: usage(1.6), ...o })])})`);
+      await push({}); await sleep(1500);
+      const at = await b.ev(`(() => { const r = document.querySelector('.pet .spr').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      const title = async () => { await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at[0], y: at[1] }); await sleep(400); // after the card's pop-in animation, which moves it on purpose
+        return b.ev(`(async () => { const c = document.querySelector('.pet .card'); if (!c) return null; await Promise.all(c.getAnimations().map(a => a.finished)); return c.querySelector('h2').getBoundingClientRect().top; })()`); };
+      const y0 = await title();
+      if (y0 == null) { bad.push(`${lang}: no card on hover`); continue; }
+      for (const [what, o] of [['an MCP tool', { tool: 'mcp__github__create_pull_request_review_comment' }], ['a long usage line', { usage: usage(12.5) }], ['Grep', { tool: 'Grep' }]]) {
+        await push(o); const y = await title();
+        if (Math.abs(y - y0) > .5) bad.push(`${lang}: card title moved with ${what}: ${y0} → ${y}`);
+      }
+      await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); await sleep(400);
+    }
+    bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
+  } finally { await b.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }); }
+  return bad.map(m => `pets card: ${m}`);
+}
+
+const exe = chrome();
+test('nothing moves in the panel or the pets card unless asked (tabs, data arriving, typing, toasts, dialogs; wide and narrow, en and vi)', { skip: !exe && 'no Chrome', timeout: 300e3 }, async () => {
+  const srv = await server(), base = `http://127.0.0.1:${srv.address().port}`;
+  // One browser each, side by side: the checks wait on the stand-in's delays, not on the machine.
+  const runs = [{ width: 1180, height: 780, lang: 'vi' }, { width: 1180, height: 780, lang: 'en', dark: true }, { width: 420, height: 780, lang: 'vi' }, { width: 420, height: 780, lang: 'en', dark: true }, null];
+  try {
+    const bad = await Promise.all(runs.map(async c => {
+      const b = await browser(exe);
+      try { await b.send('Page.enable'); await b.send('Runtime.enable'); return c ? await panel(b, base + '/?t=x', c) : await card(b, base + '/pets'); } finally { await b.close(); }
+    }));
+    assert.deepEqual(bad.flat(), []);
+  } finally { srv.close(); }
+});
