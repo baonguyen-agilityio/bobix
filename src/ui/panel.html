@@ -310,8 +310,8 @@ input[type=number]{width:104px}
 .tk-code{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:var(--s2) 0}.tk-code .sel{max-width:100%}
 .rp-bar{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin:var(--s2) 0}.rp-bar input[type=search]{flex:1 1 180px;min-height:30px;padding:4px 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font-size:var(--t-sm)}
 .rp-list{display:grid;max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-md)}
-.rp-list .rp{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--s2);align-items:center;padding:6px 10px;border-top:1px solid var(--line);cursor:pointer}.rp-list .rp:first-child{border-top:0}.rp-list .rp[hidden]{display:none}
-.rp-list .rp .p{overflow-wrap:anywhere}.rp-list .rp .note{margin:0;white-space:nowrap}
+.rp-list>.rp{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--s2);align-items:center;padding:6px 10px;border-top:1px solid var(--line);cursor:pointer}.rp-list>.rp:first-child{border-top:0}.rp-list>.rp[hidden]{display:none}
+.rp-list>.rp .p{overflow-wrap:anywhere}.rp-list>.rp .note{margin:0;white-space:nowrap}
 .pager{display:inline-flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-2);white-space:nowrap}
 .pager .ib{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:6px;background:none;color:var(--ink-2);font-size:15px}.pager .ib:disabled{opacity:.35}.pager .ib:not(:disabled):hover{background:var(--surface-3);color:var(--ink)}.wdirs .d{grid-column:1 / -1;justify-self:start;font-size:var(--t-xs);color:var(--ink-2);overflow-wrap:anywhere}
 .keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;min-height:28px;padding:0 8px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);text-transform:uppercase}
@@ -1902,8 +1902,8 @@ function reposItem() {
 function reposHTML() {
   if (!rp.list && !rp.busy && !rp.tried) { rp.tried = true; setTimeout(() => loadRepos(false)); } // once; Read again asks again
   if (rp.list) rpDraft();
-  const top = `${head(ico('work', 'lg'), T('work.repos.t'), rp.list ? T('work.repos.count', { n: draftCount(), all: (rp.list || []).reduce((a, h) => a + h.repos.length, 0) }) : T('work.repos.loading'))}<p class="note">${esc(T('work.repos.note', { d: 90 }))}</p>`;
-  if (!rp.list) return top; // the head says it is reading, where the count will be: nothing moves when it comes
+  const top = `${head(ico('work', 'lg'), T('work.repos.t'), rp.list ? T('work.repos.count', { n: draftCount(), all: (rp.list || []).reduce((a, h) => a + h.repos.length, 0) }) : '…')}<p class="note">${esc(T('work.repos.note', { d: 90 }))}</p>`;
+  if (!rp.list) return `${top}<p class="note">${esc(T('work.repos.loading'))}</p>`;
   if (!rp.list.length) return `${top}<p class="blank">${esc(T('work.repos.nohost'))}</p>`;
   const many = (rp.list || []).filter(h => h.forge === 'gitlab').reduce((n, h) => n + (rp.draft[h.host]?.size || 0), 0) > 20;
   const host = h => `<section class="b-sec rp-h"><h3>${esc(T('work.repos.host', { f: h.forge === 'github' ? 'GitHub' : 'GitLab', h: h.host }))}</h3>${h.error ? `<p class="note err">${esc(T('work.error', { host: h.host, x: h.error }))}</p>` : ''}
