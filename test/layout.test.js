@@ -46,8 +46,12 @@ async function browser(exe) {
   const mouse = async (x, y) => { await acted(); for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }); };
   // Waits (up to 10 s, a busy runner is slow) for what the page should show next.
   const until = async (x, what) => { for (let k = 0; k < 100; k++) { const v = await ev(x); if (v) return v; await sleep(100); } throw new Error('not seen in time: ' + what); };
-  // A click where a person would click: the element's middle, once it is there.
-  const click = async sel => { const at = await until(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e || !e.getClientRects().length) return null; const b = e.getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`, sel);
+  // A click where a person would click: the element's middle, once it is there and nothing covers it (off screen or
+  // under the narrow window's sticky action bar, it is scrolled to the middle first).
+  const click = async sel => { const at = await until(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e || !e.getClientRects().length) return null;
+    const b = e.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2, hit = document.elementFromPoint(x, y);
+    if (hit && (hit === e || e.contains(hit))) return [x, y];
+    e.scrollIntoView({ block: 'center' }); return null; })()`, sel);
     await mouse(...at); };
   const key = async (k, code, vk, modifiers = 0) => { await acted(); for (const type of ['rawKeyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers }); };
   const type = async t => { await acted(); for (const c of t) await send('Input.insertText', { text: c }); };
