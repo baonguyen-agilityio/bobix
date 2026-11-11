@@ -193,16 +193,18 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     let flow = || serde_json::from_str::<Value>(&b.snapshot()).ok().and_then(|v| v["tickets"]["list"].as_array()?.iter().find(|f| f["key"] == key).cloned()).unwrap_or(Value::Null);
     let wait = |secs: u64, f: &dyn Fn(&Value) -> bool| { let until = Instant::now() + Duration::from_secs(secs); loop { let x = flow(); if f(&x) || Instant::now() > until { return x; } thread::sleep(Duration::from_millis(500)); } };
     let k = json!(key);
+    // BOBIX_SMOKE_HOLD=<ms>: stay that long on the screens a person would look at (for screenshots of the real window)
+    let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
     r["start"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), k = {k}; \
         const until = async f => {{ for (let t = 0; t < 30000; t += 100) {{ if (f()) return true; await w(100); }} return false; }}; \
         navigator.clipboard.writeText = async () => {{}}; const go = bridge.ticketStart; bridge.ticketStart = async (...a) => (window.__tkStart = await go(...a)); await bridge.refreshWork(); showTab('work'); \
         if (!await until(() => items.some(x => x.id === 'n:' + k))) return {{ error: 'issue not listed', items: items.map(x => x.id), work: work.status, local: (work.local || []).map(g => g.path + ' ' + g.issues.length), todo: st.todo.length, problems: work.problems }}; \
         bsel.work = 'n:' + k; render(); document.querySelector('#b-dyn [data-tk-prep]').click(); \
-        if (!await until(() => document.querySelector('#b-dyn .tk-prompt'))) return {{ error: 'no Start box' }}; \
+        if (!await until(() => document.querySelector('#b-dyn .tk-prompt'))) return {{ error: 'no Start box' }}; await w({hold}); \
         const prompt = tkPrep[k].prompt, disk = document.querySelector('#b-dyn .note, #b-dyn .risk') && tkPrep[k].prep.room, claudeWarn = !!document.querySelector('#b-dyn [data-tk-claude]'), claudeDir = tkPrep[k].prep.repo; \
         document.querySelector('#b-dyn [data-tk-cli]').click(); \
         if (!await until(() => tickets.list.some(f => f.key === k))) return {{ error: 'not started' }}; \
-        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir }}; }})()"), 40);
+        return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir }}; }})()"), 40 + hold / 1000);
     let f = flow();
     let fdir = f["dir"].as_str().unwrap_or("").to_string();
     r["worktree"] = json!(std::path::Path::new(&fdir).join(".bobix-log/work-log.md").is_file());
@@ -237,8 +239,8 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
     r["checksBadge"] = ask(app, panel::LABEL, &format!("(async () => {{ showTab('work'); bsel.work = 'f:' + {k}; render(); await new Promise(o => setTimeout(o, 300)); \
         return [...document.querySelectorAll('#b-dyn .b-sec h3 .badge')].map(b => b.textContent).join(' | ') || null; }})()"));
     r["review"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const go = bridge.ticketReview; bridge.ticketReview = async (...a) => (window.__tkReview = await go(...a)); \
-        showTab('work'); bsel.work = 'f:' + {k}; render(); await new Promise(o => setTimeout(o, 300)); document.querySelector('#b-dyn [data-tk-review-cli]').click(); \
-        for (let t = 0; t < 10000 && !window.__tkReview; t += 100) await new Promise(o => setTimeout(o, 100)); return !!window.__tkReview?.cmd; }})()"), 15);
+        showTab('work'); bsel.work = 'f:' + {k}; render(); await new Promise(o => setTimeout(o, 300 + {hold})); document.querySelector('#b-dyn [data-tk-review-cli]').click(); \
+        for (let t = 0; t < 10000 && !window.__tkReview; t += 100) await new Promise(o => setTimeout(o, 100)); return !!window.__tkReview?.cmd; }})()"), 15 + hold / 1000);
     let rc = ask(app, panel::LABEL, "window.__tkReview && window.__tkReview.cmd");
     let _ = fs::write(dir.join("ticket-review.json"), json!({ "dir": fdir, "cmd": rc, "key": key }).to_string());
     let f = wait(ticket_secs() / 3, &|f| f["log"].as_str().is_some_and(|l| l.contains("Review (second session)")));
@@ -250,15 +252,16 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
         showTab('work'); bsel.work = 'f:' + k; render(); await w(300); const r = {{}}; \
         q('[data-tk-clean]').click(); r.unpushed = await until(() => tkUnpushed[k] > 0, 10000) ? tkUnpushed[k] : 0; \
-        q('[data-tk-mr-open]').click(); await until(() => q('[data-tk-mr-body]'), 5000); const body = q('[data-tk-mr-body]').value; \
+        q('[data-tk-mr-open]').click(); await until(() => q('[data-tk-mr-body]'), 5000); q('.tk-mr').scrollIntoView({{ block: 'start' }}); await w({hold}); const body = q('[data-tk-mr-body]').value; \
         r.bodyHasPlan = body.includes('## Plan'); r.bodyHasChecks = body.includes('## Checks'); r.closes = body.startsWith('Closes #'); \
         q('[data-tk-mr-go]').click(); r.opened = await until(() => tickets.list.find(f => f.key === k)?.mr, 90000); \
-        r.url = tickets.list.find(f => f.key === k)?.mr || null; r.link = !!document.querySelector('#b-dyn [data-url*=\"merge_requests\"]'); return r; }})()"), 120);
+        r.url = tickets.list.find(f => f.key === k)?.mr || null; r.link = !!document.querySelector('#b-dyn [data-url*=\"merge_requests\"]'); return r; }})()"), 120 + hold / 1000);
     // CI: Check CI reads the MR's pipeline (red at first in the e2e run): the flow shows it with Fix CI and the Overview
     // lists "CI red"; once the run turns it green (it waits for <dir>/ticket-ci.json), Check CI shows it passed
     r["ci"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s), f = () => tickets.list.find(x => x.key === k); \
         showTab('work'); bsel.work = 'f:' + k; render(); await w(300); q('[data-tk-ci]').click(); for (let t = 0; t < 20000 && !f()?.ci?.status; t += 200) await w(200); await w(300); \
-        return {{ status: f()?.ci?.status || null, fix: !!q('[data-copy*=\"CI failed on merge request\"]'), badge: q('h3 .badge.err')?.textContent || null, stuck: stuckList().some(x => x.kind === 'cired' && x.key === k) }}; }})()"), 30);
+        const r = {{ status: f()?.ci?.status || null, fix: !!q('[data-copy*=\"CI failed on merge request\"]'), badge: q('h3 .badge.err')?.textContent || null, stuck: stuckList().some(x => x.kind === 'cired' && x.key === k) }}; \
+        q('.tk-warn')?.scrollIntoView({{ block: 'center' }}); await w({hold}); showTab('overview'); bsel.overview = 'stuck:cired:' + k; render(); await w({hold}); return r; }})()"), 30 + 2 * hold / 1000);
     let _ = fs::write(dir.join("ticket-ci.json"), json!({ "key": key, "status": r["ci"]["status"] }).to_string());
     r["ciGreen"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), f = () => tickets.list.find(x => x.key === k); \
         for (let t = 0; t < 60000 && f()?.ci?.status !== 'passed'; t += 2500) {{ await bridge.ticketCi(k); await w(2500); }} return f()?.ci?.status || null; }})()"), 70);
@@ -269,9 +272,9 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         const until = async (g, ms) => {{ for (let t = 0; t < ms; t += 100) {{ if (g()) return true; await w(100); }} return false; }}; \
         audDir = {cdir}; aud = {{ busy: true }}; bsel.skills = 'aud:claude'; showTab('skills'); await loadAudit(); bsel.skills = 'aud:claude'; render(); await w(300); \
         const r = {{ before: aud.claude?.test ?? null, suggest: aud.testCmd }}; q('[data-sk=testsAdd]').click(); \
-        await until(() => $('#sk-dialog').open, 5000); r.lines = $('#sk-dialog .b-code').textContent.includes('Tests: `npm test`'); $('#sk-dialog [data-sk-yes]').click(); \
-        r.added = await until(() => aud.claude?.test === true && !!aud.claude.undo, 8000); bsel.skills = 'aud:claude'; render(); await w(200); \
-        q('[data-sk=testsRm]').click(); r.removed = await until(() => aud.claude && aud.claude.test === false, 8000); return r; }})()"), 30);
+        await until(() => $('#sk-dialog').open, 5000); r.lines = $('#sk-dialog .b-code').textContent.includes('Tests: `npm test`'); await w({hold}); $('#sk-dialog [data-sk-yes]').click(); \
+        r.added = await until(() => aud.claude?.test === true && !!aud.claude.undo, 8000); bsel.skills = 'aud:claude'; render(); await w(200 + {hold}); \
+        q('[data-sk=testsRm]').click(); r.removed = await until(() => aud.claude && aud.claude.test === false, 8000); return r; }})()"), 30 + 2 * hold / 1000);
     // the log's own view, then Haiku's summary and the cleanup, clicked in Work
     r["finish"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, w = ms => new Promise(o => setTimeout(o, ms)), q = s => document.querySelector('#b-dyn ' + s); \
         const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \

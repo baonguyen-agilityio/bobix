@@ -763,7 +763,7 @@ const prOf = x => ((x.review || (forgeOf(x.project) === 'gitlab' ? 'mr' : 'pr'))
 const refOf = x => { const n = (String(x.url || '').match(/(\d+)\/?$/) || [])[1]; return n ? (x.review === 'mr' ? '!' : '#') + n : ''; };
 function stuckWhy(x) {
   const v = { x: ago(Date.now() - x.ms), n: x.limit, pr: prOf(x), ref: refOf(x), c: x.commits };
-  return `${BOARD.short(x.project)} · ${T('why.' + x.kind, v)}`;
+  return `${BOARD.short(x.project)} · ${T('why.' + x.kind + (x.kind === 'cired' && x.ms < 60e3 ? 'Now' : ''), v)}`;
 }
 const nudgeLabel = x => (x.kind === 'cired' ? T('nudge.fixci') : x.kind === 'noreview' ? T('nudge.ask') : x.branch && x.kind !== 'idle' ? T('nudge.newReview', { pr: prOf(x) }) : T('nudge.open'));
 // Skip: kept with the last activity it had, so it comes back only once it moves again. In the app it goes to Bobix's
@@ -1800,6 +1800,7 @@ function flowItem(f) {
     label: `#${f.iid} ${f.title}`, sub: [BOARD.short(f.path), T('tk.st.' + f.status), f.cleaned ? T('tk.cleaned') : ''].filter(Boolean).join(' · '),
     meta: `${f.new ? `<span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}${f.mr ? ciBadge(f) : checkBadges(f)}<span>${esc(ago(f.at))}</span>`, detail: () => flowHTML(f, s), acts };
 }
+const fresh = t => Date.now() - t < 60e3; // "just now": no "for just now" / "just now ago"
 // The MR's pipeline as a badge: ✓ CI / … CI / ✗ CI.
 const ciBadge = f => { const c = f.ci?.status; return !f.mr || !c || c === 'none' || c === 'other' ? '' : `<span class="badge ${c === 'passed' ? 'ok' : c === 'failed' ? 'err' : ''}">${c === 'passed' ? '✓' : c === 'failed' ? '✗' : '…'} ${esc(T('tk.ci.b.' + c))}</span>`; };
 const mrRef = u => '!' + ((String(u).match(/merge_requests\/(\d+)/) || [])[1] || '');
@@ -1809,7 +1810,7 @@ function mrHTML(f) {
   if (f.mr) {
     const ci = f.ci?.status || 'unknown', red = ci === 'failed';
     return `<section class="b-sec"><h3>${esc(T('tk.mr.h'))} ${ciBadge(f)}</h3><p><button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(mrRef(f.mr))} ${esc(f.title)}</button></p>
-      <p class="note">${esc(T('tk.ci.' + ci, { x: f.ci?.since ? ago(f.ci.since) : '' }))}${f.ci?.at ? ` · ${esc(T('tk.ci.read', { x: ago(f.ci.at) }))}` : ''}</p>
+      <p class="note">${esc(T('tk.ci.' + ci + (red && fresh(f.ci.since) ? 'Now' : ''), { x: f.ci?.since ? ago(f.ci.since) : '' }))}${f.ci?.at ? ` · ${esc(fresh(f.ci.at) ? T('tk.ci.readNow') : T('tk.ci.read', { x: ago(f.ci.at) }))}` : ''}</p>
       ${red ? `<div class="tk-warn"><p><strong>${esc(T('tk.ci.redT'))}</strong> ${esc(T('tk.ci.redWhy'))}</p><div class="cmd"><code>${esc(fixCiPrompt(f))}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(fixCiPrompt(f))}">${esc(T('tk.ci.fix'))}</button>` : ''}</div></div>` : ''}
       ${bridge ? `<div class="acts" style="margin:8px 0 0"><button class="btn sm" type="button" data-tk-ci="${k}"${tkBusy.has('ci:' + f.key) ? ' disabled' : ''}>${esc(T('tk.ci.check'))}</button>${f.ci?.url ? `<button class="btn sm" type="button" data-url="${esc(f.ci.url)}">${esc(T('tk.ci.open'))}</button>` : ''}</div>` : ''}</section>`;
   }
