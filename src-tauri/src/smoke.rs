@@ -22,7 +22,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs();
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -161,6 +161,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             report["hover"] = hover(&app);
         }
         if let Ok(key) = std::env::var("BOBIX_SMOKE_TICKET") { report["ticket"] = ticket(&app, &b, &dir, &key); }
+        if let Ok(spec) = std::env::var("BOBIX_SMOKE_CLONES") { report["clones"] = clones_step(&app, &spec); }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
@@ -171,6 +172,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
             && ["audit", "disable", "undoDisable", "remove", "undoRemove", "lines", "rulesAdd", "rulesRemove"].iter().all(|k| report["skillsPanel"][k] == true)
             && (report.get("ticket").is_none() || report["ticket"]["pass"] == true)
+            && (report.get("clones").is_none() || report["clones"]["pass"] == true)
             && report["settingsSaved"] == true && report["tray"] == true
             && report["badge"]["held"].as_u64().unwrap_or(0) >= 1 && report["badge"]["answered"].as_u64() < report["badge"]["held"].as_u64() && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
@@ -186,6 +188,43 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
 // buttons: Prepare start, then Copy terminal command; writes <dir>/ticket-start.json ({ dir, cmd }) for whoever runs
 // that session (a real Claude session); waits for its plan and clicks Approve plan; watches for the pet's mark of a
 // new assumption (Work not on screen meanwhile); waits for done or blocked; clicks Fill gaps with Haiku, then Clean up.
+// BOBIX_SMOKE_CLONES=<found>|<link>|<wrong dir>|<right dir>|<clone>|<parent> (with BOBIX_HOME set; not in CI): projects
+// not on this computer (#163), against a stand-in glab that lists their issues. <found> is cloned under BOBIX_HOME's
+// ~/code beforehand and must be found by itself after Refresh; <link> is linked through the panel's bridge, first with
+// a folder of another project (refused), then with its own; <clone> is cloned into <parent> (the stand-in clones). The
+// app asks for these folders with a dialog; here the bridge gets them. BOBIX_SMOKE_THEME=dark: the panel window dark.
+// BOBIX_SMOKE_HOLD=<ms>: hold on Work, the issue and Settings → Work for screenshots of the real window.
+fn clones_step(app: &AppHandle, spec: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let v: Vec<&str> = spec.split('|').collect();
+    let [found, link, wrong, right, clone, parent] = v.as_slice() else { return json!("bad BOBIX_SMOKE_CLONES") };
+    if std::env::var("BOBIX_SMOKE_THEME").is_ok_and(|t| t == "dark") {
+        if let Some(w) = app.get_webview_window(panel::LABEL) { let _ = w.set_theme(Some(tauri::Theme::Dark)); }
+    }
+    let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let j = |s: &str| json!(s);
+    let mut r = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)), r = {{}}; \
+        const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
+        const local = p => (work.local || []).some(g => g.path === p), away = p => (work.away || []).some(g => g.path === p); \
+        await bridge.refreshWork(); r.read = await until(() => work.status === 'ok', 30000); \
+        r.found = await until(() => local({found}) && state.settings.workDirs?.[{found}]?.how === 'found', 30000); \
+        r.awayBefore = away({link}) && away({clone}); showTab('work'); render(); await w(300); \
+        const a = items.find(x => x.id.startsWith('a:' + {link} + '#')); if (a) {{ bsel.work = a.id; render(); }} \
+        r.awayButtons = !!document.querySelector('#b-dyn [data-wk-link]') && !!document.querySelector('#b-dyn [data-wk-clone]'); await w({hold}); \
+        const no = await bridge.linkFolder({link}, {wrong}); r.wrong = no.reason === 'other' && no.found === {found}; \
+        const yes = await bridge.linkFolder({link}, {right}); r.linked = !!yes.ok; \
+        const c = await bridge.cloneProject({clone}, {parent}); r.cloned = !!c.ok; r.cloneDir = c.dir || c.detail || null; \
+        r.after = await until(() => local({link}) && local({clone}) && !away({link}) && !away({clone}), 15000); \
+        r.how = Object.fromEntries(Object.entries(state.settings.workDirs || {{}}).map(([p, e]) => [p, e.how])); \
+        showTab('sessions'); const it = items.find(x => x.id.startsWith('i:' + {found} + '#')); if (it) {{ bsel.sessions = it.id; render(); }} await w(300); \
+        r.via = !!document.querySelector('#b-dyn .note') && document.querySelector('#b-dyn').textContent.includes('Found'); await w({hold}); \
+        showTab('settings'); bsel.settings = 'set:work'; render(); await w(400); \
+        r.rows = document.querySelectorAll('[data-wk-forget]').length; document.querySelector('[data-row=workDirs]')?.scrollIntoView({{ block: 'center' }}); await w({hold}); \
+        return r; }})()", found = j(found), link = j(link), wrong = j(wrong), right = j(right), clone = j(clone), parent = j(parent)), 120 + 3 * hold / 1000);
+    r["pass"] = json!(["read", "found", "awayBefore", "awayButtons", "wrong", "linked", "cloned", "after"].iter().all(|k| r[*k] == true) && r["rows"].as_u64() >= Some(3));
+    r
+}
+
 fn ticket_secs() -> u64 { if std::env::var_os("BOBIX_SMOKE_TICKET").is_some() { std::env::var("BOBIX_SMOKE_TICKET_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(900) } else { 0 } }
 fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> Value {
     if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
