@@ -1254,7 +1254,7 @@ async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> 
         let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
         let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
-        json!({ "ok": true, "code": code, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+        json!({ "ok": true, "code": code, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
     }).await.map_err(|_| ())
 }
 
@@ -1274,7 +1274,8 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         let free = tickets::free_bytes(std::path::Path::new(&repo));
         if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) && anyway != Some(true) { return json!({ "ok": false, "reason": "disk", "free": free }); }
         let title = i["title"].as_str().unwrap_or("").to_string();
-        let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
+        let flang = lang(&b.core.lock().unwrap().settings); // the flow keeps the language it started in
+        let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title, &flang)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
         let fetch = json!({ "ok": base.fetched, "from": base.name, "at": base.at });
         let tests = skill_audit::carry_tests(std::path::Path::new(&repo), &wt, &paths::data_dir()); // your uncommitted Tests line, there too
         let (base, dir) = (base.commit, wt.to_string_lossy().to_string());
@@ -1285,7 +1286,7 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
             c.tickets.list.shift_remove(&key);
             let forge = c.work.source_of(&c.settings, &path, iid).map(|x| x.0.key()).unwrap_or("gitlab").to_string();
             c.tickets.list.insert(key.clone(), tickets::Flow { key: key.clone(), path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
-                dir: dir.clone(), branch, base, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, ..Default::default() });
+                dir: dir.clone(), branch, base, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
             c.tickets.save();
             let main = c.tickets.list.get(&key).map(|f| f.repo.clone()).unwrap_or_default();
             c.work.wait_for(&dir, &main, &path, iid, &json!(title), &i["url"]);
@@ -1365,7 +1366,7 @@ async fn ticket_review(key: String, how: String, b: B<'_>) -> Result<Value, ()> 
     tauri::async_runtime::spawn_blocking(move || {
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
         if f.cleaned || !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
-        let prompt = tickets::review_prompt(&f.branch, &f.base);
+        let prompt = tickets::review_prompt(&f.branch, &f.base, &f.lang);
         let cmd = tickets::cli_in_mode(&f.dir, &tickets::review_model(&f.models), "auto", &prompt);
         if how == "cli" { return json!({ "ok": true, "mode": "cli", "cmd": cmd, "prompt": prompt }); }
         match open_claude(&work::new_session_link(&f.dir, &prompt)) {
