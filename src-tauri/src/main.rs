@@ -100,7 +100,7 @@ fn snapshot_of(c: &Core) -> Value {
         }).unwrap_or(Value::Null);
         v
     }).collect();
-    let waiting: Vec<Value> = c.work.new_for.iter().map(|(dir, n)| json!({ "dir": dir, "path": n["path"], "iid": n["iid"] })).collect();
+    let waiting: Vec<Value> = c.work.new_for.values().map(|n| json!({ "dir": n["dir"], "path": n["path"], "iid": n["iid"] })).collect();
     let tickets = c.tickets.view(tickets::free_bytes(&paths::home()));
     json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json(), "waits": c.waits, "usage": c.usage, "tickets": tickets })
 }
@@ -143,6 +143,7 @@ impl Bobix {
                 None => return None,
                 Some(Applied::Removed(mut s)) => {
                     state::keep_waits(waits, &mut s, now);
+                    work.fresh.remove(&s.id);
                     if remember { habit_lines = habits::events(mem, before.as_ref(), &e, None, now); }
                     (None, None, 0, None, None, gitlab)
                 }
@@ -164,9 +165,13 @@ impl Bobix {
                     if flows.on_event(&id, &s.cwd, &ev, tool, e["tool_input"]["plan"].as_str(), pid, now) { flows.save(); }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
                     let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e, plan) }
-                        // A session that starts on an issue (New in the Work tab, or its branch) gets its name from Bobix,
-                        // the way /rename names it; one that has a name keeps it.
-                        else if start && source == "startup" && untitled && work.wait_key(&s.cwd).is_some() { Some(take_issue(work, settings, s)) }
+                        // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
+                        // way /rename names it; one that has a name keeps it. One new where a start waits is named by its
+                        // first prompt, once that names the issue (Work::claim): not one you opened there yourself.
+                        else if start && source == "startup" && untitled && work.waits_at(&s.cwd) { work.fresh.insert(id.clone()); None }
+                        else if ev == "UserPromptSubmit" && work.fresh.remove(&id) && untitled {
+                            work.claim(&s.cwd, e["prompt"].as_str().unwrap_or("")).map(|w| take_issue(settings, s, &w))
+                        }
                         else if start && ["startup", "resume", "fork"].contains(&source) && untitled { self.title_for(work.hosts(settings), &s.cwd) }
                         else { None };
                     (Some(id), notice, s.since, reply, git_dir, gitlab)
@@ -584,14 +589,14 @@ fn refresh_git(b: &Arc<Bobix>, dir: String) {
     });
 }
 
-// The first session created in a folder New waits on takes that issue and its name.
-fn take_issue(work: &mut work::Work, settings: &Value, s: &mut state::Session) -> server::Reply {
-    let n = work.wait_key(&s.cwd).and_then(|k| work.new_for.shift_remove(&k)).unwrap_or_default();
+// A new session that took a waiting start (Work::claim) gets that issue and its name: the issue's project code, its
+// number and title, whatever repository the code is in.
+fn take_issue(settings: &Value, s: &mut state::Session, n: &Value) -> server::Reply {
     let (path, iid) = (n["path"].as_str().unwrap_or("").to_string(), n["iid"].as_i64().unwrap_or(0));
     s.started = Some(json!({ "path": path, "iid": iid }));
     let name = work::session_title_for(&work::key_of(settings, &path), iid, n["title"].as_str().unwrap_or(""));
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let _ = tx.send(Some(json!({ "hookSpecificOutput": { "hookEventName": "SessionStart", "sessionTitle": name } })));
+    let _ = tx.send(Some(json!({ "hookSpecificOutput": { "hookEventName": "UserPromptSubmit", "sessionTitle": name } })));
     server::Reply::Output(rx)
 }
 
@@ -893,7 +898,8 @@ fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64, prompt: &str, dir: Option<&
         let ok = open_claude(&format!("claude://code/continue?session={}", work::enc(r))).is_ok();
         return if ok { json!({ "ok": true, "mode": "resume" }) } else { json!({ "ok": false, "mode": "resume", "reason": "notfound" }) };
     }
-    b.core.lock().unwrap().work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": i["title"] }));
+    let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).unwrap_or_default();
+    b.core.lock().unwrap().work.wait_for(&dir, &repo, path, iid, &i["title"], &i["url"]);
     b.broadcast();
     match open_claude(&work::new_session_link(&dir, prompt)) {
         Ok(_) => json!({ "ok": true, "mode": "new", "dir": dir }),
@@ -1199,10 +1205,10 @@ fn work_new_review(project: String, branch: String, b: B) -> bool {
     url.is_some_and(|u| tauri_plugin_opener::open_url(u, None::<&str>).is_ok())
 }
 
-// Stop waiting for a new session in that folder.
+// Stop waiting for a new session in that folder: for one issue (`iid`), or every start there.
 #[tauri::command]
-fn work_cancel(dir: String, b: B) {
-    let gone = b.core.lock().unwrap().work.new_for.shift_remove(&dir).is_some();
+fn work_cancel(dir: String, iid: Option<i64>, b: B) {
+    let gone = b.core.lock().unwrap().work.cancel(&dir, iid);
     if gone { b.broadcast(); }
 }
 
@@ -1282,7 +1288,8 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
             c.tickets.list.insert(key.clone(), tickets::Flow { key: key.clone(), path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
                 dir: dir.clone(), branch, base, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
             c.tickets.save();
-            c.work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": title }));
+            let main = c.tickets.list.get(&key).map(|f| f.repo.clone()).unwrap_or_default();
+            c.work.wait_for(&dir, &main, &path, iid, &json!(title), &i["url"]);
         }
         effects::record(&paths::data_dir(), "split", Some(&dir), if models["size"] == "large" { "on" } else { "off" }, state::now());
         // the repository picked becomes the next Start's suggestion for this issue repository's issues
@@ -1381,7 +1388,7 @@ async fn ticket_clean(key: String, force: Option<bool>, b: B<'_>) -> Result<Valu
         if n > 0 && force != Some(true) { return json!({ "ok": false, "error": "unpushed", "n": n }); }
         tickets::keep_log(&paths::data_dir(), &f);
         if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir, false) { return json!({ "ok": false, "error": e }); }
-        { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.new_for.shift_remove(&f.dir); }
+        { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.cancel(&f.dir, None); }
         b.broadcast();
         json!({ "ok": true })
     }).await.map_err(|_| ())
@@ -1432,7 +1439,7 @@ async fn ticket_remove(key: String, act: String, b: B<'_>) -> Result<Value, ()> 
             _ => return json!({ "ok": false, "error": "act" }),
         }
         tickets::keep_log(&paths::data_dir(), &f);
-        { let mut c = b.core.lock().unwrap(); c.tickets.list.shift_remove(&key); c.tickets.save(); if let Some(k) = c.work.wait_key(&f.dir) { c.work.new_for.shift_remove(&k); } }
+        { let mut c = b.core.lock().unwrap(); c.tickets.list.shift_remove(&key); c.tickets.save(); c.work.cancel(&f.dir, None); }
         b.broadcast();
         json!({ "ok": true, "kept": act == "keep" })
     }).await.map_err(|_| ())
@@ -2087,7 +2094,7 @@ mod snapshot_tests {
             links::ClaudeSession { id: "local_r1".into(), cwd: "/src/shop".into(), title: "[SHO-32] tidy".into(), at: 5.0 },
             links::ClaudeSession { id: "local_r2".into(), cwd: "/src/shop".into(), title: "shop #31 old".into(), at: 3.0 },
         ];
-        work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
+        work.wait_for("/src/shop", "/src/shop", "team/shop", 32, &json!("t32"), &Value::Null);
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
             last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }

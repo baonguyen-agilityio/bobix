@@ -39,7 +39,7 @@
     setPet: (id, mode) => invoke('pet_set', { id, mode }), // mode: auto | hidden | shown; id '*' = every pet
     refreshWork: () => invoke('work_refresh'), // GitLab issues, read again now (only while GitLab is on)
     openIssue: url => invoke('work_open', { url }), // in the browser; only links to the configured GitLab
-    cancelNew: dir => invoke('work_cancel', { dir }), // stop waiting for a new session in that folder
+    cancelNew: (dir, iid) => invoke('work_cancel', { dir, iid: iid ?? null }), // stop waiting for a new session in that folder (for one issue)
     newReview: (project, branch) => invoke('work_new_review', { project, branch }), // the forge's new PR / MR page for that branch
     // prompt: prefilled in the new session's prompt box (claude://code/new?q=…)
     // dir: a folder the habit log names, for a project no session has open here now (Bobix checks its git remote)

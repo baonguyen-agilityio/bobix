@@ -2020,7 +2020,7 @@ const waitOn = (dir, iid) => dir && waiting.find(x => x.dir === dir && x.iid ===
 function startItem([i, g]) {
   const k = g.path + '#' + i.iid, pr = tkPrep[k], ek = esc(k);
   const code = tkCode(k), of = code === g.path ? '' : ` data-wk-of="${esc(g.path)}"`, dir = codeDir(code), wait = waitOn(dir, i.iid), od = i.due && i.due < today();
-  const acts = wait ? [[T('work.wait.cancel'), ['↵'], `data-cancel="${esc(wait.dir)}"`]]
+  const acts = wait ? [[T('work.wait.cancel'), ['↵'], `data-cancel="${esc(wait.dir)}" data-cancel-iid="${i.iid}"`]]
     : i.resume && bridge ? [[T('work.resume'), ['↵'], `data-start="${i.iid}" data-path="${esc(g.path)}"`]]
     : !dir ? [[T('work.link'), ['↵'], `data-wk-link="${esc(code)}"${of}`], [T('work.clone'), [CMD, '⇧', 'L'], `data-wk-clone="${esc(code)}"${of}`]]
     : tkHow[k] === 'quick' ? [[T(i.sessions?.length ? 'work.resume' : 'tk.quick.go'), ['↵'], i.sessions?.length ? `data-start="${i.iid}" data-path="${esc(g.path)}"` : quickAttrs(i, g, dir)]]
@@ -2048,7 +2048,7 @@ function startHTML(i, g, k) {
     <p class="note">${esc(T('tk.folder.note', { p: code }))}${running ? ' ' + esc(T('tk.folder.flows', { n: running })) : ''}</p>` : '';
   const top = `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [g.path, whoText(i), ...(i.labels || [])].filter(Boolean).join(' · '))}${od ? `<p class="hot">${esc(T('day.overdue'))} · ${esc(i.due)}</p>` : ''}${flowsHTML(g.path, i.iid)}${pick}${folder}`;
   if (!dirOf || p?.reason === 'where') return `${top}${whereHTML({ path: code }, other ? g.path : '')}${open ? `<div class="acts" style="margin:0">${open}</div>` : ''}`;
-  if (wait) return `${top}<p class="note">${esc(T('work.wait.desc'))}</p><div class="acts" style="margin:0"><span class="badge">${esc(T('work.wait'))}</span><button class="btn" type="button" data-cancel="${esc(wait.dir)}">${esc(T('work.wait.cancel'))}</button>${open}</div>`;
+  if (wait) return `${top}<p class="note">${esc(T('work.wait.desc'))}</p><div class="acts" style="margin:0"><span class="badge">${esc(T('work.wait'))}</span><button class="btn" type="button" data-cancel="${esc(wait.dir)}" data-cancel-iid="${i.iid}">${esc(T('work.wait.cancel'))}</button>${open}</div>`;
   const resume = i.resume && bridge ? `<div class="tk-warn"><p><strong>${esc(T('work.resume'))}</strong> ${esc(T('tk.resume.note'))}</p><div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${esc(T('work.resume'))}</button></div></div>` : '';
   const radio = (v, d) => `<label><input type="radio" name="tkh-${ek}" data-tk-how="${ek}" data-f="tkh:${ek}:${v}" value="${v}"${(quick ? 'quick' : 'full') === v ? ' checked' : ''}> <span><strong>${esc(T('tk.how.' + v))}</strong> · ${esc(d)}</span></label>`;
   const howHTML = `${resume}<section class="b-sec"><h3>${esc(T('tk.how'))}</h3><div class="tk-opts">${radio('full', T('tk.how.full.d'))}${radio('quick', T('tk.how.quick.d'))}</div></section>`;
@@ -3051,7 +3051,7 @@ async function onAct(e) {
   if (d.act === 'open') { const r = await bridge.openSession(selected); if (!r?.ok) openFail(r); return; }
   if (d.url) return bridge.openIssue(d.url);
   if (d.start) return startIssue(b);
-  if (d.cancel) return bridge.cancelNew(d.cancel);
+  if (d.cancel) return bridge.cancelNew(d.cancel, d.cancelIid ? Number(d.cancelIid) : undefined);
   if (d.rpLoad) return loadRepos(d.rpLoad === 'fresh');
   if (d.rpSave) return rpSave();
   if (d.rpAll || d.rpNone) {

@@ -510,9 +510,11 @@ pub struct Work {
     pub remotes_of: HashMap<String, Vec<String>>, // repository top folder -> remote URLs (never sent to the pages)
     pub feeds: [Feed; 2], // by Forge, in FORGES order
     pub claude_list: Vec<ClaudeSession>, // Claude desktop's own sessions, to find an issue's session by its name
-    // New on an issue opens a new session in the project's folder and waits here: the first session created in exactly
-    // that folder afterwards takes the issue and its name (see take_issue).
-    pub new_for: indexmap::IndexMap<String, Value>, // project folder -> { path, iid, title }
+    // A start (Quick, Full in Claude, the terminal command) opens a new session and waits here; the session that takes
+    // it gets the issue and its name (see Work::claim). One wait per issue and folder: several can wait at once.
+    pub new_for: indexmap::IndexMap<String, Value>, // "<path>#<iid>@<folder>" -> { dir, repo, path, iid, title, url }
+    // Sessions that started where a start waits and have not sent their first prompt yet: only that prompt may claim it.
+    pub fresh: std::collections::HashSet<String>,
     // "project#iid" of the issues sessions worked on that were read on their own (Forge::issue), so each is asked once
     pub asked: std::collections::HashSet<String>,
     pub page: usize, // the page of the issue list shown, from 1
@@ -529,13 +531,46 @@ pub struct Work {
 
 impl Default for Work {
     fn default() -> Self {
-        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default(), page: 1, gen: 0, read_gen: [0; 2], scanned: [false; 2], more_repos: HashMap::new() }
+        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), fresh: Default::default(), asked: Default::default(), page: 1, gen: 0, read_gen: [0; 2], scanned: [false; 2], more_repos: HashMap::new() }
     }
 }
 
+// Where a waiting start's session may come up. Claude desktop does not open a session in a folder inside a repository's
+// worktree as given: it starts in the repository's main folder, or in a worktree of its own under .claude/worktrees.
+// So: the folder the start opened (or one inside it), the main folder of its repository, or a Claude worktree there.
+fn waits_here(w: &Value, cwd: &str) -> bool {
+    use crate::paths::{dir_key, same_dir};
+    let under = |base: &str, d: &str| !base.is_empty() && dir_key(d).starts_with(&(dir_key(base) + "/"));
+    let (dir, repo) = (w["dir"].as_str().unwrap_or(""), w["repo"].as_str().unwrap_or(""));
+    same_dir(cwd, dir) || under(dir, cwd) || (!repo.is_empty() && (same_dir(cwd, repo) || under(&format!("{repo}/.claude/worktrees"), cwd)))
+}
+// The prompt Bobix gave the session names this issue: its link, or "#<iid> <title>" (both lead the prompt it builds).
+fn names_it(w: &Value, prompt: &str) -> bool {
+    let url = w["url"].as_str().unwrap_or("");
+    let head: String = w["title"].as_str().unwrap_or("").trim().chars().take(40).collect();
+    (!url.is_empty() && prompt.contains(url)) || (!head.is_empty() && prompt.contains(&format!("#{} {head}", w["iid"].as_i64().unwrap_or(0))))
+}
+
 impl Work {
-    // The folder New / Start waits on that is `dir` (compared as folders: Windows spells one folder several ways).
-    pub fn wait_key(&self, dir: &str) -> Option<String> { self.new_for.keys().find(|k| crate::paths::same_dir(k, dir)).cloned() }
+    // A start waits for its session: in `dir` (the folder Claude was asked to open), whose repository's main folder is
+    // `repo`. The same issue started again in the same folder replaces its wait.
+    pub fn wait_for(&mut self, dir: &str, repo: &str, path: &str, iid: i64, title: &Value, url: &Value) {
+        self.new_for.insert(format!("{path}#{iid}@{}", crate::paths::dir_key(dir)), json!({ "dir": dir, "repo": repo, "path": path, "iid": iid, "title": title, "url": url }));
+    }
+    // A start waits where a session in `cwd` may be its own (the session then waits for its first prompt).
+    pub fn waits_at(&self, cwd: &str) -> bool { self.new_for.values().any(|w| waits_here(w, cwd)) }
+    // The wait a new session takes: one where it came up, whose issue its first prompt names. A session nothing names
+    // (one you opened yourself there, with your own prompt) takes none. The oldest wait first.
+    pub fn claim(&mut self, cwd: &str, prompt: &str) -> Option<Value> {
+        let k = self.new_for.iter().find(|(_, w)| waits_here(w, cwd) && names_it(w, prompt)).map(|(k, _)| k.clone())?;
+        self.new_for.shift_remove(&k)
+    }
+    // Stop waiting in `dir`: for one issue, or for every start there.
+    pub fn cancel(&mut self, dir: &str, iid: Option<i64>) -> bool {
+        let n = self.new_for.len();
+        self.new_for.retain(|_, w| !(crate::paths::same_dir(w["dir"].as_str().unwrap_or(""), dir) && iid.is_none_or(|i| w["iid"].as_i64() == Some(i))));
+        self.new_for.len() != n
+    }
 }
 
 // A project's code in session names: the one set in Settings, else the one made from its name.
@@ -726,6 +761,48 @@ rm -f "$d/runs/$$"
         let most = std::fs::read_to_string(root.join("at-once")).unwrap().split_whitespace().filter_map(|x| x.parse::<usize>().ok()).max().unwrap();
         assert!(most <= PAR_READS && projects(&r).len() == 12 && secs < 4.0, "{most} at once, {secs} s");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // A start waits for its session; the session that takes it is new where the start waits, and its first prompt
+    // names the issue (#184): Claude desktop opens a Full start in the repository's main folder (or its own worktree
+    // there), not in the flow's worktree, and the code may be in another repository than the issue.
+    #[test]
+    fn a_waiting_start_is_taken_by_its_own_session_only() {
+        let (title, url) = (json!("Checkout rounds totals wrong"), json!("https://gl.example.test/acme/web-shop/-/issues/401"));
+        let prompt = "#401 Checkout rounds totals wrong\n\nSteps…\n\nhttps://gl.example.test/acme/web-shop/-/issues/401";
+        let iid = |w: Option<Value>| w.and_then(|w| w["iid"].as_i64());
+        // issue in acme/web-shop, code in acme/service: Quick in the service's folder; Full in a worktree of it
+        let mut w = Work::default();
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 401, &title, &url);
+        assert_eq!(w.claim("/code/service", "fix the build please"), None, "a session you opened there yourself: its prompt names nothing");
+        assert_eq!(w.claim("/code/other", prompt), None, "another folder");
+        assert_eq!(w.claim("/code/service", prompt).map(|x| x["path"].clone()), Some(json!("acme/web-shop")), "the issue's project names it, not the code's");
+        assert!(w.new_for.is_empty() && w.claim("/code/service", prompt).is_none(), "taken once");
+        // Full: waits in the flow's worktree; Claude starts in the main folder, a Claude worktree there, or the worktree
+        for cwd in ["/code/service", "/code/service/.claude/worktrees/brave-otter", "/code/service/.claude/worktrees/bobix-401", "/code/service/.claude/worktrees/bobix-401/src"] {
+            w.wait_for("/code/service/.claude/worktrees/bobix-401", "/code/service", "acme/web-shop", 401, &title, &url);
+            assert_eq!(iid(w.claim(cwd, prompt)), Some(401), "{cwd}");
+        }
+        w.wait_for("/code/service/.claude/worktrees/bobix-401", "/code/service", "acme/web-shop", 401, &title, &url);
+        assert_eq!(w.claim("/code/service-old", prompt), None, "a folder whose name only begins the same");
+        // the prompt edited: its link kept, or "#401 <title>" kept, is enough; "#401" alone is not
+        assert_eq!(w.claim("/code/service", "#401 please"), None);
+        assert_eq!(iid(w.claim("/code/service", "Look at https://gl.example.test/acme/web-shop/-/issues/401 first")), Some(401));
+        // the same issue started in two code repositories: each session takes the start where it came up
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 401, &title, &url);
+        w.wait_for("/code/api", "/code/api", "acme/web-shop", 401, &title, &url);
+        assert_eq!(w.claim("/code/api", prompt).map(|x| x["dir"].clone()), Some(json!("/code/api")));
+        assert_eq!(w.new_for.values().map(|x| x["dir"].clone()).collect::<Vec<_>>(), [json!("/code/service")], "the other still waits");
+        // two starts waiting in one folder: each session takes the one its prompt names
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 402, &json!("Export orders as CSV"), &json!("https://gl.example.test/acme/web-shop/-/issues/402"));
+        assert_eq!(iid(w.claim("/code/service", "#402 Export orders as CSV\n\nhttps://gl.example.test/acme/web-shop/-/issues/402")), Some(402));
+        assert_eq!(iid(w.claim("/code/service", prompt)), Some(401));
+        // cancelled: nothing takes it any more; for one issue, or every start in that folder
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 401, &title, &url);
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 402, &json!("Export orders as CSV"), &json!("u402"));
+        assert!(w.cancel("/code/service", Some(401)) && w.claim("/code/service", prompt).is_none() && w.new_for.len() == 1);
+        assert!(w.cancel("/code/service/", None) && w.new_for.is_empty(), "the folder as Windows / a trailing slash spells it");
+        assert!(!w.waits_at("/code/service"));
     }
 
     // Reading: from the ask (filter, page, Refresh) until every tracker that is on kept an answer to it; an older ask's

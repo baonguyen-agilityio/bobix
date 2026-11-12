@@ -26,7 +26,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 };
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -173,6 +173,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_CLONES") { report["clones"] = clones_step(&app, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_START") { report["start"] = start_step(&app, b.port, &dir, &spec); }
         if let Ok(sdir) = std::env::var("BOBIX_SMOKE_READS") { report["reads"] = reads_step(&app, &sdir); }
+        if let Ok(spec) = std::env::var("BOBIX_SMOKE_NAME") { report["name"] = name_step(&app, b.port, &dir, &spec); }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
@@ -367,15 +368,13 @@ fn start_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> 
         await box(B, 'quick'); const go = q('[data-start][data-dir]'); r.quickBox = !!go && go.dataset.dir === other && !q('.tk-prompt') && !q('[data-tk-prep]'); await w(hold); \
         navigator.clipboard.writeText = async () => {}; go.click(); \
         r.dialog = await until(() => $('#st-dialog').open, 15000) && $('#st-dir').title === other && $('#st-text').value.startsWith('#' + B.split('#')[1] + ' '); await w(hold); \
-        $('#st-go').click(); r.waiting = await until(() => waiting.some(x => x.dir === other && x.iid === +B.split('#')[1]), 10000); \
+        r.prompt = $('#st-text').value; $('#st-go').click(); r.waiting = await until(() => waiting.some(x => x.dir === other && x.iid === +B.split('#')[1]), 10000); \
         await w(400); bsel.work = 'n:' + B; render(); await w(300); r.waitShown = !!q('[data-cancel]'); await w(hold);"), 60 + 3 * hold / 1000);
     merge(&mut r, x);
     r["opened"] = json!(OPENED.lock().unwrap().iter().any(|u| u.starts_with(&format!("claude://code/new?folder={}&q=", crate::work::enc(other)))));
-    // the new session Claude would start in that folder, through the installed hook
-    let transcript = dir.join("quick-session.jsonl");
-    let _ = fs::write(&transcript, json!({ "type": "ai-title", "aiTitle": "Quick session" }).to_string() + "\n");
-    let start = json!({ "session_id": "9b2e4c1a-0d3f-4e5a-8b6c-7d8e9f0a1b2c", "cwd": other, "transcript_path": transcript, "hook_event_name": "SessionStart", "source": "startup" });
-    r["hookRun"] = json!(run_hook(&hooks::hook_target(&paths::home()), port, &start.to_string()));
+    // the new session Claude would start in that folder, through the installed hook: it takes the start by its first prompt
+    let title = claude_session(port, dir, "9b2e4c1a-0d3f-4e5a-8b6c-7d8e9f0a1b2c", other, r["prompt"].as_str().unwrap_or(""));
+    r["hookRun"] = json!(if title.contains(&format!("-{}]", bb)) { "ok" } else { "no name" });
     let x = ask_for(app, panel::LABEL, &js("showTab('work'); r.inWork = await until(() => workItems().some(x => x.id === 'q:' + B && x.grp === 'fquick'), 20000); \
         r.noStartItem = !workItems().some(x => x.id === 'n:' + B); bsel.work = 'q:' + B; render(); await w(400); r.withSession = !!q('.rows [data-sel]'); await w(hold); \
         showTab('sessions'); await w(400); const t = items.find(x => x.id === 't:' + B); if (t) { bsel.sessions = t.id; render(); await w(300); } \
@@ -388,6 +387,103 @@ fn start_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> 
     r["failedChecks"] = json!(keys.iter().filter(|k| r[**k] != true).collect::<Vec<_>>());
     r["pass"] = json!(keys.iter().all(|k| r[*k] == true) && r["hookRun"] == "ok");
     r
+}
+
+// A made-up Claude session, through the installed hook.js: it starts in `cwd` and sends `prompt` first. When Bobix
+// answers that prompt with a session title, it is written to the transcript as Claude Code writes /rename's
+// ("custom-title"), and the next event shows it. → the title Bobix gave, or "".
+fn claude_session(port: u16, dir: &std::path::Path, sid: &str, cwd: &str, prompt: &str) -> String {
+    let hook = hooks::hook_target(&paths::home());
+    let transcript = dir.join(format!("{sid}.jsonl"));
+    let _ = fs::write(&transcript, "");
+    let ev = |e: Value| { let mut x = json!({ "session_id": sid, "cwd": cwd, "transcript_path": transcript }); for (k, v) in e.as_object().unwrap() { x[k] = v.clone(); } x.to_string() };
+    run_hook(&hook, port, &ev(json!({ "hook_event_name": "SessionStart", "source": "startup" })));
+    let out = run_hook_with_pid(&hook, port, &ev(json!({ "hook_event_name": "UserPromptSubmit", "prompt": prompt })));
+    let title = serde_json::from_str::<Value>(&out).ok().and_then(|v| v["hookSpecificOutput"]["sessionTitle"].as_str().map(String::from)).unwrap_or_default();
+    if !title.is_empty() { let _ = fs::write(&transcript, json!({ "type": "custom-title", "customTitle": title, "sessionId": sid }).to_string() + "\n"); }
+    run_hook(&hook, port, &ev(json!({ "hook_event_name": "Stop" })));
+    title
+}
+
+// BOBIX_SMOKE_NAME=<issue project>|<code project>|<its folder>|<another code project>|<its folder> (with BOBIX_HOME set;
+// not in CI): #184. A session started for an issue gets Bobix's name, `<KEY of the issue's project>-<iid> <title>`, when
+// the code is in another repository, in every start path: Quick (the code project's folder), Full started in Claude
+// (Claude desktop opens the repository's main folder, or a worktree of its own there, not the flow's worktree), and
+// Full by the terminal command (the flow's worktree). Two starts waiting in one folder each go to their own session;
+// the same issue started in two code repositories too. A session you opened there yourself, one that was open before
+// the start, and one after a cancel take no name.
+fn name_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let v: Vec<&str> = spec.split('|').collect();
+    let [a, b, bdir, c, cdir] = v.as_slice() else { return json!("bad BOBIX_SMOKE_NAME") };
+    let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let pre = format!("const A = {}, B = {}, BD = {}, C = {}, CD = {}, hold = {hold}, w = ms => new Promise(o => setTimeout(o, ms)), \
+        until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}, r = {{}}; \
+        const issue = n => st.todo.map(x => x[0]).find(i => i.iid === n && i.url.includes('/' + A + '/')); \
+        const prompt = n => BOARD.brief(issue(n), 'Made-up description.'); \
+        const quick = (n, d) => bridge.startIssue(A, n, prompt(n), d); \
+        const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); return bridge.ticketStart(A, n, prompt(n), p.models ? {{ size: 'small' }} : null, how, code, true); }}; \
+        const waits = (d, n) => waiting.some(x => x.dir === d && x.iid === n);",
+        json!(a), json!(b), json!(bdir), json!(c), json!(cdir));
+    let js = |body: &str| format!("(async () => {{ {pre} {body} return r; }})()");
+    // a session open in the code folder before any start: it is not new there, so it takes none
+    let hook = hooks::hook_target(&paths::home());
+    let old = |e: Value| { let mut x = json!({ "session_id": "aa000000-0000-4000-8000-000000000409", "cwd": bdir, "transcript_path": dir.join("old.jsonl") }); for (k, v) in e.as_object().unwrap() { x[k] = v.clone(); } x.to_string() };
+    let _ = fs::write(dir.join("old.jsonl"), "");
+    run_hook(&hook, port, &old(json!({ "hook_event_name": "SessionStart", "source": "startup" })));
+    let mut r = ask_for(app, panel::LABEL, &js("await bridge.refreshWork(); r.listed = await until(() => [401, 402, 403, 404, 405, 406, 407, 408, 409].every(n => issue(n)) && !reading(), 40000); \
+        r.linked = !!(await bridge.linkFolder(B, BD, A)).ok && !!(await bridge.linkFolder(C, CD, A)).ok; await save({ workCode: { [A]: B } }); \
+        r.key = (work.local || []).concat(work.away || []).find(g => g.path === A)?.key; \
+        for (const n of [401, 405, 406, 408, 409]) await quick(n, BD); \
+        r.started = [await full(402, B, 'desktop'), await full(403, B, 'desktop'), await full(404, B, 'cli'), await full(407, B, 'desktop'), await full(407, C, 'desktop')].every(x => x?.ok === true); \
+        r.waiting = await until(() => waits(BD, 401) && waits(BD, 405) && waits(BD, 406) && waits(BD, 408), 10000); \
+        await bridge.cancelNew(BD, 408); r.cancelled = await until(() => !waits(BD, 408) && waits(BD, 401), 10000); \
+        r.prompts = Object.fromEntries([401, 402, 403, 404, 405, 406, 407, 408, 409].map(n => [n, prompt(n)])); \
+        r.dirs = Object.fromEntries(tickets.list.filter(f => f.path === A).map(f => [f.iid + '>' + (f.code || A), f.dir]));"), 120);
+    let (prompts, dirs, key) = (r["prompts"].clone(), r["dirs"].clone(), r["key"].as_str().unwrap_or("?").to_string());
+    let p = |n: i64| prompts[n.to_string()].as_str().unwrap_or("").to_string();
+    let named = |t: &str, n: i64| t.starts_with(&format!("[{key}-{n}] "));
+    let flow = |k: &str| dirs[k].as_str().unwrap_or("").to_string();
+    let t = |sid: &str, cwd: &str, prompt: &str| claude_session(port, dir, sid, cwd, prompt);
+    // a session you open yourself in the code folder while starts wait there: no name, the starts still wait
+    r["mine"] = json!(t("bb000000-0000-4000-8000-000000000001", bdir, "Tidy the README"));
+    r["oldTakesNone"] = json!(run_hook_with_pid(&hook, port, &old(json!({ "hook_event_name": "UserPromptSubmit", "prompt": p(409) }))).trim().is_empty());
+    // Quick, issue in A, code in B: the session in B's folder
+    r["quick401"] = json!(t("bb000000-0000-4000-8000-000000000401", bdir, &p(401)));
+    // Full in Claude: Claude desktop opens B's main folder, or a worktree of its own under it
+    r["full402"] = json!(t("bb000000-0000-4000-8000-000000000402", bdir, &p(402)));
+    let own = format!("{bdir}/.claude/worktrees/brave-otter");
+    let _ = fs::create_dir_all(&own);
+    r["full403"] = json!(t("bb000000-0000-4000-8000-000000000403", &own, &p(403)));
+    // Full by the terminal command: the flow's worktree
+    r["full404"] = json!(t("bb000000-0000-4000-8000-000000000404", &flow(&format!("404>{b}")), &p(404)));
+    // two starts waiting in B's folder: each session takes the one its prompt names
+    r["quick406"] = json!(t("bb000000-0000-4000-8000-000000000406", bdir, &p(406)));
+    r["quick405"] = json!(t("bb000000-0000-4000-8000-000000000405", bdir, &p(405)));
+    // the same issue started in two code repositories: in C's folder first, then B's
+    r["full407c"] = json!(t("bb000000-0000-4000-8000-000000000471", cdir, &p(407)));
+    r["full407b"] = json!(t("bb000000-0000-4000-8000-000000000472", bdir, &p(407)));
+    // cancelled before its session came: no name
+    r["cancelled408"] = json!(t("bb000000-0000-4000-8000-000000000408", bdir, &p(408)));
+    r["quick409"] = json!(t("bb000000-0000-4000-8000-000000000409", bdir, &p(409)));
+    let s = |k: &str| r[k].as_str().unwrap_or("").to_string();
+    r["checks"] = json!({ "mine": s("mine").is_empty(), "oldTakesNone": r["oldTakesNone"] == true, "quick401": named(&s("quick401"), 401), "full402": named(&s("full402"), 402),
+        "full403": named(&s("full403"), 403), "full404": named(&s("full404"), 404), "quick405": named(&s("quick405"), 405), "quick406": named(&s("quick406"), 406),
+        "full407c": named(&s("full407c"), 407), "full407b": named(&s("full407b"), 407), "cancelled408": s("cancelled408").is_empty(), "quick409": named(&s("quick409"), 409) });
+    let x = ask_for(app, panel::LABEL, &js("showTab('sessions'); await w(1500); const t = list.map(s => s.title || ''); r.key = (work.local || []).concat(work.away || []).find(g => g.path === A)?.key; \
+        r.shown = [401, 402, 403, 404, 405, 406, 407, 409].every(n => t.some(x => x.startsWith('[' + r.key + '-' + n + '] '))) && !t.some(x => x.includes('-408]')); \
+        r.noneLeft = waiting.length === 0; r.sessionTitles = t.filter(x => x.startsWith('[')); await w(hold);"), 30);
+    if let Some(o) = x.as_object() { for (k, v) in o { r[k] = v.clone(); } }
+    let ok = r["checks"].as_object().is_some_and(|c| c.values().all(|v| v == true)) && ["listed", "linked", "started", "waiting", "cancelled", "shown", "noneLeft"].iter().all(|k| r[*k] == true);
+    r["pass"] = json!(ok);
+    r
+}
+
+fn run_hook_with_pid(hook: &PathBuf, port: u16, input: &str) -> String {
+    let Ok(mut child) = Command::new("node").arg(hook).arg(port.to_string()).env("CLAUDE_PID", std::process::id().to_string())
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else { return String::new() };
+    if let Some(mut i) = child.stdin.take() { let _ = i.write_all(input.as_bytes()); }
+    child.wait_with_output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
 }
 
 // BOBIX_SMOKE_READS=<stand-in state dir> (with BOBIX_HOME set; not in CI): #178, reading the issues again, against stand-in
