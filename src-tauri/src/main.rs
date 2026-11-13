@@ -132,6 +132,7 @@ impl Bobix {
         let untitled = !e["session_title"].as_str().is_some_and(|t| !t.is_empty());
         let source = e["source"].as_str().unwrap_or("");
         let mut habit_lines = vec![];
+        let mut follow = None; // a flow that just got this session: its key, the session, the folder the session is in
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
@@ -163,6 +164,14 @@ impl Bobix {
                     let tool = e["tool_name"].as_str().unwrap_or("");
                     let pid = s.claude_pid.filter(|p| s.pid_is_claude == Some(*p)); // claude's own, not a shell that outlives it
                     if flows.on_event(&id, &s.cwd, &ev, tool, e["tool_input"]["plan"].as_str(), pid, now) { flows.save(); }
+                    // a flow's session works on the flow's issue, also after Bobix restarts and with the code in another
+                    // repository (its branch does not name the issue there)
+                    if let Some(f) = flows.by_session(&id) {
+                        if s.started.is_none() { s.started = Some(json!({ "path": f.path, "iid": f.iid })); }
+                        // where it runs, not known yet (git did not answer, or Bobix closed first): asked again when the
+                        // session starts again (resumed); not on every event, a session that cd's elsewhere stays placed
+                        if start && f.place.is_empty() && f.status != "starting" { follow = Some((f.key.clone(), id.clone(), s.cwd.clone())); }
+                    }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
                     let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e, plan) }
                         // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
@@ -170,15 +179,31 @@ impl Bobix {
                         // first prompt, once that names the issue (Work::claim): not one you opened there yourself.
                         else if start && source == "startup" && untitled && work.waits_at(&s.cwd) { work.fresh.insert(id.clone()); None }
                         else if ev == "UserPromptSubmit" && work.fresh.remove(&id) && untitled {
-                            work.claim(&s.cwd, e["prompt"].as_str().unwrap_or("")).map(|w| take_issue(settings, s, &w))
+                            match work.claim(&s.cwd, e["prompt"].as_str().unwrap_or("")) {
+                                // a Full start whose flow another session already took (it started in the flow's
+                                // worktree, its prompt edited): this one is not the flow's, and gets no name from it
+                                Some(w) if flows.key_of_start(&w).and_then(|k| flows.list.get(&k)?.session.clone()).is_some_and(|o| o != id) => self.title_for(work.hosts(settings), &s.cwd, "UserPromptSubmit"),
+                                Some(w) => {
+                                    // a Full start: from here the session is its flow's, wherever Claude opened it
+                                    // (only the session that takes it moves it to the folder Claude opened)
+                                    if let Some(k) = flows.key_of_start(&w).filter(|k| flows.take(k, &id, pid, now)) {
+                                        flows.save();
+                                        follow = Some((k, id.clone(), s.cwd.clone()));
+                                    }
+                                    Some(take_issue(settings, s, &w))
+                                }
+                                // not a start's session: named by its branch, as any new session is
+                                None => self.title_for(work.hosts(settings), &s.cwd, "UserPromptSubmit"),
+                            }
                         }
-                        else if start && ["startup", "resume", "fork"].contains(&source) && untitled { self.title_for(work.hosts(settings), &s.cwd) }
+                        else if start && ["startup", "resume", "fork"].contains(&source) && untitled { self.title_for(work.hosts(settings), &s.cwd, "SessionStart") }
                         else { None };
                     (Some(id), notice, s.since, reply, git_dir, gitlab)
                 }
             }
         };
         if let Some(d) = git_dir { refresh_git(self, d); }
+        if let Some((key, sid, cwd)) = follow { place_flow(self, key, sid, cwd); }
         remember(habit_lines, now);
         if (start || ev == "SessionEnd") && gitlab {
             let b = self.clone(); // Claude writes the session's name a moment after
@@ -236,10 +261,11 @@ impl Bobix {
 
     // The name of a session that starts on an issue's branch ("<iid>-…") of a repository of that project, when
     // the issue is one assigned to you: "[KEY-iid] title". Nothing is guessed from timing.
-    fn title_for(self: &Arc<Self>, hosts: Vec<String>, dir: &str) -> Option<server::Reply> {
+    // `ev`: the hook event that asked (its reply must name it, or hook.js drops it).
+    fn title_for(self: &Arc<Self>, hosts: Vec<String>, dir: &str, ev: &str) -> Option<server::Reply> {
         if hosts.is_empty() || !std::path::Path::new(dir).is_absolute() { return None; }
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let (b, dir) = (self.clone(), dir.to_string());
+        let (b, dir, ev) = (self.clone(), dir.to_string(), ev.to_string());
         thread::spawn(move || {
             let out = (|| {
                 let (g, remotes) = work::git_status(&dir)?;
@@ -248,7 +274,7 @@ impl Bobix {
                 let c = b.core.lock().unwrap();
                 let title = c.work.find_issue(&c.settings, &project, iid)?["title"].as_str().unwrap_or("").to_string();
                 let name = work::session_title_for(&work::key_of(&c.settings, &project), iid, &title);
-                Some(json!({ "hookSpecificOutput": { "hookEventName": "SessionStart", "sessionTitle": name } }))
+                Some(json!({ "hookSpecificOutput": { "hookEventName": ev, "sessionTitle": name } }))
             })();
             let _ = tx.send(out);
         });
@@ -568,7 +594,7 @@ fn refresh_git(b: &Arc<Bobix>, dir: String) {
         let g = work::git_status(&dir);
         let changed = {
             let mut c = b.core.lock().unwrap();
-            let Core { work, sessions, .. } = &mut *c;
+            let Core { work, sessions, tickets, .. } = &mut *c;
             let e = work.git_cache.entry(dir.clone()).or_default();
             e.busy = false;
             e.at = state::now();
@@ -576,6 +602,7 @@ fn refresh_git(b: &Arc<Bobix>, dir: String) {
             let was = e.git.replace(git.clone());
             work.remotes_of.insert(git["top"].as_str().unwrap_or("").to_string(), remotes);
             let mut changed = was.as_ref() != Some(&git);
+            if let (Some(top), Some(branch)) = (git["top"].as_str(), git["branch"].as_str()) { if tickets.branch_at(top, branch) { tickets.save(); changed = true; } }
             for x in sessions.values_mut().filter(|x| x.cwd == dir) {
                 if x.git.as_ref() != Some(&git) { changed = true; x.git = Some(git.clone()); }
             }
@@ -598,6 +625,31 @@ fn take_issue(settings: &Value, s: &mut state::Session, n: &Value) -> server::Re
     let (tx, rx) = tokio::sync::oneshot::channel();
     let _ = tx.send(Some(json!({ "hookSpecificOutput": { "hookEventName": "UserPromptSubmit", "sessionTitle": name } })));
     server::Reply::Output(rx)
+}
+
+// Where the session that took a flow runs, asked of git off the event's thread (Flows::placed). A worktree Claude made
+// first gets what the flow's own worktree got at Start: the work log (in its self-ignoring folder) and your Tests line.
+fn place_flow(b: &Arc<Bobix>, key: String, sid: String, cwd: String) {
+    let b = b.clone();
+    thread::spawn(move || {
+        let Some((g, _)) = work::git_status(&cwd) else { return };
+        let top = g["top"].as_str().unwrap_or("").to_string();
+        let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return };
+        let place = tickets::place_of(&f, &top).filter(|_| f.place.is_empty() && f.session.as_deref() == Some(sid.as_str()));
+        if place == Some("claude") {
+            let log = tickets::read_log(&f.dir).unwrap_or_else(|| tickets::template(f.iid, &f.title, &f.lang));
+            let _ = tickets::seed_log(std::path::Path::new(&top), &log);
+            skill_audit::carry_tests(std::path::Path::new(&f.repo), std::path::Path::new(&top), &paths::data_dir());
+        }
+        let yours = if place == Some("main") { tickets::uncommitted(&top) } else { 0 };
+        let placed = {
+            let mut c = b.core.lock().unwrap();
+            let p = c.tickets.placed(&key, &sid, &top, g["branch"].as_str(), yours, state::now());
+            if p.is_some() { c.tickets.save(); }
+            p
+        };
+        if placed.is_some() { b.broadcast(); }
+    });
 }
 
 fn read_claude_list(b: &Bobix) {
@@ -1238,8 +1290,8 @@ fn ticket_place(b: &Bobix, path: &str, iid: i64, code: &str) -> Result<(String, 
     let (dir, i) = { let c = b.core.lock().unwrap(); listed_issue(&c, path, iid, code) }.ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
     let dir = dir.ok_or_else(|| json!({ "ok": false, "reason": "where", "code": code }))?;
     let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).ok_or_else(|| json!({ "ok": false, "reason": "where", "code": code }))?;
-    let wt = tickets::worktree_dir(&repo, iid, path, code);
     let branch = tickets::branch_for(iid, i["title"].as_str().unwrap_or(""), path, code);
+    let wt = tickets::kept_worktree(&repo, iid, path, code, &branch).unwrap_or_else(|| tickets::worktree_dir(&repo, iid, path, code));
     Ok((repo, i, wt, branch))
 }
 // The repository a Start puts the code in: the one you picked, else the issue's own. Lower case, as paths are kept.
@@ -1254,7 +1306,7 @@ async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> 
         let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
         let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
-        json!({ "ok": true, "code": code, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+        json!({ "ok": true, "code": code, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
     }).await.map_err(|_| ())
 }
 
@@ -1366,7 +1418,7 @@ async fn ticket_review(key: String, how: String, b: B<'_>) -> Result<Value, ()> 
     tauri::async_runtime::spawn_blocking(move || {
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
         if f.cleaned || !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
-        let prompt = tickets::review_prompt(&f.branch, &f.base, &f.lang);
+        let prompt = tickets::review_prompt(&f.branch, &f.base, &f.dir, &f.lang);
         let cmd = tickets::cli_in_mode(&f.dir, &tickets::review_model(&f.models), "auto", &prompt);
         if how == "cli" { return json!({ "ok": true, "mode": "cli", "cmd": cmd, "prompt": prompt }); }
         match open_claude(&work::new_session_link(&f.dir, &prompt)) {
@@ -1384,13 +1436,22 @@ async fn ticket_clean(key: String, force: Option<bool>, b: B<'_>) -> Result<Valu
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
         if !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
         // commits no remote has: said first (the branch stays either way); cleaned up on a second click
-        let n = tickets::unpushed(&f.dir, &f.branch);
+        let n = tickets::unpushed(f.git_dir(), &f.branch);
         if n > 0 && force != Some(true) { return json!({ "ok": false, "error": "unpushed", "n": n }); }
         tickets::keep_log(&paths::data_dir(), &f);
-        if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir, false) { return json!({ "ok": false, "error": e }); }
-        { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.cancel(&f.dir, None); }
+        // Only the worktree Bobix made is removed. A worktree Claude made for the session is Claude's (`left`): the flow
+        // is cleaned either way, and Bobix's own unused one stays when git refuses (`kept`: it has changes).
+        let (mut left, mut kept) = (Value::Null, Value::Null);
+        match tickets::remove_worktree(&f.repo, f.made(), false) {
+            // Bobix's own unused worktree with changes in it stays (said); any other failure is said as it is
+            Err(_) if !f.own.is_empty() && tickets::at_risk(&f.own, "HEAD").is_some_and(|r| r.0 > 0) => kept = json!(f.own),
+            Err(e) => return json!({ "ok": false, "error": e }),
+            Ok(()) => {}
+        }
+        if !f.own.is_empty() { left = json!(f.dir); }
+        { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.cancel(f.made(), None); }
         b.broadcast();
-        json!({ "ok": true })
+        json!({ "ok": true, "left": left, "kept": kept })
     }).await.map_err(|_| ())
 }
 
@@ -1412,7 +1473,11 @@ async fn usage_effects(b: B<'_>) -> Result<Value, ()> {
 // A flow's texts for its details (its log in sections, plan, summary, the MR's draft): the state the pages get with
 // every update leaves them out. { key, at, parsed, plan, summary, mrTitle?, mrBody? } | null
 #[tauri::command]
-fn ticket_detail(key: String, b: B) -> Value { b.core.lock().unwrap().tickets.detail(&key).unwrap_or(Value::Null) }
+fn ticket_detail(key: String, b: B) -> Value {
+    let (changed, d) = { let mut c = b.core.lock().unwrap(); let ch = c.tickets.refresh(&key, state::now()); if ch { c.tickets.save(); } (ch, c.tickets.detail(&key)) };
+    if changed { b.broadcast(); }
+    d.unwrap_or(Value::Null)
+}
 
 // Remove a flow that is not done or blocked (stuck waiting for its session, stopped, or one you give up on), so its
 // issue can start again. act: check → { live, changed, unpushed, exists, dir } (what you are asked about first);
@@ -1430,18 +1495,22 @@ async fn ticket_remove(key: String, act: String, b: B<'_>) -> Result<Value, ()> 
             (f, live)
         };
         if f.cleaned { return json!({ "ok": false, "error": "gone" }); }
-        let risk = tickets::at_risk(&f.dir, &f.branch);
+        // what deleting would lose is asked of the folder Bobix made, the only one it deletes; a worktree Claude made
+        // for the session (`left`) stays whatever you choose
+        let risk = tickets::at_risk(f.made(), if f.own.is_empty() { &f.branch } else { "HEAD" });
+        let left = if f.own.is_empty() { Value::Null } else { json!(f.dir) };
+        let branch = if f.own.is_empty() { f.branch.clone() } else { tickets::head_branch(&f.own).unwrap_or_default() };
         match act.as_str() {
-            "check" => return json!({ "ok": true, "live": live, "exists": risk.is_some(), "changed": risk.map_or(0, |r| r.0), "unpushed": risk.map_or(0, |r| r.1), "dir": f.dir, "branch": f.branch }),
+            "check" => return json!({ "ok": true, "live": live, "exists": risk.is_some(), "changed": risk.map_or(0, |r| r.0), "unpushed": risk.map_or(0, |r| r.1), "dir": f.made(), "branch": branch, "left": left }),
             "delete" if live => return json!({ "ok": false, "error": "live" }),
-            "delete" => if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir, true) { return json!({ "ok": false, "error": e }); },
+            "delete" => if let Err(e) = tickets::remove_worktree(&f.repo, f.made(), true) { return json!({ "ok": false, "error": e }); },
             "keep" => {}
             _ => return json!({ "ok": false, "error": "act" }),
         }
         tickets::keep_log(&paths::data_dir(), &f);
-        { let mut c = b.core.lock().unwrap(); c.tickets.list.shift_remove(&key); c.tickets.save(); c.work.cancel(&f.dir, None); }
+        { let mut c = b.core.lock().unwrap(); c.tickets.list.shift_remove(&key); c.tickets.save(); c.work.cancel(f.made(), None); }
         b.broadcast();
-        json!({ "ok": true, "kept": act == "keep" })
+        json!({ "ok": true, "kept": act == "keep", "left": left })
     }).await.map_err(|_| ())
 }
 
@@ -1927,6 +1996,12 @@ fn main() {
             node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
         tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
     });
+    {
+        // Full starts whose session had not come when Bobix last closed wait for it again
+        let mut c = b.core.lock().unwrap();
+        let Core { work, tickets, .. } = &mut *c;
+        for f in tickets.waiting() { work.wait_for(&f.dir, &f.repo, &f.path, f.iid, &json!(f.title), &json!(f.url)); }
+    }
 
     let rb = b.clone();
     tauri::Builder::default()
@@ -2175,7 +2250,8 @@ mod snapshot_tests {
         assert_eq!(issue("s2"), Some(("acme/app", 54, Started)), "New on #54");
         assert_eq!(issue("c3"), Some(("acme/app", 52, Parent)), "a side session on Claude's own branch: its parent's");
         assert_eq!(issue("cli"), Some(("acme/app", 55, Branch)));
-        assert_eq!([issue("c5"), issue("o6"), issue("s7")], [None, None, None], "outside git; remote on no signed-in host; started in another project");
+        assert_eq!([issue("c5"), issue("o6")], [None, None], "outside git; remote on no signed-in host");
+        assert_eq!(issue("s7"), Some(("acme/app", 99, Started)), "started for an issue of another project (its code is in this repository): that issue");
         let parent = |id: &str| s(id).parent.as_ref().map(|p| (p.to.id.as_str(), p.why));
         assert_eq!([parent("c3"), parent("c5"), parent("o6"), parent("p4")], [Some(("p4", Parent)), Some(("p4", Parent)), None, None]);
         assert_eq!(s("c3").dir.as_ref().map(|d| (d.to.path.as_str(), d.why)), Some(("/src/app", Folder)), "the repository's folder, not the one it cd'd into");

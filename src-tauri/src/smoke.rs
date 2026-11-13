@@ -26,7 +26,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 };
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_FOLLOW").is_some() { 400 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -174,6 +174,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_START") { report["start"] = start_step(&app, b.port, &dir, &spec); }
         if let Ok(sdir) = std::env::var("BOBIX_SMOKE_READS") { report["reads"] = reads_step(&app, &sdir); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_NAME") { report["name"] = name_step(&app, b.port, &dir, &spec); }
+        if let Ok(spec) = std::env::var("BOBIX_SMOKE_FOLLOW") { report["follow"] = follow_step(&app, &b, &dir, &spec); }
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
@@ -475,6 +476,255 @@ fn name_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> V
         r.noneLeft = waiting.length === 0; r.sessionTitles = t.filter(x => x.startsWith('[')); await w(hold);"), 30);
     if let Some(o) = x.as_object() { for (k, v) in o { r[k] = v.clone(); } }
     let ok = r["checks"].as_object().is_some_and(|c| c.values().all(|v| v == true)) && ["listed", "linked", "started", "waiting", "cancelled", "shown", "noneLeft"].iter().all(|k| r[*k] == true);
+    r["pass"] = json!(ok);
+    r
+}
+
+// BOBIX_SMOKE_FOLLOW=<issue project>|<its folder>|<another code project>|<its folder>|<phase: 1 or 2> (with BOBIX_HOME
+// set; not in CI): #188, a Full start opened in Claude desktop is followed wherever Claude opens its session. Against a
+// stand-in glab (issues 501 to 510 of the issue project, `mr create`) and two made-up clones whose `origin` is a local
+// bare repository. Sessions are pretend ones through the real hook.js; a "worktree Claude made" is a real git worktree
+// under the folder's .claude/worktrees, cut from the flow's worktree as Claude desktop does.
+// Phase 1: the link Bobix opens names a folder Claude desktop keeps; a session in the named folder, in a worktree
+// Claude made (the flow works there: plan approved from Bobix, work log read, Open MR pushes that branch, Clean up
+// leaves that folder) and in the main folder with uncommitted files (the flow keeps its worktree; nothing of the main
+// folder reaches the ticket's branch); two starts waiting in one repository; one issue in two repositories; a session
+// you open yourself; a start removed before its session; the terminal command; a plan answered in Claude itself; a
+// worktree deleted by hand (what is not pushed is still said and pushed). Phase 2 is a second run on the same data
+// folder: starts wait again after the restart, a flow whose plan waited is picked up, and the notes read in Vietnamese.
+fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let v: Vec<&str> = spec.split('|').collect();
+    let [a, adir, bp, bdir, phase] = v.as_slice() else { return json!("bad BOBIX_SMOKE_FOLLOW") };
+    let (port, hold) = (b.port, std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0));
+    let pre = format!("const A = {}, AD = {}, B = {}, BD = {}, hold = {hold}, w = ms => new Promise(o => setTimeout(o, ms)), \
+        until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}, r = {{}}; \
+        const issue = n => st.todo.map(x => x[0]).find(i => i.iid === n && i.url.includes('/' + A + '/')); \
+        const fl = k => tickets.list.find(f => f.key === k); \
+        const show = async k => {{ showTab('work'); bsel.work = 'f:' + k; render(); await w(400); }}; \
+        const note = () => document.querySelector('#b-dyn .tk-place')?.textContent.trim() || ''; \
+        const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); const pr = BOARD.flowPrompt(issue(n), 'Made-up description.', p.models, p.rules); \
+          const x = await bridge.ticketStart(A, n, pr, {{ size: 'small' }}, how, code, true); return {{ ok: x?.ok === true, key: x?.key, dir: x?.dir, prompt: pr }}; }};",
+        json!(a), json!(adir), json!(bp), json!(bdir));
+    let js = |body: &str| format!("(async () => {{ {pre} {body} return r; }})()");
+    let hook = hooks::hook_target(&paths::home());
+    let flow = |key: &str| serde_json::from_str::<Value>(&b.snapshot()).ok().and_then(|v| v["tickets"]["list"].as_array()?.iter().find(|f| f["key"] == key).cloned()).unwrap_or(Value::Null);
+    let wait = |key: &str, f: &dyn Fn(&Value) -> bool| { let until = Instant::now() + Duration::from_secs(15); loop { let x = flow(key); if f(&x) || Instant::now() > until { return x; } thread::sleep(Duration::from_millis(200)); } };
+    let git = |d: &str, args: &[&str]| Command::new("git").arg("-C").arg(d).args(args)
+        .envs([("GIT_AUTHOR_NAME", "Demo Dev"), ("GIT_AUTHOR_EMAIL", "demo@example.test"), ("GIT_COMMITTER_NAME", "Demo Dev"), ("GIT_COMMITTER_EMAIL", "demo@example.test")])
+        .output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+    let sid = |n: u32| format!("cc000000-0000-4000-8000-{n:012}");
+    let ev = |n: u32, cwd: &str, e: Value| { let mut x = json!({ "session_id": sid(n), "cwd": cwd, "transcript_path": dir.join(format!("{}.jsonl", sid(n))) }); for (k, v) in e.as_object().unwrap() { x[k] = v.clone(); } x.to_string() };
+    // a session Claude starts: SessionStart, its first prompt, the end of its turn → the name Bobix gave it
+    let session = |n: u32, cwd: &str, prompt: &str| claude_session(port, dir, &sid(n), cwd, prompt);
+    // a plan that waits for an answer: the hook process stays until Bobix answers it (or is stopped: Claude moved on)
+    let ask_plan = |n: u32, cwd: &str, plan: &str| {
+        let mut c = Command::new("node").arg(&hook).arg(port.to_string()).env("CLAUDE_PID", std::process::id().to_string()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+        if let Some(mut i) = c.stdin.take() { let _ = i.write_all(ev(n, cwd, json!({ "hook_event_name": "PermissionRequest", "tool_name": "ExitPlanMode", "tool_input": { "plan": plan } })).as_bytes()); }
+        Some(c)
+    };
+    // what the session does in the folder it works in: a commit on that folder's branch, and the work log says done
+    let work_done = |d: &str, file: &str| {
+        let _ = fs::write(std::path::Path::new(d).join(file), "export const subtract = (a, b) => a - b;\n");
+        git(d, &["add", file]);
+        git(d, &["commit", "-q", "-m", "Add the fix"]);
+        let log = std::path::Path::new(d).join(".bobix-log/work-log.md");
+        let t = fs::read_to_string(&log).unwrap_or_default().replace("Status: planning", "Status: done").replace("## Steps\n", "## Steps\n- Read the code\n- Added the fix\n")
+            .replace("## Assumptions\n", "## Assumptions\n- Whole numbers only\n").replace("## Checks\n", "## Checks\n- `npm test`\n```\nok 3 tests passed\n```\n- Review: /code-review, no issues\n").replace("## Result\n", "## Result\nDone: the fix is in.\n");
+        let _ = fs::write(&log, t);
+        git(d, &["rev-parse", "HEAD"])
+    };
+    let remote = |d: &str, branch: &str| git(d, &["ls-remote", "origin", &format!("refs/heads/{branch}")]).split_whitespace().next().unwrap_or("").to_string();
+    let state_file = paths::data_dir().join("follow-phase1.json");
+    let s = |v: &Value, k: &str| v[k].as_str().unwrap_or("").to_string();
+    let mut r = json!({});
+    let mut checks = serde_json::Map::new();
+    let mut check = |k: &str, ok: bool| { checks.insert(k.into(), json!(ok)); };
+
+    if *phase == "2" {
+        let p1: Value = fs::read_to_string(&state_file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let (k501, k508, k505) = (format!("{a}#501"), format!("{a}#508"), format!("{a}#505"));
+        // the start that waited when Bobix closed waits again; the flow whose plan waited is stopped until it speaks
+        let x = ask_for(app, panel::LABEL, &js(&format!("await bridge.refreshWork(); r.waits = await until(() => waiting.some(x => x.iid === 508), 20000); r.st508 = fl({})?.status; await w(6000); r.st501 = fl({})?.status;", json!(k508), json!(k501))), 60);
+        check("restart: the waiting start waits again", x["waits"] == true && x["st508"] == "starting");
+        check("restart: a flow whose session is not heard yet is stopped, not lost", x["st501"] == "stopped");
+        let theirs = format!("{adir}/.claude/worktrees/quiet-finch");
+        git(adir, &["worktree", "add", "-q", "-b", "claude/quiet-finch", &theirs, &git(&s(&p1["dirs"], "508"), &["rev-parse", "HEAD"])]);
+        let t = session(508, &theirs, &s(&p1["prompts"], "508"));
+        let f = wait(&k508, &|f| f["place"] == "claude");
+        check("restart: its session takes it in a worktree Claude made", t.contains("-508]") && f["status"] == "planning" && f["dir"] == theirs.as_str() && f["branch"] == "claude/quiet-finch");
+        // 501's session speaks again: its plan was approved in Claude while Bobix was closed
+        let d501 = s(&p1["dirs"], "501");
+        run_hook(&hook, port, &ev(501, &d501, json!({ "hook_event_name": "PostToolUse", "tool_name": "ExitPlanMode" })));
+        check("restart: the flow is followed again and runs", wait(&k501, &|f| f["status"] == "running")["status"] == "running");
+        let head = work_done(&d501, "subtract.js");
+        run_hook(&hook, port, &ev(501, &d501, json!({ "hook_event_name": "Stop" })));
+        let done = wait(&k501, &|f| f["status"] == "done");
+        let x = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await show(k); const m = await bridge.ticketMr(k, '', 'Closes #501'); r.mr = m; r.branch = fl(k)?.branch;", json!(k501))), 60);
+        check("named folder: done, and Open MR pushes the ticket's branch", done["status"] == "done" && x["mr"]["ok"] == true && !head.is_empty() && remote(adir, x["branch"].as_str().unwrap_or("-")) == head);
+        // the notes in Vietnamese, then English again (held for screenshots of the real window)
+        let x = ask_for(app, panel::LABEL, &js(&format!("await save({{ language: 'vi' }}); await w(600); await show({}); r.viClaude = note(); r.viClaudeOk = note().startsWith(I18N.t('vi', 'tk.place.claude.t')); await w(hold); \
+            await show({}); r.viMain = note(); r.viMainOk = note().startsWith(I18N.t('vi', 'tk.place.main.t')) && note().includes(I18N.t('vi', 'tk.place.mixed', {{ n: 2 }})); await w(hold); \
+            await save({{ language: 'en' }}); await w(600); await show({}); r.enMainOk = note().startsWith(I18N.t('en', 'tk.place.main.t')); await w(hold);", json!(k508), json!(k505), json!(k505))), 60 + 3 * hold / 1000);
+        check("the notes read in Vietnamese and in English", x["viClaudeOk"] == true && x["viMainOk"] == true && x["enMainOk"] == true);
+        r["vi"] = json!([x["viClaude"], x["viMain"]]);
+        let ok = checks.values().all(|v| v == true);
+        r["checks"] = Value::Object(checks);
+        r["pass"] = json!(ok);
+        return r;
+    }
+
+    // ---- phase 1 ----
+    let x = ask_for(app, panel::LABEL, &js("await bridge.refreshWork(); r.listed = await until(() => [501, 502, 503, 504, 505, 506, 507, 508, 509, 510].every(n => issue(n)) && !reading(), 40000); \
+        r.linked = !!(await bridge.linkFolder(A, AD)).ok && !!(await bridge.linkFolder(B, BD, A)).ok; r.flows = {}; \
+        for (const n of [501, 502, 503, 504, 505, 506, 508, 510]) r.flows[n] = await full(n, A, 'desktop'); \
+        r.flows['507'] = await full(507, A, 'desktop'); r.flows['507b'] = await full(507, B, 'desktop'); r.flows['509'] = await full(509, A, 'cli'); \
+        r.waiting = await until(() => [501, 502, 503, 504, 505, 506, 507, 508, 510].every(n => waiting.some(x => x.iid === n)), 10000); showTab('work'); await w(hold);"), 180 + hold / 1000);
+    let fx = |n: &str, k: &str| x["flows"][n][k].as_str().unwrap_or("").to_string();
+    let (dirs, prompts): (Value, Value) = (json!(x["flows"].as_object().map(|o| o.iter().map(|(n, f)| (n.clone(), f["dir"].clone())).collect::<serde_json::Map<_, _>>())), json!(x["flows"].as_object().map(|o| o.iter().map(|(n, f)| (n.clone(), f["prompt"].clone())).collect::<serde_json::Map<_, _>>())));
+    let _ = fs::write(&state_file, json!({ "dirs": dirs, "prompts": prompts }).to_string());
+    check("issues listed, folders linked, 11 Full starts made", x["listed"] == true && x["linked"] == true && x["waiting"] == true && x["flows"].as_object().is_some_and(|o| o.len() == 11 && o.values().all(|f| f["ok"] == true)));
+    // the link Bobix opens: the flow's worktree, in a folder Claude desktop keeps (not under .claude/worktrees)
+    let opened: Vec<String> = OPENED.lock().unwrap().clone();
+    r["opened"] = json!(opened.iter().map(|u| u.split("&q=").next().unwrap_or("").to_string()).collect::<Vec<_>>());
+    check("each start's link names its own worktree, outside .claude/worktrees", ["501", "502", "503", "504", "505", "506", "507", "507b", "508", "510"].iter().all(|n| {
+        let d = fx(n, "dir");
+        !d.is_empty() && !d.contains(".claude") && d.contains("/.bobix/worktrees/") && opened.iter().any(|u| u.starts_with(&format!("claude://code/new?folder={}&q=", crate::work::enc(&d))))
+    }));
+    check("the prompt names the worktree and what to do elsewhere", fx("501", "prompt").contains(&format!("`{}`, on branch `501-", fx("501", "dir"))) && fx("501", "prompt").contains("a folder under `.claude/worktrees`), stay in that worktree"));
+    check("the worktrees' folder ignores itself in the main folder", git(adir, &["status", "--porcelain"]).is_empty());
+
+    // a session you open yourself in the main folder while the starts wait: it takes no flow and no name
+    let mine = session(1, adir, "Tidy the README, please");
+    check("a session you open yourself takes no flow", mine.is_empty() && ["501", "502", "503", "504", "505"].iter().all(|n| flow(&fx(n, "key"))["status"] == "starting"));
+
+    // 501: Claude desktop opens the named folder (the flow's worktree)
+    let t = session(501, &fx("501", "dir"), &fx("501", "prompt"));
+    let f = wait(&fx("501", "key"), &|f| f["status"] == "planning");
+    check("named folder: the flow takes its session", t.contains("-501]") && f["session"] == sid(501).as_str() && f["place"] == "" && f["dir"] == fx("501", "dir").as_str());
+
+    // 502: Claude desktop makes a worktree of its own, cut from the flow's worktree
+    let theirs = format!("{adir}/.claude/worktrees/brave-otter");
+    git(adir, &["worktree", "add", "-q", "-b", "claude/brave-otter", &theirs, &git(&fx("502", "dir"), &["rev-parse", "HEAD"])]);
+    let t = session(502, &theirs, &fx("502", "prompt"));
+    let k502 = fx("502", "key");
+    let f = wait(&k502, &|f| f["place"] == "claude");
+    check("Claude's worktree: the flow works there", t.contains("-502]") && f["status"] == "planning" && f["session"] == sid(502).as_str() && f["dir"] == theirs.as_str() && f["branch"] == "claude/brave-otter" && f["own"] == fx("502", "dir").as_str());
+    check("Claude's worktree: the work log is there, and git ignores it", std::path::Path::new(&theirs).join(".bobix-log/work-log.md").is_file() && git(&theirs, &["status", "--porcelain"]).is_empty());
+    // its plan is approved from Bobix
+    let held = ask_plan(502, &theirs, "1. Add subtract next to add\n\n## Assumptions\n- Whole numbers only");
+    let asked = wait(&k502, &|f| f["status"] == "approve")["status"] == "approve";
+    let x2 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await show(k); r.note = note(); r.noteOk = note().startsWith(I18N.t('en', 'tk.place.claude.t')) && note().includes('claude/brave-otter'); r.plan = !!document.querySelector('#b-dyn .report'); await w(hold); \
+        const ok = document.querySelector('#b-dyn [data-tk-ok]'); r.button = !!ok; ok?.click(); await w(800);", json!(k502))), 30 + hold / 1000);
+    let answer = held.and_then(|c| c.wait_with_output().ok()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    check("Claude's worktree: Work says where it runs", x2["noteOk"] == true);
+    check("Claude's worktree: the plan is approved from Bobix", asked && x2["button"] == true && x2["plan"] == true && answer.contains("\"behavior\":\"allow\"") && wait(&k502, &|f| f["status"] == "running")["status"] == "running");
+    // it works to the end there: the log is read, Open MR pushes that folder's branch, Clean up leaves that folder
+    let head = work_done(&theirs, "subtract.js");
+    run_hook(&hook, port, &ev(502, &theirs, json!({ "hook_event_name": "Stop" })));
+    let done = wait(&k502, &|f| f["status"] == "done");
+    let x3 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await show(k); const d = await bridge.ticketDetail(k); r.steps = d?.parsed?.steps; r.ran = d?.parsed?.ran; await w(hold); \
+        r.mr = await bridge.ticketMr(k, '', d?.mrBody || 'Closes #502'); await w(500); r.clean = await bridge.ticketClean(k); await w(500); r.cleaned = fl(k)?.cleaned;", json!(k502))), 60 + hold / 1000);
+    check("Claude's worktree: the work log is read", done["status"] == "done" && x3["steps"] == json!(["Read the code", "Added the fix"]) && x3["ran"] == 1);
+    check("Claude's worktree: Open MR pushes the branch the session worked on", x3["mr"]["ok"] == true && !head.is_empty() && remote(adir, "claude/brave-otter") == head && remote(adir, "502-*").is_empty());
+    check("Claude's worktree: Clean up leaves Claude's folder and removes Bobix's own", x3["clean"]["ok"] == true && x3["clean"]["left"] == theirs.as_str() && x3["cleaned"] == true
+        && std::path::Path::new(&theirs).is_dir() && !std::path::Path::new(&fx("502", "dir")).exists());
+
+    // 503: Claude desktop opens the repository's main folder, which has changes of yours that are not committed
+    let _ = fs::write(std::path::Path::new(adir).join("notes-of-mine.txt"), "half-written notes\n");
+    let _ = fs::write(std::path::Path::new(adir).join("README.md"), "# Web shop\n\nAn edit of mine, not committed.\n");
+    let t = session(503, adir, &fx("503", "prompt"));
+    let k503 = fx("503", "key");
+    let f = wait(&k503, &|f| f["place"] == "main");
+    check("main folder: the flow takes the session and keeps its worktree", t.contains("-503]") && f["status"] == "planning" && f["session"] == sid(503).as_str() && f["dir"] == fx("503", "dir").as_str() && f["own"] == "" && f["mixed"] == 2);
+    // the session does what the prompt says: it works in the flow's worktree. Its events still come from the main folder
+    let log503 = std::path::Path::new(&fx("503", "dir")).join(".bobix-log/work-log.md");
+    let _ = fs::write(&log503, fs::read_to_string(&log503).unwrap_or_default().replace("Status: planning", "Status: done"));
+    run_hook(&hook, port, &ev(503, adir, json!({ "hook_event_name": "Stop" })));
+    let none = wait(&k503, &|f| f["status"] == "done")["status"] == "done";
+    let x4 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await show(k); r.note = note(); r.noteOk = note().startsWith(I18N.t('en', 'tk.place.main.t')) && note().includes('2 changed files'); await w(hold); r.empty = await bridge.ticketMr(k, '', 'Closes #503');", json!(k503))), 40 + hold / 1000);
+    check("main folder: Work says so, and how many files of yours were not committed", x4["noteOk"] == true);
+    check("main folder: a branch with nothing committed is not pushed", none && x4["empty"]["error"] == "nocommits" && remote(adir, &s(&f, "branch")).is_empty());
+    let head = work_done(&fx("503", "dir"), "subtract.js");
+    run_hook(&hook, port, &ev(503, adir, json!({ "hook_event_name": "Stop" })));
+    let x5 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; r.mr = await bridge.ticketMr(k, '', 'Closes #503');", json!(k503))), 40);
+    let pushed = git(adir, &["ls-tree", "-r", "--name-only", &head]);
+    check("main folder: Open MR pushes the ticket's branch", x5["mr"]["ok"] == true && !head.is_empty() && remote(adir, &s(&f, "branch")) == head);
+    check("main folder: your uncommitted files stay yours (not lost, not on the ticket's branch)", !pushed.contains("notes-of-mine.txt") && pushed.contains("subtract.js")
+        && crate::tickets::uncommitted(adir) == 2 && fs::read_to_string(std::path::Path::new(adir).join("README.md")).is_ok_and(|t| t.contains("An edit of mine")));
+
+    // 504 and 505: two starts waiting in one repository; 505's session comes first (main folder), then 504's (Claude's worktree)
+    let t5 = session(505, adir, &fx("505", "prompt"));
+    let theirs4 = format!("{adir}/.claude/worktrees/calm-heron");
+    git(adir, &["worktree", "add", "-q", "-b", "claude/calm-heron", &theirs4, &git(&fx("504", "dir"), &["rev-parse", "HEAD"])]);
+    let t4 = session(504, &theirs4, &fx("504", "prompt"));
+    let (f4, f5) = (wait(&fx("504", "key"), &|f| f["place"] == "claude"), wait(&fx("505", "key"), &|f| f["place"] == "main"));
+    check("two starts in one repository: each session takes its own flow", t4.contains("-504]") && t5.contains("-505]") && f4["session"] == sid(504).as_str() && f5["session"] == sid(505).as_str() && f4["dir"] == theirs4.as_str() && f5["dir"] == fx("505", "dir").as_str());
+    // 505's plan is answered in Claude itself (the hook is stopped: Claude moved on), not in Bobix
+    if let Some(mut c) = ask_plan(505, adir, "1. Do it") {
+        let asked = wait(&fx("505", "key"), &|f| f["status"] == "approve")["status"] == "approve";
+        let _ = c.kill();
+        let _ = c.wait();
+        run_hook(&hook, port, &ev(505, adir, json!({ "hook_event_name": "PostToolUse", "tool_name": "ExitPlanMode" })));
+        check("a plan approved in Claude itself: the flow runs", asked && wait(&fx("505", "key"), &|f| f["status"] == "running")["status"] == "running");
+    }
+
+    // 506: the start is removed before its session comes; a session with its prompt then takes nothing
+    let k506 = fx("506", "key");
+    let x6 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; r.check = await bridge.ticketRemove(k, 'check'); r.rm = await bridge.ticketRemove(k, 'keep'); await w(500); r.gone = !fl(k) && !waiting.some(x => x.iid === 506);", json!(k506))), 30);
+    let t6 = session(506, adir, &fx("506", "prompt"));
+    check("removed before its session: nothing takes it", x6["rm"]["ok"] == true && x6["gone"] == true && t6.is_empty() && flow(&k506).is_null());
+
+    // 507: one issue started in two repositories: the session in B's main folder, then the one in A's worktree
+    let tb = session(5072, bdir, &fx("507b", "prompt"));
+    let ta = session(5071, &fx("507", "dir"), &fx("507", "prompt"));
+    let (fa, fb) = (wait(&fx("507", "key"), &|f| f["status"] == "planning"), wait(&fx("507b", "key"), &|f| f["place"] == "main"));
+    let x7 = ask_for(app, panel::LABEL, &js("showTab('sessions'); await w(800); r.under = ((model.issues || []).find(i => i.project === A && i.iid === 507)?.sessions || []).map(x => x.id + ' ' + x.why);"), 20);
+    check("one issue in two repositories: each session takes the flow where it came up", ta.contains("-507]") && tb.contains("-507]") && fa["session"] == sid(5071).as_str() && fb["session"] == sid(5072).as_str() && fx("507", "key") != fx("507b", "key"));
+    // the session in the other repository is listed under the issue it works on, not under "without a ticket"
+    check("one issue in two repositories: both sessions are listed under the issue", [5071, 5072].iter().all(|n| x7["under"].as_array().is_some_and(|a| a.iter().any(|x| x == &json!(format!("{} started", sid(*n)))))));
+
+    // 509: the terminal command (a session in the flow's worktree); then its worktree is deleted by hand
+    let k509 = fx("509", "key");
+    let t9 = session(509, &fx("509", "dir"), &fx("509", "prompt"));
+    let f9 = wait(&k509, &|f| f["status"] == "planning");
+    let head = work_done(&fx("509", "dir"), "subtract.js");
+    run_hook(&hook, port, &ev(509, &fx("509", "dir"), json!({ "hook_event_name": "Stop" })));
+    check("terminal command: the flow takes its session and reads its log", t9.contains("-509]") && f9["session"] == sid(509).as_str() && f9["place"] == "" && wait(&k509, &|f| f["status"] == "done")["status"] == "done");
+    let _ = fs::remove_dir_all(fx("509", "dir"));
+    let x9 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; r.first = await bridge.ticketClean(k); r.mr = await bridge.ticketMr(k, '', 'Closes #509'); r.second = await bridge.ticketClean(k); await w(500); r.cleaned = fl(k)?.cleaned;", json!(k509))), 60);
+    check("worktree deleted by hand: Clean up still says what is not pushed", x9["first"]["error"] == "unpushed" && x9["first"]["n"] == 1);
+    check("worktree deleted by hand: Open MR still pushes the branch, then Clean up", x9["mr"]["ok"] == true && remote(adir, &s(&f9, "branch")) == head && x9["second"]["ok"] == true && x9["cleaned"] == true);
+
+    // 510: its worktree is deleted by hand while the start waits; Remove says so, and the issue starts again
+    let k510 = fx("510", "key");
+    let _ = fs::remove_dir_all(fx("510", "dir"));
+    let x10 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; r.check = await bridge.ticketRemove(k, 'check'); r.rm = await bridge.ticketRemove(k, 'keep'); await w(500); r.again = await full(510, A, 'cli'); await w(500); r.st = fl(k)?.status;", json!(k510))), 60);
+    check("worktree deleted by hand while waiting: said, removed, and started again", x10["check"]["exists"] == false && x10["rm"]["ok"] == true && x10["again"]["ok"] == true && x10["st"] == "starting" && std::path::Path::new(&fx("510", "dir")).join(".bobix-log/work-log.md").is_file());
+
+    // 510 again: its session starts in the flow's worktree and takes it there (named by the worktree's branch), with a
+    // prompt you edited (it no longer names the issue). A later session elsewhere whose prompt names it takes nothing:
+    // no name, and the flow keeps its session and its folder.
+    let (k510, d510) = (k510.clone(), x10["again"]["dir"].as_str().unwrap_or("").to_string());
+    let t1 = session(5101, &d510, "Round the totals, please");
+    let theirs10 = format!("{adir}/.claude/worktrees/late-wren");
+    git(adir, &["worktree", "add", "-q", "-b", "claude/late-wren", &theirs10]);
+    let t2 = session(5102, &theirs10, x10["again"]["prompt"].as_str().unwrap_or(""));
+    thread::sleep(Duration::from_millis(1500));
+    let f10 = flow(&k510);
+    check("a second session cannot move a flow that has its session", t1.contains("-510] ") && t2.is_empty() && f10["session"] == sid(5101).as_str() && f10["dir"] == d510.as_str() && f10["place"] == "");
+    // while a start waits in this repository, a new session on an issue's branch is still named by that branch
+    let named = format!("{adir}/.claude/worktrees/504-show-stock");
+    git(adir, &["worktree", "add", "-q", "-b", "504-show-stock", &named]);
+    let t3 = session(5041, &named, "Look at the stock badge");
+    check("while a start waits, a session on an issue's branch is still named", t3.contains("-504] "));
+
+    // 501's plan waits when Bobix closes (phase 2 goes on from here); 508 still waits for its session
+    let _left_waiting = ask_plan(501, &fx("501", "dir"), "1. Add subtract\n\n## Assumptions\n- Whole numbers only");
+    check("before the restart: a plan waits, a start waits", wait(&fx("501", "key"), &|f| f["status"] == "approve")["status"] == "approve" && flow(&fx("508", "key"))["status"] == "starting");
+    let _ = ask_for(app, panel::LABEL, &js("showTab('work'); await w(hold);"), 10 + hold / 1000);
+    let ok = checks.values().all(|v| v == true);
+    r["checks"] = Value::Object(checks);
     r["pass"] = json!(ok);
     r
 }
