@@ -632,7 +632,8 @@ fn take_issue(settings: &Value, s: &mut state::Session, n: &Value) -> server::Re
 fn place_flow(b: &Arc<Bobix>, key: String, sid: String, cwd: String) {
     let b = b.clone();
     thread::spawn(move || {
-        let Some((g, _)) = work::git_status(&cwd) else { return };
+        // git may be slow or busy: asked up to 3 times, 5 s apart (and again when the session is resumed)
+        let Some((g, _)) = (0..3).find_map(|n| { if n > 0 { thread::sleep(Duration::from_secs(5)); } work::git_status(&cwd) }) else { return };
         let top = g["top"].as_str().unwrap_or("").to_string();
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return };
         let place = tickets::place_of(&f, &top).filter(|_| f.place.is_empty() && f.session.as_deref() == Some(sid.as_str()));
@@ -641,7 +642,7 @@ fn place_flow(b: &Arc<Bobix>, key: String, sid: String, cwd: String) {
             let _ = tickets::seed_log(std::path::Path::new(&top), &log);
             skill_audit::carry_tests(std::path::Path::new(&f.repo), std::path::Path::new(&top), &paths::data_dir());
         }
-        let yours = if place == Some("main") { tickets::uncommitted(&top) } else { 0 };
+        let yours = match place { Some("main") => tickets::uncommitted(&top) as u64, Some("claude") => tickets::unpushed(&top, "HEAD"), _ => 0 };
         let placed = {
             let mut c = b.core.lock().unwrap();
             let p = c.tickets.placed(&key, &sid, &top, g["branch"].as_str(), yours, state::now());
@@ -1291,7 +1292,7 @@ fn ticket_place(b: &Bobix, path: &str, iid: i64, code: &str) -> Result<(String, 
     let dir = dir.ok_or_else(|| json!({ "ok": false, "reason": "where", "code": code }))?;
     let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).ok_or_else(|| json!({ "ok": false, "reason": "where", "code": code }))?;
     let branch = tickets::branch_for(iid, i["title"].as_str().unwrap_or(""), path, code);
-    let wt = tickets::kept_worktree(&repo, iid, path, code, &branch).unwrap_or_else(|| tickets::worktree_dir(&repo, iid, path, code));
+    let wt = tickets::worktree_dir(&repo, iid, path, code);
     Ok((repo, i, wt, branch))
 }
 // The repository a Start puts the code in: the one you picked, else the issue's own. Lower case, as paths are kept.
@@ -1327,6 +1328,8 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) && anyway != Some(true) { return json!({ "ok": false, "reason": "disk", "free": free }); }
         let title = i["title"].as_str().unwrap_or("").to_string();
         let flang = lang(&b.core.lock().unwrap().settings); // the flow keeps the language it started in
+        // a worktree kept from before in the old place (a link there opens the main folder): moved here first
+        if let Err(e) = tickets::move_kept(&repo, iid, &path, &code, &branch, &wt) { return json!({ "ok": false, "reason": "git", "detail": e }); }
         let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title, &flang)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
         let fetch = json!({ "ok": base.fetched, "from": base.name, "at": base.at });
         let tests = skill_audit::carry_tests(std::path::Path::new(&repo), &wt, &paths::data_dir()); // your uncommitted Tests line, there too

@@ -575,6 +575,11 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
     }
 
     // ---- phase 1 ----
+    // a worktree an older Bobix made for 506 in the old place (where a link opens the main folder), kept on its branch
+    // with work not committed: Start moves it to the new place, its work with it
+    let old506 = format!("{adir}/.claude/worktrees/bobix-506");
+    git(adir, &["worktree", "add", "-q", "-b", "506-speed-up-the-search-page", &old506]);
+    let _ = fs::write(std::path::Path::new(&old506).join("half-done.txt"), "not committed\n");
     let x = ask_for(app, panel::LABEL, &js("await bridge.refreshWork(); r.listed = await until(() => [501, 502, 503, 504, 505, 506, 507, 508, 509, 510].every(n => issue(n)) && !reading(), 40000); \
         r.linked = !!(await bridge.linkFolder(A, AD)).ok && !!(await bridge.linkFolder(B, BD, A)).ok; r.flows = {}; \
         for (const n of [501, 502, 503, 504, 505, 506, 508, 510]) r.flows[n] = await full(n, A, 'desktop'); \
@@ -593,6 +598,8 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
     }));
     check("the prompt names the worktree and what to do elsewhere", fx("501", "prompt").contains(&format!("`{}`, on branch `501-", fx("501", "dir"))) && fx("501", "prompt").contains("a folder under `.claude/worktrees`), stay in that worktree"));
     check("the worktrees' folder ignores itself in the main folder", git(adir, &["status", "--porcelain"]).is_empty());
+    check("a worktree kept in the old place is moved to the new one, its work with it", !std::path::Path::new(&old506).exists() && fx("506", "dir").contains("/.bobix/worktrees/")
+        && std::path::Path::new(&fx("506", "dir")).join("half-done.txt").is_file());
 
     // a session you open yourself in the main folder while the starts wait: it takes no flow and no name
     let mine = session(1, adir, "Tidy the README, please");
@@ -655,10 +662,16 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
 
     // 504 and 505: two starts waiting in one repository; 505's session comes first (main folder), then 504's (Claude's worktree)
     let t5 = session(505, adir, &fx("505", "prompt"));
+    // 504's: Claude cuts its worktree from the main folder's HEAD, where a commit of yours is not pushed yet
+    let _ = fs::write(std::path::Path::new(adir).join("local-notes.txt"), "mine\n");
+    git(adir, &["add", "local-notes.txt"]);
+    git(adir, &["commit", "-q", "-m", "My own work, not pushed"]);
     let theirs4 = format!("{adir}/.claude/worktrees/calm-heron");
-    git(adir, &["worktree", "add", "-q", "-b", "claude/calm-heron", &theirs4, &git(&fx("504", "dir"), &["rev-parse", "HEAD"])]);
+    git(adir, &["worktree", "add", "-q", "-b", "claude/calm-heron", &theirs4]);
     let t4 = session(504, &theirs4, &fx("504", "prompt"));
     let (f4, f5) = (wait(&fx("504", "key"), &|f| f["place"] == "claude"), wait(&fx("505", "key"), &|f| f["place"] == "main"));
+    let x45 = ask_for(app, panel::LABEL, &js(&format!("await show({}); r.note = note(); r.ok = note().includes(I18N.t('en', 'tk.place.carried.1', {{ ...fw(fl({})), n: 1, b: 'claude/calm-heron' }})); await w(hold);", json!(fx("504", "key")), json!(fx("504", "key")))), 20 + hold / 1000);
+    check("Claude's worktree cut from the main folder: your unpushed commit is counted and said", f4["carried"] == 1 && x45["ok"] == true);
     check("two starts in one repository: each session takes its own flow", t4.contains("-504]") && t5.contains("-505]") && f4["session"] == sid(504).as_str() && f5["session"] == sid(505).as_str() && f4["dir"] == theirs4.as_str() && f5["dir"] == fx("505", "dir").as_str());
     // 505's plan is answered in Claude itself (the hook is stopped: Claude moved on), not in Bobix
     if let Some(mut c) = ask_plan(505, adir, "1. Do it") {

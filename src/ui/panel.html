@@ -1966,6 +1966,7 @@ function mrHTML(f) {
   if (!bridge || f.cleaned || f.status !== 'done' || !m?.open) return '';
   return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h', fw(f)))}</h3>
     ${unchecked(f) ? `<p class="risk">⚠ ${esc(T('tk.mr.nochecks', fw(f)))}</p>` : ''}
+    ${f.carried ? `<p class="risk">⚠ ${esc(T(f.carried === 1 ? 'tk.place.carried.1' : 'tk.place.carried', { ...fw(f), n: f.carried, b: f.branch }))}</p>` : ''}
     ${tkDet[f.key]?.mrReady === false ? `<div class="tk-warn tk-mr-en"><p><strong>${esc(T('tk.mr.noen.t', fw(f)))}</strong> ${esc(T('tk.mr.noen', fw(f)))}</p><div class="cmd"><code>${esc(MR_ASK)}</code><button class="btn sm" type="button" data-copy="${esc(MR_ASK)}">${esc(T('work.copy'))}</button></div></div>`
       : f.lang && f.lang !== 'en' ? `<p class="note">${esc(T('tk.mr.en', fw(f)))}</p>` : ''}
     <label class="tk-ch"><span>${esc(T('tk.mr.title'))}</span><input type="text" data-tk-mr-title="${k}" data-f="tkmt:${k}" value="${esc(m.title)}"></label>
@@ -1977,7 +1978,7 @@ function mrHTML(f) {
 // worktree Claude made, the flow works there; in the repository's main folder the flow keeps its own worktree.
 function placeHTML(f) {
   if (!f.place || f.cleaned) return '';
-  if (f.place === 'claude') return `<div class="tk-warn tk-place"><p><strong>${esc(T('tk.place.claude.t'))}</strong> ${esc(T('tk.place.claude', { ...fw(f), dir: home(f.dir), b: f.branch }))}</p></div>`;
+  if (f.place === 'claude') return `<div class="tk-warn tk-place"><p><strong>${esc(T('tk.place.claude.t'))}</strong> ${esc(T('tk.place.claude', { ...fw(f), dir: home(f.dir), b: f.branch }))}${f.carried ? ' ' + esc(T(f.carried === 1 ? 'tk.place.carried.1' : 'tk.place.carried', { ...fw(f), n: f.carried, b: f.branch })) : ''}</p></div>`;
   return `<div class="tk-warn tk-place"><p><strong>${esc(T('tk.place.main.t'))}</strong> ${esc(T('tk.place.main', { dir: home(f.dir) }))}${f.mixed ? ' ' + esc(T(f.mixed === 1 ? 'tk.place.mixed.1' : 'tk.place.mixed', { n: f.mixed })) : ''}</p></div>`;
 }
 function flowHTML(f, s) {

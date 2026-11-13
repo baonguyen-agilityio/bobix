@@ -43,6 +43,9 @@ pub struct Flow {
     // the session there), and `mixed` counts the files changed and not committed in the main folder at that moment
     // (yours, not the ticket's). "": the worktree, as started.
     pub place: String, pub own: String, pub mixed: usize,
+    // In a worktree Claude made: commits that no remote has, already on its branch when the session came (Claude cuts
+    // that worktree from the main folder's HEAD, so your own unpushed commits ride along into the ticket's MR).
+    pub carried: u64,
 }
 
 pub fn key_of(path: &str, iid: i64) -> String { format!("{path}#{iid}") }
@@ -201,11 +204,31 @@ pub fn worktree_dir(repo: &str, iid: i64, path: &str, code: &str) -> PathBuf {
     let name = Some(slug(repo.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or(""))).filter(|s| !s.is_empty()).unwrap_or_else(|| "ticket".into());
     WT_DIR.split('/').fold(PathBuf::from(repo), |p, x| p.join(x)).join(format!("{name}-{}{iid}", from_tag(path, code)))
 }
-// Where Bobix made worktrees before (Claude's own place for them). One still there on the ticket's branch (a flow you
-// removed and kept) is used again by a new Start on its issue, as before.
-pub fn kept_worktree(repo: &str, iid: i64, path: &str, code: &str, branch: &str) -> Option<PathBuf> {
-    let d = Path::new(repo).join(".claude").join("worktrees").join(format!("bobix-{}{iid}", from_tag(path, code)));
-    (d.is_dir() && git(&d.to_string_lossy(), &["rev-parse", "--abbrev-ref", "HEAD"]).out.trim() == branch).then_some(d)
+// Where Bobix made worktrees before (where Claude keeps its own, which Claude desktop's link cuts down to the
+// repository). One still there on the ticket's branch (a flow you removed and kept) is moved to `to` with git, its
+// changes and log with it, so a new Start uses it again in a folder the link keeps. Ok(true) when moved.
+pub fn move_kept(repo: &str, iid: i64, path: &str, code: &str, branch: &str, to: &Path) -> Result<bool, String> {
+    let old = Path::new(repo).join(".claude").join("worktrees").join(format!("bobix-{}{iid}", from_tag(path, code)));
+    if to.exists() || !old.is_dir() || git(&old.to_string_lossy(), &["rev-parse", "--abbrev-ref", "HEAD"]).out.trim() != branch { return Ok(false); }
+    ignored_parent(to);
+    let r = git(repo, &["worktree", "move", &old.to_string_lossy(), &to.to_string_lossy()]);
+    if r.ok { Ok(true) } else { Err(one_line(&r)) }
+}
+// The folder that holds Bobix's worktrees ignores itself: the main folder's git status never lists them.
+fn ignored_parent(dir: &Path) {
+    if let Some(p) = dir.parent().filter(|p| p.ends_with(WT_DIR)) {
+        let _ = fs::create_dir_all(p).and_then(|_| if p.join(".gitignore").exists() { Ok(()) } else { fs::write(p.join(".gitignore"), "*\n") });
+    }
+}
+// A worktree of `branch` whose folder was deleted by hand still holds the branch: git forgets that one (only that
+// one; other worktrees whose folder is missing, on a disk not mounted now, are left alone).
+fn forget_missing(repo: &str, branch: &str) {
+    let list = git(repo, &["worktree", "list", "--porcelain"]).out;
+    for e in list.split("\n\n") {
+        let path = e.lines().find_map(|l| l.strip_prefix("worktree "));
+        let on = e.lines().any(|l| l == format!("branch refs/heads/{branch}"));
+        if let Some(p) = path.filter(|p| on && !Path::new(p).exists()) { let _ = git(repo, &["worktree", "remove", "--force", p]); }
+    }
 }
 // Where a flow's session came up, from the top folder git reports for it: "" (the flow's worktree), "main" (its
 // repository's main folder), "claude" (a worktree Claude made, under the repository's `.claude/worktrees`), else None
@@ -254,7 +277,7 @@ fn rules_en(branch: &str, dir: &str) -> String {
     format!("How to work on this ticket (Bobix ticket flow):\n\
 1. Call the EnterPlanMode tool now, before changing anything. Read what you need, then write the plan. It must end with a section \"Assumptions\": what you assume because nobody can answer now. Then call ExitPlanMode. Approving that plan is the only approval.\n\
 2. This ticket has its own git worktree: `{dir}`, on branch `{branch}`. Work there to the end. If this session did not start in that folder: when it started in a worktree Claude made for it (a folder under `.claude/worktrees`), stay in that worktree and on its branch; when it started anywhere else (the repository's main folder), run `cd` into `{dir}` before anything else and read, change and commit only there. Files that were already changed before you started are not this ticket's: leave them as they are. After approval, do not stop to ask, except for these: pushing to the main branch, deleting data, calling hosts this project does not already use, and touching secrets. Commit on the branch of the folder you work in; do not push to the main branch.\n\
-3. Keep the work log in `{LOG_DIR}/{LOG_FILE}` in the folder you work in (git ignores it; it is for me only, never commit or share it). Fill in its template: `Status:` (planning, running, done or blocked), `## Plan` (the approved plan in short), `## Steps` (one line per step as you go), `## Assumptions` (one `- ` line for each assumption you make along the way, also after approval), `## Checks` (steps 4 and 5), `## Result` (what you did, or what blocks you). Update it as you work.\n\
+3. Keep the work log in `{dir}/{LOG_DIR}/{LOG_FILE}`, or in `{LOG_DIR}/{LOG_FILE}` of the worktree Claude made for you when you stay there (Bobix puts it there; git ignores it; it is for me only, never commit or share it). Never start a work log in the repository's main folder. Fill in its template: `Status:` (planning, running, done or blocked), `## Plan` (the approved plan in short), `## Steps` (one line per step as you go), `## Assumptions` (one `- ` line for each assumption you make along the way, also after approval), `## Checks` (steps 4 and 5), `## Result` (what you did, or what blocks you). Update it as you work.\n\
 4. Before you set `Status: done`, run the project's tests, build and lint: the commands in CLAUDE.md, else the ones the project clearly uses. Under `## Checks`, add one `- ` line per command with the command in backticks, then the last lines of its output in a code block. If the project has none, write `- None: ` and why.\n\
 5. Then review your change against the approved plan and the Assumptions: run `/code-review`, or ask a read-only reviewer subagent. Fix what affects correctness, run the checks again, and add a `- Review: ` line under `## Checks` with what it found and what you fixed. Then set the status.")
 }
@@ -383,11 +406,8 @@ pub fn create_worktree(repo: &str, dir: &Path, branch: &str, log: &str) -> Resul
     if dir.exists() && !kept { return Err(format!("{} is already there", dir.display())); }
     let base = base_of(repo)?;
     if !kept {
-        // the folder that holds Bobix's worktrees ignores itself: the main folder's git status never lists them
-        if let Some(p) = dir.parent().filter(|p| p.ends_with(WT_DIR)) {
-            let _ = fs::create_dir_all(p).and_then(|_| if p.join(".gitignore").exists() { Ok(()) } else { fs::write(p.join(".gitignore"), "*\n") });
-        }
-        let _ = git(repo, &["worktree", "prune"]); // a worktree deleted by hand still holds its branch until pruned
+        ignored_parent(dir);
+        forget_missing(repo, branch);
         let has = git(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).ok;
         let r = if has { git(repo, &["worktree", "add", &d, branch]) } else { git(repo, &["worktree", "add", "-b", branch, &d, &base.commit]) };
         if !r.ok { return Err(one_line(&r)); }
@@ -421,7 +441,7 @@ pub fn uncommitted(dir: &str) -> usize {
 // `git worktree remove`: without `force`, git refuses when there is work not committed, and says so. With it (Remove
 // and delete the folder, after you saw what is not committed), that work goes; the branch and its commits stay.
 pub fn remove_worktree(repo: &str, dir: &str, force: bool) -> Result<(), String> {
-    if !Path::new(dir).exists() { let _ = git(repo, &["worktree", "prune"]); return Ok(()); }
+    if !Path::new(dir).exists() { let _ = git(repo, &["worktree", "remove", "--force", dir]); return Ok(()); } // git forgets that one only
     let r = if force { git(repo, &["worktree", "remove", "--force", dir]) } else { git(repo, &["worktree", "remove", dir]) };
     if r.ok { Ok(()) } else { Err(one_line(&r)) }
 }
@@ -535,17 +555,19 @@ impl Flows {
         (f.session, f.pid, f.status, f.at) = (Some(sid.into()), pid, "planning".into(), now);
         true
     }
-    // Where that session runs, once git said (`top`: its folder's top; `branch`: the branch there; `changed`: files not
-    // committed there). In a worktree Claude made, the flow works there from now on; in the repository's main folder it
-    // keeps its worktree and notes what was not committed there. Set once. → the place, when it changed.
+    // Where that session runs, once git said (`top`: its folder's top; `branch`: the branch there; `yours`: in the main
+    // folder, the files not committed there; in a worktree Claude made, the commits there that no remote has). In a
+    // worktree Claude made, the flow works there from now on; in the repository's main folder it keeps its worktree.
+    // Set once. → the place, when it changed.
     // Only for the flow's own session (`sid`): another session, or a flow removed and started again meanwhile, is left as it is.
-    pub fn placed(&mut self, key: &str, sid: &str, top: &str, branch: Option<&str>, changed: usize, now: u64) -> Option<&'static str> {
+    pub fn placed(&mut self, key: &str, sid: &str, top: &str, branch: Option<&str>, yours: u64, now: u64) -> Option<&'static str> {
         let f = self.list.get_mut(key).filter(|f| !f.cleaned && f.place.is_empty() && f.session.as_deref() == Some(sid))?;
         let place = place_of(f, top).filter(|p| !p.is_empty())?;
         if place == "claude" {
             f.own = std::mem::replace(&mut f.dir, top.into());
             if let Some(b) = branch { f.branch = b.into(); }
-        } else { f.mixed = changed; }
+            f.carried = yours;
+        } else { f.mixed = yours as usize; }
         (f.place, f.at) = (place.into(), now);
         f.reread();
         Some(place)
@@ -699,7 +721,7 @@ mod tests {
     fn prompt_parts() {
         let r = rules("7-add-subtract", "/src/shop/.bobix/worktrees/shop-7", "en");
         // the ticket's worktree is named, and what to do when Claude opened the session somewhere else
-        for must in ["`/src/shop/.bobix/worktrees/shop-7`, on branch `7-add-subtract`", "a folder under `.claude/worktrees`), stay in that worktree", "run `cd` into `/src/shop/.bobix/worktrees/shop-7` before anything else", "already changed before you started are not this ticket's", "in the folder you work in"] {
+        for must in ["`/src/shop/.bobix/worktrees/shop-7`, on branch `7-add-subtract`", "a folder under `.claude/worktrees`), stay in that worktree", "run `cd` into `/src/shop/.bobix/worktrees/shop-7` before anything else", "already changed before you started are not this ticket's", "`/src/shop/.bobix/worktrees/shop-7/.bobix-log/work-log.md`", "Never start a work log in the repository's main folder"] {
             assert!(r.contains(must), "{must}");
         }
         for must in ["EnterPlanMode", "ExitPlanMode", "Assumptions", "pushing to the main branch", "deleting data", "calling hosts", "touching secrets", ".bobix-log/work-log.md", "`7-add-subtract`", "## Checks", "tests, build and lint", "`- None: `", "/code-review", "`- Review: `"] {
@@ -991,7 +1013,7 @@ mod tests {
         assert_eq!(fl.list[0].dir, s(&own));
         assert_eq!(fl.placed("g/shop#7", "s7", &s(&theirs), Some("claude/brave-otter"), 2, 3), Some("claude"));
         let f = fl.list[0].clone();
-        assert_eq!((f.place.as_str(), f.dir.as_str(), f.own.as_str(), f.branch.as_str(), f.mixed), ("claude", s(&theirs).as_str(), s(&own).as_str(), "claude/brave-otter", 0));
+        assert_eq!((f.place.as_str(), f.dir.as_str(), f.own.as_str(), f.branch.as_str(), f.mixed, f.carried), ("claude", s(&theirs).as_str(), s(&own).as_str(), "claude/brave-otter", 0, 2), "2 commits of yours came with Claude's worktree");
         assert_eq!((f.made(), fl.key_of_start(&wait(7, &s(&own))).as_deref()), (s(&own).as_str(), Some("g/shop#7")), "the folder Bobix made is still its own one");
         assert_eq!(fl.placed("g/shop#7", "s7", &s(&repo), None, 5, 4), None, "set once");
         // its plan, its work log and its branch are read where it works now
@@ -1011,6 +1033,7 @@ mod tests {
         assert!(!fl.branch_at(&s(&repo), "develop") && fl.list[1].branch == "8-add-subtract", "the main folder's branch is never the ticket's");
         // kept across restarts, and a flow from before these fields reads back as one in its own worktree
         let file = root.join("tickets.json");
+        assert_eq!(fl.list[1].carried, 0);
         let mut saved = Flows::load(file.clone());
         saved.list = fl.list.clone();
         saved.save();
@@ -1089,18 +1112,40 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
         create_worktree(&r, &dir, "7-add-subtract", "log").unwrap();
         assert_eq!(git(&dir.to_string_lossy(), &["rev-list", "--count", "HEAD", "--not", "origin/main"]).out.trim(), "1", "the same branch, its commit kept");
+        // Claude cuts its own worktree from the main folder's HEAD: a commit of yours there that no remote has rides
+        // along; it is counted (what Bobix shows at placement and in Open MR)
+        assert!(git(&r, &["-c", "user.email=demo@example.test", "-c", "user.name=demo", "commit", "-q", "--allow-empty", "-m", "mine, not pushed"]).ok);
+        let cut = repo.join(".claude").join("worktrees").join("brave-otter");
+        assert!(git(&r, &["worktree", "add", "-q", "-b", "claude/brave-otter", &cut.to_string_lossy()]).ok, "from the main folder's HEAD, as Claude does");
+        assert_eq!(unpushed(&cut.to_string_lossy(), "HEAD"), 1);
+        assert_eq!(git(&r, &["worktree", "remove", "--force", &cut.to_string_lossy()]).ok, true);
+        assert!(git(&r, &["reset", "-q", "--hard", "HEAD~1"]).ok);
         // a branch with nothing committed on it is never pushed as an empty merge request
         let empty = worktree_dir(&r, 8, "g/r", "");
         let b8 = create_worktree(&r, &empty, "8-nothing-yet", "log").unwrap().commit;
         let f8 = Flow { dir: empty.to_string_lossy().into(), repo: r.clone(), branch: "8-nothing-yet".into(), base: b8, ..Default::default() };
         assert_eq!(open_mr("no-such-glab", "h", &f8, "t", "b"), Err("nocommits".into()));
         assert!(!git(&u, &["rev-parse", "--verify", "--quiet", "refs/heads/8-nothing-yet"]).ok);
-        // a worktree Bobix made before, where Claude keeps its own, still there on the ticket's branch: used again
+        // a worktree Bobix made before, where Claude keeps its own (Claude desktop's link cuts it down to the
+        // repository), still there on the ticket's branch: moved with git to the new place, its work with it
         let old = repo.join(".claude").join("worktrees").join("bobix-9");
         assert!(git(&r, &["worktree", "add", "-q", "-b", "9-old-place", &old.to_string_lossy()]).ok);
-        assert_eq!(kept_worktree(&r, 9, "g/r", "", "9-old-place"), Some(old.clone()));
-        assert_eq!(kept_worktree(&r, 9, "g/r", "", "9-another-title"), None, "on another branch: not this ticket's");
-        assert_eq!(kept_worktree(&r, 10, "g/r", "", "10-x"), None);
+        fs::write(old.join("half-done.txt"), "not committed").unwrap();
+        let to = worktree_dir(&r, 9, "g/r", "");
+        assert_eq!(move_kept(&r, 9, "g/r", "", "9-another-title", &to), Ok(false), "on another branch: not this ticket's");
+        assert_eq!(move_kept(&r, 10, "g/r", "", "10-x", &worktree_dir(&r, 10, "g/r", "")), Ok(false));
+        assert_eq!(move_kept(&r, 9, "g/r", "", "9-old-place", &to), Ok(true));
+        assert!(!old.exists() && to.join("half-done.txt").is_file() && !to.to_string_lossy().contains(".claude"));
+        assert_eq!(create_worktree(&r, &to, "9-old-place", "log").map(|_| ()), Ok(()), "a new Start uses it there");
+        assert!(git(&r, &["status", "--porcelain"]).out.trim().is_empty());
+        // a worktree deleted by hand holds only its own branch: git forgets that one, not another missing one
+        let (a, b) = (root.join("away-a"), root.join("away-b"));
+        assert!(git(&r, &["worktree", "add", "-q", "-b", "11-a", &a.to_string_lossy()]).ok && git(&r, &["worktree", "add", "-q", "-b", "12-b", &b.to_string_lossy()]).ok);
+        fs::remove_dir_all(&a).unwrap();
+        fs::remove_dir_all(&b).unwrap();
+        forget_missing(&r, "11-a");
+        let listed = git(&r, &["worktree", "list", "--porcelain"]).out;
+        assert!(!listed.contains("away-a") && listed.contains("away-b"), "{listed}");
         let _ = fs::remove_dir_all(&root);
     }
 }
