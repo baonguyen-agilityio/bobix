@@ -6,7 +6,7 @@
 // typing; a toast when an older one goes; a dialog's heading when its form changes; the Start box's prompt while the
 // skill list is searched; the card's title while its session works on. Scrollbars come with classic tracks here (no
 // --hide-scrollbars), so their tracks may not come and go either. Needs Chrome (CHROME_PATH, or the usual install
-// place); without it the test is skipped.
+// place); without it the test is skipped. CPU_THROTTLE=<n> runs the panel n times slower (a slow runner).
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs'), path = require('path'), os = require('os'), http = require('http');
@@ -151,6 +151,7 @@ const moved = (a, b, keys = Object.keys(a)) => keys.filter(k => k[0] !== '$' && 
 async function panel(b, url, { width, height, lang, dark }) {
   const bad = [], fail = m => bad.push(m);
   await b.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+  if (process.env.CPU_THROTTLE) await b.send('Emulation.setCPUThrottlingRate', { rate: +process.env.CPU_THROTTLE });
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
   const { identifier } = await b.send('Page.addScriptToEvaluateOnNewDocument', { source: prelude(lang) });
   try {
@@ -185,14 +186,18 @@ async function panel(b, url, { width, height, lang, dark }) {
       await b.ev(`__push(${JSON.stringify(event(SESSIONS))})`);
       await frameStill('count back', '');
     });
+    // The app answers a new ask for the issues with a newer read (work.gen); until then the page shows "Reading your issues…".
+    let gen = 0;
+    const answered = async () => { await b.ev(`__push(${JSON.stringify(event(SESSIONS, { ...WORK, gen: ++gen }))})`); await b.until('!reading()', 'the issues read again'); };
     // The pickers in the scope bar: Skills' project, Work's filter. Choosing another changes the list, not the bar.
     for (const [t, sel] of [['skills', '[data-skdir]'], ['work', '[data-wfilter]']]) await part(`${t} picker`, async () => {
       await tab(t); await sleep(300);
       await b.until(`!!document.querySelector('${sel}')`, `the ${t} picker`); await b.acted();
       await b.ev(`(() => { const s = document.querySelector('${sel}'); s.value = s.options[s.options.length - 1].value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-      await sleep(100); await frameStill(`${t} picked`, '');
+      await answered(); await sleep(100); await frameStill(`${t} picked`, '');
+      await b.acted();
       await b.ev(`(() => { const s = document.querySelector('${sel}'); s.value = s.options[0].value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-      await sleep(100);
+      await answered(); await sleep(100);
     });
     // Typing in the search: its clear button shows up.
     await part('search', async () => {
@@ -252,9 +257,10 @@ async function panel(b, url, { width, height, lang, dark }) {
       await tab('work'); await sleep(300);
       await b.pick('[data-bsel="n:acme/shop#42"]');
       await b.until(`!!document.querySelector('#b-dyn [data-tk-how]')`, 'the how-to-start choice');
-      await b.click('#b-dyn [data-tk-how][value="quick"]');
+      // A redraw between the press and the release (data arriving) loses a click: press again until it took.
+      for (let k = 0; k < 5 && !(await b.ev(`!!document.querySelector('#b-dyn [data-start][data-dir]')`)); k++) { await b.click('#b-dyn [data-tk-how][value="quick"]'); await sleep(400); }
       await b.until(`!!document.querySelector('#b-dyn [data-start][data-dir]')`, 'the Quick start button');
-      await b.click('#b-dyn [data-start][data-dir]');
+      for (let k = 0; k < 5 && !(await b.ev(`!!document.querySelector('#st-dialog')?.open`)); k++) { await b.click('#b-dyn [data-start][data-dir]'); await sleep(600); }
       await b.until(`document.querySelector('#st-dialog')?.open && !!document.querySelector('#st-all')`, 'the Start box with its skills'); await sleep(300);
       before = await b.ev('__shifts.splice(0)');
       await b.click('#st-all'); await sleep(150);
