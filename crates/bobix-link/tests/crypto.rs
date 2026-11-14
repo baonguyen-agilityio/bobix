@@ -17,9 +17,9 @@ fn pair() -> (Link, Link) {
 #[test]
 fn round_trip_both_ways() {
     let (mut d, mut p) = pair();
-    let s = d.seal(Stream::Event, b"hello phone");
+    let s = d.seal(Stream::Event, b"hello phone").unwrap();
     assert_eq!(p.open(&s.packet).unwrap().plaintext, b"hello phone");
-    let s = p.seal(Stream::Event, b"hello desktop");
+    let s = p.seal(Stream::Event, b"hello desktop").unwrap();
     assert_eq!(d.open(&s.packet).unwrap().plaintext, b"hello desktop");
 }
 
@@ -27,14 +27,14 @@ fn round_trip_both_ways() {
 fn wrong_recipient_does_not_open() {
     let (mut d, _) = pair();
     let (_, mut other_phone) = pair();
-    let s = d.seal(Stream::Event, b"x");
+    let s = d.seal(Stream::Event, b"x").unwrap();
     assert_eq!(other_phone.open(&s.packet).unwrap_err(), OpenError::Decrypt);
 }
 
 #[test]
 fn any_altered_byte_does_not_open() {
     let (mut d, mut p) = pair();
-    let s = d.seal(Stream::Event, b"payload");
+    let s = d.seal(Stream::Event, b"payload").unwrap();
     // Version (0), lane (1), counter (2..10), random part (10..24), ciphertext and tag.
     for i in 0..s.packet.len() {
         let mut bad = s.packet.clone();
@@ -47,7 +47,7 @@ fn any_altered_byte_does_not_open() {
 #[test]
 fn a_changed_lane_or_counter_does_not_open_even_when_it_passes_the_rules() {
     let (mut d, mut p) = pair();
-    let s = d.seal(Stream::Event, b"payload");
+    let s = d.seal(Stream::Event, b"payload").unwrap();
     let mut other_stream = s.packet.clone();
     other_stream[1] = Stream::Activity as u8; // still towards the phone, another stream
     assert_eq!(p.open(&other_stream).unwrap_err(), OpenError::Decrypt);
@@ -59,7 +59,7 @@ fn a_changed_lane_or_counter_does_not_open_even_when_it_passes_the_rules() {
 #[test]
 fn a_forged_packet_does_not_move_the_window() {
     let (mut d, mut p) = pair();
-    let good = d.seal(Stream::Event, b"a");
+    let good = d.seal(Stream::Event, b"a").unwrap();
     let mut forged = good.packet.clone();
     forged[2..10].copy_from_slice(&u64::MAX.to_be_bytes());
     assert!(p.open(&forged).is_err());
@@ -69,7 +69,7 @@ fn a_forged_packet_does_not_move_the_window() {
 #[test]
 fn replayed_counter_is_refused() {
     let (mut d, mut p) = pair();
-    let s = d.seal(Stream::Event, b"once");
+    let s = d.seal(Stream::Event, b"once").unwrap();
     assert!(p.open(&s.packet).is_ok());
     assert_eq!(p.open(&s.packet).unwrap_err(), OpenError::Dropped);
 }
@@ -77,16 +77,16 @@ fn replayed_counter_is_refused() {
 #[test]
 fn reflected_packet_is_refused() {
     let (mut d, mut p) = pair();
-    let s = d.seal(Stream::Event, b"mine");
+    let s = d.seal(Stream::Event, b"mine").unwrap();
     assert_eq!(d.open(&s.packet).unwrap_err(), OpenError::Reflected);
-    let s = p.seal(Stream::Event, b"mine");
+    let s = p.seal(Stream::Event, b"mine").unwrap();
     assert_eq!(p.open(&s.packet).unwrap_err(), OpenError::Reflected);
 }
 
 #[test]
 fn unknown_version_or_lane_is_refused_without_a_panic() {
     let (mut d, mut p) = pair();
-    let s = d.seal(Stream::Event, b"x");
+    let s = d.seal(Stream::Event, b"x").unwrap();
     // An unauthenticated version byte never says which side must update: it is just a packet that does not open.
     let mut v = s.packet.clone();
     v[0] = 99;
@@ -105,7 +105,7 @@ fn unknown_version_or_lane_is_refused_without_a_panic() {
 #[test]
 fn event_window_rules() {
     let (d, mut p) = pair();
-    let ev = |c: u64| d.seal_with(Stream::Event, c, b"e");
+    let ev = |c: u64| d.seal_with(Stream::Event, c, b"e").unwrap();
     let base = 100_000;
     assert!(p.open(&ev(base + 10)).is_ok());
     // out of order inside the window: accepted once
@@ -126,7 +126,7 @@ fn event_window_rules() {
 #[test]
 fn state_accepts_only_above_the_highest() {
     let (d, mut p) = pair();
-    let st = |c: u64| d.seal_with(Stream::State, c, b"home");
+    let st = |c: u64| d.seal_with(Stream::State, c, b"home").unwrap();
     assert!(p.open(&st(50)).is_ok());
     assert_eq!(p.open(&st(40)).unwrap_err(), OpenError::Dropped);
     assert_eq!(p.open(&st(50)).unwrap_err(), OpenError::Dropped);
@@ -136,7 +136,7 @@ fn state_accepts_only_above_the_highest() {
 #[test]
 fn activity_accepts_the_same_counter_twice_but_not_a_lower_one() {
     let (d, mut p) = pair();
-    let ac = |c: u64| d.seal_with(Stream::Activity, c, b"live");
+    let ac = |c: u64| d.seal_with(Stream::Activity, c, b"live").unwrap();
     let pkt = ac(7);
     assert!(p.open(&pkt).is_ok());
     assert!(p.open(&pkt).is_ok());
@@ -149,17 +149,17 @@ fn streams_do_not_share_counters() {
     let (mut d, mut p) = pair();
     // a long run of `home` must not make a later event look old
     for _ in 0..3000 {
-        let s = d.seal(Stream::State, b"home");
+        let s = d.seal(Stream::State, b"home").unwrap();
         p.open(&s.packet).unwrap();
     }
-    let e = d.seal_with(Stream::Event, 1, b"push");
+    let e = d.seal_with(Stream::Event, 1, b"push").unwrap();
     assert!(p.open(&e).is_ok());
 }
 
 #[test]
 fn receive_state_survives_a_restart_through_serde() {
     let (d, mut p) = pair();
-    p.open(&d.seal_with(Stream::Event, 500, b"x")).unwrap();
+    p.open(&d.seal_with(Stream::Event, 500, b"x").unwrap()).unwrap();
     let saved = serde_json::to_string(p.recv_state()).unwrap();
     let restored: RecvState = serde_json::from_str(&saved).unwrap();
     assert_eq!(&restored, p.recv_state());
@@ -253,13 +253,13 @@ fn a_version_outside_the_range_is_reported_only_for_an_authenticated_packet() {
     let (d, p) = (Identity::generate(), Identity::generate());
     let mut phone = link_with(CURRENT_VERSION, Direction::ToDesktop, &p, &d);
     let too_new = link_with(CURRENT_VERSION + 5, Direction::ToPhone, &d, &p);
-    let packet = too_new.seal_with(Stream::Event, 1, b"{}");
+    let packet = too_new.seal_with(Stream::Event, 1, b"{}").unwrap();
     assert_eq!(phone.open(&packet).unwrap_err(), OpenError::Version(Update::Us), "we must update");
     let too_old = link_with(0, Direction::ToPhone, &d, &p);
-    assert_eq!(phone.open(&too_old.seal_with(Stream::Event, 2, b"{}")).unwrap_err(), OpenError::Version(Update::Peer));
+    assert_eq!(phone.open(&too_old.seal_with(Stream::Event, 2, b"{}").unwrap()).unwrap_err(), OpenError::Version(Update::Peer));
     // a stranger's packet with the same version byte says nothing
     let stranger = link_with(CURRENT_VERSION + 5, Direction::ToPhone, &Identity::generate(), &p);
-    assert_eq!(phone.open(&stranger.seal_with(Stream::Event, 3, b"{}")).unwrap_err(), OpenError::Decrypt);
+    assert_eq!(phone.open(&stranger.seal_with(Stream::Event, 3, b"{}").unwrap()).unwrap_err(), OpenError::Decrypt);
 }
 
 #[test]
@@ -285,6 +285,10 @@ fn low_order_box_keys_are_refused() {
     // a link whose peer key is low-order opens nothing, even a packet that the zero shared secret would "authenticate"
     use bobix_link::envelope::{seal, Lane};
     let p = Identity::generate();
+    // Sealing to a low-order key is refused too.
+    let mut sealing = Link::new(Direction::ToPhone, *p.box_secret(), [0; 32], CURRENT_VERSION, VersionRange::current(), [0; 3], NOW, RecvState::default());
+    assert_eq!(sealing.seal(Stream::Event, b"{}").err(), Some(bobix_link::link::SealError::LowOrderPeer));
+    assert_eq!(sealing.seal_with(Stream::Event, 1, b"{}").err(), Some(bobix_link::link::SealError::LowOrderPeer));
     let mut zero_peer = Link::new(Direction::ToDesktop, *p.box_secret(), [0; 32], CURRENT_VERSION, VersionRange::current(), [0; 3], NOW, RecvState::default());
     // Sealed to the zero key, the shared secret is all zeros: anyone can make this packet, and without the check it would open.
     let lane = Lane { dir: Direction::ToPhone, stream: Stream::Event };
@@ -300,7 +304,7 @@ fn a_corrupt_stored_receive_state_is_an_error_not_a_panic() {
     assert!(serde_json::from_str::<RecvState>(bad).is_err());
     // and a state that was used round-trips
     let (d, mut p) = pair();
-    p.open(&d.seal_with(Stream::Event, 77, b"{}")).unwrap();
+    p.open(&d.seal_with(Stream::Event, 77, b"{}").unwrap()).unwrap();
     let again: RecvState = serde_json::from_str(&serde_json::to_string(p.recv_state()).unwrap()).unwrap();
     assert!(!again.check(Stream::Event, 77));
 }

@@ -51,6 +51,11 @@ fn parse_relay(url: &str) -> Option<RelayUrl> {
         "wss" => "wss",
         _ => return None,
     };
+    // Control characters (a tab or newline that a URL parser would strip) and non-ASCII hosts are refused outright,
+    // so two parsers cannot read one address differently.
+    if url.chars().any(char::is_control) {
+        return None;
+    }
     let rest = rest.split('#').next()?;
     let end = rest.find(['/', '?']).unwrap_or(rest.len());
     let (authority, tail) = rest.split_at(end);
@@ -59,12 +64,22 @@ fn parse_relay(url: &str) -> Option<RelayUrl> {
     }
     let (host, port) = if let Some(r) = authority.strip_prefix('[') {
         let (h, after) = r.split_once(']')?;
+        // A bracketed host is an IPv6 address: hex digits, colons, dots.
+        if !h.contains(':') || !h.chars().all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.') {
+            return None;
+        }
         (h, after.strip_prefix(':').or(Some(after).filter(|a| a.is_empty()))?)
     } else {
         authority.rsplit_once(':').unwrap_or((authority, ""))
     };
+    // Digits only: `u16::from_str` would take a leading `+`.
+    if !port.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
     let port = if port.is_empty() { None } else { Some(port.parse::<u16>().ok()?) };
-    if host.is_empty() || host.contains(['[', ']', '/']) {
+    // Outside brackets a host has no `:` (an unbracketed IPv6 address would be misread as host and port) and is ASCII.
+    let bracketed = authority.starts_with('[');
+    if host.is_empty() || host.contains(['[', ']', '/']) || (!bracketed && (host.contains(':') || !host.is_ascii())) {
         return None;
     }
     let host = host.to_ascii_lowercase();

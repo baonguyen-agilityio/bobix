@@ -18,7 +18,7 @@ fuzz_target!(|data: &[u8]| {
     // A genuine packet with the fuzzer's bytes xored over it must never open as something else.
     let sender = link(Direction::ToPhone, 1, 2);
     const PLAIN: &[u8] = b"{\"kind\":\"paired\"}";
-    let mut packet = sender.seal_with(Stream::Event, 7, PLAIN);
+    let mut packet = sender.seal_with(Stream::Event, 7, PLAIN).expect("a peer key of low order was refused earlier");
     for (i, b) in data.iter().enumerate() {
         let n = packet.len();
         packet[i % n] ^= b;
