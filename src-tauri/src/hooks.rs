@@ -12,8 +12,9 @@ const OLD_MARK: &str = "session-guild";
 // decides how long it waits; this is only the hard cap Claude Code enforces: a day, in seconds.
 const ANSWER_EVENT: &str = "PermissionRequest";
 pub const ANSWER_TIMEOUT: u64 = 86400;
-// SessionStart runs in the foreground (still 5 s at most) so Bobix can name a session started from an issue.
-const TITLE_EVENT: &str = "SessionStart";
+// SessionStart and UserPromptSubmit run in the foreground (still 5 s at most) so Bobix can name a session started from
+// an issue: by its branch at start, or by its first prompt once that names the issue a start waits with.
+const TITLE_EVENTS: [&str; 2] = ["SessionStart", "UserPromptSubmit"];
 const KEEP_BACKUPS: usize = 3;
 
 pub fn claude_dir(home: &Path) -> PathBuf { home.join(".claude") }
@@ -50,7 +51,7 @@ pub fn hook_entry(port: u16, node_path: Option<&str>, windows: bool, home: &Path
         let mut e = json!({ "type": "command", "async": true, "timeout": 5, "command": node, "args": [hook_target(home).to_string_lossy(), port.to_string()] });
         let o = e.as_object_mut().unwrap();
         if event == ANSWER_EVENT { o.shift_remove("async"); o.insert("timeout".into(), json!(ANSWER_TIMEOUT)); }
-        if event == TITLE_EVENT { o.shift_remove("async"); }
+        if TITLE_EVENTS.contains(&event) { o.shift_remove("async"); }
         return e;
     }
     let url = format!("http://127.0.0.1:{port}/event");
@@ -214,10 +215,10 @@ pub fn status(home: &Path) -> Value {
     let stale = node.as_ref().is_some_and(|n| !Path::new(n).exists());
     // Installed by the old build, before Bobix could answer permission requests, or before it named sessions.
     let ask = ours(ANSWER_EVENT).into_iter().next();
-    let start = ours(TITLE_EVENT).into_iter().next();
+    let titles: Vec<Value> = TITLE_EVENTS.iter().filter_map(|e| ours(e).into_iter().next()).collect();
     let bg = |h: &Value| h.get("async").is_some_and(|a| a.as_bool() != Some(false) && !a.is_null());
     let outdated = one.as_ref().is_some_and(|o| mark_of(o) != Some(MARK) || (mode == Some("node")
-        && (ask.as_ref().is_some_and(|a| bg(a) || !(a["timeout"].as_f64().unwrap_or(0.0) >= ANSWER_TIMEOUT as f64)) || start.as_ref().is_some_and(bg))));
+        && (ask.as_ref().is_some_and(|a| bg(a) || !(a["timeout"].as_f64().unwrap_or(0.0) >= ANSWER_TIMEOUT as f64)) || titles.iter().any(bg))));
     json!({ "file": file, "events": events, "complete": events.len() == EVENTS.len(), "mode": mode, "port": port, "nodePath": node, "stale": stale, "outdated": outdated })
 }
 
@@ -301,6 +302,12 @@ mod tests {
         fs::write(&file, cfg.to_string()).unwrap();
         assert_eq!(status(&h)["outdated"], true, "installed before session titles");
         cfg["hooks"]["SessionStart"][0]["hooks"][0].as_object_mut().unwrap().remove("async");
+        // the first prompt names a session too (#184): its hook waits for the answer, and an older install is reinstalled
+        assert!(cfg["hooks"]["UserPromptSubmit"][0]["hooks"][0].get("async").is_none());
+        cfg["hooks"]["UserPromptSubmit"][0]["hooks"][0]["async"] = json!(true);
+        fs::write(&file, cfg.to_string()).unwrap();
+        assert_eq!(status(&h)["outdated"], true, "installed before prompts named sessions");
+        cfg["hooks"]["UserPromptSubmit"][0]["hooks"][0].as_object_mut().unwrap().remove("async");
         cfg["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"] = json!(330);
         fs::write(&file, cfg.to_string()).unwrap();
         assert_eq!(status(&h)["outdated"], true, "a cap shorter than a day");

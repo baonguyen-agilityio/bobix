@@ -6,6 +6,7 @@
 mod answers;
 mod autostart;
 mod clones;
+mod effects;
 mod feedback;
 mod hooks;
 mod i18n;
@@ -43,6 +44,7 @@ use tokio::sync::broadcast;
 
 pub const BRIDGE: &str = include_str!("../bridge.js");
 const STALE_MS: u64 = 12 * 3600 * 1000;
+const SEND_MS: u64 = 250; // the pages get the state at most 4 times a second
 
 pub struct Core {
     pub sessions: Sessions,
@@ -71,6 +73,7 @@ pub struct Bobix {
     pub port: u16,
     pub app: std::sync::OnceLock<AppHandle>,
     pub usage: Mutex<usage::Store>,        // per-session usage tallies (their own lock: reading a transcript never holds the core)
+    pub dirty: std::sync::atomic::AtomicBool, // the pages' state changed since it was last sent (see send_loop)
 }
 
 // What the pages get on /events: the same JSON as snapshot() in the 0.1 (Electron) app's main.js.
@@ -97,7 +100,7 @@ fn snapshot_of(c: &Core) -> Value {
         }).unwrap_or(Value::Null);
         v
     }).collect();
-    let waiting: Vec<Value> = c.work.new_for.iter().map(|(dir, n)| json!({ "dir": dir, "path": n["path"], "iid": n["iid"] })).collect();
+    let waiting: Vec<Value> = c.work.new_for.values().map(|n| json!({ "dir": n["dir"], "path": n["path"], "iid": n["iid"] })).collect();
     let tickets = c.tickets.view(tickets::free_bytes(&paths::home()));
     json!({ "work": view, "waiting": waiting, "sessions": list, "model": m.json(), "waits": c.waits, "usage": c.usage, "tickets": tickets })
 }
@@ -105,9 +108,20 @@ fn snapshot_of(c: &Core) -> Value {
 impl Bobix {
     pub fn snapshot(&self) -> String { snapshot_of(&self.core.lock().unwrap()).to_string() }
 
+    // The pages' state changed: marked here, sent by send_loop (a burst of hook events is one update, not one each).
     pub fn broadcast(self: &Arc<Self>) {
-        let _ = self.tx.send(self.snapshot());
+        self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(app) = self.app.get() { overlay::wake(app, self); tray::badge(app, self, false); }
+    }
+    // At most every SEND_MS: when marked, the state is built once and sent to the pages, unless it is what they have.
+    fn send_loop(self: &Arc<Self>) {
+        let mut last = String::new();
+        loop {
+            thread::sleep(Duration::from_millis(SEND_MS));
+            if !self.dirty.swap(false, std::sync::atomic::Ordering::SeqCst) || self.tx.receiver_count() == 0 { continue; }
+            let s = self.snapshot();
+            if s != last { let _ = self.tx.send(s.clone()); last = s; }
+        }
     }
 
     // A hook event. Returns what the hook waits for: a held permission request's answer, or a new session's name.
@@ -118,6 +132,7 @@ impl Bobix {
         let untitled = !e["session_title"].as_str().is_some_and(|t| !t.is_empty());
         let source = e["source"].as_str().unwrap_or("");
         let mut habit_lines = vec![];
+        let mut follow = None; // a flow that just got this session: its key, the session, the folder the session is in
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
@@ -129,6 +144,7 @@ impl Bobix {
                 None => return None,
                 Some(Applied::Removed(mut s)) => {
                     state::keep_waits(waits, &mut s, now);
+                    work.fresh.remove(&s.id);
                     if remember { habit_lines = habits::events(mem, before.as_ref(), &e, None, now); }
                     (None, None, 0, None, None, gitlab)
                 }
@@ -146,19 +162,48 @@ impl Bobix {
                     find_parent(s, now);
                     let git_dir = git_due(work, s, ev == "Stop" || start, now);
                     let tool = e["tool_name"].as_str().unwrap_or("");
-                    if flows.on_event(&id, &s.cwd, &ev, tool, e["tool_input"]["plan"].as_str(), now) { flows.save(); }
+                    let pid = s.claude_pid.filter(|p| s.pid_is_claude == Some(*p)); // claude's own, not a shell that outlives it
+                    if flows.on_event(&id, &s.cwd, &ev, tool, e["tool_input"]["plan"].as_str(), pid, now) { flows.save(); }
+                    // a flow's session works on the flow's issue, also after Bobix restarts and with the code in another
+                    // repository (its branch does not name the issue there)
+                    if let Some(f) = flows.by_session(&id) {
+                        if s.started.is_none() { s.started = Some(json!({ "path": f.path, "iid": f.iid })); }
+                        // where it runs, not known yet (git did not answer, or Bobix closed first): asked again when the
+                        // session starts again (resumed); not on every event, a session that cd's elsewhere stays placed
+                        if start && f.place.is_empty() && f.status != "starting" { follow = Some((f.key.clone(), id.clone(), s.cwd.clone())); }
+                    }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
                     let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, settings, s, &e, plan) }
-                        // A session that starts on an issue (New in the Work tab, or its branch) gets its name from Bobix,
-                        // the way /rename names it; one that has a name keeps it.
-                        else if start && source == "startup" && untitled && work.new_for.contains_key(&s.cwd) { Some(take_issue(work, settings, s)) }
-                        else if start && ["startup", "resume", "fork"].contains(&source) && untitled { self.title_for(work.hosts(settings), &s.cwd) }
+                        // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
+                        // way /rename names it; one that has a name keeps it. One new where a start waits is named by its
+                        // first prompt, once that names the issue (Work::claim): not one you opened there yourself.
+                        else if start && source == "startup" && untitled && work.waits_at(&s.cwd) { work.fresh.insert(id.clone()); None }
+                        else if ev == "UserPromptSubmit" && work.fresh.remove(&id) && untitled {
+                            match work.claim(&s.cwd, e["prompt"].as_str().unwrap_or("")) {
+                                // a Full start whose flow another session already took (it started in the flow's
+                                // worktree, its prompt edited): this one is not the flow's, and gets no name from it
+                                Some(w) if flows.key_of_start(&w).and_then(|k| flows.list.get(&k)?.session.clone()).is_some_and(|o| o != id) => self.title_for(work.hosts(settings), &s.cwd, "UserPromptSubmit"),
+                                Some(w) => {
+                                    // a Full start: from here the session is its flow's, wherever Claude opened it
+                                    // (only the session that takes it moves it to the folder Claude opened)
+                                    if let Some(k) = flows.key_of_start(&w).filter(|k| flows.take(k, &id, pid, now)) {
+                                        flows.save();
+                                        follow = Some((k, id.clone(), s.cwd.clone()));
+                                    }
+                                    Some(take_issue(settings, s, &w))
+                                }
+                                // not a start's session: named by its branch, as any new session is
+                                None => self.title_for(work.hosts(settings), &s.cwd, "UserPromptSubmit"),
+                            }
+                        }
+                        else if start && ["startup", "resume", "fork"].contains(&source) && untitled { self.title_for(work.hosts(settings), &s.cwd, "SessionStart") }
                         else { None };
                     (Some(id), notice, s.since, reply, git_dir, gitlab)
                 }
             }
         };
         if let Some(d) = git_dir { refresh_git(self, d); }
+        if let Some((key, sid, cwd)) = follow { place_flow(self, key, sid, cwd); }
         remember(habit_lines, now);
         if (start || ev == "SessionEnd") && gitlab {
             let b = self.clone(); // Claude writes the session's name a moment after
@@ -216,10 +261,11 @@ impl Bobix {
 
     // The name of a session that starts on an issue's branch ("<iid>-…") of a repository of that project, when
     // the issue is one assigned to you: "[KEY-iid] title". Nothing is guessed from timing.
-    fn title_for(self: &Arc<Self>, hosts: Vec<String>, dir: &str) -> Option<server::Reply> {
+    // `ev`: the hook event that asked (its reply must name it, or hook.js drops it).
+    fn title_for(self: &Arc<Self>, hosts: Vec<String>, dir: &str, ev: &str) -> Option<server::Reply> {
         if hosts.is_empty() || !std::path::Path::new(dir).is_absolute() { return None; }
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let (b, dir) = (self.clone(), dir.to_string());
+        let (b, dir, ev) = (self.clone(), dir.to_string(), ev.to_string());
         thread::spawn(move || {
             let out = (|| {
                 let (g, remotes) = work::git_status(&dir)?;
@@ -228,7 +274,7 @@ impl Bobix {
                 let c = b.core.lock().unwrap();
                 let title = c.work.find_issue(&c.settings, &project, iid)?["title"].as_str().unwrap_or("").to_string();
                 let name = work::session_title_for(&work::key_of(&c.settings, &project), iid, &title);
-                Some(json!({ "hookSpecificOutput": { "hookEventName": "SessionStart", "sessionTitle": name } }))
+                Some(json!({ "hookSpecificOutput": { "hookEventName": ev, "sessionTitle": name } }))
             })();
             let _ = tx.send(out);
         });
@@ -356,7 +402,7 @@ fn tick(b: &Arc<Bobix>) {
     let mut lines = vec![];
     {
         let mut c = b.core.lock().unwrap();
-        let Core { sessions, settings, waits, habits: mem, .. } = &mut *c;
+        let Core { sessions, settings, waits, habits: mem, tickets, .. } = &mut *c;
         let remember = habits::on(settings);
         let gone = state::gone(sessions, procs::is_alive);
         sessions.retain(|id, s| {
@@ -374,6 +420,7 @@ fn tick(b: &Arc<Bobix>) {
             }
             if find_parent(s, now) { changed = true; }
         }
+        if tickets.stop_gone(|id| sessions.contains_key(id), procs::is_alive, now) { tickets.save(); changed = true; }
     }
     remember(lines, now);
     for (id, pid) in to_check { check_pid(b, id, pid); }
@@ -409,6 +456,7 @@ fn claude_bin() -> Result<String, String> {
 }
 fn habit_run(model: &str, tools: &str, prompt: &str) -> Result<String, String> {
     let secs = if model == "haiku" { 180 } else { 420 };
+    effects::own(&paths::data_dir(), if tools.is_empty() { "scan" } else { "draft" }, model, None, state::now()); // text answer: no tokens
     habit_skills::claude(&claude_bin()?, &paths::data_dir().join("habit-skills/work"), model, tools, prompt, secs)
 }
 
@@ -439,6 +487,7 @@ fn room_serve(data: &std::path::Path) -> Value {
     match room::serve(std::net::IpAddr::V4(ip), port, host) { Ok(a) => json!({ "serving": a.to_string() }), Err(e) => json!({ "serving": null, "error": format!("port {port}: {e}") }) }
 }
 fn room_run(model: &str, tools: &str, prompt: &str) -> Result<String, String> {
+    effects::own(&paths::data_dir(), "room", model, None, state::now());
     habit_skills::claude(&claude_bin()?, &paths::data_dir().join("rooms/work"), model, tools, prompt, 300)
 }
 fn room_act(act: &str, a: &Value) -> Value {
@@ -509,6 +558,7 @@ async fn habit_skills(act: String, id: Option<String>, text: Option<String>, v: 
             "remove" => habit_skills::remove(&home, &data, &id),
             _ => json!({ "ok": false, "error": "unknown" }),
         };
+        if matches!(act.as_str(), "approve" | "restore" | "undo") && r["ok"] == true { effects::record(&data, "habit", None, &format!("{act} {id}"), now); } // a personal skill: every project
         let mut view = habit_skills::view(&home, &data, &st, now);
         view["result"] = r;
         view
@@ -544,7 +594,7 @@ fn refresh_git(b: &Arc<Bobix>, dir: String) {
         let g = work::git_status(&dir);
         let changed = {
             let mut c = b.core.lock().unwrap();
-            let Core { work, sessions, .. } = &mut *c;
+            let Core { work, sessions, tickets, .. } = &mut *c;
             let e = work.git_cache.entry(dir.clone()).or_default();
             e.busy = false;
             e.at = state::now();
@@ -552,6 +602,7 @@ fn refresh_git(b: &Arc<Bobix>, dir: String) {
             let was = e.git.replace(git.clone());
             work.remotes_of.insert(git["top"].as_str().unwrap_or("").to_string(), remotes);
             let mut changed = was.as_ref() != Some(&git);
+            if let (Some(top), Some(branch)) = (git["top"].as_str(), git["branch"].as_str()) { if tickets.branch_at(top, branch) { tickets.save(); changed = true; } }
             for x in sessions.values_mut().filter(|x| x.cwd == dir) {
                 if x.git.as_ref() != Some(&git) { changed = true; x.git = Some(git.clone()); }
             }
@@ -565,15 +616,41 @@ fn refresh_git(b: &Arc<Bobix>, dir: String) {
     });
 }
 
-// The first session created in a folder New waits on takes that issue and its name.
-fn take_issue(work: &mut work::Work, settings: &Value, s: &mut state::Session) -> server::Reply {
-    let n = work.new_for.shift_remove(&s.cwd).unwrap_or_default();
+// A new session that took a waiting start (Work::claim) gets that issue and its name: the issue's project code, its
+// number and title, whatever repository the code is in.
+fn take_issue(settings: &Value, s: &mut state::Session, n: &Value) -> server::Reply {
     let (path, iid) = (n["path"].as_str().unwrap_or("").to_string(), n["iid"].as_i64().unwrap_or(0));
     s.started = Some(json!({ "path": path, "iid": iid }));
     let name = work::session_title_for(&work::key_of(settings, &path), iid, n["title"].as_str().unwrap_or(""));
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let _ = tx.send(Some(json!({ "hookSpecificOutput": { "hookEventName": "SessionStart", "sessionTitle": name } })));
+    let _ = tx.send(Some(json!({ "hookSpecificOutput": { "hookEventName": "UserPromptSubmit", "sessionTitle": name } })));
     server::Reply::Output(rx)
+}
+
+// Where the session that took a flow runs, asked of git off the event's thread (Flows::placed). A worktree Claude made
+// first gets what the flow's own worktree got at Start: the work log (in its self-ignoring folder) and your Tests line.
+fn place_flow(b: &Arc<Bobix>, key: String, sid: String, cwd: String) {
+    let b = b.clone();
+    thread::spawn(move || {
+        // git may be slow or busy: asked up to 3 times, 5 s apart (and again when the session is resumed)
+        let Some((g, _)) = (0..3).find_map(|n| { if n > 0 { thread::sleep(Duration::from_secs(5)); } work::git_status(&cwd) }) else { return };
+        let top = g["top"].as_str().unwrap_or("").to_string();
+        let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return };
+        let place = tickets::place_of(&f, &top).filter(|_| f.place.is_empty() && f.session.as_deref() == Some(sid.as_str()));
+        if place == Some("claude") {
+            let log = tickets::read_log(&f.dir).unwrap_or_else(|| tickets::template(f.iid, &f.title, &f.lang));
+            let _ = tickets::seed_log(std::path::Path::new(&top), &log);
+            skill_audit::carry_tests(std::path::Path::new(&f.repo), std::path::Path::new(&top), &paths::data_dir());
+        }
+        let yours = match place { Some("main") => tickets::uncommitted(&top) as u64, Some("claude") => tickets::unpushed(&top, "HEAD"), _ => 0 };
+        let placed = {
+            let mut c = b.core.lock().unwrap();
+            let p = c.tickets.placed(&key, &sid, &top, g["branch"].as_str(), yours, state::now());
+            if p.is_some() { c.tickets.save(); }
+            p
+        };
+        if placed.is_some() { b.broadcast(); }
+    });
 }
 
 fn read_claude_list(b: &Bobix) {
@@ -583,13 +660,22 @@ fn read_claude_list(b: &Bobix) {
 
 // Issues from every tracker, read again (in the background).
 fn refresh_issues(b: &Arc<Bobix>) { for f in work::FORGES { refresh_forge(b, f); } }
+// A read you asked for (filter, page, ticked repos, Refresh): the list shows "Reading your issues…" until it answers,
+// and only the newest ask's answer is kept (see refresh_forge).
+fn ask_issues(b: &Arc<Bobix>) {
+    b.core.lock().unwrap().work.gen += 1;
+    b.broadcast();
+    refresh_issues(b);
+}
 
-// One tracker's issues, read again. Does nothing while it is off, or while a read of it runs.
+// One tracker's issues, read again. Does nothing while it is off, or while a read of it runs: that read reads again
+// when a newer one was asked for meanwhile, and its own answer is dropped.
 fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
     let b = b.clone();
     thread::spawn(move || {
-        {
+        let gen = {
             let mut c = b.core.lock().unwrap();
+            let gen = c.work.gen;
             let on = f.on(&c.settings);
             let feed = c.work.feed(f);
             if !on {
@@ -601,24 +687,33 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
             if feed.busy { return; }
             feed.busy = true;
             if feed.issues["status"] == "off" { feed.issues = json!({ "status": "loading" }); drop(c); b.broadcast(); }
-        }
+            gen
+        };
         let bin = { let g = b.core.lock().unwrap().work.feed(f).bin.clone(); g.or_else(|| find_bin(f.bin())) };
         // the issues sessions here work on: one not in your list is read on its own below
         let linked = { let c = b.core.lock().unwrap(); model::Model::build(&c.settings, &c.sessions, &c.work).linked() };
-        let hosts = bin.as_deref().and_then(|x| f.hosts(x));
+        // each host on its own: one that does not answer is named and skipped, the others are read
+        let auth = bin.as_deref().and_then(|x| f.auth(x));
         let at = state::now();
-        let read_ok;
-        let (next, reviews) = match (&bin, hosts) {
+        let (read_ok, again);
+        let (filter, need) = { let c = b.core.lock().unwrap(); (c.settings["workFilter"].as_str().unwrap_or("all").to_string(), work::need_for(c.work.page)) };
+        let (next, reviews) = match (&bin, auth) {
             (_, None) => (json!({ "status": f.missing(), "at": at }), vec![]), // look again next time: it may be installed by then
-            (_, Some(h)) if h.is_empty() => (json!({ "status": f.signed_out(), "hosts": h, "at": at }), vec![]),
-            (Some(g), Some(h)) => {
-                let rs: Vec<Value> = h.iter().map(|x| f.fetch(g, x)).collect();
-                let failed: Vec<Value> = rs.iter().zip(&h).filter(|(r, _)| r["ok"] != true)
+            (_, Some((h, skipped, _))) if h.is_empty() => (json!({ "status": f.signed_out(), "hosts": h, "at": at, "failed": skipped }), vec![]),
+            (Some(g), Some((h, skipped, logins))) => {
+                // the newest issues of the repositories you ticked, up to the page shown and one more
+                let rs: Vec<Value> = h.iter().map(|x| f.page(g, x, &ticked_repos(&b, f, g, x), &filter, need, logins.get(x).map(String::as_str))).collect();
+                let mut failed: Vec<Value> = rs.iter().zip(&h).filter(|(r, _)| r["ok"] != true)
                     .map(|(r, host)| json!({ "host": host, "detail": r.get("detail").unwrap_or(&r["reason"]) })).collect();
-                if failed.len() == h.len() { (json!({ "status": "error", "hosts": h, "at": at, "failed": failed }), vec![]) } else {
+                let all_failed = failed.len() == h.len();
+                failed.extend(skipped);
+                if all_failed { (json!({ "status": "error", "hosts": h, "at": at, "failed": failed }), vec![]) } else {
                     let mut list: Vec<Value> = rs.iter().flat_map(|r| r["issues"].as_array().cloned().unwrap_or_default()).collect();
+                    let failed: Vec<Value> = failed.into_iter().chain(rs.iter().flat_map(|r| r["failed"].as_array().cloned().unwrap_or_default())).collect();
                     // ponytail: 10 at most per read; more sessions on issues not assigned to you wait for the next read
-                    let extra: Vec<&(String, String, i64)> = linked.iter().filter(|(host, p, iid)| h.contains(host)
+                    // a host that did not answer in time is not asked anything more in this read
+                    let up: Vec<String> = h.iter().zip(&rs).filter(|(_, r)| r["hung"] != true).map(|(x, _)| x.clone()).collect();
+                    let extra: Vec<&(String, String, i64)> = linked.iter().filter(|(host, p, iid)| up.contains(host)
                         && !list.iter().any(|i| i["project"] == p.as_str() && i["iid"].as_i64() == Some(*iid))).take(10).collect();
                     for (host, p, iid) in extra {
                         b.core.lock().unwrap().work.asked.insert(format!("{p}#{iid}"));
@@ -626,9 +721,9 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
                     }
                     // what waits for review, and what was closed lately (the panel keeps today's: local midnight is its call)
                     let since = hooks::iso(at.saturating_sub(4 * 24 * 3600 * 1000)); // today, and the last working day for the stand-up
-                    let reviews: Vec<model::Review> = h.iter().flat_map(|x| f.reviews(g, x)).collect();
-                    let closed: Vec<Value> = h.iter().flat_map(|x| f.closed(g, x, &since)).collect();
-                    (json!({ "status": "ok", "hosts": h, "at": at, "failed": failed, "list": list, "closed": closed }), reviews)
+                    let reviews: Vec<model::Review> = up.iter().flat_map(|x| f.reviews(g, x)).collect();
+                    let closed: Vec<Value> = up.iter().flat_map(|x| f.closed(g, x, &since)).collect();
+                    (json!({ "status": "ok", "hosts": h, "at": at, "failed": failed, "list": list, "closed": closed, "need": need }), reviews)
                 }
             }
             (None, Some(_)) => unreachable!(),
@@ -636,26 +731,88 @@ fn refresh_forge(b: &Arc<Bobix>, f: work::Forge) {
         {
             let mut c = b.core.lock().unwrap();
             let on = f.on(&c.settings);
+            let stale = on && c.work.gen != gen; // a newer read was asked for while this one ran: its answer goes
             let feed = c.work.feed(f);
             feed.bin = if next["status"] == f.missing() { None } else { bin };
             feed.busy = false;
+            if stale { drop(c); return refresh_forge(&b, f); }
+            c.work.read_gen[f as usize] = gen;
+            let feed = c.work.feed(f);
             feed.reviews = if on { reviews } else { vec![] };
-            read_ok = on && f == work::Forge::GitLab && next["status"] == "ok";
+            read_ok = on && next["status"] == "ok";
             feed.issues = if on { next } else { json!({ "status": "off" }) }; // switched off meanwhile
+            again = read_ok && work::need_for(c.work.page) > need; // a later page was asked for while this read ran
         }
         read_claude_list(&b);
         b.broadcast();
-        if read_ok { refresh_ci(&b, None); } // the ticket flow's merge requests
+        if again { return refresh_forge(&b, f); }
+        if read_ok { refresh_ci(&b, None); } // the ticket flow's merge / pull requests
         find_clones(&b, f);
     });
 }
 
+// The repositories ticked on `host` (Settings: workRepos). The first time a host is read, the 10 most recently active
+// ones (in the last 90 days) are ticked and remembered, and Work says how many more there are; you change them in the
+// repo picker.
+fn ticked_repos(b: &Arc<Bobix>, f: work::Forge, bin: &str, host: &str) -> Vec<String> {
+    let paths = |v: &Value| v.as_array().into_iter().flatten().filter_map(|p| p.as_str().map(String::from)).collect::<Vec<_>>();
+    if let Some(a) = b.core.lock().unwrap().settings["workRepos"].get(host) { return paths(a); }
+    let Ok(list) = f.repos(bin, host) else { return vec![] }; // asked again at the next read
+    let since = hooks::iso(state::now().saturating_sub(work::RECENT_DAYS * 24 * 3600 * 1000));
+    let (ticked, more) = work::recent(&list, &since);
+    let mut all = { let mut c = b.core.lock().unwrap(); c.work.feed(f).repos.insert(host.into(), list); if more > 0 { c.work.more_repos.insert(host.into(), more); } c.settings["workRepos"].clone() };
+    if !all.is_object() { all = json!({}); }
+    all[host] = json!(ticked);
+    update_settings(b, json!({ "workRepos": all }));
+    ticked
+}
+
+// For the repo picker: per tracker that is on and host it reads, every repository you can reach (read now when
+// `fresh` or not read yet; GET, your own glab / gh) and the ones ticked. [{ forge, host, repos: [{ path, at }], ticked, error? }]
+#[tauri::command]
+async fn work_repos(fresh: Option<bool>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = vec![];
+        for f in work::FORGES {
+            let (bin, hosts) = {
+                let c = b.core.lock().unwrap();
+                if !f.on(&c.settings) { continue; }
+                let feed = &c.work.feeds[f as usize];
+                (feed.bin.clone(), feed.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str().map(String::from)).collect::<Vec<_>>())
+            };
+            let Some(bin) = bin else { continue };
+            for host in hosts {
+                let cached = { let c = b.core.lock().unwrap(); c.work.feeds[f as usize].repos.get(&host).cloned() };
+                let read = match cached { Some(l) if fresh != Some(true) => Ok(l), _ => f.repos(&bin, &host) };
+                let ticked = b.core.lock().unwrap().settings["workRepos"].get(&host).cloned().unwrap_or(json!([]));
+                out.push(match read {
+                    Ok(l) => { b.core.lock().unwrap().work.feed(f).repos.insert(host.clone(), l.clone()); json!({ "forge": f.key(), "host": host, "repos": l, "ticked": ticked }) }
+                    Err(e) => json!({ "forge": f.key(), "host": host, "repos": [], "ticked": ticked, "error": e.get("detail").unwrap_or(&e["reason"]) }),
+                });
+            }
+        }
+        json!(out)
+    }).await.map_err(|_| ())
+}
+
+// The Work list's page (from 1): read again for it.
+#[tauri::command]
+fn work_page(page: usize, b: B) -> usize {
+    let page = page.clamp(1, work::MAX_PAGE);
+    b.core.lock().unwrap().work.page = page;
+    ask_issues(&b); // the list says it is reading until the read for this page is in
+    page
+}
+
 // The local clones of this tracker's projects that no session works in here: looked for by their git remotes in the
-// usual code folders (clones.rs; only `.git/config` is read) after each read of the issues, and remembered (`workDirs`,
-// how: found). A project you forgot in Settings (`workDirsOff`) is not looked for again.
+// usual code folders (clones.rs; only `.git/config` is read) after the first read of the issues of each app start, and
+// after Refresh, and remembered (`workDirs`, how: found). Folders macOS guards with a prompt are left out: Find on this
+// Mac walks them on your click (work_find). A project you forgot in Settings (`workDirsOff`) is not looked for again.
 fn find_clones(b: &Arc<Bobix>, f: work::Forge) {
     let (hosts, wanted, known) = {
         let c = b.core.lock().unwrap();
+        if c.work.scanned[f as usize] { return; }
         let feed = &c.work.feeds[f as usize];
         let hosts: Vec<String> = feed.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str().map(String::from)).collect();
         let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
@@ -667,7 +824,8 @@ fn find_clones(b: &Arc<Bobix>, f: work::Forge) {
         (hosts, wanted, known)
     };
     if wanted.is_empty() || hosts.is_empty() { return; }
-    let found = clones::scan(&clones::roots(&paths::home(), &known), &hosts, &wanted);
+    b.core.lock().unwrap().work.scanned[f as usize] = true; // it ran: not again until Refresh or the next start
+    let found = clones::scan(&clones::roots(&paths::home(), &known, false), &hosts, &wanted);
     if found.is_empty() { return; }
     let mut dirs = b.core.lock().unwrap().settings["workDirs"].clone();
     if !dirs.is_object() { dirs = json!({}); }
@@ -685,17 +843,19 @@ fn remember_dir(b: &Arc<Bobix>, path: &str, dir: &str, how: &str) {
     update_settings(b, json!({ "workDirs": dirs, "workDirsOff": off }));
     b.broadcast();
 }
-// A project Bobix lists issues for: its tracker, that tracker's CLI and the signed-in host of its issues' links.
-fn project_source(b: &Bobix, path: &str) -> Option<(work::Forge, String, String, Vec<String>)> {
+// A project Bobix lists issues for: its tracker, that tracker's CLI and the signed-in host of its issues' links. For
+// the code repository of another project's issue (`of`), which may have no issue listed: that project's.
+fn project_source(b: &Bobix, path: &str, of: Option<&str>) -> Option<(work::Forge, String, String, Vec<String>)> {
     let c = b.core.lock().unwrap();
-    work::FORGES.into_iter().filter(|f| f.on(&c.settings)).find_map(|f| {
+    let find = |p: &str| work::FORGES.into_iter().filter(|f| f.on(&c.settings)).find_map(|f| {
         let feed = &c.work.feeds[f as usize];
-        let i = feed.issues["list"].as_array()?.iter().find(|i| i["project"] == path)?;
+        let i = feed.issues["list"].as_array()?.iter().find(|i| i["project"] == p)?;
         let url_host = i["url"].as_str().and_then(|u| tauri::Url::parse(u).ok())?.host_str()?.to_lowercase();
         let hosts: Vec<String> = feed.issues["hosts"].as_array()?.iter().filter_map(|h| h.as_str().map(String::from)).collect();
         let host = hosts.iter().find(|h| h.split(':').next() == Some(url_host.as_str()))?.clone();
         Some((f, feed.bin.clone()?, host, hosts))
-    })
+    });
+    find(path).or_else(|| find(of?))
 }
 fn pick_folder(b: &Bobix, title: &str) -> Option<std::path::PathBuf> {
     use tauri_plugin_dialog::DialogExt;
@@ -705,10 +865,10 @@ fn pick_folder(b: &Bobix, title: &str) -> Option<std::path::PathBuf> {
 // "Already on this machine": a folder you choose (`dir`, else the folder dialog) is remembered for `path` once one of
 // its git remotes names that project. { ok, dir } | { ok: false, reason: cancel | notgit | other | gone, found? }
 #[tauri::command]
-async fn work_link(path: String, dir: Option<String>, b: B<'_>) -> Result<Value, ()> {
+async fn work_link(path: String, dir: Option<String>, of: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let Some((_, _, _, hosts)) = project_source(&b, &path) else { return json!({ "ok": false, "reason": "gone" }) };
+        let Some((_, _, _, hosts)) = project_source(&b, &path, of.as_deref()) else { return json!({ "ok": false, "reason": "gone" }) };
         let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "work.link.pick", &[("p", &path)]);
         let Some(d) = dir.map(std::path::PathBuf::from).or_else(|| pick_folder(&b, &title)) else { return json!({ "ok": false, "reason": "cancel" }) };
         match clones::check(&d, &path, &hosts) {
@@ -718,17 +878,35 @@ async fn work_link(path: String, dir: Option<String>, b: B<'_>) -> Result<Value,
     }).await.map_err(|_| ())
 }
 
-// "Clone…": into a parent folder you choose (`parent`, else the folder dialog), with your own glab / gh, then
-// remembered. Only on your click. { ok, dir } | { ok: false, reason: cancel | exists | gone | other | error, detail }
+// "Find on this Mac": on your click, the clone search for one project, the folders macOS guards with a prompt included
+// (a refused prompt: that folder is skipped). Remembered as found. { ok, dir } | { ok: false, reason: none | gone }
 #[tauri::command]
-async fn work_clone(path: String, parent: Option<String>, b: B<'_>) -> Result<Value, ()> {
+async fn work_find(path: String, of: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let Some((forge, bin, host, hosts)) = project_source(&b, &path) else { return json!({ "ok": false, "reason": "gone" }) };
+        let Some((_, _, _, hosts)) = project_source(&b, &path, of.as_deref()) else { return json!({ "ok": false, "reason": "gone" }) };
+        let known: Vec<String> = b.core.lock().unwrap().sessions.values().map(|s| s.cwd.clone()).filter(|d| std::path::Path::new(d).is_absolute()).collect();
+        let wanted: std::collections::HashSet<String> = [path.clone()].into();
+        match clones::scan(&clones::roots(&paths::home(), &known, true), &hosts, &wanted).remove(&path) {
+            Some(d) => { remember_dir(&b, &path, &d, "found"); json!({ "ok": true, "dir": d }) }
+            None => json!({ "ok": false, "reason": "none" }),
+        }
+    }).await.map_err(|_| ())
+}
+
+// "Clone…": into a parent folder you choose (`parent`, else the folder dialog), with your own glab / gh, then
+// remembered. Only on your click. Never into a folder that is there, nor with under 1 GB free there.
+// { ok, dir } | { ok: false, reason: cancel | exists | disk | gone | other | error, detail }
+#[tauri::command]
+async fn work_clone(path: String, parent: Option<String>, of: Option<String>, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some((forge, bin, host, hosts)) = project_source(&b, &path, of.as_deref()) else { return json!({ "ok": false, "reason": "gone" }) };
         let title = i18n::t(&lang(&b.core.lock().unwrap().settings), "work.clone.pick", &[("p", &path)]);
         let Some(p) = parent.map(std::path::PathBuf::from).or_else(|| pick_folder(&b, &title)) else { return json!({ "ok": false, "reason": "cancel" }) };
         let dest = clones::clone_dest(&p, &path);
         if dest.exists() { return json!({ "ok": false, "reason": "exists", "dir": dest }); }
+        if let Some(free) = tickets::free_bytes(&p).filter(|f| *f < clones::CLONE_MIN_BYTES) { return json!({ "ok": false, "reason": "disk", "free": free }); }
         match clones::clone(&bin, forge == work::Forge::GitLab, &host, &path, &dest) {
             Ok(d) => match clones::check(std::path::Path::new(&d), &path, &hosts) {
                 Ok(top) => { remember_dir(&b, &path, &top, "cloned"); json!({ "ok": true, "dir": top }) }
@@ -740,9 +918,10 @@ async fn work_clone(path: String, parent: Option<String>, b: B<'_>) -> Result<Va
 }
 
 // The panel's button on an issue: Resume opens the session working on it, exactly like a click on its pet; New opens a
-// new Claude desktop session in the project's folder (the link Claude documents, no prompt sent).
-// `dir`: for a project no session has open here now (the habits' morning suggestion), the folder the habit log names;
-// used only once its own git remote says it is that project.
+// new Claude desktop session in the project's folder (the link Claude documents, no prompt sent). With a prompt (the
+// Start box: Work's Quick) it is always New, even on an issue a Claude desktop session was named after.
+// `dir`: the folder to open it in (Work's Quick: the code project's folder; the habits' morning suggestion: the folder
+// the habit log names); used only once its own git remote names a project on your hosts.
 fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64, prompt: &str, dir: Option<&str>) -> Value {
     let gone = || json!({ "ok": false, "reason": "gone" });
     let (g, i, id, hosts) = {
@@ -757,30 +936,34 @@ fn start_issue(b: &Arc<Bobix>, path: &str, iid: i64, prompt: &str, dir: Option<&
         let id = i["sessions"].as_array().into_iter().flatten().filter_map(|x| c.sessions.get(x.as_str()?)).max_by_key(|s| s.updated).map(|s| s.id.clone());
         (g, i, id, c.work.hosts(&c.settings))
     };
-    let g = match g {
-        Some(g) => g,
-        None => {
-            let Some(d) = dir.filter(|d| std::path::Path::new(d).is_absolute()) else { return gone() };
-            if !work::git_status(d).is_some_and(|(_, remotes)| model::path_in(&remotes, &hosts).as_deref() == Some(path)) { return gone(); }
-            json!({ "path": path, "dir": d })
-        }
+    let picked = dir.filter(|d| std::path::Path::new(d).is_absolute() && work::git_status(d).is_some_and(|(_, remotes)| model::path_in(&remotes, &hosts).is_some()));
+    let dir = match (picked, &g) {
+        (Some(d), _) => d.to_string(),
+        (None, Some(g)) => g["dir"].as_str().unwrap_or("").to_string(),
+        (None, None) => return gone(),
     };
     if let Some(id) = id {
         let mut r = b.open_session(&id, true, false);
         r.as_object_mut().unwrap().shift_insert(0, "mode".into(), json!("resume"));
         return r;
     }
-    if let Some(r) = i["resume"].as_str() { // named after the issue in Claude desktop, not seen by Bobix since it started
-        let ok = tauri_plugin_opener::open_url(format!("claude://code/continue?session={}", work::enc(r)), None::<&str>).is_ok();
+    if let Some(r) = i["resume"].as_str().filter(|_| prompt.is_empty()) { // named after the issue in Claude desktop, not seen by Bobix since it started
+        let ok = open_claude(&format!("claude://code/continue?session={}", work::enc(r))).is_ok();
         return if ok { json!({ "ok": true, "mode": "resume" }) } else { json!({ "ok": false, "mode": "resume", "reason": "notfound" }) };
     }
-    let dir = g["dir"].as_str().unwrap_or("").to_string();
-    b.core.lock().unwrap().work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": i["title"] }));
+    let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).unwrap_or_default();
+    b.core.lock().unwrap().work.wait_for(&dir, &repo, path, iid, &i["title"], &i["url"]);
     b.broadcast();
-    match tauri_plugin_opener::open_url(work::new_session_link(&dir, prompt), None::<&str>) {
+    match open_claude(&work::new_session_link(&dir, prompt)) {
         Ok(_) => json!({ "ok": true, "mode": "new", "dir": dir }),
         Err(e) => json!({ "ok": false, "mode": "new", "reason": e.to_string() }),
     }
+}
+
+// A claude:// link for the Claude app; a smoke run notes it instead of opening the person's own Claude app.
+fn open_claude(url: &str) -> Result<(), String> {
+    if smoke::active() { smoke::opened(url); return Ok(()); }
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
 // ---------- settings ----------
@@ -833,7 +1016,8 @@ pub fn update_settings(b: &Arc<Bobix>, patch: Value) -> Value {
         tray::badge(app, b, false);
     }
     answers::release_unseen(b);
-    for f in work::FORGES { if changed(f.key()) { refresh_forge(b, f); } }
+    if changed("workRepos") || changed("workFilter") { b.core.lock().unwrap().work.page = 1; ask_issues(b); } // a new list: from its first page
+    else { for f in work::FORGES { if changed(f.key()) { refresh_forge(b, f); } } }
     if next["checkUpdates"] == true && prev["checkUpdates"] != true { let ub = b.clone(); thread::spawn(move || check_for_update(&ub)); }
     if next["checkUpdates"] != true && b.core.lock().unwrap().update.take().is_some() { if let Some(app) = b.app.get() { tray::build(app, b); } }
     if let Some(app) = b.app.get() { for w in [overlay::LABEL, panel::LABEL] { panel::emit(app, w, "settings", &next); } }
@@ -961,6 +1145,7 @@ fn state(b: B, app: AppHandle) -> Value {
 #[tauri::command]
 async fn settings_set(patch: Value, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
+    if patch.get("workRepos").is_some() { b.core.lock().unwrap().work.more_repos.clear(); } // you picked: no "N more" note
     tauri::async_runtime::spawn_blocking(move || update_settings(&b, patch)).await.map_err(|_| ())
 }
 
@@ -1018,7 +1203,11 @@ async fn feedback_send(v: Value, b: B<'_>) -> Result<Value, ()> {
 
 // Issues, read again now (only from the trackers that are on).
 #[tauri::command]
-fn work_refresh(b: B) { refresh_issues(&b); }
+fn work_refresh(b: B) {
+    forget_bins(); // a CLI installed since it was looked up is found now
+    b.core.lock().unwrap().work.scanned = Default::default(); // and the clone search may run again
+    ask_issues(&b);
+}
 
 // In the browser; only links to the issues Bobix read open.
 #[tauri::command]
@@ -1069,10 +1258,10 @@ fn work_new_review(project: String, branch: String, b: B) -> bool {
     url.is_some_and(|u| tauri_plugin_opener::open_url(u, None::<&str>).is_ok())
 }
 
-// Stop waiting for a new session in that folder.
+// Stop waiting for a new session in that folder: for one issue (`iid`), or every start there.
 #[tauri::command]
-fn work_cancel(dir: String, b: B) {
-    let gone = b.core.lock().unwrap().work.new_for.shift_remove(&dir).is_some();
+fn work_cancel(dir: String, iid: Option<i64>, b: B) {
+    let gone = b.core.lock().unwrap().work.cancel(&dir, iid);
     if gone { b.broadcast(); }
 }
 
@@ -1083,64 +1272,91 @@ async fn work_start(path: String, iid: i64, prompt: Option<String>, dir: Option<
 }
 
 // ---------- the ticket flow (#112): Start in a worktree, approve the plan, the work log ----------
-// An issue of a project a session here works in (its folder known), as Start reads it.
-fn local_issue(c: &Core, path: &str, iid: i64) -> Option<(String, Value)> {
-    let view = c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work));
-    let g = view["local"].as_array()?.iter().find(|g| g["path"] == path)?;
-    let i = g["issues"].as_array()?.iter().find(|i| i["iid"].as_i64() == Some(iid))?.clone();
-    Some((g["dir"].as_str()?.to_string(), i))
+// An issue Bobix lists, as Start reads it, and the folder of the repository its code is in (`code`): the one a session
+// here works in, else a clone Bobix knows (clones.rs). The code may be in another repository than the issue's.
+fn listed_issue(c: &Core, path: &str, iid: i64, code: &str) -> Option<(Option<String>, Value)> {
+    let m = model::Model::build(&c.settings, &c.sessions, &c.work);
+    let view = c.work.view(&c.settings, &m);
+    let groups = || view["local"].as_array().into_iter().flatten().chain(view["away"].as_array().into_iter().flatten());
+    let i = groups().find(|g| g["path"] == path)?["issues"].as_array()?.iter().find(|i| i["iid"].as_i64() == Some(iid))?.clone();
+    // a folder you chose or cloned first, also for a code project with no issue listed (only a session there)
+    let dir = clones::pinned(&c.settings, code).or_else(|| groups().find(|g| g["path"] == code).and_then(|g| g["dir"].as_str().map(String::from)))
+        .or_else(|| m.repos.iter().find(|r| r.path == code).and_then(|r| r.dirs.first().map(|d| d.to.path.clone())))
+        .or_else(|| clones::dirs(&c.settings).get(code).cloned());
+    Some((dir, i))
 }
-// The repository's top folder (a session may work in a subfolder), its worktree for the issue, the branch, the disk.
-fn ticket_place(b: &Bobix, path: &str, iid: i64) -> Result<(String, Value, std::path::PathBuf, String), Value> {
-    let (dir, i) = { let c = b.core.lock().unwrap(); local_issue(&c, path, iid) }.ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
-    let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
-    let wt = tickets::worktree_dir(&repo, iid);
-    let branch = tickets::branch_for(iid, i["title"].as_str().unwrap_or(""));
+// The code repository's top folder (a session may work in a subfolder), its worktree for the issue, the branch.
+// Err { reason: where, code } when Bobix knows no folder of the code repository yet: the panel asks.
+fn ticket_place(b: &Bobix, path: &str, iid: i64, code: &str) -> Result<(String, Value, std::path::PathBuf, String), Value> {
+    let (dir, i) = { let c = b.core.lock().unwrap(); listed_issue(&c, path, iid, code) }.ok_or_else(|| json!({ "ok": false, "reason": "gone" }))?;
+    let dir = dir.ok_or_else(|| json!({ "ok": false, "reason": "where", "code": code }))?;
+    let repo = work::git_status(&dir).and_then(|(g, _)| g["top"].as_str().map(String::from)).ok_or_else(|| json!({ "ok": false, "reason": "where", "code": code }))?;
+    let branch = tickets::branch_for(iid, i["title"].as_str().unwrap_or(""), path, code);
+    let wt = tickets::worktree_dir(&repo, iid, path, code);
     Ok((repo, i, wt, branch))
 }
+// The repository a Start puts the code in: the one you picked, else the issue's own. Lower case, as paths are kept.
+fn code_of(path: &str, code: Option<String>) -> String { code.map(|c| c.trim().to_lowercase()).filter(|c| c.contains('/')).unwrap_or_else(|| path.to_string()) }
 
 // For the Start box: where it will work and how the session is told to work. { ok, repo, dir, branch, rules, free, room, need, exists }
 #[tauri::command]
-async fn ticket_prep(path: String, iid: i64, b: B<'_>) -> Result<Value, ()> {
+async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (repo, _, wt, branch) = match ticket_place(&b, &path, iid) { Ok(x) => x, Err(e) => return e };
+        let code = code_of(&path, code);
+        let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
-        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::key_of(&path, iid)).is_some_and(|f| !f.cleaned);
-        json!({ "ok": true, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
+        json!({ "ok": true, "code": code, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
     }).await.map_err(|_| ())
 }
 
-// Start: a worktree on a new branch, the log's template in it, then a new Claude desktop session there with the prompt
-// (how: desktop), or the line to paste in a terminal with the model and plan mode preset (how: cli). The first session
-// created in that folder takes the issue (its name, as New does) and the flow.
+// Start: a worktree on a new branch from the remote's default branch (fetched first; offline, the last copy, and the
+// answer says so), the log's template in it, then a new Claude desktop session there with the prompt (how: desktop),
+// or the line to paste in a terminal with the model and plan mode preset (how: cli). The first session created in that
+// folder takes the issue (its name, as New does) and the flow. Under WORKTREE_BYTES free it answers { reason: disk }
+// unless `anyway` (Start anyway: a small repository needs far less).
 #[tauri::command]
-async fn ticket_start(path: String, iid: i64, prompt: String, models: Value, how: String, b: B<'_>) -> Result<Value, ()> {
+async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (repo, i, wt, branch) = match ticket_place(&b, &path, iid) { Ok(x) => x, Err(e) => return e };
-        let key = tickets::key_of(&path, iid);
+        let code = code_of(&path, code);
+        let (repo, i, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
+        let key = tickets::flow_key(&path, iid, &code);
         if b.core.lock().unwrap().tickets.list.get(&key).is_some_and(|f| !f.cleaned) { return json!({ "ok": false, "reason": "exists" }); }
         let free = tickets::free_bytes(std::path::Path::new(&repo));
-        if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) { return json!({ "ok": false, "reason": "disk", "free": free }); }
+        if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) && anyway != Some(true) { return json!({ "ok": false, "reason": "disk", "free": free }); }
         let title = i["title"].as_str().unwrap_or("").to_string();
-        let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
-        let dir = wt.to_string_lossy().to_string();
+        let flang = lang(&b.core.lock().unwrap().settings); // the flow keeps the language it started in
+        // a worktree kept from before in the old place (a link there opens the main folder): moved here first
+        if let Err(e) = tickets::move_kept(&repo, iid, &path, &code, &branch, &wt) { return json!({ "ok": false, "reason": "git", "detail": e }); }
+        let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title, &flang)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
+        let fetch = json!({ "ok": base.fetched, "from": base.name, "at": base.at });
+        let tests = skill_audit::carry_tests(std::path::Path::new(&repo), &wt, &paths::data_dir()); // your uncommitted Tests line, there too
+        let (base, dir) = (base.commit, wt.to_string_lossy().to_string());
         let models = if models.is_object() { models } else { json!({ "size": "small" }) };
         let cmd = tickets::cli_command(&dir, &tickets::main_model(&models), &prompt);
         {
             let mut c = b.core.lock().unwrap();
             c.tickets.list.shift_remove(&key);
-            c.tickets.list.insert(key.clone(), tickets::Flow { key, path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
-                dir: dir.clone(), branch, base, status: "starting".into(), models, at: state::now(), ..Default::default() });
+            let forge = c.work.source_of(&c.settings, &path, iid).map(|x| x.0.key()).unwrap_or("gitlab").to_string();
+            c.tickets.list.insert(key.clone(), tickets::Flow { key: key.clone(), path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
+                dir: dir.clone(), branch, base, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
             c.tickets.save();
-            c.work.new_for.insert(dir.clone(), json!({ "path": path, "iid": iid, "title": title }));
+            let main = c.tickets.list.get(&key).map(|f| f.repo.clone()).unwrap_or_default();
+            c.work.wait_for(&dir, &main, &path, iid, &json!(title), &i["url"]);
         }
+        effects::record(&paths::data_dir(), "split", Some(&dir), if models["size"] == "large" { "on" } else { "off" }, state::now());
+        // the repository picked becomes the next Start's suggestion for this issue repository's issues
+        let mut all = b.core.lock().unwrap().settings["workCode"].clone();
+        if !all.is_object() { all = json!({}); }
+        if code == path { all.as_object_mut().map(|o| o.remove(&path)); } else { all[&path] = json!(code); }
+        update_settings(&b, json!({ "workCode": all }));
         b.broadcast();
-        if how == "cli" { return json!({ "ok": true, "mode": "cli", "dir": dir, "cmd": cmd }); }
-        match tauri_plugin_opener::open_url(work::new_session_link(&dir, &prompt), None::<&str>) {
-            Ok(_) => json!({ "ok": true, "mode": "new", "dir": dir, "cmd": cmd }),
-            Err(e) => json!({ "ok": false, "mode": "new", "reason": e.to_string(), "dir": dir, "cmd": cmd }),
+        if how == "cli" { return json!({ "ok": true, "mode": "cli", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }); }
+        match open_claude(&work::new_session_link(&dir, &prompt)) {
+            Ok(_) => json!({ "ok": true, "mode": "new", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
+            Err(e) => json!({ "ok": false, "mode": "new", "key": key, "reason": e, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
         }
     }).await.map_err(|_| ())
 }
@@ -1205,12 +1421,12 @@ async fn ticket_review(key: String, how: String, b: B<'_>) -> Result<Value, ()> 
     tauri::async_runtime::spawn_blocking(move || {
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
         if f.cleaned || !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
-        let prompt = tickets::review_prompt(&f.branch, &f.base);
+        let prompt = tickets::review_prompt(&f.branch, &f.base, &f.dir, &f.lang);
         let cmd = tickets::cli_in_mode(&f.dir, &tickets::review_model(&f.models), "auto", &prompt);
         if how == "cli" { return json!({ "ok": true, "mode": "cli", "cmd": cmd, "prompt": prompt }); }
-        match tauri_plugin_opener::open_url(work::new_session_link(&f.dir, &prompt), None::<&str>) {
+        match open_claude(&work::new_session_link(&f.dir, &prompt)) {
             Ok(_) => json!({ "ok": true, "mode": "new", "cmd": cmd, "prompt": prompt }),
-            Err(e) => json!({ "ok": false, "error": e.to_string(), "cmd": cmd, "prompt": prompt }),
+            Err(e) => json!({ "ok": false, "error": e, "cmd": cmd, "prompt": prompt }),
         }
     }).await.map_err(|_| ())
 }
@@ -1223,13 +1439,81 @@ async fn ticket_clean(key: String, force: Option<bool>, b: B<'_>) -> Result<Valu
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
         if !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
         // commits no remote has: said first (the branch stays either way); cleaned up on a second click
-        let n = tickets::unpushed(&f.dir, &f.branch);
+        let n = tickets::unpushed(f.git_dir(), &f.branch);
         if n > 0 && force != Some(true) { return json!({ "ok": false, "error": "unpushed", "n": n }); }
         tickets::keep_log(&paths::data_dir(), &f);
-        if let Err(e) = tickets::remove_worktree(&f.repo, &f.dir) { return json!({ "ok": false, "error": e }); }
-        { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.new_for.shift_remove(&f.dir); }
+        // Only the worktree Bobix made is removed. A worktree Claude made for the session is Claude's (`left`): the flow
+        // is cleaned either way, and Bobix's own unused one stays when git refuses (`kept`: it has changes).
+        let (mut left, mut kept) = (Value::Null, Value::Null);
+        match tickets::remove_worktree(&f.repo, f.made(), false) {
+            // Bobix's own unused worktree with changes in it stays (said); any other failure is said as it is
+            Err(_) if !f.own.is_empty() && tickets::at_risk(&f.own, "HEAD").is_some_and(|r| r.0 > 0) => kept = json!(f.own),
+            Err(e) => return json!({ "ok": false, "error": e }),
+            Ok(()) => {}
+        }
+        if !f.own.is_empty() { left = json!(f.dir); }
+        { let mut c = b.core.lock().unwrap(); if let Some(x) = c.tickets.list.get_mut(&key) { x.cleaned = true; } c.tickets.save(); c.work.cancel(f.made(), None); }
         b.broadcast();
-        json!({ "ok": true })
+        json!({ "ok": true, "left": left, "kept": kept })
+    }).await.map_err(|_| ())
+}
+
+// Did your changes help? Your own sessions per project, each change Bobix made against the sessions around it, the
+// model split per ticket and Bobix's own calls (effects.rs). This computer only; read when the screen opens.
+#[tauri::command]
+async fn usage_effects(b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let flows: Vec<(String, String, bool)> = b.core.lock().unwrap().tickets.list.values()
+            .filter_map(|f| Some((f.session.clone()?, f.key.clone(), f.models["size"] == "large"))).collect();
+        let (past, prices) = b.usage.lock().unwrap().history();
+        let data = paths::data_dir();
+        let own: Vec<Value> = std::fs::read_to_string(data.join("own-calls.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        effects::view(&past, &effects::changes(&data), &own, &flows, &prices, state::now())
+    }).await.map_err(|_| ())
+}
+
+// A flow's texts for its details (its log in sections, plan, summary, the MR's draft): the state the pages get with
+// every update leaves them out. { key, at, parsed, plan, summary, mrTitle?, mrBody? } | null
+#[tauri::command]
+fn ticket_detail(key: String, b: B) -> Value {
+    let (changed, d) = { let mut c = b.core.lock().unwrap(); let ch = c.tickets.refresh(&key, state::now()); if ch { c.tickets.save(); } (ch, c.tickets.detail(&key)) };
+    if changed { b.broadcast(); }
+    d.unwrap_or(Value::Null)
+}
+
+// Remove a flow that is not done or blocked (stuck waiting for its session, stopped, or one you give up on), so its
+// issue can start again. act: check → { live, changed, unpushed, exists, dir } (what you are asked about first);
+// keep → the flow goes, its worktree and branch stay (a Start on the issue uses that worktree again); delete → the
+// worktree goes too (its changes not committed with it; the branch keeps its commits). Bobix never closes a Claude
+// session: while its session still runs, only keep is allowed.
+#[tauri::command]
+async fn ticket_remove(key: String, act: String, b: B<'_>) -> Result<Value, ()> {
+    let b = b.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (f, live) = {
+            let c = b.core.lock().unwrap();
+            let Some(f) = c.tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
+            let live = f.session.as_deref().is_some_and(|s| c.sessions.contains_key(s)) || f.pid.is_some_and(procs::is_alive);
+            (f, live)
+        };
+        if f.cleaned { return json!({ "ok": false, "error": "gone" }); }
+        // what deleting would lose is asked of the folder Bobix made, the only one it deletes; a worktree Claude made
+        // for the session (`left`) stays whatever you choose
+        let risk = tickets::at_risk(f.made(), if f.own.is_empty() { &f.branch } else { "HEAD" });
+        let left = if f.own.is_empty() { Value::Null } else { json!(f.dir) };
+        let branch = if f.own.is_empty() { f.branch.clone() } else { tickets::head_branch(&f.own).unwrap_or_default() };
+        match act.as_str() {
+            "check" => return json!({ "ok": true, "live": live, "exists": risk.is_some(), "changed": risk.map_or(0, |r| r.0), "unpushed": risk.map_or(0, |r| r.1), "dir": f.made(), "branch": branch, "left": left }),
+            "delete" if live => return json!({ "ok": false, "error": "live" }),
+            "delete" => if let Err(e) = tickets::remove_worktree(&f.repo, f.made(), true) { return json!({ "ok": false, "error": e }); },
+            "keep" => {}
+            _ => return json!({ "ok": false, "error": "act" }),
+        }
+        tickets::keep_log(&paths::data_dir(), &f);
+        { let mut c = b.core.lock().unwrap(); c.tickets.list.shift_remove(&key); c.tickets.save(); c.work.cancel(f.made(), None); }
+        b.broadcast();
+        json!({ "ok": true, "kept": act == "keep", "left": left })
     }).await.map_err(|_| ())
 }
 
@@ -1248,9 +1532,11 @@ async fn ticket_mr(key: String, title: String, description: String, b: B<'_>) ->
         if f.cleaned || f.status != "done" { return json!({ "ok": false, "error": "notdone" }); }
         if !f.mr.is_empty() { return json!({ "ok": true, "url": f.mr }); }
         // the issue's tracker and host, else the host of its link (an issue closed meanwhile is no longer listed)
-        let (forge, bin, host) = src.unwrap_or_else(|| (work::Forge::GitLab, None, tauri::Url::parse(&f.url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default()));
-        if forge != work::Forge::GitLab { return json!({ "ok": false, "error": "gitlab" }); }
-        let Some(glab) = bin.or_else(|| find_bin("glab")) else { return json!({ "ok": false, "error": "noglab" }) };
+        let fallback = if f.github() { work::Forge::GitHub } else { work::Forge::GitLab };
+        let (forge, bin, host) = src.unwrap_or_else(|| (fallback, None, tauri::Url::parse(&f.url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default()));
+        let mut f = f;
+        if f.forge.is_empty() { f.forge = forge.key().into(); }
+        let Some(glab) = bin.or_else(|| find_bin(forge.bin())) else { return json!({ "ok": false, "error": if forge == work::Forge::GitHub { "nogh" } else { "noglab" } }) };
         let title = if title.trim().is_empty() { tickets::mr_title(&f) } else { js::head16(title.trim(), 200).to_string() };
         match tickets::open_mr(&glab, &host, &f, &title, js::head16(&description, 20_000)) {
             Ok(url) => {
@@ -1296,7 +1582,12 @@ async fn skills_audit(dir: Option<String>, b: B<'_>) -> Result<Value, ()> {
 async fn skills_change(dir: Option<String>, key: String, act: String, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, dir) {
-        Ok(d) => skill_audit::apply(&paths::home(), d.as_deref(), &paths::data_dir(), &key, &act),
+        Ok(d) => {
+            let r = skill_audit::apply(&paths::home(), d.as_deref(), &paths::data_dir(), &key, &act);
+            // noted for "did it help?": the skill's own repository, or every project for a personal one
+            if r["ok"] == true { effects::record(&paths::data_dir(), &format!("skill-{act}"), Some(&key), std::path::Path::new(&key).file_name().map(|n| n.to_string_lossy()).as_deref().unwrap_or(&key), state::now()); }
+            r
+        }
         Err(e) => e,
     }).await.map_err(|_| ())
 }
@@ -1310,7 +1601,15 @@ async fn skills_backups() -> Result<Value, ()> {
 // Undoes one change. { ok, exact? } or { ok: false, error }.
 #[tauri::command]
 async fn skills_undo(id: String) -> Result<Value, ()> {
-    tauri::async_runtime::spawn_blocking(move || skill_audit::undo(&paths::data_dir(), &id)).await.map_err(|_| ())
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = paths::data_dir();
+        let e = skill_audit::backups(&data).as_array().into_iter().flatten().find(|e| e["id"] == id.as_str()).cloned();
+        let r = skill_audit::undo(&data, &id);
+        if let (true, Some(e)) = (r["ok"] == true, e) { // an undo is a change too
+            effects::record(&data, "undo", e["path"].as_str(), &format!("{} {}", e["kind"].as_str().unwrap_or(""), e["name"].as_str().unwrap_or("")), state::now());
+        }
+        r
+    }).await.map_err(|_| ())
 }
 
 // The "When to split, which model" block of the project's CLAUDE.md: { file, present, text, block, undo } (add: false),
@@ -1319,7 +1618,11 @@ async fn skills_undo(id: String) -> Result<Value, ()> {
 async fn skills_rules(dir: String, add: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, Some(dir)) {
-        Ok(Some(d)) if add == Some(true) => skill_audit::rules_add(&d, &paths::data_dir()),
+        Ok(Some(d)) if add == Some(true) => {
+            let r = skill_audit::rules_add(&d, &paths::data_dir());
+            if r["ok"] == true { effects::record(&paths::data_dir(), "rules", d.to_str(), "CLAUDE.md", state::now()); }
+            r
+        }
         Ok(Some(d)) => skill_audit::rules_status(&d, &paths::data_dir()),
         Ok(None) => Value::Null,
         Err(e) => e,
@@ -1328,15 +1631,18 @@ async fn skills_rules(dir: String, add: Option<bool>, b: B<'_>) -> Result<Value,
 
 // The pipelines of the merge requests the ticket flow opened, read again (GET, your own glab); with `key`, that one only.
 fn refresh_ci(b: &Arc<Bobix>, key: Option<&str>) -> bool {
-    let (mrs, bin) = { let mut c = b.core.lock().unwrap(); (c.tickets.open_mrs(), c.work.feed(work::Forge::GitLab).bin.clone()) };
+    let (mrs, bins) = { let mut c = b.core.lock().unwrap(); (c.tickets.open_mrs(), [c.work.feed(work::Forge::GitLab).bin.clone(), c.work.feed(work::Forge::GitHub).bin.clone()]) };
     let mrs: Vec<_> = mrs.into_iter().filter(|m| key.is_none_or(|k| k == m.0)).collect();
     if mrs.is_empty() { return false; }
-    let Some(glab) = bin.or_else(|| find_bin("glab")) else { return false };
+    let [glab, gh] = bins;
+    let (glab, gh) = (glab.or_else(|| mrs.iter().any(|m| !m.4).then(|| find_bin("glab")).flatten()), gh.or_else(|| mrs.iter().any(|m| m.4).then(|| find_bin("gh")).flatten()));
     let now = state::now();
-    let mut changed = false;
-    for (k, host, path, iid) in mrs {
-        if let Some(ci) = tickets::read_ci(&glab, &host, &path, iid) { changed |= b.core.lock().unwrap().tickets.set_ci(&k, ci, now); }
+    let (mut changed, mut read) = (false, false);
+    for (k, host, path, iid, github) in mrs {
+        let ci = if github { gh.as_deref().and_then(|g| tickets::read_ci_gh(g, &host, &path, iid)) } else { glab.as_deref().and_then(|g| tickets::read_ci(g, &host, &path, iid)) };
+        if let Some(ci) = ci { read = true; changed |= b.core.lock().unwrap().tickets.set_ci(&k, ci, now); }
     }
+    if !read { return false; }
     b.core.lock().unwrap().tickets.save();
     if changed { b.broadcast(); }
     true
@@ -1358,7 +1664,14 @@ async fn ticket_ci(key: String, b: B<'_>) -> Result<Value, ()> {
 async fn claude_tests(dir: String, cmd: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || match audit_dir(&b, Some(dir)) {
-        Ok(Some(d)) => match cmd { Some(c) => skill_audit::tests_add(&d, &paths::data_dir(), &c), None => skill_audit::claude_check(&d, &paths::data_dir()) },
+        Ok(Some(d)) => match cmd {
+            Some(c) => {
+                let r = skill_audit::tests_add(&d, &paths::data_dir(), &c);
+                if r["ok"] == true { effects::record(&paths::data_dir(), "tests", d.to_str(), c.trim(), state::now()); }
+                r
+            }
+            None => skill_audit::claude_check(&d, &paths::data_dir()),
+        },
         Ok(None) => Value::Null,
         Err(e) => e,
     }).await.map_err(|_| ())
@@ -1585,8 +1898,8 @@ fn pet_reset(id: String, b: B) -> Value {
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
-    "work_brief", "work_link", "work_clone", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci"];
+    "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1604,12 +1917,22 @@ pub fn wayland() -> bool {
 }
 
 // Where `name` is, as the person's shell finds it: `where` on Windows, a login shell (then an interactive one, where
-// nvm and the like set PATH) elsewhere. The Dock and the Start menu start apps without the shell's PATH.
+// nvm and the like set PATH) elsewhere. The Dock and the Start menu start apps without the shell's PATH. Each shell
+// gets BIN_SECS at most (a start-up file that waits for input can't hold a read up), and the answer is kept for the
+// run: looked up once per app start, and again after Refresh (forget_bins), so a CLI installed meanwhile is found.
+const BIN_SECS: u64 = 5;
+static BINS: std::sync::LazyLock<Mutex<std::collections::HashMap<String, Option<String>>>> = std::sync::LazyLock::new(Default::default);
+pub fn forget_bins() { BINS.lock().unwrap().clear(); }
 pub fn find_bin(name: &str) -> Option<String> {
+    if let Some(v) = BINS.lock().unwrap().get(name) { return v.clone(); }
+    let v = look_up_bin(name);
+    BINS.lock().unwrap().insert(name.to_string(), v.clone());
+    v
+}
+fn look_up_bin(name: &str) -> Option<String> {
     let ok = |l: &str| { let low = l.to_lowercase(); (low.ends_with(name) || low.ends_with(&format!("{name}.exe"))) && std::path::Path::new(l).exists() };
     let try_cmd = |cmd: &str, args: &[&str], first: bool| -> Option<String> {
-        let out = std::process::Command::new(cmd).args(args).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
-        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        let text = procs::exec(cmd, args, BIN_SECS, &[]).out;
         let mut lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
         if !first { lines.reverse(); } // an interactive shell may print noise before the answer: last wins
         lines.into_iter().find(|l| ok(l)).map(String::from)
@@ -1670,19 +1993,25 @@ fn main() {
     if let Some(p) = std::env::var("BOBIX_PORT").ok().and_then(|p| p.parse::<u16>().ok()) { settings["port"] = json!(p); }
     let port = settings["port"].as_u64().unwrap_or(4747) as u16;
     let token = paths::ensure_token().unwrap_or_else(|e| fail(format!("token: {e}")));
-    let (tx, _) = broadcast::channel(64);
+    let (tx, _) = broadcast::channel(4); // the pages only need the newest state (a page that lags gets the next one whole)
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
             node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
-        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())),
+        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
     });
+    {
+        // Full starts whose session had not come when Bobix last closed wait for it again
+        let mut c = b.core.lock().unwrap();
+        let Core { work, tickets, .. } = &mut *c;
+        for f in tickets.waiting() { work.wait_for(&f.dir, &f.repo, &f.path, f.iid, &json!(f.title), &json!(f.url)); }
+    }
 
     let rb = b.clone();
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_clone, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
-            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci,
+            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove, usage_effects,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -1717,6 +2046,8 @@ fn main() {
                 fail(format!("Port {port} is busy ({e}). Is Bobix already running?\nChange \"port\" in {}", paths::settings_file().display()));
             }
 
+            let sb = b.clone();
+            thread::spawn(move || sb.send_loop());
             thread::spawn(|| { room_serve(&paths::data_dir()); }); // a room still open from before
             let hb = b.clone();
             thread::spawn(move || { let node = find_bin("node"); hb.core.lock().unwrap().node_path = node; refresh_hooks(&hb); });
@@ -1841,7 +2172,7 @@ mod snapshot_tests {
             links::ClaudeSession { id: "local_r1".into(), cwd: "/src/shop".into(), title: "[SHO-32] tidy".into(), at: 5.0 },
             links::ClaudeSession { id: "local_r2".into(), cwd: "/src/shop".into(), title: "shop #31 old".into(), at: 3.0 },
         ];
-        work.new_for.insert("/src/shop".into(), json!({ "path": "team/shop", "iid": 32, "title": "t32" }));
+        work.wait_for("/src/shop", "/src/shop", "team/shop", 32, &json!("t32"), &Value::Null);
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
             last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }
@@ -1850,6 +2181,28 @@ mod snapshot_tests {
 
     // Before the work model, the pages got exactly test/fixtures/work-snapshot.json for this fixture. Now they get the
     // same, plus two things nothing read before: each issue's "stage" and the model itself ("model").
+    // Issue in one repository, code in another that has no issue listed but a session running in its folder: a folder
+    // you chose (or cloned) for the code project is where prep and start work, and what the panel shows; a found one is not.
+    #[test]
+    fn a_chosen_folder_wins_for_a_code_project_with_only_a_session() {
+        let mut c = fixture();
+        c.work.feeds[work::Forge::GitLab as usize].issues["list"] = json!([]); // team/shop: no issue listed, a session in /src/shop
+        let y = std::env::temp_dir().join(format!("bobix-chosen-{}", std::process::id()));
+        std::fs::create_dir_all(&y).unwrap();
+        let y = y.to_string_lossy().into_owned();
+        let dir = |c: &Core| listed_issue(c, "acme/app", 52, "team/shop").unwrap().0;
+        let pinned = |c: &Core| c.work.view(&c.settings, &model::Model::build(&c.settings, &c.sessions, &c.work))["pinned"]["team/shop"].clone();
+        assert_eq!(dir(&c).as_deref(), Some("/src/shop"), "the session's folder, until you choose one");
+        c.settings["workDirs"] = json!({ "team/shop": { "dir": y, "how": "found" } });
+        assert_eq!((dir(&c).as_deref(), pinned(&c)), (Some("/src/shop"), Value::Null), "a found one does not win");
+        for how in ["chosen", "cloned"] {
+            c.settings["workDirs"]["team/shop"]["how"] = json!(how);
+            assert_eq!((dir(&c), pinned(&c)), (Some(y.clone()), json!(y)), "{how}: prep and start work there, the panel shows it");
+        }
+        std::fs::remove_dir_all(&y).unwrap();
+        assert_eq!(dir(&c).as_deref(), Some("/src/shop"), "gone: not used");
+    }
+
     #[test]
     fn pages_get_the_same_json() {
         let c = fixture();
@@ -1858,6 +2211,11 @@ mod snapshot_tests {
         // the ticket flow's view (free disk differs per machine) and each session's flow and mark: none in this fixture
         let flows = got.as_object_mut().unwrap().shift_remove("tickets").expect("the ticket flow goes along");
         assert_eq!((&flows["list"], &flows["need"]), (&json!([]), &json!(tickets::WORKTREE_BYTES)));
+        // the list's page, its filter and the repositories ticked: one page (read in full), no filter set, none ticked in this fixture;
+        let w = got["work"].as_object_mut().unwrap();
+        // no read asked for and not answered yet; no remembered folder
+        let paging: Vec<Option<Value>> = ["page", "more", "filling", "filter", "ticked", "many", "moreRepos", "reading", "gen", "dirs", "pinned"].iter().map(|k| w.shift_remove(*k)).collect();
+        assert_eq!(paging, [Some(json!(1)), Some(json!(false)), Some(json!(false)), Some(Value::Null), Some(json!(0)), Some(json!(false)), Some(json!(0)), Some(json!(false)), Some(json!(0)), Some(json!({})), Some(json!({}))]);
         for s in got["sessions"].as_array_mut().unwrap() {
             let o = s.as_object_mut().unwrap();
             assert_eq!((o.shift_remove("mark"), o.shift_remove("flow")), (Some(json!(false)), Some(Value::Null)));
@@ -1895,7 +2253,8 @@ mod snapshot_tests {
         assert_eq!(issue("s2"), Some(("acme/app", 54, Started)), "New on #54");
         assert_eq!(issue("c3"), Some(("acme/app", 52, Parent)), "a side session on Claude's own branch: its parent's");
         assert_eq!(issue("cli"), Some(("acme/app", 55, Branch)));
-        assert_eq!([issue("c5"), issue("o6"), issue("s7")], [None, None, None], "outside git; remote on no signed-in host; started in another project");
+        assert_eq!([issue("c5"), issue("o6")], [None, None], "outside git; remote on no signed-in host");
+        assert_eq!(issue("s7"), Some(("acme/app", 99, Started)), "started for an issue of another project (its code is in this repository): that issue");
         let parent = |id: &str| s(id).parent.as_ref().map(|p| (p.to.id.as_str(), p.why));
         assert_eq!([parent("c3"), parent("c5"), parent("o6"), parent("p4")], [Some(("p4", Parent)), Some(("p4", Parent)), None, None]);
         assert_eq!(s("c3").dir.as_ref().map(|d| (d.to.path.as_str(), d.why)), Some(("/src/app", Folder)), "the repository's folder, not the one it cd'd into");

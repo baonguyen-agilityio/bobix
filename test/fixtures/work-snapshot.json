@@ -533,7 +533,11 @@
       "image": null,
       "pixel": false,
       "whole": false,
-      "issue": null
+      "issue": {
+        "iid": 99,
+        "title": "",
+        "url": ""
+      }
     },
     {
       "id": "cli",

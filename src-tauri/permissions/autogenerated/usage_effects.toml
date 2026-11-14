@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-usage-effects"
+description = "Enables the usage_effects command without any pre-configured scope."
+commands.allow = ["usage_effects"]
+
+[[permission]]
+identifier = "deny-usage-effects"
+description = "Denies the usage_effects command without any pre-configured scope."
+commands.deny = ["usage_effects"]

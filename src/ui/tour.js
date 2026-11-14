@@ -5,7 +5,7 @@
 // new install counts today's as seen); Setup shows it whole.
 (function (root) {
   // Each step: the screen it shows (and the item it picks there), the elements it points at (the first one on screen wins; none: the bubble stands in
-  // the middle), and its strings tour.<key>.title / tour.<key>.body. open: what the panel opens first: a ticket (one with a ⚠ if there is one), or the Start box of the issue Next up suggests.
+  // the middle), and its strings tour.<key>.title / tour.<key>.body. open: what the panel opens first: a ticket (one with a ⚠ if there is one), or the Quick Start box of the issue BOARD.next suggests.
   // alt: where to point instead when none of `at` is there (another screen). news: what this release adds, the only
   // step that opens by itself after an update.
   const STEPS = [
@@ -15,8 +15,8 @@
     { key: 'dnd', tab: 'settings', item: 'set:notify', at: ['[data-row="dnd"]'] },
     { key: 'board', tab: 'sessions', at: ['#b-list'] },
     { key: 'stuck', tab: 'overview', at: ['[data-grp="stuck"]'], alt: { tab: 'settings', item: 'set:stuck', at: ['[data-row="stuckOn"]'] } },
-    { key: 'next', tab: 'sessions', item: 'next', at: ['[data-bsel="next"]', '[data-grp="todo"]'] },
-    { key: 'skill', tab: 'sessions', at: ['#st-skills'], open: 'start', alt: { tab: 'skills', item: 'role', at: ['#sk-role'] } },
+    { key: 'next', tab: 'work', at: ['[data-grp="fstart"]', '#b-list'] },
+    { key: 'skill', tab: 'work', at: ['#st-skills'], open: 'start', alt: { tab: 'skills', item: 'role', at: ['#sk-role'] } },
     { key: 'skills', tab: 'skills', at: ['#b-list'] },
     { key: 'audit', tab: 'skills', item: 'aud', at: ['[data-grp="audit"]'] },
     { key: 'usage', tab: 'overview', item: 'today', at: ['#d-use'] },
