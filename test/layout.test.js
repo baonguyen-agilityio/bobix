@@ -359,6 +359,29 @@ async function panel(b, url, { width, height, lang, dark }) {
     // Nothing the layout-shift API sees either (narrow: a tab switch moves the detail below the list, as asked).
     const acts = await b.ev('__acts'), asked = s => s.input || acts.some(a => s.t >= a && s.t - a < 3000);
     for (const s of [...before, ...await b.ev('__shifts')]) if (!asked(s) || wide) fail(`layout shift ${s.v.toFixed(4)}${s.input ? ' (after input)' : ''}: ${s.src}`);
+    // The label helper's own CSS must not reach other grids: the habits box (.hb .two) keeps its columns side by side, from the top.
+    await part('habits box', async () => {
+      const r = await b.ev(`(() => { const h = document.createElement('div'); h.className = 'hb';
+        h.innerHTML = '<div class="two"><div><b>Keeps</b><ul><li>a</li><li>b</li><li>c</li><li>d</li></ul></div><div><b>Never</b><ul><li>a</li><li>b</li><li>c</li></ul></div></div>';
+        document.body.append(h); const g = h.querySelector('.two'), [x, y] = [...g.children].map(e => e.getBoundingClientRect()), cs = getComputedStyle(g),
+          r = { pi: cs.placeItems, dTop: Math.abs(x.top - y.top), cols: cs.gridTemplateColumns.split(' ').length }; h.remove(); return r; })()`);
+      if (/center/.test(r.pi)) fail(`habits box: its columns are centred (place-items: ${r.pi})`);
+      if (wide && (r.dTop > .5 || r.cols !== 2)) fail(`habits box: columns ${r.cols}, tops differ by ${r.dTop}`);
+    });
+    // The tour closed (Skip, Esc) or moved on while Skills still shows its waiting row: the panel stays where that took it.
+    // (Skills' lists are in by now: the row is brought back by marking them not in, and they come in again at the end.)
+    await part('tour closed while Skills loads', async () => {
+      for (const how of ['end', 'next']) {
+        const r = await b.ev(`(async () => { const nap = ms => new Promise(o => setTimeout(o, ms)), i = TOUR.STEPS.findIndex(s => s.tab === 'skills');
+          listsIn = false; tourStart(false); tourAt = i; const shown = tourShow(); await nap(50); const waited = !!cur?.wait, key = tourSteps[tourAt].key;
+          if (${JSON.stringify(how)} === 'end') await tourEnd(); else { tourAt = TOUR.STEPS.findIndex(s => s.key === 'usage'); tourShow(); }
+          listsIn = true; render(); await shown; await nap(900); const r = { waited, scope, key, now: tourSteps[tourAt]?.key }; if (tourAt >= 0) await tourEnd(); return r; })()`);
+        if (!r.waited) fail(`tour on ${r.key}: Skills showed no waiting row, so nothing was tested`);
+        else if (how === 'end' && r.scope === 'skills') fail('tour closed while Skills loads: the panel went back to Skills');
+        else if (how === 'next' && r.scope === 'skills') fail(`tour moved on to ${r.now} while Skills loads: the panel went back to Skills`);
+        await b.ev('showTab("overview")'); await sleep(300);
+      }
+    });
     bad.push(...b.errors.splice(0).map(e => `page error: ${e}`));
   } finally { await b.send('Page.removeScriptToEvaluateOnNewDocument', { identifier }); }
   return bad.map(m => `${width}×${height} ${lang}${dark ? ' dark' : ''}: ${m}`);
@@ -398,13 +421,16 @@ async function card(b, url) {
 const exe = chrome();
 test('nothing moves in the panel or the pets card unless asked (tabs, data arriving, typing, toasts, dialogs; wide and narrow, en and vi)', { skip: !exe && 'no Chrome', timeout: 300e3 }, async () => {
   const srv = await server(), base = `http://127.0.0.1:${srv.address().port}`;
-  // One browser each, side by side: the checks wait on the stand-in's delays, not on the machine.
+  // One browser each: the checks wait on the stand-in's delays, not on the machine.
   const runs = [{ width: 1180, height: 780, lang: 'vi' }, { width: 1180, height: 780, lang: 'en', dark: true }, { width: 420, height: 780, lang: 'vi' }, { width: 420, height: 780, lang: 'en', dark: true }, null];
   try {
-    const bad = await Promise.all(runs.map(async c => {
+    // Two browsers at a time: five at once starve a small CI machine (Windows), and a Chrome that cannot answer fails the run.
+    const one = async c => {
       const b = await browser(exe);
       try { await b.send('Page.enable'); await b.send('Runtime.enable'); return c ? await panel(b, base + '/?t=x', c) : await card(b, base + '/pets'); } finally { await b.close(); }
-    }));
+    };
+    const bad = [];
+    for (let i = 0; i < runs.length; i += 2) bad.push(...await Promise.all(runs.slice(i, i + 2).map(one)));
     assert.deepEqual(bad.flat(), []);
   } finally { srv.close(); }
 });
