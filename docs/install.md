@@ -83,7 +83,7 @@ Open the panel (click the tray / menu bar icon → **Open Bobix**) → **Setting
 
 ## Without Node.js
 
-The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl` (macOS/Linux) or PowerShell (Windows) instead. Everything works except one thing: clicking a pet opens its details in the panel instead of the session window. Install Node.js and click **Reinstall** in Settings → Connect Claude Code to get it back.
+The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl` (macOS/Linux) or PowerShell (Windows) instead. Everything works except one thing: opening a session (a pet click, **Open session** in the panel, on the pet's card or in the tray, ⌘K ↵) shows its details or says why instead of bringing its window forward. Install Node.js and click **Reinstall** in Settings → Connect Claude Code to get it back.
 
 ## Troubleshooting
 
