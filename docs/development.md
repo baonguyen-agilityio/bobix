@@ -35,7 +35,7 @@ How a change gets made, by people and by Claude Code sessions alike. The working
 6. **CI.** The three smoke checks (see [CI](#ci)) must pass.
 7. **The owner approves the merge.** Sessions never merge, and never `gh pr merge --auto`. A new feature is tried by hand by the owner first.
 
-[`dependabot.yml`](../.github/dependabot.yml) opens one weekly pull request per ecosystem and directory (cargo for `src-tauri`, `crates/bobix-link` and its `fuzz` crate; npm; GitHub Actions). The smoke checks run on it; the review skips it. Read it like any other pull request before the owner merges it.
+[`dependabot.yml`](../.github/dependabot.yml) opens one weekly pull request per ecosystem and directory (cargo for `src-tauri`, `crates/bobix-link` and its `fuzz` crate, and `relay`; npm; GitHub Actions). The smoke checks run on it; the review skips it. Read it like any other pull request before the owner merges it.
 
 ## Layout
 
@@ -135,7 +135,7 @@ cd crates/bobix-link && cargo test
 
 ## The relay
 
-`relay/` is an axum server (a path dependency on `bobix-link`, its own `Cargo.lock`, not part of a workspace). It authenticates a device with a challenge signed by its `auth` key, keeps one in-memory mailbox per recipient (ttl at most 600 s, 64 packets, 2 MiB) until the recipient acknowledges, delivers only between devices that allowed each other, forwards up to four `pairSend`s per open pairing token, shows presence (`online`, `offline` after 30 s without a pong, `asleep`), keeps revoked devices in a small file per desktop for 90 days, and with `INVITE_FILE` set serves only invited computers. Pushes go through a `PushSender` (APNs, FCM, another relay's gateway, or a recording fake); `POST /v1/push` is the gateway for relays without credentials. It never parses a `body` and has no code or dependency that could open one.
+`relay/` is an axum server (a path dependency on `bobix-link`, its own `Cargo.lock`, not part of a workspace). It authenticates a device with a challenge signed by its `auth` key, keeps one in-memory mailbox per recipient (ttl at most 600 s, 64 packets, 2 MiB) until the recipient acknowledges, delivers only between devices that allowed each other, forwards up to four `pairSend`s per open pairing token, shows presence (`online`, `offline` after 30 s without a pong, `asleep`), keeps revoked devices in a small file per desktop for 90 days, and with `INVITE_FILE` set serves only invited computers. Pushes go through a `PushSender` (APNs, FCM, another relay's gateway, or a recording fake); `POST /v1/push` is the gateway for relays without credentials. It never parses a `body` and has no code or dependency that could open one. Only a relay with its own APNs or FCM credentials (or `--dev`) serves the gateway route.
 
 ```bash
 cd relay && cargo test

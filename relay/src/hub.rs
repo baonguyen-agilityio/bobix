@@ -73,7 +73,8 @@ pub struct Hub {
     asleep: HashSet<String>,
     /// `allow[x]` are the devices that may send to `x`.
     allow: HashMap<String, HashSet<String>>,
-    /// Per desktop: every device it ever allowed or that answered one of its pairings. Only these can be revoked.
+    /// Per desktop: the devices that answered one of its pairing tokens. Only these can be revoked by it (a device
+    /// sets its own allow-list, so that list says nothing about who paired with whom). Lost on a restart.
     known: HashMap<String, HashSet<String>>,
     boxes: HashMap<String, Mailbox>,
     notices: HashMap<String, VecDeque<(Instant, Frame)>>,
@@ -249,12 +250,16 @@ impl Hub {
     }
 
     fn peers(&mut self, me: &str, guest: bool, allow: Vec<String>) {
-        let allow: HashSet<String> = allow.into_iter().filter(|a| a != me).take(256).collect();
-        if guest && !allow.iter().any(|a| self.invited(a)) {
-            return self.err(me, ErrorCode::Invite, None);
+        let mut allow: HashSet<String> = allow.into_iter().filter(|a| a != me).take(256).collect();
+        if guest {
+            // A guest is admitted only through invited computers: it can never allow, or be reached by, another guest.
+            let ids: Vec<String> = allow.drain().collect();
+            allow = ids.into_iter().filter(|a| self.invited(a)).collect();
+            if allow.is_empty() {
+                return self.err(me, ErrorCode::Invite, None);
+            }
         }
         let old = self.allow.insert(me.to_owned(), allow.clone()).unwrap_or_default();
-        self.known.entry(me.to_owned()).or_default().extend(allow.iter().cloned());
         // Delivery from an id that was dropped stops at once, also for what it already queued.
         let gone = self.boxes.get_mut(me).map(|b| b.drain_where(|p| !allow.contains(&p.from))).unwrap_or_default();
         for p in gone {

@@ -23,12 +23,12 @@ use tokio::time::{interval, timeout, Instant};
 /// Before a socket has authenticated, a frame may be this long.
 const PRE_AUTH_MAX: usize = 4 * 1024;
 
-pub async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(addr): ConnectInfo<SocketAddr>, ws: WebSocketUpgrade) -> Response {
+pub async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(_addr): ConnectInfo<SocketAddr>, ws: WebSocketUpgrade) -> Response {
     // Frames up to 1 MiB are read so an oversize one (over 256 KiB) can be answered without closing the socket.
-    ws.max_message_size(1 << 20).on_upgrade(move |s| socket(app, s, addr))
+    ws.max_message_size(1 << 20).on_upgrade(move |s| socket(app, s))
 }
 
-async fn socket(app: Arc<App>, ws: WebSocket, addr: SocketAddr) {
+async fn socket(app: Arc<App>, ws: WebSocket) {
     let (mut sink, mut stream) = ws.split();
     let (tx, mut rx) = unbounded_channel::<Out>();
     let writer = tokio::spawn(async move {
@@ -47,7 +47,7 @@ async fn socket(app: Arc<App>, ws: WebSocket, addr: SocketAddr) {
         }
         let _ = sink.close().await;
     });
-    session(&app, &mut stream, &tx, addr).await;
+    session(&app, &mut stream, &tx).await;
     let _ = tx.send(Out::Close);
     let _ = timeout(Duration::from_secs(2), writer).await;
 }
@@ -60,7 +60,7 @@ fn error(tx: &UnboundedSender<Out>, code: ErrorCode) {
     reply(tx, Frame::Error { code, who: None });
 }
 
-async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &UnboundedSender<Out>, addr: SocketAddr) {
+async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &UnboundedSender<Out>) {
     let nonce = b64(&random::<32>());
     reply(tx, Frame::Challenge { nonce: nonce.clone() });
 
@@ -76,7 +76,7 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Unbou
     let key: Option<[u8; 32]> = b64_decode(&key).and_then(|k| k.try_into().ok());
     let proven = key.is_some_and(|k| device_id(&k) == id && verify_auth(&k, &auth_bytes(&nonce), &b64_decode(&sig).unwrap_or_default()));
     if !proven {
-        app.log.line(&format!("auth refused from {}", addr.ip()));
+        app.log.line("auth refused");
         return error(tx, ErrorCode::Auth);
     }
 
@@ -98,7 +98,9 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Unbou
     app.log.line(&format!("connected {id}{}", if guest { " (guest)" } else { "" }));
 
     let mut last_seen = Instant::now();
-    let mut tick = interval(app.cfg.ping_every);
+    let mut ping = interval(app.cfg.ping_every);
+    // Silence is judged often, so a device that stopped answering shows offline soon after `dead_after`.
+    let mut check = interval((app.cfg.dead_after / 10).max(Duration::from_millis(20)));
     loop {
         tokio::select! {
             m = stream.next() => {
@@ -115,12 +117,12 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Unbou
                     _ => {}
                 }
             }
-            _ = tick.tick() => {
+            _ = ping.tick() => { let _ = tx.send(Out::Ping); }
+            _ = check.tick() => {
                 if last_seen.elapsed() > app.cfg.dead_after {
                     app.log.line(&format!("no answer to ping from {id}"));
                     break;
                 }
-                let _ = tx.send(Out::Ping);
             }
         }
     }

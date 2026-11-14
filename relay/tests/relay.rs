@@ -319,6 +319,7 @@ async fn a_revoked_device_gets_revoked_on_connect_and_on_every_frame_also_after_
     c.revoked_dir = Some(dir.clone());
     let s = start(c.clone()).await;
     let (mut d, mut p) = pair_up(&s).await;
+    answer_pairing(&mut d, &mut p, 7).await; // only a device that answered one of its pairings can be revoked by a desktop
     let phone = p.ident.clone();
     d.send(&Frame::Revoke { id: p.id() }).await;
     p.expect(is_err(ErrorCode::Revoked), 1000).await;
@@ -339,15 +340,33 @@ async fn a_revoked_device_gets_revoked_on_connect_and_on_every_frame_also_after_
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+async fn answer_pairing(d: &mut Dev, p: &mut Dev, n: u8) {
+    let (token, hash) = token_pair(n);
+    d.send(&Frame::PairOpen { relay_token_hash: hash, ttl: 120 }).await;
+    d.sync().await;
+    p.send(&Frame::PairSend { relay_token: token, body: "hello".into() }).await;
+    d.expect(|f| matches!(f, Frame::Msg { body, .. } if body == "hello"), 1000).await;
+}
+
 #[tokio::test]
-async fn a_desktop_can_revoke_only_devices_it_knows() {
+async fn nobody_can_revoke_a_device_that_did_not_answer_its_pairing() {
     let s = start(cfg()).await;
-    let mut d = Dev::connect(&s, ident()).await;
+    let (mut d, mut p) = pair_up(&s).await;
     let stranger = ident();
+    let mut ok = Dev::connect(&s, stranger.clone()).await;
+    // A desktop that merely lists a stranger in `peers` cannot then ban it (a device sets its own allow-list).
+    d.send(&Frame::Peers { allow: vec![p.id(), stranger.device_id()] }).await;
+    d.sync().await;
     d.send(&Frame::Revoke { id: stranger.device_id() }).await;
     d.expect(is_err(ErrorCode::NoPeer), 1000).await;
-    let mut ok = Dev::connect(&s, stranger).await; // not locked out
     ok.none(is_err(ErrorCode::Revoked), 300).await;
+    // A phone cannot revoke its desktop, and a desktop cannot revoke what it never paired with.
+    p.send(&Frame::Revoke { id: d.id() }).await;
+    p.expect(is_err(ErrorCode::NoPeer), 1000).await;
+    d.send(&Frame::Revoke { id: p.id() }).await;
+    d.expect(is_err(ErrorCode::NoPeer), 1000).await;
+    let mut again = Dev::connect(&s, d.ident.clone()).await;
+    again.none(is_err(ErrorCode::Revoked), 300).await;
 }
 
 #[tokio::test]
@@ -387,6 +406,14 @@ async fn invited_computers_only_when_an_invite_file_is_set() {
     let mut other_phone = Dev::connect(&s, ident()).await;
     other_phone.send(&Frame::Peers { allow: vec![stranger.id()] }).await;
     other_phone.expect(is_err(ErrorCode::Invite), 1000).await;
+
+    // Two guests cannot use an invited id in their lists to reach each other.
+    let mut g2 = Dev::connect(&s, ident()).await;
+    g2.send(&Frame::Peers { allow: vec![d.id(), stranger.id()] }).await;
+    g2.sync().await;
+    stranger.send(&send(&g2.id(), "sneak", 600, None, "AAAA")).await;
+    stranger.expect(is_err(ErrorCode::NoPeer), 1000).await;
+    g2.none(is_msg("sneak"), 300).await;
     std::fs::remove_dir_all(dir).unwrap();
 }
 
