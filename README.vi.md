@@ -53,23 +53,27 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - **Quy tắc chọn model cho `CLAUDE.md`**: một khối ngắn "khi nào tách phiên, dùng model nào", hiện cho bạn xem trước khi thêm, và gỡ trả lại đúng từng byte.
 
 ### Chạy ticket của bạn
-- **Issue GitHub và GitLab của bạn** (tự bật, qua chính `gh` và `glab` của bạn): cần làm, đang làm cùng các session của nó, chờ review, xong hôm nay. Bobix gợi ý việc làm tiếp, cảnh báo khi hai session cùng làm một issue, và chỉ ra việc bị kẹt kèm bước tiếp theo.
+- **Issue GitHub và GitLab của bạn**, đọc qua chính `gh` và `glab` của bạn (mặc định bật ở nơi bạn đã đăng nhập; mỗi bên có một công tắc để tắt): cần làm, đang làm cùng các session của nó, chờ review, xong hôm nay. Bobix gợi ý việc làm tiếp, cảnh báo khi hai session cùng làm một issue, và chỉ ra việc bị kẹt kèm bước tiếp theo.
 - **Bắt đầu** một issue trong **Công việc**, theo một trong hai cách: **Đầy đủ** chạy luồng ticket (worktree và nhánh riêng, kế hoạch bạn duyệt, kiểm tra, review, MR / PR và CI); **Nhanh** mở một session Claude thường trong thư mục dự án với prompt bạn sửa được, kèm skill gợi ý cho repo đó. Session nào cũng được đặt tên `[CODE-27] …`. **Đổi thư mục…** trong hộp Bắt đầu trỏ dự án sang một bản clone khác.
 - **Stand-up và báo cáo hôm nay** dạng văn bản để chép. Bobix không gửi gì đi.
 
 ### Bảng điều khiển
-- Một cửa sổ có ô tìm kiếm và các màn hình: **Tổng quan** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session Claude, nhóm theo issue), **Công việc** (issue cần bắt đầu, và luồng ticket), **Skill** và **Cài đặt**. **Phòng** sắp có.
+- Một cửa sổ có ô tìm kiếm và các màn hình: **Tổng quan** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session Claude, nhóm theo issue), **Công việc** (issue cần bắt đầu, và luồng ticket), **Skill**, **Phòng** và **Cài đặt**.
 - Mọi thao tác đều có phím tắt, và ⌘K / Ctrl+K tìm bất kỳ thao tác, session hay màn hình nào.
 
+### Thói quen và phòng họp (chỉ khi bạn dùng)
+- **Thói quen thành skill** (mặc định tắt: cần bật "Đọc prompt để đếm theo loại" và quét hằng tuần, đều trong Cài đặt → Mức dùng). Mỗi tuần một lần Bobix đưa các prompt bạn gõ trong 14 ngày qua cho Haiku, qua chính `claude -p` của bạn, tìm những yêu cầu tuần nào bạn cũng làm và soạn nháp một skill để bạn sửa. Chỉ khi bấm **Duyệt và cài** nó mới được ghi vào `~/.claude/skills`, và mọi phiên bản đều hoàn tác được. Việc này gửi văn bản tới Anthropic, qua chính Claude của bạn.
+- **Phòng**: phòng họp cho một vấn đề, qua mạng Tailscale của bạn. Máy của người chủ phòng giữ phòng, chỉ ở địa chỉ Tailscale của máy đó; những người chủ phòng mời thì trò chuyện; Claude của chính chủ phòng sắp xếp cuộc trò chuyện thành vấn đề, các phương án, ưu và nhược, rồi chủ phòng quyết định. Cần có Tailscale, trên một tailnet mà các laptop kết nối được với nhau, và chưa thử giữa hai máy thật.
+
 ### Và
-- **Thông báo** khi session cần duyệt hoặc xong việc, số session đang chờ bạn duyệt trên biểu tượng ở thanh menu hoặc khay hệ thống, **Đừng làm phiền** 30 hoặc 60 phút, nhật ký thói quen làm việc với Claude lưu trên máy (tự bật, 30 ngày, không bao giờ lưu nội dung bạn viết), và thông báo khi có bản mới.
+- **Thông báo** khi session cần duyệt hoặc xong việc, số session đang chờ bạn duyệt trên biểu tượng ở thanh menu hoặc khay hệ thống, **Đừng làm phiền** 30 hoặc 60 phút, nhật ký thói quen làm việc với Claude lưu trên máy (tùy chọn, mặc định tắt, 30 ngày, không bao giờ lưu nội dung bạn viết), và thông báo khi có bản mới.
 - **Không vướng víu**: chọn màn hình, mép, vùng, kích thước và độ rõ; chú thú mờ đi khi chuột tới gần và để cú bấm đi xuyên qua.
-- **macOS, Windows và Linux**, tiếng Anh và tiếng Việt.
-- **Riêng tư từ thiết kế**: chạy trên máy bạn, không tài khoản, không gửi gì về bạn hay các session đi đâu. Yêu cầu mạng duy nhất Bobix tự làm là mỗi ngày hỏi GitHub có bản mới không, và bạn tắt được. Xem [Quyền riêng tư](docs/privacy.md).
+- **macOS, Windows và Linux**, tiếng Anh và tiếng Việt. macOS là nơi mỗi bản phát hành được thử bằng tay; Windows và Linux được một người thử trên máy thật và chạy trên CI (xem Tình trạng và giới hạn).
+- **Riêng tư từ thiết kế**: chạy trên máy bạn, không tài khoản, không gì được gửi cho tác giả Bobix. Mặc định Bobix chỉ đọc issue của bạn qua chính `glab` / `gh`, và mỗi ngày hỏi GitHub có bản mới không (cả hai đều tắt được). Văn bản chỉ tới Anthropic cho những tính năng bạn bật hoặc bấm, qua chính Claude của bạn. Xem [Quyền riêng tư](docs/privacy.md).
 
 ## Cài đặt
 
-Tải file cài cho máy của bạn. Các link luôn trỏ tới phiên bản mới nhất ([tất cả bản phát hành](https://github.com/baonguyen-agilityio/bobix/releases)):
+Tải file cài cho máy của bạn. Các link trỏ tới bản ổn định mới nhất, hiện vẫn là 0.1.3 vì 0.2 còn ở bản thử (GitHub không tính bản phát hành thử là mới nhất); muốn bản thử 0.2 thì chọn trong [tất cả bản phát hành](https://github.com/baonguyen-agilityio/bobix/releases)):
 
 | Máy của bạn | Tải về |
 |---|---|
@@ -144,6 +148,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 - Bộ chuyển tiếp chỉ gửi những gì chú thú hiển thị (tên tool, đường dẫn file hoặc lệnh, prompt của bạn), không bao giờ gửi nội dung file hay kết quả tool.
 - Bấm Esc hoặc từ chối quyền sẽ kết thúc lượt mà không có hook nào; Bobix nhận ra điều đó trong transcript và cho chú thú nghỉ.
 - Bobix chỉ sửa thư mục skill của Claude hay file `CLAUDE.md` của project khi bạn bấm, luôn có bản sao lưu và hoàn tác được. Bobix không bao giờ đọc thông tin đăng nhập Claude của bạn.
+- Bobix tìm `glab`, `gh` và `claude` bằng cách hỏi login shell của bạn (`command -v <tên>`, tối đa 5 giây), vì app mở từ Dock không thấy `PATH` của shell. **Sao chép lệnh terminal** đặt một lệnh vào clipboard để bạn tự dán; Bobix không bao giờ chạy lệnh đó.
 
 ## Câu hỏi thường gặp
 
@@ -157,17 +162,18 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Máy công ty không hiện gì cả.** Tổ chức của bạn có thể chỉ cho phép hook do quản trị cài (`allowManagedHooksOnly`). Bobix tôn trọng thiết lập đó nên không nhận được sự kiện.
 
-**Code của tôi có bị gửi đi đâu không?** Không. Xem [Quyền riêng tư](docs/privacy.md).
+**Code của tôi có bị gửi đi đâu không?** Bobix không gửi, và không gì tới tác giả của nó. Mặc định Bobix chỉ làm hai loại yêu cầu: hỏi bản mới mỗi ngày, và đọc issue của bạn qua chính `glab` / `gh`. Văn bản chỉ tới Anthropic cho những tính năng bạn bật hoặc bấm, qua chính `claude -p` của bạn: quét thói quen hằng tuần (các prompt bạn gõ), trợ giúp ticket (tiêu đề và mô tả issue, hoặc nhật ký công việc, tiêu đề commit và tên file đã đổi) và bản nháp của phòng (cuộc trò chuyện trong phòng). Không có nội dung file nào trong đó. Xem [Quyền riêng tư](docs/privacy.md).
 
 ## Tình trạng và giới hạn
 
-- Phiên bản 0.2 (bản thử). App được làm bằng Tauri (Rust và trình duyệt có sẵn của hệ điều hành; khoảng 10 MB thay vì 250 MB). Bản 0.1 đã thử trên macOS (chip Apple) với app Claude desktop và CLI, và trên Ubuntu (Wayland) với CLI. Windows mới chạy smoke test trên CI; app Claude desktop cho Linux (bản beta) chưa được thử.
+- Phiên bản 0.2 đang ở bản thử (xem [các bản phát hành](https://github.com/baonguyen-agilityio/bobix/releases)); bản ổn định mới nhất là 0.1.3. App được làm bằng Tauri (Rust và trình duyệt có sẵn của hệ điều hành): file cài khoảng 4 MB (0.1.3 là 92 đến 120 MB) và app đã cài khoảng 9 MB trên macOS.
+- macOS quyết định một bản phát hành: nó được thử bằng tay với app Claude desktop và CLI. Windows và Linux chạy smoke test trên CI rồi một người thử trên máy thật; chỗ nào còn lỗi thì ghi ở phần giới hạn đã biết trong [lộ trình](docs/roadmap.md). Chưa thử: Windows với session Claude Code thật, app Claude desktop trên Linux (bản beta), và Phòng giữa hai máy.
 - Trên Linux Wayland, Bobix chạy qua XWayland để chú thú luôn nằm trên cùng; đưa terminal lên trước cần X11 và `xdotool`.
 - Mở session trong app Claude desktop dùng một đường link do app đó đăng ký (`claude://code/continue`), không phải API có tài liệu, nên có thể thay đổi.
 - "Ngữ cảnh còn lại" là ước tính từ lượng token đã dùng.
 - File cài cho Linux dành cho Ubuntu 22.04+ và Debian 12+ (cần WebKitGTK 4.1, `apt` tự cài kèm); các bản Linux khác chưa có gói cài.
 - Windows cần WebView2: có sẵn trên Windows 11 và Windows 10 bản mới; trình cài tự thêm nếu thiếu.
-- Cài 0.2 đè lên 0.1 vẫn giữ cài đặt, hook và ảnh thú cưng, gỡ app cũ, và giữ "mở khi đăng nhập" nếu đang bật.
+- Cài 0.2 đè lên 0.1 vẫn giữ cài đặt, hook và ảnh thú cưng đã lưu (thú cưng từ ảnh đang tạm ẩn), gỡ app cũ, và giữ "mở khi đăng nhập" nếu đang bật.
 
 ## Giấy phép và ghi công
 
