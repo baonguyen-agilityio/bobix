@@ -400,3 +400,13 @@ async fn fcm_gets_a_data_message_with_the_given_priority_and_collapse_key() {
     r.platform = Platform::Android;
     assert_eq!(Fcm::with_static_token("proj", &gone, "A").send(r).await, Outcome::TokenGone);
 }
+
+#[tokio::test]
+async fn a_relay_without_credentials_of_its_own_is_not_a_gateway() {
+    let mut c = cfg();
+    c.dev = false; // no APNs or FCM configured, only a gateway to push through
+    c.gateway_url = Some("http://127.0.0.1:1".into());
+    let s = start(c).await;
+    let phone = ident();
+    assert_eq!(post(&s, None, req(&phone, "t", "relay-a", now_ms() + DAY)).await.0, 404, "else it would be an open proxy for its key");
+}

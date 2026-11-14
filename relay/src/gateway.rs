@@ -83,6 +83,11 @@ pub async fn push(
     headers: HeaderMap,
     Json(req): Json<Req>,
 ) -> (StatusCode, Json<Value>) {
+    // A gateway never forwards to another gateway: the platform needs this relay's own credentials (or --dev's fake).
+    let own = app.cfg.dev || if req.platform == Platform::Ios { app.cfg.apns.is_some() } else { app.cfg.fcm.is_some() };
+    if !own {
+        return answer(StatusCode::NOT_IMPLEMENTED, "platform");
+    }
     // Who is calling: a relay with a key from the file, or (open gateway) just an address.
     let (caller, caller_relay) = if app.cfg.gateway_keys_file.is_some() {
         match key_entry(&app.cfg, &headers) {
@@ -109,12 +114,12 @@ pub async fn push(
     let r = PushRequest { platform: req.platform, env: req.env, kind: req.kind, token: req.token, priority: req.priority, replaces: req.replaces, body: req.body, grant: req.grant };
     match app.sender.send(r).await {
         Outcome::Sent => {
-            app.log.line(&format!("gateway push for caller {caller} sent"));
+            app.log.line("gateway push sent");
             answer(StatusCode::OK, "sent")
         }
         Outcome::TokenGone => answer(StatusCode::GONE, "token"),
         Outcome::Failed(why) => {
-            app.log.line(&format!("gateway push for caller {caller} failed: {why}"));
+            app.log.line(&format!("gateway push failed: {why}"));
             answer(StatusCode::BAD_GATEWAY, "push service")
         }
     }
