@@ -26,6 +26,8 @@ button{font:inherit;color:inherit}
 .tag .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center}
 .tag .iss{flex:none;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .st-waiting .tag .iss{color:inherit;opacity:.8}
+/* Under a family the name starts at the parent and runs on towards its side sessions, instead of sitting mid-family. */
+.tag[data-kids="l"] .nm{text-align:right}.tag[data-kids="r"] .nm{text-align:left}
 @keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-4px) rotate(2deg)}}
 .st-idle .spr{opacity:.75}
 /* A new assumption in the session's work log (the ticket flow): a small amber "?" on the pet's other corner from its status
@@ -500,7 +502,7 @@ function groundTags(all) {
     const fam = all.filter(q => q.s.parent === p.s.id), reach = sideFirst() + fam.length * sideStep() + 8, back = rtl() ? 1 : -1;
     const kids = fam.filter(q => (q.x - p.x) * back > 0 && Math.abs(q.x - p.x) <= reach), xs = [p.x, ...kids.map(q => q.x)];
     if (tg.nw == null) { tg.style.width = 'max-content'; tg.nw = tg.offsetWidth + 2; tg.dataset.g = ''; } // its whole name, measured once
-    tags.push({ p, tg, l: Math.min(...xs) - TAG, r: Math.max(...xs) + cfg.size + TAG, on: !p.el.classList.contains('line-off') });
+    tags.push({ p, tg, l: Math.min(...xs) - TAG, r: Math.max(...xs) + cfg.size + TAG, on: !p.el.classList.contains('line-off'), side: kids.length ? (back < 0 ? 'l' : 'r') : '' });
   }
   // A name longer than its pets takes the free room beside them, up to halfway to the next tag on each side, so a name
   // is cut only when the line is really full (two tags stay apart).
@@ -513,11 +515,12 @@ function groundTags(all) {
       const gl = Math.max(0, l - lo), gr = Math.max(0, hi - r), a = Math.min(gl, Math.max(more / 2, more - gr)), b = Math.min(gr, more - a);
       l -= a; r += b;
     }
-    const g = `${Math.round(l - t.p.x)}|${Math.round(r - l)}`;
+    const g = `${Math.round(l - t.p.x)}|${Math.round(r - l)}|${t.side}`;
     if (t.tg.dataset.g === g) continue;
     t.tg.dataset.g = g;
-    const [left, width] = g.split('|');
+    const [left, width, side] = g.split('|');
     Object.assign(t.tg.style, { left: left + 'px', width: width + 'px' });
+    t.tg.dataset.kids = side;
   }
 }
 // Bubbles that touch are lifted one lane: they never overlap, even when pets cross.
