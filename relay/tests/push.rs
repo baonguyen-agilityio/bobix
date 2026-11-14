@@ -113,9 +113,10 @@ async fn a_token_without_a_valid_grant_is_not_stored() {
 async fn a_push_for_a_phone_whose_grant_has_ended_is_answered_with_a_grant_error() {
     let s = start(cfg()).await;
     let (mut d, mut p) = pair_up(&s).await;
-    p.send(&push_token(TokenKind::Device, "short", grant(&p.ident, "short", RELAY, now_ms() + 300))).await;
+    p.send(&push_token(TokenKind::Device, "short", grant(&p.ident, "short", RELAY, now_ms() + 2000))).await;
     p.sync().await;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    // The margin is wide so a slow runner still registers the token before the grant ends.
+    tokio::time::sleep(Duration::from_millis(2200)).await;
     d.send(&with_push(&p.id(), "late", PushKind::Alert, None, "X")).await;
     d.expect(|f| matches!(f, Frame::Queued { .. }), 1000).await;
     d.expect(|f| matches!(f, Frame::Error { code: ErrorCode::Grant, who: Some(Who::Phone) }), 1000).await;
