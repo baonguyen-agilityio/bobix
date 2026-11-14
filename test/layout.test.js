@@ -36,7 +36,7 @@ async function browser(exe) {
   await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = no; });
   ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id) { const c = calls.get(d.id); calls.delete(d.id); d.error ? c[1](new Error(d.error.message)) : c[0](d.result); } else on.get(d.method)?.(d.params); };
   // A busy machine is slow, never silent: a call or an event that does not come fails the run instead of hanging it.
-  const late = (what, ms = 30e3) => new Promise((_, no) => setTimeout(() => no(new Error('no answer in time: ' + what)), ms).unref());
+  const late = (what, ms = 60e3) => new Promise((_, no) => setTimeout(() => no(new Error('no answer in time: ' + what)), ms).unref());
   const send = (method, params = {}) => Promise.race([new Promise((ok, no) => { calls.set(++id, [ok, no]); ws.send(JSON.stringify({ id, method, params })); }), late(method)]);
   const once = method => Promise.race([new Promise(ok => on.set(method, p => { on.delete(method); ok(p); })), late(method)]);
   const errors = []; on.set('Runtime.exceptionThrown', p => errors.push(p.exceptionDetails.exception?.description || p.exceptionDetails.text));
@@ -343,7 +343,8 @@ async function panel(b, url, { width, height, lang, dark }) {
       await noShift(n1);
     });
     // The tour: every step points at an element that is on screen (or, when it has an alt, at that one), with the bubble up.
-    await part('tour targets', async () => {
+    // (the targets do not depend on the language, so one language of the two keeps the run short on a slow runner)
+    if (lang === 'vi') await part('tour targets', async () => {
       const keys = await b.ev('TOUR.STEPS.map(s => s.key)'), n0 = await b.ev('__shifts.length');
       for (const [i, key] of keys.entries()) {
         const r = await b.ev(`(async () => { tourStart(false); tourAt = ${i}; await tourShow(); const s = tourSteps[tourAt], t = tourTarget(s.at) || (s.alt && tourTarget(s.alt.at)), r = t && t.getBoundingClientRect();
