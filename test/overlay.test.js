@@ -62,17 +62,24 @@ async function browser(exe) {
     '--remote-debugging-port=0', `--user-data-dir=${dir}`, `--window-size=${W},${H}`, '--force-device-scale-factor=1', 'about:blank'], { stdio: 'ignore' });
   let port;
   for (let k = 0; k < 200 && !port; k++) { try { port = fs.readFileSync(path.join(dir, 'DevToolsActivePort'), 'utf8').split('\n')[0]; } catch { await sleep(50); } }
+  if (!port) { proc.kill(); throw new Error('Chrome did not start: no DevToolsActivePort in 10 s'); }
   const page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => t.type === 'page');
   const ws = new WebSocket(page.webSocketDebuggerUrl), calls = new Map(), on = new Map(); let id = 0;
   await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = no; });
   ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id) { const c = calls.get(d.id); calls.delete(d.id); d.error ? c[1](new Error(d.error.message)) : c[0](d.result); } else on.get(d.method)?.(d.params); };
-  const send = (method, params = {}) => new Promise((ok, no) => { calls.set(++id, [ok, no]); ws.send(JSON.stringify({ id, method, params })); });
-  const once = method => new Promise(ok => on.set(method, p => { on.delete(method); ok(p); }));
+  // Every call and every wait has a limit: a Chrome that stops answering fails the test with what it waited for, and
+  // the test's finally closes Chrome and the server, so the run ends instead of hanging until the job is killed.
+  const send = (method, params = {}) => within(new Promise((ok, no) => { calls.set(++id, [ok, no]); ws.send(JSON.stringify({ id, method, params })); }), method);
+  const once = method => within(new Promise(ok => on.set(method, p => { on.delete(method); ok(p); })), method);
+  // The load event can come before Page.navigate's own answer: wait for it from before the navigation starts.
+  const go = async url => { const loaded = once('Page.loadEventFired'); await send('Page.navigate', { url }); await loaded; };
   const errors = []; on.set('Runtime.exceptionThrown', p => errors.push(p.exceptionDetails.exception?.description || p.exceptionDetails.text));
   const close = () => { try { ws.close(); } catch {} proc.kill(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} };
-  return { send, once, close, errors };
+  return { send, once, go, close, errors };
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const STEP_MS = 30e3;
+const within = (p, what) => { let t; return Promise.race([p, new Promise((_, no) => { t = setTimeout(() => no(new Error(`Chrome: no answer to ${what} in ${STEP_MS / 1000} s`)), STEP_MS); })]).finally(() => clearTimeout(t)); };
 
 // Serves the pages as the app does: /pets, and under /ui/ only the files the app's server lists (ASSETS in
 // src-tauri/src/server.rs) and its fonts, so a file the app would not serve fails here too.
@@ -130,7 +137,7 @@ function ses(id, o = {}) {
 }
 
 async function run(b, url, settings, script, label, mayShowNone = false) {
-  await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+  await b.go(url);
   const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   await ev(`__apply(${JSON.stringify(settings)})`);
   const now = () => ev('__now()'), bad = []; let seen = 0;
@@ -217,7 +224,7 @@ const separate = async ({ push, steps, ses }) => {
 async function reducedMotion(b, url) {
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   try {
-    await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+    await b.go(url);
     const ev = async x => (await b.send('Runtime.evaluate', { expression: x, returnByValue: true })).result.value;
     await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, zoneStart: 20, zoneEnd: 60, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })})`);
     const n = await ev('__now()');
@@ -236,7 +243,7 @@ async function onDemand(b, url, rm) {
   await b.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   if (rm) await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   try {
-    await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+    await b.go(url);
     const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
     await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, petMode: 'ondemand', dndUntil: 0, zoneStart: 0, zoneEnd: 100, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })}); bobix.answer = (id, c) => { window.__ans = [id, c]; }`);
     const n = await ev('__now()'), one = (id, o) => ses(id, { cwd: `/tmp/${id}`, state: 'working', tool: 'Bash', ctx: 60, since: n, ...o });
@@ -315,7 +322,7 @@ async function onDemand(b, url, rm) {
 // nearest pet's.
 async function oneCard(b, url) {
   const out = [];
-  await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+  await b.go(url);
   const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, zoneStart: 30, zoneEnd: 70, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })})`);
   const n = await ev('__now()'), host = { hostSession: 'local_p0' };
@@ -404,7 +411,7 @@ const poses = async ({ push, steps, ses, ev, fail }) => {
 };
 
 const exe = chrome();
-test('no effect pixel lands on another pet, a tag, a balloon or another effect, and no pets overlap (real overlay, both edges, both ways, 32/56/128 px)', { skip: !exe && 'no Chrome', timeout: 600e3 }, async () => {
+test('no effect pixel lands on another pet, a tag, a balloon or another effect, and no pets overlap (real overlay, both edges, both ways, 32/56/128 px)', { skip: !exe && 'no Chrome', timeout: 240e3 }, async () => {
   const srv = await server(), b = await browser(exe), bad = [];
   try {
     await b.send('Page.enable'); await b.send('Runtime.enable');
@@ -413,7 +420,7 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     await b.send('Page.addScriptToEvaluateOnNewDocument', { source: PRELUDE });
     const url = `http://127.0.0.1:${srv.address().port}/pets`;
     // What this machine asks for: CI runners (macOS, Windows) report reduced motion, which turns effects off.
-    await b.send('Page.navigate', { url: 'about:blank' }); await b.once('Page.loadEventFired');
+    await b.go('about:blank');
     const rm = (await b.send('Runtime.evaluate', { expression: "matchMedia('(prefers-reduced-motion: reduce)').matches", returnByValue: true })).result.value;
     console.log(`# this machine reports prefers-reduced-motion: ${rm ? 'reduce' : 'no-preference'}; effects are checked with it set to no-preference, and the reduced-motion look on its own`);
     const r = await reducedMotion(b, url);

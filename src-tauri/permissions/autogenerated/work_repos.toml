@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-work-repos"
+description = "Enables the work_repos command without any pre-configured scope."
+commands.allow = ["work_repos"]
+
+[[permission]]
+identifier = "deny-work-repos"
+description = "Denies the work_repos command without any pre-configured scope."
+commands.deny = ["work_repos"]

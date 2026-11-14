@@ -26,7 +26,7 @@ flowchart LR
 | Entity | What it is | Comes from |
 |---|---|---|
 | Project / Repo | A tracker project ("group/sub/project" on GitLab, "owner/repo" on GitHub, lower case), its code for session names (`key`, Settings → codes, else made from the name), its forge and host, and the folders here that hold a clone. The same path on two hosts counts as one project. | Your assigned issues, and the git remotes of the sessions' folders |
-| Issue | An open issue assigned to you, with its `stage` and the sessions and reviews linked to it. | `glab` / `gh`, read-only |
+| Issue | An open issue of a repository you ticked (Work → Repos to list), on the page shown, with its `stage` and the sessions and reviews linked to it. | `glab` / `gh`, read-only |
 | Branch | A branch Bobix saw in a project: one a session is on now or was on earlier (its transcript), or a PR / MR's source branch. | Git status, transcripts, the PR / MR list |
 | PR / MR (`reviews`) | One of your open pull requests (GitHub) or merge requests (GitLab): url, source branch, state (`open`; only open ones are read), review (GitHub's decision: `approved`, `changes_requested`, `review_required`; none on GitLab yet), when it was opened and last changed (`created`, `updated`), whether anyone reviewed it (`reviewed`: a review on GitHub, a comment on GitLab) and the issues it closes. | `gh api graphql` / `glab api`, read-only |
 | Session | A Claude Code session: status (`working`, `waiting`, `done`, `idle`), since when, last activity, the permission requests it waits on (since when; `held` when Bobix can answer it) and its pet (`auto`, `hidden`, `shown`). | Hook events |
@@ -39,7 +39,7 @@ Every link carries `why`:
 |---|---|---|
 | `remote` | Session → Repo | A git remote of the session's repository points at the project on a host your `glab` / `gh` is signed in to (the first such host, in tracker order). |
 | `folder` | Session → folder, Repo → folder | The repository folder the session works in (kept while Claude visits a scratch folder outside git). |
-| `started` | Session → Issue | Start on an issue in the panel opened this session (Bobix named it `[KEY-iid] title`). Wins over every other rule. |
+| `started` | Session → Issue | Start on an issue in Work opened this session (Bobix named it `[KEY-iid] title`): the new session whose first prompt names the issue takes the start, wherever Claude opened it, and a ticket flow's session keeps its flow's issue after Bobix restarts. The issue may be in another project than the session's repository (its code is there): the session is listed under that issue. Wins over every other rule. |
 | `branch` | Session → Issue, Branch → Issue, PR / MR → Issue | A branch named `<iid>-…` or `<prefix>/<iid>-…`, unless the part after the number is only digits too (a date or a version: `release/2026-11`, `hotfix/2026-11-09`). A session takes the newest of its branches that names one; a PR / MR its source branch, in its own project. |
 | `parent` | Session → Session, Session → Issue | `spawnedFrom` in Claude desktop's session file: a side session. A side session whose own branches name no issue works on its parent's issue, when both are in the same project. |
 | `sessionName` | Issue → Claude desktop session | A Claude desktop session in the project's folder named `[KEY-iid]…` or `<project name> #<iid>…` (the newest one): the one to resume. |

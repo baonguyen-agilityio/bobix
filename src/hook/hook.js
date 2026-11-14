@@ -40,7 +40,9 @@ process.stdin.on('end', () => {
   const body = JSON.stringify(e);
   // Headless runs (claude -p, Agent SDK apps) have nobody at Bobix to answer, or their own UI: don't hold them up.
   const ask = e.hook_event_name === 'PermissionRequest' && !/^sdk/.test(process.env.CLAUDE_CODE_ENTRYPOINT || '');
-  const titled = e.hook_event_name === 'SessionStart'; // Bobix may answer with a title for a session started from an issue
+  // Bobix may answer with a title: for a session started from an issue (SessionStart), or by its first prompt, once that
+  // names the issue a start in Work waits with (UserPromptSubmit)
+  const titled = e.hook_event_name === 'SessionStart' || e.hook_event_name === 'UserPromptSubmit';
   const req = http.request({
     host: '127.0.0.1', port, path: '/event', method: 'POST', agent: false, // no keep-alive: exit right after
     timeout: ask ? 3000 : 1500, // until the app replies; a frozen app can't hold Claude up
