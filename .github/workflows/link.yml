@@ -1,0 +1,132 @@
+# The shared link crate (crates/bobix-link): tests, lints, a short fuzz run and a dependency audit.
+# The workflow starts on every pull request so its checks always report; the jobs skip themselves when nothing
+# under crates/bobix-link changed (a skipped job counts as passing for a required check, a workflow that never
+# started would block the merge). The fake tools it builds are kept as an artifact for the smoke run to reuse.
+name: link
+on:
+  push:
+    branches: [develop, main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      link: ${{ steps.filter.outputs.link }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        # Not a pull request (push, tag, manual run): always run. A pull request: only when the crate or this file changed.
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || git diff --name-only "origin/$BASE"...HEAD | grep -qE '^(crates/bobix-link/|\.github/workflows/link\.yml|\.github/dependabot\.yml)'; then
+            echo "link=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "link=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  link:
+    needs: changes
+    if: needs.changes.outputs.link == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: crates/bobix-link
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/bobix-link
+          key: link
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests (the crate, its vectors, and the fake tools against the relay stub)
+        run: cargo test --locked
+      - name: Build the fake tools
+        run: cargo build --locked --examples
+      - uses: actions/upload-artifact@v4
+        with:
+          name: link-tools-${{ matrix.os }}
+          path: |
+            crates/bobix-link/target/debug/examples/fake-phone*
+            crates/bobix-link/target/debug/examples/fake-desktop*
+            crates/bobix-link/target/debug/examples/relay-stub*
+            !crates/bobix-link/target/debug/examples/*.d
+            !crates/bobix-link/target/debug/examples/*.pdb
+          retention-days: 7
+          if-no-files-found: error
+
+  fuzz:
+    needs: changes
+    if: needs.changes.outputs.link == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/bobix-link/fuzz
+          key: link-fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: Open an envelope, parse a relay frame (a short run each)
+        working-directory: crates/bobix-link
+        run: |
+          cargo fuzz run open_envelope -- -max_total_time=45
+          cargo fuzz run parse_relay_frame -- -max_total_time=45
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: link-fuzz-crash
+          path: crates/bobix-link/fuzz/artifacts/
+          if-no-files-found: ignore
+
+  audit:
+    needs: changes
+    if: needs.changes.outputs.link == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Known vulnerabilities in the crate's dependencies
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: crates/bobix-link/Cargo.toml
+          command: check advisories
+
+  # The one check to require. It reports on every pull request, also when the other jobs skipped themselves (a skipped
+  # matrix job reports no per-system names), and fails when any of them failed.
+  link-ok:
+    needs: [changes, link, fuzz, audit]
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1 ;; esac
