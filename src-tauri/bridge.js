@@ -80,7 +80,7 @@
     // Haiku's split (only on click), the plan's one approval, the log's assumptions seen, a Haiku summary, cleanup.
     // `code`: the repository the code is in, when not the issue's own
     ticketPrep: (path, iid, code) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_prep', { path, iid, code: typeof code === 'string' ? code : null }) : Promise.resolve(null)),
-    ticketStart: (path, iid, prompt, models, how, code, anyway) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_start', { path, iid, code: typeof code === 'string' ? code : null, prompt: String(prompt || ''), models: models || null, how: how === 'cli' ? 'cli' : 'desktop' , anyway: anyway === true }) : Promise.resolve(null)),
+    ticketStart: (path, iid, prompt, models, how, code, anyway, base, keep) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_start', { path, iid, code: typeof code === 'string' ? code : null, prompt: String(prompt || ''), models: models || null, how: how === 'cli' ? 'cli' : 'desktop' , anyway: anyway === true, base: typeof base === 'string' ? base : null, keep: keep === true }) : Promise.resolve(null)),
     ticketClassify: (title, body) => invoke('ticket_classify', { title: String(title || ''), body: String(body || '') }),
     ticketAnswer: (key, approve, change) => invoke('ticket_answer', { key: String(key), approve: !!approve, change: typeof change === 'string' ? change : null }),
     ticketSeen: key => invoke('ticket_seen', { key: String(key) }),
