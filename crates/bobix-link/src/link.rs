@@ -13,6 +13,13 @@ use crate::envelope::{self, Direction, Lane, OpenError, Stream, VersionRange};
 use crypto_box::{PublicKey, SecretKey};
 use zeroize::Zeroizing;
 
+/// Why a packet was not sealed.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SealError {
+    /// The peer's box key is of low order: the shared secret would be all zeros, readable and forgeable by anyone.
+    LowOrderPeer,
+}
+
 pub struct Sealed {
     pub packet: Vec<u8>,
     pub counter: u64,
@@ -79,22 +86,26 @@ impl Link {
         (counter, reserve.map(|v| (stream, v)))
     }
 
-    pub fn seal(&mut self, stream: Stream, plaintext: &[u8]) -> Sealed {
+    /// `Err(SealError::LowOrderPeer)` when the peer's box key is a small-order point: nothing is sealed to it.
+    pub fn seal(&mut self, stream: Stream, plaintext: &[u8]) -> Result<Sealed, SealError> {
         let (counter, reserve) = self.reserve_counter(stream);
-        Sealed { packet: self.seal_with(stream, counter, plaintext), counter, reserve }
+        Ok(Sealed { packet: self.seal_with(stream, counter, plaintext)?, counter, reserve })
     }
 
     /// Seals with a counter the caller took with `reserve_counter`, or chose to play a late or replayed packet.
-    pub fn seal_with(&self, stream: Stream, counter: u64, plaintext: &[u8]) -> Vec<u8> {
+    pub fn seal_with(&self, stream: Stream, counter: u64, plaintext: &[u8]) -> Result<Vec<u8>, SealError> {
+        if self.peer_low_order {
+            return Err(SealError::LowOrderPeer);
+        }
         let lane = Lane { dir: self.sends, stream };
-        envelope::seal(
+        Ok(envelope::seal(
             self.version,
             lane,
             counter,
             &SecretKey::from(*self.secret),
             &PublicKey::from(self.peer),
             plaintext,
-        )
+        ))
     }
 
     /// Opens a packet from the peer. The counter rule is checked before the open and committed only after the packet

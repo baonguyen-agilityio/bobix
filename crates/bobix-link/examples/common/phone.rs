@@ -109,7 +109,7 @@ impl Phone {
         let computer = code.desktop.device_id();
         let mut link = new_link(Direction::ToDesktop, &self.id, code.desktop.boxk);
         let hello = Hello::new(&code, &self.id.public(), &self.signer.public(), &self.name, rights, VersionRange::current());
-        let packet = link.seal(Stream::Event, &PhoneMsg::Hello(hello).to_json()).packet;
+        let packet = link.seal(Stream::Event, &PhoneMsg::Hello(hello).to_json()).expect("a peer key of low order was refused earlier").packet;
         let body = hello_body(&self.id.public().boxk, &packet);
         self.links.insert(computer.clone(), link);
         self.conn.send(&Frame::Peers { allow: self.links.keys().cloned().collect() }).await?;
@@ -142,7 +142,7 @@ impl Phone {
 
     pub async fn send(&mut self, computer: &str, m: &PhoneMsg) -> Result<(), String> {
         let link = self.links.get_mut(computer).ok_or("not paired with that computer")?;
-        let sealed = link.seal(Stream::Event, &m.to_json());
+        let sealed = link.seal(Stream::Event, &m.to_json()).expect("a peer key of low order was refused earlier");
         self.conn
             .send(&Frame::Send { pid: pid(), to: computer.into(), ttl: 600, collapse: None, push: None, body: b64(&sealed.packet) })
             .await
@@ -160,7 +160,7 @@ impl Phone {
         let (counter, _) = link.reserve_counter(Stream::Event);
         let cmd = command::build(CURRENT_VERSION, &self.id.device_id(), addressed, counter, now_ms(), &body, |m| self.signer.sign(m));
         let cid = cmd.cid.clone();
-        let packet = link.seal_with(Stream::Event, counter, &PhoneMsg::Cmd(cmd).to_json());
+        let packet = link.seal_with(Stream::Event, counter, &PhoneMsg::Cmd(cmd).to_json()).expect("a peer key of low order was refused earlier");
         self.conn
             .send(&Frame::Send { pid: pid(), to: via.into(), ttl: 600, collapse: None, push: None, body: b64(&packet) })
             .await?;
@@ -174,7 +174,7 @@ impl Phone {
         let at = (now_ms() as i64 + skew_ms) as u64;
         let cmd = command::build(CURRENT_VERSION, &self.id.device_id(), computer, counter, at, &body, |m| self.signer.sign(m));
         let cid = cmd.cid.clone();
-        let packet = link.seal_with(Stream::Event, counter, &PhoneMsg::Cmd(cmd).to_json());
+        let packet = link.seal_with(Stream::Event, counter, &PhoneMsg::Cmd(cmd).to_json()).expect("a peer key of low order was refused earlier");
         self.conn
             .send(&Frame::Send { pid: pid(), to: computer.into(), ttl: 600, collapse: None, push: None, body: b64(&packet) })
             .await?;
@@ -201,7 +201,7 @@ impl Phone {
         let link = self.links.get_mut(computer).ok_or("not paired with that computer")?;
         let (counter, _) = link.reserve_counter(Stream::Event);
         let sig = self.id.sign_auth(&command::bye_bytes(CURRENT_VERSION, &self.id.device_id(), computer, counter));
-        let packet = link.seal_with(Stream::Event, counter, &PhoneMsg::Bye { sig: b64(&sig) }.to_json());
+        let packet = link.seal_with(Stream::Event, counter, &PhoneMsg::Bye { sig: b64(&sig) }.to_json()).expect("a peer key of low order was refused earlier");
         self.conn
             .send(&Frame::Send { pid: pid(), to: computer.into(), ttl: 600, collapse: None, push: None, body: b64(&packet) })
             .await
