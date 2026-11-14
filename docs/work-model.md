@@ -39,7 +39,7 @@ Every link carries `why`:
 |---|---|---|
 | `remote` | Session → Repo | A git remote of the session's repository points at the project on a host your `glab` / `gh` is signed in to (the first such host, in tracker order). |
 | `folder` | Session → folder, Repo → folder | The repository folder the session works in (kept while Claude visits a scratch folder outside git). |
-| `started` | Session → Issue | Start on an issue in the panel opened this session (Bobix named it `[KEY-iid] title`). Wins over every other rule. |
+| `started` | Session → Issue | Start on an issue in Work opened this session (Bobix named it `[KEY-iid] title`): the new session whose first prompt names the issue takes the start, wherever Claude opened it, and a ticket flow's session keeps its flow's issue after Bobix restarts. The issue may be in another project than the session's repository (its code is there): the session is listed under that issue. Wins over every other rule. |
 | `branch` | Session → Issue, Branch → Issue, PR / MR → Issue | A branch named `<iid>-…` or `<prefix>/<iid>-…`, unless the part after the number is only digits too (a date or a version: `release/2026-11`, `hotfix/2026-11-09`). A session takes the newest of its branches that names one; a PR / MR its source branch, in its own project. |
 | `parent` | Session → Session, Session → Issue | `spawnedFrom` in Claude desktop's session file: a side session. A side session whose own branches name no issue works on its parent's issue, when both are in the same project. |
 | `sessionName` | Issue → Claude desktop session | A Claude desktop session in the project's folder named `[KEY-iid]…` or `<project name> #<iid>…` (the newest one): the one to resume. |

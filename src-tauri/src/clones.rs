@@ -60,11 +60,17 @@ pub fn remotes_of(repo: &Path) -> Vec<String> {
     out
 }
 
+// Folders macOS guards with a permission prompt of their own: walked only on your click (`deep`: Find on this Mac),
+// never by the search Bobix runs by itself. A prompt you refused makes the folder unreadable: it is skipped quietly.
+pub const PROTECTED: [&str; 3] = ["Desktop", "Documents", "Downloads"];
+fn protected(home: &Path, p: &Path) -> bool { cfg!(target_os = "macos") && PROTECTED.iter().any(|x| p.starts_with(home.join(x))) }
+
 // The folders to look in: ROOTS under `home`, then the parents of `known` (folders sessions ran in), each once.
-pub fn roots(home: &Path, known: &[String]) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = ROOTS.iter().map(|r| home.join(r)).filter(|p| p.is_dir()).collect();
+// Without `deep`, none in or under a PROTECTED folder (macOS).
+pub fn roots(home: &Path, known: &[String], deep: bool) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = ROOTS.iter().map(|r| home.join(r)).filter(|p| p.is_dir() && (deep || !protected(home, p))).collect();
     for k in known {
-        if let Some(p) = Path::new(k).parent().filter(|p| p.is_dir() && *p != home) {
+        if let Some(p) = Path::new(k).parent().filter(|p| p.is_dir() && *p != home && (deep || !protected(home, p))) {
             if !out.iter().any(|o| p.starts_with(o)) { out.push(p.to_path_buf()); }
         }
     }
@@ -114,20 +120,42 @@ pub fn check(dir: &Path, path: &str, hosts: &[String]) -> Result<String, Value> 
 // Where a clone of `path` goes in `parent`: its last part ("acme/web-shop" → <parent>/web-shop).
 pub fn clone_dest(parent: &Path, path: &str) -> PathBuf { parent.join(path.rsplit('/').next().unwrap_or(path)) }
 
+// Free space a clone needs at least before Bobix starts it (the repository's own size is not known beforehand).
+pub const CLONE_MIN_BYTES: u64 = 1 << 30;
+
 // Clones `path` into `dest` with your own glab (GitLab) or gh (GitHub), signed in on `host`. → the clone's folder.
-pub fn clone(bin: &str, gitlab: bool, host: &str, path: &str, dest: &Path) -> Result<String, String> {
+// Never into or over a folder that is there; a clone that fails leaves nothing behind (the folder it began is removed).
+pub fn clone(bin: &str, gitlab: bool, host: &str, path: &str, dest: &Path) -> Result<String, String> { clone_within(bin, gitlab, host, path, dest, CLONE_SECS) }
+pub const CLONE_SECS: u64 = 600;
+// A clone that runs past `secs` is stopped with everything it started (procs::exec): once nothing writes there any
+// more, the folder it began is removed (it was not there before). When something it started got out of reach and may
+// still write (`loose`), the folder is left as it is, and said so.
+fn clone_within(bin: &str, gitlab: bool, host: &str, path: &str, dest: &Path, secs: u64) -> Result<String, String> {
     if dest.exists() { return Err(format!("{} is already there", dest.display())); }
     let d = dest.to_string_lossy();
     let r = if gitlab {
-        procs::exec(bin, &["repo", "clone", &format!("https://{host}/{path}"), &d], 600, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
+        procs::exec(bin, &["repo", "clone", &format!("https://{host}/{path}"), &d], secs, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
     } else {
-        procs::exec(bin, &["repo", "clone", path, &d], 600, &[("GH_HOST", host), ("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
+        procs::exec(bin, &["repo", "clone", path, &d], secs, &[("GH_HOST", host), ("GH_PROMPT_DISABLED", "1"), ("NO_COLOR", "1"), ("GIT_TERMINAL_PROMPT", "0")])
     };
+    if r.late && r.loose { return Err(format!("no answer in {secs} s, stopped; something it started may still write to {}, so it was left as it is", dest.display())); }
+    if r.late {
+        if dest.exists() { let _ = fs::remove_dir_all(dest); }
+        return Err(format!("no answer in {secs} s, stopped; the unfinished folder was removed"));
+    }
     if !r.ok || !dest.join(".git").exists() {
+        if dest.exists() { let _ = fs::remove_dir_all(dest); } // made by this clone: it was not there before
         let t = format!("{} {}", r.err, r.out);
         return Err(crate::js::head16(&t.split_whitespace().collect::<Vec<_>>().join(" "), 300).to_string());
     }
     Ok(d.into_owned())
+}
+
+// The folder you chose or cloned for `path` (Choose folder…, Change folder…, Clone…), while it is there: Start works
+// there, whatever folder a session runs in.
+pub fn pinned(settings: &Value, path: &str) -> Option<String> {
+    let e = &settings["workDirs"][path];
+    matches!(e["how"].as_str(), Some("chosen" | "cloned")).then(|| e["dir"].as_str().map(String::from)).flatten().filter(|d| Path::new(d).is_dir())
 }
 
 // The remembered folders as the Work view uses them: project path → folder, for the ones that still exist.
@@ -162,8 +190,11 @@ mod tests {
         assert_eq!(remotes_of(&shop), ["git@gitlab.example.test:acme/web-shop.git"]);
         let hosts = vec!["gitlab.example.test".to_string()];
         let wanted: HashSet<String> = ["acme/web-shop", "acme/api-gateway", "acme/docs", "acme/deep"].iter().map(|s| s.to_string()).collect();
-        let r = roots(&home, &[]);
+        let r = roots(&home, &[], true);
         assert_eq!(r, [home.join("code"), home.join("Documents")]);
+        // the search Bobix runs by itself never walks the folders macOS guards with a prompt (Documents here)
+        assert_eq!(roots(&home, &[home.join("Documents/clients/x/y").to_string_lossy().into_owned()], false),
+            if cfg!(target_os = "macos") { vec![home.join("code")] } else { vec![home.join("code"), home.join("Documents")] });
         let found = scan(&r, &hosts, &wanted);
         let at = |m: &HashMap<String, String>, p: &str| m.get(p).map(PathBuf::from); // compared as paths: Windows mixes / and \
         assert_eq!(at(&found, "acme/web-shop"), Some(shop), "the shallowest of two (a fork's upstream counts too)");
@@ -172,7 +203,7 @@ mod tests {
         assert!(scan(&r, &hosts, &HashSet::new()).is_empty());
         // the parents of folders sessions ran in are looked in too, once
         let elsewhere = repo(&home, "elsewhere/acme-docs", &[("origin", "git@gitlab.example.test:acme/docs.git")]);
-        let r2 = roots(&home, &[home.join("elsewhere/other").to_string_lossy().into_owned(), home.join("code/acme/x").to_string_lossy().into_owned()]);
+        let r2 = roots(&home, &[home.join("elsewhere/other").to_string_lossy().into_owned(), home.join("code/acme/x").to_string_lossy().into_owned()], true);
         assert_eq!(r2, [home.join("code"), home.join("Documents"), home.join("elsewhere")]);
         assert_eq!(at(&scan(&r2, &hosts, &wanted), "acme/docs"), Some(elsewhere));
         assert_eq!(clone_dest(&home.join("code"), "acme/web-shop"), home.join("code/web-shop"));
@@ -211,6 +242,43 @@ mod tests {
         assert_eq!((&e["reason"], &e["found"]), (&json!("other"), &json!("acme/web-shop")), "another project: said which");
         assert_eq!(check(&home, "acme/web-shop", &hosts).unwrap_err()["reason"], "notgit");
         assert!(clone("glab", true, "h", "acme/web-shop", &shop).is_err(), "never into a folder that is there");
+        assert!(shop.join("src").is_dir(), "and that folder is left as it was");
         let _ = fs::remove_dir_all(&home);
+    }
+
+    // A clone that fails (no access, network down, disk full) leaves nothing: the folder it began is removed; one that
+    // works gives the clone's folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_clone_leaves_no_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("bobix-clone-fail-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let bin = |name: &str, body: &str| {
+            let p = root.join(name);
+            fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        let no = bin("glab-no", r#"mkdir -p "$4/.git"; echo partial > "$4/README.md"; echo "remote: You are not allowed to download code from this project." >&2; exit 1"#);
+        let dest = root.join("web-shop");
+        let e = clone(&no, true, "gitlab.example.test", "acme/web-shop", &dest).unwrap_err();
+        assert!(e.contains("not allowed"), "the reason is shown: {e}");
+        assert!(!dest.exists(), "the partial folder is gone");
+        // one that runs past its time is stopped with what it started (git under glab); the folder it began goes
+        let slow = bin("glab-slow", r#"mkdir -p "$4/.git"; (while :; do date >> "$4/.git/log"; sleep 0.2; done) & sleep 30"#);
+        let e = clone_within(&slow, true, "gitlab.example.test", "acme/web-shop", &dest, 2).unwrap_err();
+        assert!(e.contains("removed") && !dest.exists(), "{e}");
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert!(!dest.exists(), "nothing it started writes there any more");
+        // something that got out of reach and may still write: the folder is left alone
+        let away = bin("glab-away", r#"mkdir -p "$4/.git"; perl -e 'use POSIX; POSIX::setsid(); sleep 6' & sleep 30"#);
+        let e = clone_within(&away, true, "gitlab.example.test", "acme/web-shop", &dest, 2).unwrap_err();
+        assert!(e.contains("left as it is") && dest.is_dir(), "{e}");
+        fs::remove_dir_all(&dest).unwrap();
+        let yes = bin("glab-yes", r#"mkdir -p "$4/.git""#);
+        assert_eq!(clone(&yes, true, "gitlab.example.test", "acme/web-shop", &dest), Ok(dest.to_string_lossy().into_owned()));
+        let _ = fs::remove_dir_all(&root);
     }
 }

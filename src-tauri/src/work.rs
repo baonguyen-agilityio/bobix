@@ -101,6 +101,7 @@ fn listed_hosts(f: Forge) -> Vec<String> {
 // How long one host's sign-in check may take. `glab auth status` on its own checks every host in turn, so one host that
 // does not answer (gitlab.com listed with no token: about 31 s) used to hide the others.
 pub const HOST_SECS: u64 = 10;
+pub const PAR_READS: usize = 8; // GitLab projects read at the same time, at most
 // Each host on its own, all at once: `<cli> auth status --hostname <host>`. The hosts signed in, and the others with why
 // (named in the Work tab, ignored for the read), and the account each one signed in reads with. None when the CLI is missing.
 pub fn check_hosts(f: Forge, bin: &str, hosts: &[String], secs: u64) -> Option<(Vec<String>, Vec<Value>, HashMap<String, String>)> {
@@ -217,14 +218,21 @@ impl Forge {
     // search per 30 repositories (ponytail: GitHub's query length limit; the chunks are merged like GitLab's projects);
     // GitLab, each project's own list. `filter`: all | mine | unassigned. Each issue gets `mine` (assigned to `me`).
     // { ok, issues, failed: [{ host, detail }] } (a GitLab project that fails is left out and named) or a failed read.
+    // GitLab projects are read at the same time (PAR_READS at most), each for HOST_SECS at most: the first one that
+    // does not answer in time marks the host as hanging, its other projects are not asked, and the host is named once
+    // (`hung`: its reviews and closed issues are not asked either). A project that fails otherwise (404, 403) is named
+    // on its own and the others still show. GitHub: one search per 30 repositories, as before, each in HOST_SECS.
     pub fn page(self, bin: &str, host: &str, repos: &[String], filter: &str, need: usize, me: Option<&str>) -> Value {
         let per = need.clamp(1, 100);
+        let late = || json!({ "ok": false, "reason": "timeout", "detail": format!("no answer in {HOST_SECS} s, ignored") });
         // the pages a list needs, `args(page)` each, until one comes back short
         let get = |args: &dyn Fn(usize) -> Vec<String>, items: fn(&Value) -> Option<&Vec<Value>>| -> Result<Vec<Value>, Value> {
             let mut out = vec![];
             for page in 1..=need.div_ceil(100) {
                 let a = args(page);
-                let r = procs::exec(bin, &a.iter().map(String::as_str).collect::<Vec<_>>(), 30, self.env());
+                let t = std::time::Instant::now();
+                let r = procs::exec(bin, &a.iter().map(String::as_str).collect::<Vec<_>>(), HOST_SECS, self.env());
+                if !r.ok && t.elapsed().as_secs() >= HOST_SECS { return Err(late()); }
                 if !r.ok { return Err(failed(&format!("{} {}", r.err, r.out))); }
                 let v: Value = serde_json::from_str(&r.out).map_err(|_| json!({ "ok": false, "reason": "error", "detail": "unexpected answer" }))?;
                 let list = items(&v).cloned().unwrap_or_default();
@@ -234,7 +242,7 @@ impl Forge {
             }
             Ok(out)
         };
-        let (mut issues, mut bad) = (vec![], vec![]);
+        let (mut issues, mut bad, mut hung) = (vec![], vec![], false);
         match self {
             Forge::GitHub => {
                 let f = match filter { "mine" => " assignee:@me", "unassigned" => " no:assignee", _ => "" };
@@ -244,27 +252,48 @@ impl Forge {
                         "-f", &format!("per_page={per}"), "-f", &format!("page={page}")].iter().map(|x| x.to_string()).collect();
                     match get(&args, |v| v["items"].as_array()) {
                         Ok(a) => issues.extend(a.iter().filter_map(slim_gh_issue)),
-                        Err(e) => return e,
+                        Err(mut e) => { if e["reason"] == "timeout" { e["hung"] = json!(true); } return e; }
                     }
                 }
             }
             Forge::GitLab => {
                 let f = match filter { "mine" => "&scope=assigned_to_me", "unassigned" => "&assignee_id=None", _ => "" };
-                for p in repos {
-                    let args = |page: usize| vec!["api".into(), "--hostname".into(), host.into(),
-                        format!("projects/{}/issues?state=opened&order_by=updated_at&sort=desc&per_page={per}&page={page}{f}", enc(p))];
-                    match get(&args, |v| v.as_array()) {
-                        Ok(a) => issues.extend(a.iter().map(slim_issue)),
-                        Err(e) if e["reason"] == "auth" => return e,
-                        Err(e) => bad.push(json!({ "host": host, "detail": format!("{p}: {}", e["detail"].as_str().unwrap_or("")) })),
+                let stuck = std::sync::atomic::AtomicBool::new(false);
+                let next = std::sync::atomic::AtomicUsize::new(0);
+                let done: std::sync::Mutex<Vec<Option<Result<Vec<Value>, Value>>>> = std::sync::Mutex::new(vec![None; repos.len()]);
+                std::thread::scope(|s| for _ in 0..PAR_READS.min(repos.len()) {
+                    s.spawn(|| loop {
+                        let n = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let Some(p) = repos.get(n) else { break };
+                        if stuck.load(std::sync::atomic::Ordering::SeqCst) { continue; } // the host hangs: not asked
+                        let args = |page: usize| vec!["api".into(), "--hostname".into(), host.into(),
+                            format!("projects/{}/issues?state=opened&order_by=updated_at&sort=desc&per_page={per}&page={page}{f}", enc(p))];
+                        let r = get(&args, |v| v.as_array());
+                        if r.as_ref().is_err_and(|e| e["reason"] == "timeout") { stuck.store(true, std::sync::atomic::Ordering::SeqCst); }
+                        done.lock().unwrap()[n] = Some(r);
+                    });
+                });
+                hung = stuck.into_inner();
+                let mut answered = false;
+                for (p, r) in repos.iter().zip(done.into_inner().unwrap()) {
+                    match r {
+                        Some(Ok(a)) => { answered = true; issues.extend(a.iter().map(slim_issue)); }
+                        Some(Err(e)) if e["reason"] == "auth" => return e,
+                        Some(Err(e)) if e["reason"] == "timeout" => {}
+                        Some(Err(e)) => bad.push(json!({ "host": host, "detail": format!("{p}: {}", e["detail"].as_str().unwrap_or("")) })),
+                        None => {} // not asked: the host hangs
                     }
+                }
+                if hung {
+                    if !answered && bad.is_empty() { let mut e = late(); e["hung"] = json!(true); return e; }
+                    bad.push(json!({ "host": host, "detail": late()["detail"] }));
                 }
             }
         }
         for i in issues.iter_mut() { i["mine"] = json!(me.is_some_and(|me| i["assignees"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str().is_some_and(|x| x.eq_ignore_ascii_case(me)))))); }
         newest_first(&mut issues);
         issues.truncate(need);
-        json!({ "ok": true, "issues": issues, "failed": bad })
+        json!({ "ok": true, "issues": issues, "failed": bad, "hung": hung })
     }
     fn env(self) -> &'static [(&'static str, &'static str)] { if self == Forge::GitHub { GH_ENV } else { &[] } }
     // One open issue, read on its own (GET), marked `linked`: one a session here works on (its branch or its start
@@ -354,9 +383,14 @@ pub fn newest_first(list: &mut [Value]) {
     list.sort_by(|a, b| b["updated"].as_str().unwrap_or("").cmp(a["updated"].as_str().unwrap_or("")));
 }
 
-// The repositories active since `since` (ISO time): the first ticks of the repo picker.
-pub fn recent(repos: &[Value], since: &str) -> Vec<String> {
-    repos.iter().filter(|r| r["at"].as_str().is_some_and(|t| t >= since)).filter_map(|r| r["path"].as_str().map(String::from)).collect()
+// The first ticks of the repo picker: the FIRST_TICKS most recently active repositories since `since` (ISO time), and
+// how many more were active since then (a big organisation: hundreds; each ticked one is read every 5 minutes).
+pub const FIRST_TICKS: usize = 10;
+pub fn recent(repos: &[Value], since: &str) -> (Vec<String>, usize) {
+    let mut r: Vec<(&str, &str)> = repos.iter().filter_map(|r| Some((r["path"].as_str()?, r["at"].as_str().filter(|t| *t >= since)?))).collect();
+    r.sort_by(|a, b| b.1.cmp(a.1));
+    let more = r.len().saturating_sub(FIRST_TICKS);
+    (r.into_iter().take(FIRST_TICKS).map(|(p, _)| p.to_string()).collect(), more)
 }
 
 // The fields Bobix shows of one issue from GitLab's API.
@@ -388,8 +422,9 @@ fn linked_issue(f: Forge, v: &Value) -> Option<Value> {
     Some(i)
 }
 
-// One session as the Work tab sees it: { id, path (GitLab project), dir, iid }.
-pub struct Live { pub id: String, pub path: Option<String>, pub dir: String, pub iid: Option<i64> }
+// One session as the Work tab sees it: { id, path (its repository's project), dir, iid and of (the issue it works on:
+// its number, and its project, which is another one than `path` when the issue's code is in this repository) }.
+pub struct Live { pub id: String, pub path: Option<String>, pub dir: String, pub iid: Option<i64>, pub of: Option<String> }
 
 // Issues by project, local repositories first (a session of theirs runs here), the rest "not on this machine". Each
 // issue gets `sessions`: the ids working on it. In progress first, then by due date, then newest.
@@ -400,7 +435,7 @@ pub fn group_issues(issues: &[Value], live: &[Live], known: &HashMap<String, Str
     let mut groups: indexmap::IndexMap<String, Vec<Value>> = Default::default();
     for i in issues {
         let p = i["project"].as_str().unwrap_or("").to_string();
-        let working: Vec<&str> = live.iter().filter(|s| s.path.as_deref() == Some(&p) && s.iid.is_some() && s.iid == i["iid"].as_i64()).map(|s| s.id.as_str()).collect();
+        let working: Vec<&str> = live.iter().filter(|s| s.of.as_deref() == Some(&p) && s.iid.is_some() && s.iid == i["iid"].as_i64()).map(|s| s.id.as_str()).collect();
         let mut x = i.clone();
         x["sessions"] = json!(working);
         groups.entry(p).or_default().push(x);
@@ -419,6 +454,16 @@ pub fn group_issues(issues: &[Value], live: &[Live], known: &HashMap<String, Str
         }
     }
     (local, away)
+}
+
+// A folder you chose or cloned (Choose folder…, Change folder…, Clone…) wins over the folder a session works in: Start
+// works there. A found one does not (a session's folder is the surer guess).
+fn pin_chosen(local: &mut [Value], settings: &Value, known: &HashMap<String, String>) {
+    for g in local {
+        let p = g["path"].as_str().unwrap_or("").to_string();
+        let how = &settings["workDirs"][&p]["how"];
+        if let (Some("chosen" | "cloned"), Some(d)) = (how.as_str(), known.get(&p)) { g["dir"] = json!(d); g["via"] = how.clone(); }
+    }
 }
 
 // A new Claude desktop session in `dir`, its prompt box filled with `prompt` (q, Claude's documented link: nothing is
@@ -466,17 +511,66 @@ pub struct Work {
     pub remotes_of: HashMap<String, Vec<String>>, // repository top folder -> remote URLs (never sent to the pages)
     pub feeds: [Feed; 2], // by Forge, in FORGES order
     pub claude_list: Vec<ClaudeSession>, // Claude desktop's own sessions, to find an issue's session by its name
-    // New on an issue opens a new session in the project's folder and waits here: the first session created in exactly
-    // that folder afterwards takes the issue and its name (see take_issue).
-    pub new_for: indexmap::IndexMap<String, Value>, // project folder -> { path, iid, title }
+    // A start (Quick, Full in Claude, the terminal command) opens a new session and waits here; the session that takes
+    // it gets the issue and its name (see Work::claim). One wait per issue and folder: several can wait at once.
+    pub new_for: indexmap::IndexMap<String, Value>, // "<path>#<iid>@<folder>" -> { dir, repo, path, iid, title, url }
+    // Sessions that started where a start waits and have not sent their first prompt yet: only that prompt may claim it.
+    pub fresh: std::collections::HashSet<String>,
     // "project#iid" of the issues sessions worked on that were read on their own (Forge::issue), so each is asked once
     pub asked: std::collections::HashSet<String>,
     pub page: usize, // the page of the issue list shown, from 1
+    // A read you asked for (filter, page, ticked repos, Refresh) bumps `gen`; a tracker's read keeps its answer only when
+    // no newer one was asked meanwhile (`read_gen`: the ask its kept answer is for). Older answers are dropped.
+    pub gen: u64,
+    pub read_gen: [u64; 2],
+    // The clone search ran for this tracker (by Forge): once per app start, and again after Refresh.
+    pub scanned: [bool; 2],
+    // A host's first read ticked only its FIRST_TICKS most recent repositories: how many more were active lately (memory
+    // only; the repo picker says so until you save your ticks).
+    pub more_repos: HashMap<String, usize>,
 }
 
 impl Default for Work {
     fn default() -> Self {
-        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), asked: Default::default(), page: 1 }
+        Work { git_cache: HashMap::new(), remotes_of: HashMap::new(), feeds: Default::default(), claude_list: vec![], new_for: Default::default(), fresh: Default::default(), asked: Default::default(), page: 1, gen: 0, read_gen: [0; 2], scanned: [false; 2], more_repos: HashMap::new() }
+    }
+}
+
+// Where a waiting start's session may come up. Claude desktop does not open a session in a folder inside a repository's
+// worktree as given: it starts in the repository's main folder, or in a worktree of its own under .claude/worktrees.
+// So: the folder the start opened (or one inside it), the main folder of its repository, or a Claude worktree there.
+fn waits_here(w: &Value, cwd: &str) -> bool {
+    use crate::paths::{dir_key, same_dir};
+    let under = |base: &str, d: &str| !base.is_empty() && dir_key(d).starts_with(&(dir_key(base) + "/"));
+    let (dir, repo) = (w["dir"].as_str().unwrap_or(""), w["repo"].as_str().unwrap_or(""));
+    same_dir(cwd, dir) || under(dir, cwd) || (!repo.is_empty() && (same_dir(cwd, repo) || under(&format!("{repo}/.claude/worktrees"), cwd)))
+}
+// The prompt Bobix gave the session names this issue: its link, or "#<iid> <title>" (both lead the prompt it builds).
+fn names_it(w: &Value, prompt: &str) -> bool {
+    let url = w["url"].as_str().unwrap_or("");
+    let head: String = w["title"].as_str().unwrap_or("").trim().chars().take(40).collect();
+    (!url.is_empty() && prompt.contains(url)) || (!head.is_empty() && prompt.contains(&format!("#{} {head}", w["iid"].as_i64().unwrap_or(0))))
+}
+
+impl Work {
+    // A start waits for its session: in `dir` (the folder Claude was asked to open), whose repository's main folder is
+    // `repo`. The same issue started again in the same folder replaces its wait.
+    pub fn wait_for(&mut self, dir: &str, repo: &str, path: &str, iid: i64, title: &Value, url: &Value) {
+        self.new_for.insert(format!("{path}#{iid}@{}", crate::paths::dir_key(dir)), json!({ "dir": dir, "repo": repo, "path": path, "iid": iid, "title": title, "url": url }));
+    }
+    // A start waits where a session in `cwd` may be its own (the session then waits for its first prompt).
+    pub fn waits_at(&self, cwd: &str) -> bool { self.new_for.values().any(|w| waits_here(w, cwd)) }
+    // The wait a new session takes: one where it came up, whose issue its first prompt names. A session nothing names
+    // (one you opened yourself there, with your own prompt) takes none. The oldest wait first.
+    pub fn claim(&mut self, cwd: &str, prompt: &str) -> Option<Value> {
+        let k = self.new_for.iter().find(|(_, w)| waits_here(w, cwd) && names_it(w, prompt)).map(|(k, _)| k.clone())?;
+        self.new_for.shift_remove(&k)
+    }
+    // Stop waiting in `dir`: for one issue, or for every start there.
+    pub fn cancel(&mut self, dir: &str, iid: Option<i64>) -> bool {
+        let n = self.new_for.len();
+        self.new_for.retain(|_, w| !(crate::paths::same_dir(w["dir"].as_str().unwrap_or(""), dir) && iid.is_none_or(|i| w["iid"].as_i64() == Some(i))));
+        self.new_for.len() != n
     }
 }
 
@@ -487,6 +581,8 @@ pub fn key_of(settings: &Value, p: &str) -> String {
 
 impl Work {
     pub fn feed(&mut self, f: Forge) -> &mut Feed { &mut self.feeds[f as usize] }
+    // A read you asked for has not answered yet (the panel shows "Reading your issues…" in place of the list).
+    pub fn reading(&self, settings: &Value) -> bool { FORGES.into_iter().any(|f| f.on(settings) && self.read_gen[f as usize] < self.gen) }
     fn on(&self, settings: &Value) -> Vec<&Feed> {
         FORGES.iter().filter(|f| f.on(settings)).map(|f| &self.feeds[*f as usize]).collect()
     }
@@ -546,8 +642,8 @@ impl Work {
     pub fn view(&self, settings: &Value, m: &Model) -> Value {
         if !any_on(settings) { return json!({ "status": "off" }); }
         let live: Vec<Live> = m.sessions.iter().filter_map(|s| Some(Live { id: s.id.clone(), path: s.repo.as_ref().map(|r| r.to.path.clone()),
-            dir: s.dir.as_ref()?.to.path.clone(), iid: s.issue.as_ref().map(|i| i.to.iid) })).collect();
-        let works_on = |i: &Value| live.iter().any(|s| s.path.as_deref() == i["project"].as_str() && s.iid.is_some() && s.iid == i["iid"].as_i64());
+            dir: s.dir.as_ref()?.to.path.clone(), iid: s.issue.as_ref().map(|i| i.to.iid), of: s.issue.as_ref().map(|i| i.to.project.clone()) })).collect();
+        let works_on = |i: &Value| live.iter().any(|s| s.of.as_deref() == i["project"].as_str() && s.iid.is_some() && s.iid == i["iid"].as_i64());
         // one page of the ticked repositories' issues, newest first; an issue a session here works on stays on any page;
         // one read only because a session worked on it (linked) leaves with its last session
         let mut listed: Vec<&Value> = self.list(settings).into_iter().filter(|i| i["linked"] != true).collect();
@@ -558,6 +654,7 @@ impl Work {
         let all: Vec<Value> = self.list(settings).into_iter().filter(|i| if i["linked"] == true { works_on(i) } else { shown.contains(i) || works_on(i) }).cloned().collect();
         let known = crate::clones::dirs(settings);
         let (mut local, mut away) = group_issues(&all, &live, &known);
+        pin_chosen(&mut local, settings, &known);
         for (g, here) in local.iter_mut().map(|g| (g, true)).chain(away.iter_mut().map(|g| (g, false))) {
             let p = g["path"].as_str().unwrap_or("").to_string();
             g["key"] = json!(key_of(settings, &p));
@@ -577,12 +674,20 @@ impl Work {
         view["closed"] = json!(self.extra(settings, "closed"));
         view["page"] = json!(page);
         view["more"] = json!(more);
+        // a read made for an earlier page: this page shows once the read for it is in
+        view["filling"] = json!(self.on(settings).into_iter().any(|f| f.issues["need"].as_u64().is_some_and(|n| (n as usize) < need_for(page))));
         view["filter"] = settings["workFilter"].clone();
+        view["reading"] = json!(self.reading(settings));
+        view["gen"] = json!(self.gen); // reads asked for so far: the panel waits for it to move after its ask
+        view["dirs"] = json!(known); // the remembered folders that still exist (Start's folder for a code project)
+        // the ones you chose or cloned: they win over a session's folder, also for a code project with no issue listed
+        view["pinned"] = json!(known.keys().filter_map(|p| crate::clones::pinned(settings, p).map(|d| (p.clone(), d))).collect::<HashMap<_, _>>());
         // the repositories ticked on the hosts read (none: the list asks you to pick some), and a warning for many GitLab
         // projects, each read on its own
         let ticked = |f: &Feed| f.issues["hosts"].as_array().into_iter().flatten().filter_map(|h| h.as_str()).map(|h| settings["workRepos"][h].as_array().map_or(0, |a| a.len())).sum::<usize>();
         view["ticked"] = json!(self.on(settings).into_iter().map(ticked).sum::<usize>());
         view["many"] = json!(Forge::GitLab.on(settings) && ticked(&self.feeds[Forge::GitLab as usize]) > MANY_GITLAB);
+        view["moreRepos"] = json!(self.more_repos.values().sum::<usize>());
         view
     }
 }
@@ -608,6 +713,122 @@ mod tests {
         assert_eq!(w.source_of(&on, "t/a", 7).map(|x| x.2), Some("ghe.example.com:8443".into()), "the signed-in host, port and all");
         assert!(w.source_of(&on, "acme/app", 55).is_none(), "only issues Bobix listed");
         assert!(w.source_of(&json!({ "github": false }), "acme/app", 54).is_none(), "GitHub off");
+    }
+
+    // GitLab projects are read at the same time (8 at most), each for 10 s at most: a project that hangs makes the host
+    // named once and its other projects not asked, and the read still ends in about 10 s with the others' issues; a
+    // project that is only slow is waited for; a 404 leaves out that project only; nothing is left running.
+    #[cfg(unix)]
+    #[test]
+    fn gitlab_projects_read_at_once_and_a_hanging_host_is_cut_off() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("bobix-par-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("runs")).unwrap();
+        let bin = root.join("glab-stand-in");
+        // the project is in the 4th argument; each run leaves runs/<pid> while it runs and logs how many runs there are
+        std::fs::write(&bin, format!(r#"#!/bin/sh
+d="{dir}"; touch "$d/runs/$$"; ls "$d/runs" | wc -l >> "$d/at-once"
+p=$(echo "$4" | sed 's#projects/\([^/]*\)/issues.*#\1#; s#%2F#/#')
+case "$p" in g/slow) sleep 30;; g/snail*) sleep 2;; g/tick*) sleep 1;; g/gone) rm -f "$d/runs/$$"; echo '{{"message":"404 Project Not Found"}}'; echo 'glab: 404 Not Found' >&2; exit 1;; esac
+n=$(echo "$p" | tr -dc 0-9); n=${{n:-0}}
+echo "[{{\"iid\": 1$n, \"title\": \"t\", \"web_url\": \"https://h/$p/-/issues/1\", \"references\": {{\"full\": \"$p#1$n\"}}, \"labels\": [], \"updated_at\": \"2026-11-10T08:00:$(printf %02d $n)Z\", \"assignees\": []}}]"
+rm -f "$d/runs/$$"
+"#, dir = root.display())).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let b = bin.to_string_lossy().into_owned();
+        let read = |repos: &[&str]| { let t = std::time::Instant::now(); let r = Forge::GitLab.page(&b, "h", &repos.iter().map(|x| x.to_string()).collect::<Vec<_>>(), "all", 21, None); (r, t.elapsed().as_secs_f64()) };
+        let projects = |r: &Value| r["issues"].as_array().unwrap().iter().map(|i| i["project"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        // a) one project hangs: about 10 s, the others shown newest first, the host named once
+        let (r, secs) = read(&["g/a1", "g/slow", "g/b2"]);
+        assert!(secs < 12.0, "the read ends in about 10 s: {secs}");
+        assert_eq!((r["ok"].clone(), r["hung"].clone(), projects(&r)), (json!(true), json!(true), vec!["g/b2".to_string(), "g/a1".into()]));
+        assert_eq!(r["failed"], json!([{ "host": "h", "detail": "no answer in 10 s, ignored" }]));
+        assert!(!procs::exec("pgrep", &["-f", &b], 5, &[]).ok, "nothing of it is left running");
+        assert!(read(&["g/slow"]).0["ok"] == false, "a host whose every project hangs failed: the read names it");
+        // b) all slow but in time: all shown, read at the same time
+        let (r, secs) = read(&["g/snail1", "g/snail2", "g/snail3"]);
+        assert!(secs < 5.0 && r["hung"] == false && r["failed"] == json!([]) && projects(&r).len() == 3, "{secs} {r}");
+        // c) a 404: that project only, named; the host is not cut off
+        let (r, _) = read(&["g/a1", "g/gone"]);
+        assert_eq!((projects(&r), r["hung"].clone()), (vec!["g/a1".to_string()], json!(false)));
+        assert!(r["failed"][0]["detail"].as_str().unwrap().starts_with("g/gone: "), "{r}");
+        // e) 12 projects of 1 s: 8 at a time at most, two rounds
+        let _ = std::fs::remove_file(root.join("at-once"));
+        let _ = std::fs::remove_dir_all(root.join("runs")); // the killed runs never took their mark away
+        std::fs::create_dir_all(root.join("runs")).unwrap();
+        let many: Vec<String> = (10..22).map(|n| format!("g/tick{n}")).collect();
+        let (r, secs) = read(&many.iter().map(String::as_str).collect::<Vec<_>>());
+        let most = std::fs::read_to_string(root.join("at-once")).unwrap().split_whitespace().filter_map(|x| x.parse::<usize>().ok()).max().unwrap();
+        assert!(most <= PAR_READS && projects(&r).len() == 12 && secs < 4.0, "{most} at once, {secs} s");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // A start waits for its session; the session that takes it is new where the start waits, and its first prompt
+    // names the issue (#184): Claude desktop opens a Full start in the repository's main folder (or its own worktree
+    // there), not in the flow's worktree, and the code may be in another repository than the issue.
+    #[test]
+    fn a_waiting_start_is_taken_by_its_own_session_only() {
+        let (title, url) = (json!("Checkout rounds totals wrong"), json!("https://gl.example.test/acme/web-shop/-/issues/401"));
+        let prompt = "#401 Checkout rounds totals wrong\n\nSteps…\n\nhttps://gl.example.test/acme/web-shop/-/issues/401";
+        let iid = |w: Option<Value>| w.and_then(|w| w["iid"].as_i64());
+        // issue in acme/web-shop, code in acme/service: Quick in the service's folder; Full in a worktree of it
+        let mut w = Work::default();
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 401, &title, &url);
+        assert_eq!(w.claim("/code/service", "fix the build please"), None, "a session you opened there yourself: its prompt names nothing");
+        assert_eq!(w.claim("/code/other", prompt), None, "another folder");
+        assert_eq!(w.claim("/code/service", prompt).map(|x| x["path"].clone()), Some(json!("acme/web-shop")), "the issue's project names it, not the code's");
+        assert!(w.new_for.is_empty() && w.claim("/code/service", prompt).is_none(), "taken once");
+        // Full: waits in the flow's worktree; Claude starts in that worktree, the main folder, or a Claude worktree there
+        // (and a start from before, in a worktree where Claude keeps its own)
+        for (dir, cwd) in [("/code/service/.bobix/worktrees/service-401", "/code/service/.bobix/worktrees/service-401"), ("/code/service/.bobix/worktrees/service-401", "/code/service/.bobix/worktrees/service-401/src"),
+            ("/code/service/.bobix/worktrees/service-401", "/code/service"), ("/code/service/.bobix/worktrees/service-401", "/code/service/.claude/worktrees/brave-otter"),
+            ("/code/service/.claude/worktrees/bobix-401", "/code/service"), ("/code/service/.claude/worktrees/bobix-401", "/code/service/.claude/worktrees/bobix-401/src"),
+            // the same folders as Windows spells them: git with "/", Claude with "\\", a trailing separator
+            ("C:/code/service\\.bobix\\worktrees\\service-401", "C:\\code\\service\\.bobix\\worktrees\\service-401\\"), ("C:/code/service\\.bobix\\worktrees\\service-401", "C:\\code\\service"),
+            ("C:/code/service\\.bobix\\worktrees\\service-401", "C:\\code\\service\\.claude\\worktrees\\brave-otter")] {
+            w.wait_for(dir, if dir.starts_with("C:") { "C:/code/service" } else { "/code/service" }, "acme/web-shop", 401, &title, &url);
+            assert_eq!(iid(w.claim(cwd, prompt)), Some(401), "{dir} <- {cwd}");
+            assert!(w.new_for.is_empty());
+        }
+        w.wait_for("/code/service/.bobix/worktrees/service-401", "/code/service", "acme/web-shop", 401, &title, &url);
+        assert_eq!(w.claim("/code/service-old", prompt), None, "a folder whose name only begins the same");
+        assert_eq!(w.claim("/code/service/.bobix/worktrees/service-402", prompt), None, "another flow's worktree");
+        assert_eq!(w.claim("/code/service/src", prompt), None, "a folder inside the main one");
+        // the prompt edited: its link kept, or "#401 <title>" kept, is enough; "#401" alone is not
+        assert_eq!(w.claim("/code/service", "#401 please"), None);
+        assert_eq!(iid(w.claim("/code/service", "Look at https://gl.example.test/acme/web-shop/-/issues/401 first")), Some(401));
+        // the same issue started in two code repositories: each session takes the start where it came up
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 401, &title, &url);
+        w.wait_for("/code/api", "/code/api", "acme/web-shop", 401, &title, &url);
+        assert_eq!(w.claim("/code/api", prompt).map(|x| x["dir"].clone()), Some(json!("/code/api")));
+        assert_eq!(w.new_for.values().map(|x| x["dir"].clone()).collect::<Vec<_>>(), [json!("/code/service")], "the other still waits");
+        // two starts waiting in one folder: each session takes the one its prompt names
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 402, &json!("Export orders as CSV"), &json!("https://gl.example.test/acme/web-shop/-/issues/402"));
+        assert_eq!(iid(w.claim("/code/service", "#402 Export orders as CSV\n\nhttps://gl.example.test/acme/web-shop/-/issues/402")), Some(402));
+        assert_eq!(iid(w.claim("/code/service", prompt)), Some(401));
+        // cancelled: nothing takes it any more; for one issue, or every start in that folder
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 401, &title, &url);
+        w.wait_for("/code/service", "/code/service", "acme/web-shop", 402, &json!("Export orders as CSV"), &json!("u402"));
+        assert!(w.cancel("/code/service", Some(401)) && w.claim("/code/service", prompt).is_none() && w.new_for.len() == 1);
+        assert!(w.cancel("/code/service/", None) && w.new_for.is_empty(), "the folder as Windows / a trailing slash spells it");
+        assert!(!w.waits_at("/code/service"));
+    }
+
+    // Reading: from the ask (filter, page, Refresh) until every tracker that is on kept an answer to it; an older ask's
+    // answer does not end it, and a tracker that is off never holds it up.
+    #[test]
+    fn reading_lasts_until_the_newest_ask_is_answered() {
+        let mut w = Work::default();
+        let both = json!({ "gitlab": true, "github": true });
+        assert!(!w.reading(&both), "nothing asked yet");
+        w.gen = 2;
+        w.read_gen = [1, 2];
+        assert!(w.reading(&both), "GitLab answered an older ask only");
+        assert!(!w.reading(&json!({ "gitlab": false, "github": true })), "GitLab off: not waited for");
+        w.read_gen = [2, 2];
+        assert!(!w.reading(&both));
+        assert!(!w.reading(&json!({ "gitlab": false, "github": false })));
     }
 
     #[test]
@@ -695,12 +916,25 @@ mod tests {
         w.page = 3;
         let v = view(&w, &on, &Sessions::default());
         assert_eq!((v["more"].clone(), ids(&v).len()), (json!(false), 5));
+        // page 2 asked for while the read made for page 1 is what is in: filling until the read for page 2 is
+        w.feeds[Forge::GitHub as usize].issues["need"] = json!(need_for(1));
+        w.page = 2;
+        assert_eq!(view(&w, &on, &Sessions::default())["filling"], true);
+        w.feeds[Forge::GitHub as usize].issues["need"] = json!(need_for(2));
+        assert_eq!(view(&w, &on, &Sessions::default())["filling"], false);
         let many = json!({ "gitlab": true, "workRepos": { "gl.example.test": (0..21).map(|n| format!("g/p{n}")).collect::<Vec<_>>() } });
         assert_eq!(view(&w, &many, &Sessions::default())["many"], true, "21 GitLab projects: each is a read of its own");
         assert_eq!((need_for(0), need_for(1), need_for(3), need_for(10_000)), (21, 21, 61, MAX_PAGE * PER_PAGE + 1), "a read is capped, whatever the page");
         // the repo picker's first ticks: active in the last 90 days
         let repos = [json!({ "path": "a/new", "at": "2026-11-01T00:00:00Z" }), json!({ "path": "a/old", "at": "2026-01-01T00:00:00Z" }), json!({ "path": "a/never", "at": null })];
-        assert_eq!(recent(&repos, "2026-08-13T00:00:00Z"), ["a/new"]);
+        assert_eq!(recent(&repos, "2026-08-13T00:00:00Z"), (vec!["a/new".to_string()], 0));
+        // a big organisation: only the 10 most recently active are ticked, and the rest are counted
+        let big: Vec<Value> = (0..300).map(|n| json!({ "path": format!("org/p{n:03}"), "at": format!("2026-10-{:02}T{:02}:00:00Z", 1 + n % 28, n % 24) })).collect();
+        let (t, more) = recent(&big, "2026-08-13T00:00:00Z");
+        assert_eq!((t.len(), more), (10, 290));
+        let newest = |p: &String| big.iter().find(|r| r["path"] == p.as_str()).unwrap()["at"].as_str().unwrap().to_string();
+        let cut = t.iter().map(newest).min().unwrap();
+        assert!(big.iter().filter(|r| !t.contains(&r["path"].as_str().unwrap().to_string())).all(|r| r["at"].as_str().unwrap() <= cut.as_str()), "the newest ones");
         // whose issues are yours: the account each host reads with
         let gh = "github.com\n  ✓ Logged in to github.com account first (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account Second (keyring)\n  - Active account: true\n\
             ghe.example.com\n  ✓ Logged in to ghe.example.com as old (oauth_token)\n";
@@ -711,18 +945,22 @@ mod tests {
     #[test]
     fn issues_count_the_sessions_on_them() {
         let issues = [json!({ "iid": 29, "project": "g/a", "title": "x", "labels": [], "due": null, "url": "u" })];
-        let live = |id: &str, p: &str, iid| Live { id: id.into(), path: Some(p.into()), dir: String::new(), iid: Some(iid) };
+        let live = |id: &str, p: &str, iid| Live { id: id.into(), path: Some(p.into()), dir: String::new(), iid: Some(iid), of: Some(p.into()) };
         let (local, away) = group_issues(&issues, &[], &HashMap::new());
         assert!(local.is_empty() && away[0]["issues"][0]["sessions"] == json!([]));
         let (local, _) = group_issues(&issues, &[live("s1", "g/a", 29), live("s2", "g/b", 29), live("s3", "g/a", 290)], &HashMap::new());
         assert_eq!(local[0]["issues"][0]["sessions"], json!(["s1"]), "same number in another project does not count");
+        // a session in g/b started for g/a's issue 29 (its code is in g/b): listed under that issue, and g/b's folder is its own
+        let cross = Live { id: "s4".into(), path: Some("g/b".into()), dir: "/src/b".into(), iid: Some(29), of: Some("g/a".into()) };
+        let (local, away) = group_issues(&issues, &[cross], &HashMap::new());
+        assert!(local.is_empty() && away[0]["issues"][0]["sessions"] == json!(["s4"]), "g/a has no folder here: the session's folder is g/b's");
     }
 
     #[test]
     fn issues_grouped_local_first() {
         let mk = |p: &str, iid: i64, due: Value| json!({ "iid": iid, "project": p, "title": format!("t{iid}"), "labels": [], "due": due, "url": format!("u{iid}") });
         let issues = [mk("g/away", 1, Value::Null), mk("g/here", 2, json!("2026-12-01")), mk("g/here", 3, json!("2026-11-10")), mk("g/here", 4, Value::Null)];
-        let live = [Live { id: "s".into(), path: Some("g/here".into()), dir: "/src/here".into(), iid: Some(4) }, Live { id: "x".into(), path: None, dir: "/tmp/x".into(), iid: None }];
+        let live = [Live { id: "s".into(), path: Some("g/here".into()), dir: "/src/here".into(), iid: Some(4), of: Some("g/here".into()) }, Live { id: "x".into(), path: None, dir: "/tmp/x".into(), iid: None, of: None }];
         let (local, away) = group_issues(&issues, &live, &HashMap::new());
         assert_eq!(local.len(), 1);
         assert_eq!((local[0]["path"].as_str(), local[0]["dir"].as_str()), (Some("g/here"), Some("/src/here")));
@@ -735,6 +973,12 @@ mod tests {
         assert!(away.is_empty());
         let dir = |p: &str| local.iter().find(|g| g["path"] == p).unwrap()["dir"].clone();
         assert_eq!((dir("g/away"), dir("g/here")), (json!("/src/away"), json!("/src/here")));
+        // unless you chose (or cloned) it: then yours wins, a found one does not
+        let mut pinned = local.clone();
+        pin_chosen(&mut pinned, &json!({ "workDirs": { "g/here": { "dir": "/elsewhere", "how": "chosen" }, "g/away": { "dir": "/src/away", "how": "found" } } }), &known);
+        let dir = |p: &str| pinned.iter().find(|g| g["path"] == p).unwrap()["dir"].clone();
+        assert_eq!((dir("g/away"), dir("g/here")), (json!("/src/away"), json!("/elsewhere")));
+        assert_eq!(pinned.iter().find(|g| g["path"] == "g/here").unwrap()["via"], "chosen");
         assert_eq!(slim_issue(&json!({ "iid": 7, "title": "T", "web_url": "https://h/g/p/-/issues/7", "references": { "full": "G/P#7" }, "labels": ["Bug"], "due_date": "2026-11-20" })),
             json!({ "iid": 7, "title": "T", "url": "https://h/g/p/-/issues/7", "project": "g/p", "labels": ["Bug"], "due": "2026-11-20", "updated": null, "assignees": [] }));
         assert_eq!(slim_issue(&json!({ "updated_at": "2026-11-10T08:00:00.000Z", "assignees": [{ "username": "me" }] }))["assignees"], json!(["me"]));

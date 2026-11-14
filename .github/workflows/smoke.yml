@@ -32,11 +32,35 @@ jobs:
           workspaces: src-tauri
       - name: Linux libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb xdotool > /dev/null
+        timeout-minutes: 8
+        # Each apt command gets 150 s, so a stalled try is cut off and the next one runs. When the runner's Azure mirror
+        # does not resolve, apt reads archive.ubuntu.com and security.ubuntu.com instead. An update that could not fetch
+        # an index fails its try (install never runs on stale or missing lists). stderr stays visible.
+        run: |
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o DPkg::Lock::Timeout=120"
+          if ! timeout 10 getent hosts azure.archive.ubuntu.com > /dev/null; then
+            echo "azure.archive.ubuntu.com does not resolve: apt uses archive.ubuntu.com and security.ubuntu.com"
+            [ -f /etc/apt/apt-mirrors.txt ] && printf 'http://archive.ubuntu.com/ubuntu/\nhttp://security.ubuntu.com/ubuntu/\n' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+            sudo find /etc/apt -name '*.list' -o -name '*.sources' | xargs -r sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g'
+          fi
+          for try in 1 2 3; do
+            echo "apt try $try"
+            ok=0
+            if timeout 150 sudo apt-get $APT update -qq > /dev/null 2> apt-update.err && ! grep -q "Failed to fetch" apt-update.err; then
+              cat apt-update.err >&2
+              timeout 150 sudo apt-get $APT install -y -qq libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev xvfb xdotool > /dev/null && ok=1
+            else
+              cat apt-update.err >&2; echo "apt try $try: update failed or could not fetch an index"
+            fi
+            [ $ok = 1 ] && exit 0
+            sleep 10
+          done
+          exit 1
       - name: Node tests
         run: npm test
       - name: Pets overlay in Chrome (no effect over another pet, no pets overlapping)
-        run: node --test test/overlay.test.js
+        timeout-minutes: 5
+        run: node --test --test-timeout=270000 test/overlay.test.js
         env:
           OVERLAY_ONLY: ' 56 '
           OVERLAY_DUMP: overlay-dump

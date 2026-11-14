@@ -704,6 +704,7 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   fs.writeFileSync(path.join(home, '.claude', 'bobix', 'token'), token);
   const got = [];
   const titled = { hookSpecificOutput: { hookEventName: 'SessionStart', sessionTitle: '[SHA-27] Fix it' } };
+  const byPrompt = { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', sessionTitle: 'WES-401 Checkout rounds totals' } };
   const srv = http.createServer((req, res) => {
     let b = '';
     req.on('data', c => { b += c; });
@@ -711,6 +712,7 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
       const e = JSON.parse(b);
       got.push({ e, token: req.headers['x-bobix'], wait: req.headers['x-bobix-wait'] });
       if (e.hook_event_name === 'SessionStart') res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(titled));
+      else if (e.hook_event_name === 'UserPromptSubmit') res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(byPrompt));
       else res.writeHead(204).end();
     });
   }).listen(0, '127.0.0.1');
@@ -728,6 +730,7 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   assert.equal(e.bobix_claude_pid, 4242);
   assert.equal(e.bobix_host_session, 'local_test-1');
   assert.deepEqual(JSON.parse(await run({ session_id: 's5', hook_event_name: 'SessionStart', source: 'startup' })), titled, 'a session title reaches Claude Code');
+  assert.deepEqual(JSON.parse(await run({ session_id: 's6', hook_event_name: 'UserPromptSubmit', prompt: '#401 Checkout rounds totals wrong' })), byPrompt, 'and one given by the first prompt (#184)');
   srv.close();
   fs.rmSync(home, { recursive: true, force: true });
 });
@@ -1024,7 +1027,7 @@ test('tour: every step has its words in both languages, NEWS is this version, an
   assert.equal(TOUR.fresh(TOUR.STEPS.map(s => s.key)).length, 0);
   assert.equal(TOUR.fresh(undefined).length, TOUR.STEPS.length);
   for (const s of TOUR.STEPS) {
-    const TABS = ['overview', 'sessions', 'skills', 'settings', 'setup'];
+    const TABS = ['overview', 'sessions', 'work', 'skills', 'settings', 'setup'];
     assert.ok(TABS.includes(s.tab) && s.at.length && (!s.alt || (TABS.includes(s.alt.tab) && s.alt.at.length)), s.key);
     assert.match(s.key, /^[a-z]{1,24}$/, 'a key settings.rs keeps');
     for (const lang of ['en', 'vi']) for (const k of ['title', 'body']) assert.ok(I18N.STR[lang][`tour.${s.key}.${k}`], `${lang} tour.${s.key}.${k}`);
