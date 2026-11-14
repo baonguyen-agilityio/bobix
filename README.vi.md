@@ -54,7 +54,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 
 ### Chạy ticket của bạn
 - **Issue GitHub và GitLab của bạn**, đọc qua chính `gh` và `glab` của bạn (mặc định bật ở nơi bạn đã đăng nhập; mỗi bên có một công tắc để tắt): cần làm, đang làm cùng các session của nó, chờ review, xong hôm nay. Bobix gợi ý việc làm tiếp, cảnh báo khi hai session cùng làm một issue, và chỉ ra việc bị kẹt kèm bước tiếp theo.
-- **Bắt đầu** một issue trong **Công việc**, theo một trong hai cách: **Đầy đủ** chạy luồng ticket (worktree và nhánh riêng, kế hoạch bạn duyệt, kiểm tra, review, MR / PR và CI); **Nhanh** mở một session Claude thường trong thư mục dự án với prompt bạn sửa được, kèm skill gợi ý cho repo đó. Session nào cũng được đặt tên `[CODE-27] …`. **Đổi thư mục…** trong hộp Bắt đầu trỏ dự án sang một bản clone khác.
+- **Bắt đầu** một issue trong **Công việc**, theo một trong hai cách: **Đầy đủ** chạy luồng ticket (worktree và nhánh riêng; Claude nhắc lại ticket và hỏi bạn những gì code không trả lời được, mỗi câu kèm nguồn, một nhãn và lựa chọn "Ngoài phạm vi ticket này"; rồi kế hoạch bạn duyệt, có bảng đối chiếu yêu cầu → bước; kiểm tra, review, MR / PR và CI); **Nhanh** mở một session Claude thường trong thư mục dự án với prompt bạn sửa được, kèm skill gợi ý cho repo đó. Session nào cũng được đặt tên `[CODE-27] …`. **Đổi thư mục…** trong hộp Bắt đầu trỏ dự án sang một bản clone khác.
 - **Stand-up và báo cáo hôm nay** dạng văn bản để chép. Bobix không gửi gì đi.
 
 ### Bảng điều khiển
