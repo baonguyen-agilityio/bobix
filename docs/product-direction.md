@@ -97,10 +97,11 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 
 **Decisions**
 - **GitLab first**, through the user's own `glab`. Jira and Trello come later; for those, either keep the token in the OS keychain or use the vendor's own connector.
-- **One approval gate: approving the plan**, which must list its assumptions.
+- **Before the plan, Claude interviews you** (Full only; Quick has no questions). It restates the ticket and waits for your confirmation, then asks in rounds through `AskUserQuestion` (at most about 8 in all) only what the ticket and the code cannot answer. Every question names its source (a ticket quote or a file and line), a tag (scope, approach, edge case, done criteria) and offers "Out of scope for this ticket" (kept under Later, out of the plan). A clear ticket gets one line, "No questions, because …". "Up to you" becomes an assumption.
+- **One approval gate: approving the plan**, which must list its assumptions and end with a mapping: each requirement → the step that does it, each answer → the step that uses it.
 - **After approval** the session runs to the end in its own worktree, using Claude's own auto mode. Bobix sets no standing rules.
 - **It always stops and asks only for:** pushing to the main branch, deleting data, calling unknown hosts, and touching secrets. Nothing else is on the list for now.
-- **Work log, for the user only, never shared:** the plan, the steps, the assumptions made along the way (highlighted), and the result or what blocks it.
+- **Work log, for the user only, never shared:** the ticket as restated, the questions and answers, what was put off, the plan's mapping, the plan, the steps, the assumptions made along the way (highlighted), and the result or what blocks it.
   - The session writes it from a template that Bobix puts in the prompt.
   - Bobix fills gaps with a Haiku summary (`claude -p`).
   - The pet shows a mark when a new assumption appears; the session does not stop.

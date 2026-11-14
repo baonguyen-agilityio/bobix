@@ -5,7 +5,7 @@
 
 use bobix_link::command;
 use bobix_link::envelope::{seal_with_tail, Direction, Lane, Stream, VersionRange};
-use bobix_link::messages::{Choice, CommandBody};
+use bobix_link::messages::{prompt_hash, shown_hash, Choice, CommandBody, Question};
 use bobix_link::pairing::{normalize_relay_url, hello_body, hello_mac_input, Hello, PairingCode, Rights};
 use bobix_link::messages::PhoneMsg;
 use bobix_link::keys::{soft::SoftSigner, Identity, SignPublic};
@@ -17,6 +17,10 @@ const FILE: &str = include_str!("vectors.json");
 
 fn seed(n: u8) -> [u8; 32] {
     [n; 32]
+}
+
+fn question(options: &[&str], multi: bool) -> Question {
+    Question { text: "Which database?".into(), options: options.iter().map(|s| s.to_string()).collect(), multi_select: multi }
 }
 
 pub fn build() -> Value {
@@ -85,6 +89,20 @@ pub fn build() -> Value {
             "command": cmd, "commandNote": "`command.sig` is verify-only; the bytes it signs are `commandSignedBytes`",
             "byeBytes": hex(&command::bye_bytes(1, &pp.device_id(), &dp.device_id(), 9)),
             "authBytes": hex(&command::auth_bytes("wss://Relay.Example:443/", "challenge-1").unwrap()),
+            "shown": [
+                { "what": "toolInput", "text": "ls -la", "cut": false, "questions": [], "shown": shown_hash("ls -la", false, &[]) },
+                { "what": "toolInput", "text": "ls -la", "cut": true, "questions": [], "shown": shown_hash("ls -la", true, &[]) },
+                { "what": "question", "text": "Which database?", "cut": false, "questions": [question(&["SQLite", "Postgres"], false)],
+                  "shown": shown_hash("Which database?", false, &[question(&["SQLite", "Postgres"], false)]) },
+                { "what": "question", "text": "Which database?", "cut": false, "questions": [question(&["Postgres", "SQLite"], false)],
+                  "shown": shown_hash("Which database?", false, &[question(&["Postgres", "SQLite"], false)]) },
+                { "what": "question", "text": "Which database?", "cut": false, "questions": [question(&["SQLite", "Postgres"], true)],
+                  "shown": shown_hash("Which database?", false, &[question(&["SQLite", "Postgres"], true)]) },
+                { "what": "plan", "text": "# Plan\nstep \\u{202e}", "cut": false, "questions": [], "shown": shown_hash("# Plan\nstep \\u{202e}", false, &[]),
+                  "note": "the text is the displayed form: hidden characters are already visible escapes" },
+            ],
+            "shownNote": "shown = hex SHA-256 of Fields(\"bobix-shown-v1\", text, cut as u64, number of questions, then per question: text, multiSelect as u64, number of options, each option); numbers are u64 big endian as 8-byte fields; every field has a u32 big endian length prefix",
+            "promptHash": { "prompt": "Implement ticket 12.", "hash": prompt_hash("Implement ticket 12.") },
             "authBytesRelayUrl": "wss://relay.example", "authChallenge": "challenge-1",
             "authSignature": hex(&desktop.sign_auth(&command::auth_bytes("wss://relay.example", "challenge-1").unwrap())),
             "relayUrlNormalisation": [
@@ -93,7 +111,7 @@ pub fn build() -> Value {
                 ["wss://relay.example/Ws?Token=A#frag", "wss://relay.example/Ws?Token=A"], ["ws://127.0.0.1:8787/", "ws://localhost:8787"],
                 ["ws://[::1]:8787", "ws://localhost:8787"], ["ws://localhost:80", "ws://localhost"], ["wss://[2001:DB8::1]:9000/x", "wss://[2001:db8::1]:9000/x"],
             ],
-            "relayUrlRefused": ["ws://relay.example", "http://relay.example", "wss://a@b", "wss://relay.example:99999", "wss://"],
+            "relayUrlRefused": ["ws://relay.example", "http://relay.example", "wss://a@b", "wss://relay.example:99999", "wss://", "wss://relay.example:+443", "wss://2001:db8::1", "wss://a:b:443", "wss://relay.exa\tmple", "wss://RÉLAY.example"],
         },
         "note": "Binary values are hex, except the parts of the pairing URI, the hello fields (auth, boxk, sign, mac) and command.sig, which are URL-safe base64 without padding (cid is hex). Secrets are 32 bytes of one repeated value. laneByte = bit 7 (1: phone to desktop) | stream (0 state, 1 event, 2 activity).",
         "desktop": { "authSeed": hex(&seed(1)), "boxSecret": hex(&seed(2)), "authPublic": hex(&dp.auth),
@@ -208,6 +226,12 @@ fn committed_negative_vectors_are_refused_or_accepted_as_stated() {
     assert_eq!(phone_box, get("phone", "boxPublic"));
     assert!(desktop.open(packet).is_ok());
     assert!(!p["helloMacInput"].as_str().unwrap().is_empty());
+    // the `shown` encoding: recomputed from the committed content
+    for e in p["shown"].as_array().unwrap() {
+        let qs: Vec<Question> = serde_json::from_value(e["questions"].clone()).unwrap();
+        assert_eq!(shown_hash(e["text"].as_str().unwrap(), e["cut"].as_bool().unwrap(), &qs), e["shown"].as_str().unwrap());
+    }
+    assert_eq!(prompt_hash(p["promptHash"]["prompt"].as_str().unwrap()), p["promptHash"]["hash"].as_str().unwrap());
     // the relay address normalisation and the bytes the auth frame signs
     for pair in p["relayUrlNormalisation"].as_array().unwrap() {
         assert_eq!(normalize_relay_url(pair[0].as_str().unwrap()).as_deref(), pair[1].as_str());

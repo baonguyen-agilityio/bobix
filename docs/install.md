@@ -83,7 +83,7 @@ Open the panel (click the tray / menu bar icon → **Open Bobix**) → **Setting
 
 ## Without Node.js
 
-The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl` (macOS/Linux) or PowerShell (Windows) instead. Everything works except one thing: clicking a pet opens its details in the panel instead of the session window. Install Node.js and click **Reinstall** in Settings → Connect Claude Code to get it back.
+The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl` (macOS/Linux) or PowerShell (Windows) instead. Everything works except one thing: opening a session (a pet click, **Open session** in the panel, on the pet's card or in the tray, ⌘K ↵) shows its details or says why instead of bringing its window forward. Install Node.js and click **Reinstall** in Settings → Connect Claude Code to get it back.
 
 ## Troubleshooting
 
@@ -94,7 +94,7 @@ The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl`
 | Pets stopped reacting after a Node.js update | Settings → Connect Claude Code shows **Node.js moved**. Click **Reinstall**. (The app also repairs this itself at launch when it can.) |
 | Connect Claude Code says settings.json is invalid | The file has a JSON syntax error. Bobix never overwrites a file it cannot read; fix the file (or restore a backup), then click **Install hooks**. |
 | Nothing at all on a company laptop | Your organization may allow only managed hooks (`allowManagedHooksOnly`). User hooks don't run there, so Bobix receives nothing. Ask your admin. |
-| A click doesn't open the session | In Claude desktop the session opens directly. For Terminal / iTerm / VS Code the app is brought forward, not a specific tab. On Linux install xdotool. Where Bobix can't bring it forward (a terminal on Wayland), the panel opens on the session and says where it runs. |
+| A click doesn't open the session | Every place that shows a session has an **Open session** button (Overview, the pet's card, the tray list of sessions waiting for you, ⌘K with ↵), and each says why when it cannot. In Claude desktop the session opens directly; one that has ended opens there too, and an ended terminal session offers a button that copies `claude --resume <id>`. For Terminal / iTerm / VS Code the app is brought forward, not a specific tab. On Linux install xdotool. Where Bobix can't bring it forward (a terminal on Wayland), the panel opens on the session and says where it runs. |
 
 ## Uninstall
 

@@ -216,7 +216,7 @@ impl Desktop {
     pub async fn tell(&mut self, phone: &str, m: &DesktopMsg) {
         let stream = if matches!(m, DesktopMsg::Home(_)) { Stream::State } else { Stream::Event };
         let Some(k) = self.phones.get_mut(phone) else { return };
-        let sealed = k.link.seal(stream, &m.to_json());
+        let sealed = k.link.seal(stream, &m.to_json()).expect("a peer key of low order was refused earlier");
         self.send_packet(phone, &sealed.packet, matches!(m, DesktopMsg::Notice(_))).await;
     }
 
@@ -296,7 +296,7 @@ impl Desktop {
         ];
         let mut packets = vec![];
         for (t, c) in late {
-            packets.push(k.link.seal_with(Stream::Event, c, &notice(t)));
+            packets.push(k.link.seal_with(Stream::Event, c, &notice(t)).expect("a peer key of low order was refused earlier"));
         }
         let (s, _) = k.link.reserve_counter(Stream::State);
         for _ in 0..11 {
@@ -304,9 +304,9 @@ impl Desktop {
         }
         let home = self.home(ComputerState::Online).to_json();
         let k = self.phones.get_mut(phone).unwrap();
-        packets.push(k.link.seal_with(Stream::State, s + 10, &home));
-        packets.push(k.link.seal_with(Stream::State, s + 5, &home)); // older home after a newer one
-        packets.push(k.link.seal_with(Stream::Event, base + 1, &notice("final")));
+        packets.push(k.link.seal_with(Stream::State, s + 10, &home).expect("a peer key of low order was refused earlier"));
+        packets.push(k.link.seal_with(Stream::State, s + 5, &home).expect("a peer key of low order was refused earlier")); // older home after a newer one
+        packets.push(k.link.seal_with(Stream::Event, base + 1, &notice("final")).expect("a peer key of low order was refused earlier"));
         for p in packets {
             self.send_packet(phone, &p, true).await;
         }

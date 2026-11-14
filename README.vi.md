@@ -39,7 +39,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - **Tín hiệu nhỏ**: lên cấp khi session xong một việc, pin yếu khi context sắp hết. Khi bật giảm chuyển động thì không có hiệu ứng; huy hiệu và vòng cam vẫn cho biết việc gì cần bạn.
 
 ### Duyệt yêu cầu mà không chuyển cửa sổ
-- Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu.
+- Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu. Câu hỏi Claude đặt cho bạn (`AskUserQuestion`) hiện trên chú thú kèm nội dung; bạn trả lời trong Claude.
 - Claude vẫn hỏi trong terminal cùng lúc nên bạn trả lời ở đâu cũng được. Bobix không đặt quy tắc cho phép lâu dài; muốn vậy hãy dùng chế độ auto của chính Claude.
 
 ### Xem mỗi session dùng bao nhiêu
@@ -54,12 +54,13 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 
 ### Chạy ticket của bạn
 - **Issue GitHub và GitLab của bạn**, đọc qua chính `gh` và `glab` của bạn (mặc định bật ở nơi bạn đã đăng nhập; mỗi bên có một công tắc để tắt): cần làm, đang làm cùng các session của nó, chờ review, xong hôm nay. Bobix gợi ý việc làm tiếp, cảnh báo khi hai session cùng làm một issue, và chỉ ra việc bị kẹt kèm bước tiếp theo.
-- **Bắt đầu** một issue trong **Công việc**, theo một trong hai cách: **Đầy đủ** chạy luồng ticket (worktree và nhánh riêng, kế hoạch bạn duyệt, kiểm tra, review, MR / PR và CI); **Nhanh** mở một session Claude thường trong thư mục dự án với prompt bạn sửa được, kèm skill gợi ý cho repo đó. Session nào cũng được đặt tên `[CODE-27] …`. **Đổi thư mục…** trong hộp Bắt đầu trỏ dự án sang một bản clone khác.
+- **Bắt đầu** một issue trong **Công việc**, theo một trong hai cách: **Đầy đủ** chạy luồng ticket (worktree và nhánh riêng, tạo từ nhánh bạn chọn ở lần Bắt đầu đầu tiên trong mỗi kho (hiện "Từ nhánh: …" ở mỗi lần Bắt đầu, đổi ở đó hoặc trong Cài đặt), không bao giờ đoán; Claude nhắc lại ticket và hỏi bạn những gì code không trả lời được, mỗi câu kèm nguồn, một nhãn và lựa chọn "Ngoài phạm vi ticket này"; rồi kế hoạch bạn duyệt, có bảng đối chiếu yêu cầu → bước; kiểm tra, review, MR / PR và CI); **Nhanh** mở một session Claude thường trong thư mục dự án với prompt bạn sửa được, kèm skill gợi ý cho repo đó. Session nào cũng được đặt tên `[CODE-27] …`. **Đổi thư mục…** trong hộp Bắt đầu trỏ dự án sang một bản clone khác.
 - **Stand-up và báo cáo hôm nay** dạng văn bản để chép. Bobix không gửi gì đi.
 
 ### Bảng điều khiển
 - Một cửa sổ có ô tìm kiếm và các màn hình: **Tổng quan** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session Claude, nhóm theo issue), **Công việc** (issue cần bắt đầu, và luồng ticket), **Skill**, **Phòng** và **Cài đặt**.
 - Mọi thao tác đều có phím tắt, và ⌘K / Ctrl+K tìm bất kỳ thao tác, session hay màn hình nào.
+- **Mở một session từ bất cứ nơi nào nó hiện ra**: một dòng ở Tổng quan, tab Phiên, thẻ của chú thú (**Mở phiên**, bất kể cài đặt bấm thế nào), bấm vào chú thú (khi đặt là mở), thông báo, danh sách session đang chờ bạn ở thanh menu hoặc khay hệ thống, và ⌘K (↵ để mở, ⇧↵ để xem chi tiết). Session đang chờ duyệt hiện **Mở để duyệt**. Ở Công việc, nút của session đang chạy ghi **Mở phiên**; **Tiếp tục** mở lại session đã kết thúc trong app Claude, còn session terminal đã kết thúc thì báo như vậy và cho chép `claude --resume <id>`.
 
 ### Thói quen và phòng họp (chỉ khi bạn dùng)
 - **Thói quen thành skill** (mặc định tắt: cần bật "Đọc prompt để đếm theo loại" và quét hằng tuần, đều trong Cài đặt → Mức dùng). Mỗi tuần một lần Bobix đưa các prompt bạn gõ trong 14 ngày qua cho Haiku, qua chính `claude -p` của bạn, tìm những yêu cầu tuần nào bạn cũng làm và soạn nháp một skill để bạn sửa. Chỉ khi bấm **Duyệt và cài** nó mới được ghi vào `~/.claude/skills`, và mọi phiên bản đều hoàn tác được. Việc này gửi văn bản tới Anthropic, qua chính Claude của bạn.
@@ -158,11 +159,11 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Dùng được với những cách chạy Claude Code nào?** CLI trong mọi terminal, extension cho IDE và app Claude desktop. Bấm để mở sẽ vào thẳng session trong app desktop; ở chỗ khác thì đưa cửa sổ app lên trước, không chọn được đúng tab.
 
-**Không có Node.js thì sao?** Hook chuyển sang dùng `curl` hoặc PowerShell. Mọi thứ vẫn chạy, trừ bấm để mở: khi đó app hiện chi tiết session.
+**Không có Node.js thì sao?** Hook chuyển sang dùng `curl` hoặc PowerShell. Mọi thứ vẫn chạy, trừ việc mở một session (bấm vào chú thú, **Mở phiên** trong bảng điều khiển, trên thẻ của chú thú hoặc ở khay hệ thống, ⌘K ↵): khi đó app hiện chi tiết hoặc báo lý do thay vì đưa cửa sổ của nó lên trước.
 
 **Máy công ty không hiện gì cả.** Tổ chức của bạn có thể chỉ cho phép hook do quản trị cài (`allowManagedHooksOnly`). Bobix tôn trọng thiết lập đó nên không nhận được sự kiện.
 
-**Code của tôi có bị gửi đi đâu không?** Bobix không gửi, và không gì tới tác giả của nó. Mặc định Bobix chỉ làm hai loại yêu cầu: hỏi bản mới mỗi ngày, và đọc issue của bạn qua chính `glab` / `gh`. Văn bản chỉ tới Anthropic cho những tính năng bạn bật hoặc bấm, qua chính `claude -p` của bạn: quét thói quen hằng tuần (các prompt bạn gõ), bản nháp thói quen (các ví dụ prompt đó và file skill nó cải thiện; Claude cũng có thể đọc file bằng công cụ Read), trợ giúp ticket (tiêu đề và mô tả issue, hoặc nhật ký công việc, tiêu đề commit và tên file đã đổi) và bản nháp của phòng (cuộc trò chuyện trong phòng). Bobix không gửi file mã nguồn của project bạn; file duy nhất nó đưa vào prompt là skill bạn nhờ cải thiện. Bắt đầu Đầy đủ còn chạy `git fetch` trên remote của project bạn, và Đẩy và mở MR / PR đẩy nhánh của bạn, cả hai chỉ khi bạn bấm. Xem [Quyền riêng tư](docs/privacy.md).
+**Code của tôi có bị gửi đi đâu không?** Bobix không gửi, và không gì tới tác giả của nó. Mặc định Bobix chỉ làm hai loại yêu cầu: hỏi bản mới mỗi ngày, và đọc issue của bạn qua chính `glab` / `gh`. Văn bản chỉ tới Anthropic cho những tính năng bạn bật hoặc bấm, qua chính `claude -p` của bạn: quét thói quen hằng tuần (các prompt bạn gõ), bản nháp thói quen (các ví dụ prompt đó và file skill nó cải thiện; Claude cũng có thể đọc file bằng công cụ Read), trợ giúp ticket (tiêu đề và mô tả issue, hoặc nhật ký công việc, tiêu đề commit và tên file đã đổi) và bản nháp của phòng (cuộc trò chuyện trong phòng). Bobix không gửi file mã nguồn của project bạn; file duy nhất nó đưa vào prompt là skill bạn nhờ cải thiện. **Chuẩn bị bắt đầu** lấy danh sách nhánh trên remote của project bạn (`git ls-remote`) và Bắt đầu Đầy đủ chạy `git fetch` nhánh bạn chọn, và Đẩy và mở MR / PR đẩy nhánh của bạn, cả hai chỉ khi bạn bấm. Xem [Quyền riêng tư](docs/privacy.md).
 
 ## Tình trạng và giới hạn
 

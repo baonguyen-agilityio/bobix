@@ -39,7 +39,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - **Small signals**: a level-up when a session finishes a task, a low battery when its context runs low. With reduced motion they stay off; the badge and the coral ring still say what needs you.
 
 ### Answer approvals without switching windows
-- When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked.
+- When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked. A question Claude asks you (`AskUserQuestion`) shows on the pet with its text; you answer it in Claude.
 - Claude still asks in the terminal at the same time, so you can answer in either place. Bobix sets no standing rules; for that, use Claude's own auto mode.
 
 ### See what each session uses
@@ -54,12 +54,13 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 
 ### Run your tickets
 - **Your GitHub and GitLab issues**, read through your own `gh` and `glab` (on by default wherever you are signed in; one switch each turns it off): to do, in progress with their sessions, waiting for review, done today. Bobix suggests the next one, warns when two sessions work on one issue, and flags stuck work with its next step.
-- **Start** an issue under **Work**, one of two ways: **Full** runs the ticket flow (its own worktree and branch, a plan you approve, checks, review, MR / PR and CI); **Quick** opens a plain Claude session in the project folder with a prompt you can edit and a skill suggested for that repository. Either session is named `[CODE-27] …`. **Change folder…** in the Start box points a project at another clone.
+- **Start** an issue under **Work**, one of two ways: **Full** runs the ticket flow (its own worktree and branch, cut from the branch you pick the first time in each repository (shown as "From: …" at every Start, changed there or in Settings), never a guess; Claude restates the ticket and asks you what the code cannot answer, each question with its source, a tag and an "Out of scope for this ticket" choice; then a plan you approve, with a requirement → step mapping; checks, review, MR / PR and CI); **Quick** opens a plain Claude session in the project folder with a prompt you can edit and a skill suggested for that repository. Either session is named `[CODE-27] …`. **Change folder…** in the Start box points a project at another clone.
 - **Stand-up and today's report** as plain text to copy. Bobix sends nothing.
 
 ### The panel
 - One window with a search field and screens: **Overview** (what needs you, warnings, today's usage), **Sessions** (Claude sessions, grouped by issue), **Work** (issues to start, and the ticket flow), **Skills**, **Room** and **Settings**.
 - Every action has a key, and ⌘K / Ctrl+K finds any action, session or screen.
+- **Open a session from wherever it shows**: an Overview row, the Sessions tab, a pet's card (**Open session**, whatever the click action is), a pet click (when set to open), a notification, the menu bar or tray list of sessions waiting for you, and ⌘K (↵ opens it, ⇧↵ shows its details). A session that waits for your approval says **Open to approve** instead. In Work, a running session's button says **Open session**; **Resume** reopens one that has ended in the Claude desktop app, and an ended terminal session says so and offers `claude --resume <id>` to copy.
 
 ### Habits and rooms (only if you use them)
 - **Habits become skills** (off by default: needs "Read my prompts to count them by kind" and the weekly scan, both in Settings → Usage). Once a week Bobix gives the prompts you typed in the last 14 days to Haiku through your own `claude -p`, finds the requests you make every week and drafts a skill you can edit. Only **Approve and install** writes it to `~/.claude/skills`, and every version can be undone. This sends text to Anthropic, through your own Claude.
@@ -158,11 +159,11 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Which Claude Code setups work?** The CLI in any terminal, the IDE extensions and the Claude desktop app. Click-to-open goes straight to the session in the desktop app; elsewhere it brings the app forward, not a specific tab.
 
-**What if I don't have Node.js?** Hooks fall back to `curl` or PowerShell. Everything works except click-to-open, which then shows the session's details.
+**What if I don't have Node.js?** Hooks fall back to `curl` or PowerShell. Everything works except opening a session (a pet click, **Open session** in the panel, on the pet's card or in the tray, ⌘K ↵), which then shows its details or says why instead of bringing its window forward.
 
 **It shows nothing on my work laptop.** Your organization may allow only managed hooks (`allowManagedHooksOnly`). Bobix respects that and cannot receive events there.
 
-**Is my code sent anywhere?** Not by Bobix, and nothing goes to its author. By default Bobix makes two kinds of request: the daily check for a new version, and reading your issues through your own `glab` / `gh`. Text goes to Anthropic only for features you switch on or press, through your own `claude -p`: the weekly habits scan (the prompts you typed), the habits draft (examples of those prompts and the skill file it improves; Claude may also read files with its Read tool), the ticket helper (an issue's title and description, or a work log, commit subjects and changed file names) and the room draft (the room's chat). Bobix does not send your project's source files; the one file it puts in a prompt is the skill you ask it to improve. A Full Start also runs `git fetch` on your project's remote, and Push and open MR / PR pushes your branch, both only when you click. See [Privacy](docs/privacy.md).
+**Is my code sent anywhere?** Not by Bobix, and nothing goes to its author. By default Bobix makes two kinds of request: the daily check for a new version, and reading your issues through your own `glab` / `gh`. Text goes to Anthropic only for features you switch on or press, through your own `claude -p`: the weekly habits scan (the prompts you typed), the habits draft (examples of those prompts and the skill file it improves; Claude may also read files with its Read tool), the ticket helper (an issue's title and description, or a work log, commit subjects and changed file names) and the room draft (the room's chat). Bobix does not send your project's source files; the one file it puts in a prompt is the skill you ask it to improve. **Prepare start** lists your project's remote branches (`git ls-remote`) and a Full Start runs `git fetch` on the branch you picked, and Push and open MR / PR pushes your branch, both only when you click. See [Privacy](docs/privacy.md).
 
 ## Status and limitations
 
