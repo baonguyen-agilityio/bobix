@@ -30,8 +30,9 @@ stable branch. How to run it and how it is built: `docs/development.md`. What is
 
 ## Which model for which step
 
-- Read-only exploration, running checks and watching CI: a Haiku subagent.
-- Writing code, config, docs and prototypes: Sonnet.
-- A hard diagnosis, a design fork or a security design: Opus.
-- The independent review before a merge: Opus, by a session that did not write the code.
+- Read-only exploration, running checks and watching CI: a Haiku subagent at low effort.
+- Writing code, config, docs and prototypes, merging, fixing review findings: Sonnet at medium.
+- A risky feature (update, signing, anything security): Sonnet at high.
+- A hard diagnosis, a design fork, or the independent review before a merge (by a session that did not write the code): Opus at high; xhigh only for a security design.
+- The automatic review and docs check (`claude-review.yml`): Opus at high.
 - The coordinating session stays thin and hands work out. One session per task; start a new one when the task changes.
