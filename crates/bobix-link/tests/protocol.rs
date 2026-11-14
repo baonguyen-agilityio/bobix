@@ -68,6 +68,8 @@ fn command_age_window() {
     assert_eq!(verify(&w, 5, NOW, &at(NOW - COMMAND_MAX_AGE_MS - 1)), Err(Refusal::Clock));
     assert!(verify(&w, 5, NOW, &at(NOW + COMMAND_MAX_AHEAD_MS)).is_ok());
     assert_eq!(verify(&w, 5, NOW, &at(NOW + COMMAND_MAX_AHEAD_MS + 1)), Err(Refusal::Clock));
+    assert_eq!(verify(&w, 5, NOW, &at(u64::MAX)), Err(Refusal::Clock), "a time near the top of u64 must not overflow");
+    assert_eq!(verify(&w, 5, u64::MAX, &at(NOW)), Err(Refusal::Clock));
     assert_eq!(Refusal::Clock.why(), "clock");
 }
 
@@ -254,7 +256,7 @@ fn odd_characters_become_visible_escapes() {
     assert_eq!(visible_escapes("plain"), ("plain".to_string(), false));
     assert!(!is_plain_text("a\u{202e}b", 10));
     assert!(!is_plain_text("a\u{0}b", 10));
-    assert!(is_plain_text("Bao's phone", 64));
+    assert!(is_plain_text("Demo's phone", 64));
 }
 
 // ---- versions -------------------------------------------------------------------------------------------------

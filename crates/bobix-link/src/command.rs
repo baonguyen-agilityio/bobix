@@ -151,7 +151,7 @@ pub fn verify(ctx: &VerifyCtx, cmd: &Command) -> Result<CommandBody, Refusal> {
         crate::keys::SignError::Invalid => Refusal::Signature,
     })?;
     let now = ctx.now_ms;
-    if cmd.issued_at + COMMAND_MAX_AGE_MS < now || cmd.issued_at > now + COMMAND_MAX_AHEAD_MS {
+    if cmd.issued_at.saturating_add(COMMAND_MAX_AGE_MS) < now || cmd.issued_at > now.saturating_add(COMMAND_MAX_AHEAD_MS) {
         return Err(Refusal::Clock);
     }
     Ok(body)
