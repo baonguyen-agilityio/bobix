@@ -138,7 +138,7 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .b-bar .ctx .g{color:var(--ink-3)}
 .b-act{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:var(--ink-2);font-size:12px;font-weight:500;white-space:nowrap}
 .b-act:hover{background:var(--surface-3);color:var(--ink)}
-.b-act.pri{color:var(--ink);font-weight:600}
+.b-act.pri{color:var(--ink);font-weight:600}.b-act:disabled{opacity:.4;cursor:default}.b-act:disabled:hover{background:transparent;color:var(--ink-2)}
 .b-act .kbd{background:color-mix(in oklch,var(--ink) 6%,transparent)}
 .b-div{width:1px;height:18px;background:var(--line-strong);margin:0 4px;flex:none}
 
@@ -2117,8 +2117,8 @@ function startItem([i, g]) {
     : i.resume && bridge ? [[T('work.resume'), ['↵'], `data-start="${i.iid}" data-path="${esc(g.path)}"`]]
     : !dir ? [[T('work.link'), ['↵'], `data-wk-link="${esc(code)}"${of}`], [T('work.clone'), [CMD, '⇧', 'L'], `data-wk-clone="${esc(code)}"${of}`]]
     : tkHow[k] === 'quick' ? [[T(i.sessions?.length ? 'work.resume' : 'tk.quick.go'), ['↵'], i.sessions?.length ? `data-start="${i.iid}" data-path="${esc(g.path)}"` : quickAttrs(i, g, dir)]]
-    : pr?.prep?.ok && (pr.prep.room === 0 || pr.disk) ? [[T('tk.start.anyway'), ['↵'], `data-tk-any="${ek}"`], [T('tk.quick.instead'), [CMD, '⇧', 'C'], `data-tk-quick="${ek}"`]]
-    : pr?.prep?.ok ? [[T('tk.start'), ['↵'], `data-tk-go="${ek}"`], [T('tk.cli'), [CMD, '⇧', 'C'], `data-tk-cli="${ek}"`]] : [[T('tk.prep'), ['↵'], `data-tk-prep="${ek}"`]];
+    : pr?.prep?.ok && (pr.prep.room === 0 || pr.disk) ? [[T('tk.start.anyway'), ['↵'], `data-tk-any="${ek}"${pr.base ? '' : ' disabled'}`], [T('tk.quick.instead'), [CMD, '⇧', 'C'], `data-tk-quick="${ek}"`]]
+    : pr?.prep?.ok ? [[T('tk.start'), ['↵'], `data-tk-go="${ek}"${pr.base ? '' : ' disabled'}`], [T('tk.cli'), [CMD, '⇧', 'C'], `data-tk-cli="${ek}"${pr.base ? '' : ' disabled'}`]] : [[T('tk.prep'), ['↵'], `data-tk-prep="${ek}"`]];
   return { id: 'n:' + k, grp: 'fstart', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, cls: od ? 'hot' : '',
     sub: [g.path, code !== g.path ? '→ ' + code : '', whoText(i), od ? T('day.overdue') : '', wait ? T('work.wait') : '', ...(i.labels || []).slice(0, 2)].filter(Boolean).join(' · '),
     meta: i.resume ? `<span class="badge">${esc(T('work.resume'))}</span>` : '', detail: () => startHTML(i, g, k), acts };

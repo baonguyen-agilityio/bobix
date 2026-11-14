@@ -498,7 +498,11 @@ fn base_step(app: &AppHandle, key: &str) -> Value {
         r.box = await until(() => document.querySelector('#b-dyn .tk-prompt'), 30000); if (!r.box) return r; await w(300); \
         const radios = [...document.querySelectorAll('#b-dyn [data-tk-from]')]; \
         r.branches = radios.map(x => x.value); r.nothingPicked = radios.length > 0 && radios.every(x => !x.checked); \
-        r.startOff = document.querySelector('#b-dyn [data-tk-go]').disabled === true; r.noRemembered = !tkPrep[k].prep.remembered; sc('#b-dyn [data-tk-from]'); await w({hold}); \
+        r.startOff = document.querySelector('#b-dyn [data-tk-go]').disabled === true; r.noRemembered = !tkPrep[k].prep.remembered; \
+        const foot = [...document.querySelectorAll('#b-bar [data-tk-go], #b-bar [data-tk-cli]')]; r.footerOff = foot.length === 2 && foot.every(x => x.disabled); \
+        const spy = bridge.ticketStart; let calls = 0; bridge.ticketStart = async (...a) => {{ calls++; return spy(...a); }}; document.activeElement?.blur?.(); \
+        document.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }})); document.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'C', metaKey: true, shiftKey: true, bubbles: true }})); foot.forEach(x => x.click()); document.querySelector('#b-dyn [data-tk-go]').click(); await w(500); \
+        bridge.ticketStart = spy; r.noStartWithoutBranch = calls === 0 && !tickets.list.some(f => f.key === k); sc('#b-dyn [data-tk-from]'); await w({hold}); \
         r.refusedNone = (await bridge.ticketStart(A, iid, 'p', {{ size: 'small' }}, 'cli', A, true))?.reason; \
         r.refusedGone = (await bridge.ticketStart(A, iid, 'p', {{ size: 'small' }}, 'cli', A, true, 'no-such-branch'))?.reason; \
         r.noFlowYet = !tickets.list.some(f => f.key === k); \
@@ -513,6 +517,10 @@ fn base_step(app: &AppHandle, key: &str) -> Value {
         if (items.some(x => x.id === 'n:' + k2)) {{ bsel.work = 'n:' + k2; render(); await w(300); document.querySelector('#b-dyn [data-tk-prep]').click(); \
           r.box2 = await until(() => document.querySelector('#b-dyn .tk-prompt'), 30000); await w(300); \
           r.fromNow = document.querySelector('#b-dyn [data-tk-from-change]')?.closest('p')?.textContent.replace(/\\s+/g, ' ').trim(); r.goOn2 = document.querySelector('#b-dyn [data-tk-go]').disabled === false; sc('#b-dyn [data-tk-from-change]'); await w({hold}); }} \
+        if (items.some(x => x.id === 'n:' + k2)) {{ await save({{ workBase: {{ [A]: 'retired-branch' }} }}); delete tkPrep[k2]; render(); await w(300); document.querySelector('#b-dyn [data-tk-prep]').click(); \
+          r.box3 = await until(() => document.querySelector('#b-dyn .tk-prompt'), 30000); await w(300); \
+          r.goneShown = [...document.querySelectorAll('#b-dyn .note.err')].some(x => x.textContent.includes('Branch retired-branch no longer exists, pick again')); r.goneNothingPicked = [...document.querySelectorAll('#b-dyn [data-tk-from]')].every(x => !x.checked); r.goneStartOff = document.querySelector('#b-dyn [data-tk-go]').disabled === true; \
+          sc('#b-dyn [data-tk-from]'); await w({hold}); await save({{ workBase: {{ [A]: 'develop' }} }}); }} \
         showTab('settings'); bsel.settings = 'set:work'; render(); await w(400); r.settingsRow = document.querySelector('#settings [data-base-of]')?.value; sc('#settings [data-base-of]'); await w({hold}); showTab('work'); \
         return r; }})()"), 150);
     let mut r = if r.is_object() { r } else { return json!({ "error": r }) };
@@ -523,7 +531,7 @@ fn base_step(app: &AppHandle, key: &str) -> Value {
         let tip = tickets::head_commit_of(&dir, "origin/develop");
         r["headIsOriginDevelop"] = json!(!head.is_empty() && head == tip);
     }
-    let ok = ["listed", "box", "nothingPicked", "startOff", "noRemembered", "noFlowYet", "startOn", "fromShown", "started", "headIsOriginDevelop"].iter().all(|k| r[*k] == true)
+    let ok = ["listed", "box", "nothingPicked", "startOff", "footerOff", "noStartWithoutBranch", "noRemembered", "noFlowYet", "startOn", "fromShown", "started", "headIsOriginDevelop", "goneShown", "goneNothingPicked", "goneStartOff"].iter().all(|k| r[*k] == true)
         && r["refusedNone"] == "nobase" && r["refusedGone"] == "base-gone" && r["remembered"] == "develop" && r["flowBase"] == "develop" && r["rememberedAgain"] == "develop" && r["fromAfter"] == "develop";
     r["pass"] = json!(ok);
     r
