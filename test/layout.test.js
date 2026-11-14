@@ -185,11 +185,14 @@ async function panel(b, url, { width, height, lang, dark }) {
       await b.ev(`__push(${JSON.stringify(event(SESSIONS))})`);
       await frameStill('count back', '');
     });
-    await part('project picked', async () => {
-      await tab('sessions'); await sleep(300);
-      await b.until(`!!document.querySelector('[data-proj]')`, 'the project picker'); await b.acted();
-      await b.ev(`(() => { const s = document.querySelector('[data-proj]'); s.value = s.options[1].value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-      await sleep(100); await frameStill('project picked', '');
+    // The pickers in the scope bar: Skills' project, Work's filter. Choosing another changes the list, not the bar.
+    for (const [t, sel] of [['skills', '[data-skdir]'], ['work', '[data-wfilter]']]) await part(`${t} picker`, async () => {
+      await tab(t); await sleep(300);
+      await b.until(`!!document.querySelector('${sel}')`, `the ${t} picker`); await b.acted();
+      await b.ev(`(() => { const s = document.querySelector('${sel}'); s.value = s.options[s.options.length - 1].value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await sleep(100); await frameStill(`${t} picked`, '');
+      await b.ev(`(() => { const s = document.querySelector('${sel}'); s.value = s.options[0].value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await sleep(100);
     });
     // Typing in the search: its clear button shows up.
     await part('search', async () => {
@@ -233,13 +236,25 @@ async function panel(b, url, { width, height, lang, dark }) {
       const f0 = await b.ev(BOXES);
       for (const k of ['idea', 'bug']) { await b.click(`#fb-kind [data-kind="${k}"]`); await sleep(100); for (const m of moved(f0, await b.ev(BOXES), ['#fb-dialog h2', '#fb-dialog .acts'])) fail(`feedback, ${k}: ${m}`); }
     });
-    // The Start box: See all opens the list (the prompt goes down, as asked), then searching it moves nothing.
+    // Work's Full / Quick start: switching the choice changes the box under it, not the frame or the heading.
+    await part('Full / Quick', async () => {
+      await tab('work'); await sleep(300);
+      await b.pick('[data-bsel="n:acme/shop#42"]');
+      await b.until(`!!document.querySelector('#b-dyn [data-tk-how]')`, 'the how-to-start choice'); await sleep(300);
+      const h0 = await b.ev(BOXES);
+      for (const v of ['quick', 'full', 'quick', 'full']) {
+        await b.click(`#b-dyn [data-tk-how][value="${v}"]`); await sleep(250);
+        for (const m of moved(h0, await b.ev(BOXES), [...FRAME.filter(k => !k.startsWith('#b-')), '.b-split', '#b-list', '#b-detail'])) fail(`Full / Quick, ${v}: ${m}`);
+      }
+    });
+    // The Start box (Quick start): See all opens the list (the prompt goes down, as asked), then searching it moves nothing.
     await part('Start box', async () => {
-      await tab('sessions'); await sleep(300);
-      await b.ev(`document.querySelector('#b-list [data-bsel="next"]').scrollIntoView({ block: 'center' })`);
-      await b.pick('[data-bsel="next"]');
-      await b.until(`cur?.id === 'next' && !!document.querySelector('#b-dyn [data-start]')`, 'the Next up detail');
-      await b.click('#b-dyn [data-start]');
+      await tab('work'); await sleep(300);
+      await b.pick('[data-bsel="n:acme/shop#42"]');
+      await b.until(`!!document.querySelector('#b-dyn [data-tk-how]')`, 'the how-to-start choice');
+      await b.click('#b-dyn [data-tk-how][value="quick"]');
+      await b.until(`!!document.querySelector('#b-dyn [data-start][data-dir]')`, 'the Quick start button');
+      await b.click('#b-dyn [data-start][data-dir]');
       await b.until(`document.querySelector('#st-dialog')?.open && !!document.querySelector('#st-all')`, 'the Start box with its skills'); await sleep(300);
       before = await b.ev('__shifts.splice(0)');
       await b.click('#st-all'); await sleep(150);
