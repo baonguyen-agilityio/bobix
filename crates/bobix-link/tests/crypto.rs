@@ -49,7 +49,7 @@ fn a_changed_lane_or_counter_does_not_open_even_when_it_passes_the_rules() {
     let (mut d, mut p) = pair();
     let s = d.seal(Stream::Event, b"payload");
     let mut other_stream = s.packet.clone();
-    other_stream[1] = 0x00 | Stream::Activity as u8; // still towards the phone, another stream
+    other_stream[1] = Stream::Activity as u8; // still towards the phone, another stream
     assert_eq!(p.open(&other_stream).unwrap_err(), OpenError::Decrypt);
     let mut higher = s.packet.clone();
     higher[9] = higher[9].wrapping_add(1);
@@ -168,12 +168,12 @@ fn receive_state_survives_a_restart_through_serde() {
 fn send_counter_reserves_blocks_and_never_goes_backwards() {
     // A fresh counter starts at the clock and asks to store a reservation before the first packet.
     let mut c = SendCounter::resume(0, NOW);
-    assert_eq!(c.next(), (NOW, Some(NOW + RESERVE_BLOCK)));
-    assert_eq!(c.next(), (NOW + 1, None));
+    assert_eq!(c.take(), (NOW, Some(NOW + RESERVE_BLOCK)));
+    assert_eq!(c.take(), (NOW + 1, None));
     let mut last = 0;
     let mut stored = NOW + RESERVE_BLOCK;
     for _ in 0..3 * RESERVE_BLOCK {
-        let (n, res) = c.next();
+        let (n, res) = c.take();
         if let Some(r) = res {
             assert!(r > n);
             stored = r;
@@ -183,10 +183,10 @@ fn send_counter_reserves_blocks_and_never_goes_backwards() {
     assert!(stored > last, "every counter used is below the stored reservation");
     // Restart with the stored reservation and a clock that went back: continues above everything sent.
     let mut again = SendCounter::resume(stored, NOW - 10_000);
-    assert!(again.next().0 > last);
+    assert!(again.take().0 > last);
     // Restart after the counter file was lost: starts at the clock, above everything sent in the past.
     let mut lost = SendCounter::resume(0, last + 5_000);
-    assert!(lost.next().0 > last);
+    assert!(lost.take().0 > last);
 }
 
 #[test]

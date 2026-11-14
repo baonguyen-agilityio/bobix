@@ -35,6 +35,7 @@ pub struct Link {
     recv: RecvState,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl Link {
     /// `reservations` are the values last stored for `state`, `event`, `activity` (0 when none), `now_unix_ms` the
     /// clock; `recv` is the stored receive state (`RecvState::default()` when none).
@@ -63,13 +64,19 @@ impl Link {
         &self.recv
     }
 
-    pub fn seal(&mut self, stream: Stream, plaintext: &[u8]) -> Sealed {
-        let (counter, reserve) = self.counters[stream as usize].next();
-        let packet = self.seal_with(stream, counter, plaintext);
-        Sealed { packet, counter, reserve: reserve.map(|v| (stream, v)) }
+    /// Takes the next counter of a stream, for a message that must contain its own counter (a signed command). The
+    /// caller seals with `seal_with` and must store `reserve` first. `seal` does both steps for the common case.
+    pub fn reserve_counter(&mut self, stream: Stream) -> (u64, Option<(Stream, u64)>) {
+        let (counter, reserve) = self.counters[stream as usize].take();
+        (counter, reserve.map(|v| (stream, v)))
     }
 
-    /// Seals with a counter the caller chose. For tools that play a late or replayed packet; a device never calls it.
+    pub fn seal(&mut self, stream: Stream, plaintext: &[u8]) -> Sealed {
+        let (counter, reserve) = self.reserve_counter(stream);
+        Sealed { packet: self.seal_with(stream, counter, plaintext), counter, reserve }
+    }
+
+    /// Seals with a counter the caller took with `reserve_counter`, or chose to play a late or replayed packet.
     pub fn seal_with(&self, stream: Stream, counter: u64, plaintext: &[u8]) -> Vec<u8> {
         let lane = Lane { dir: self.sends, stream };
         envelope::seal(

@@ -3,7 +3,10 @@
 //! on purpose, run `cargo test --test vectors -- --ignored print_vectors` and review the diff.
 //! Signature vectors are verify-only: hardware ECDSA is not deterministic.
 
-use bobix_link::envelope::{seal_with_tail, Direction, Lane, Stream};
+use bobix_link::command;
+use bobix_link::envelope::{seal_with_tail, Direction, Lane, Stream, VersionRange};
+use bobix_link::messages::{Choice, CommandBody};
+use bobix_link::pairing::{Hello, PairingCode, Rights};
 use bobix_link::keys::{soft::SoftSigner, Identity, SignPublic};
 use bobix_link::{b64, hex};
 use crypto_box::{PublicKey, SecretKey};
@@ -37,7 +40,26 @@ pub fn build() -> Value {
 
     let signer = SoftSigner::from_secret(&seed(5)).expect("valid P-256 scalar");
     let sign_msg = b"bobix test vector message";
+    // Protocol pieces built from the same keys.
+    let code = PairingCode::with_secret("wss://relay.example/ws", dp, seed(6)).unwrap();
+    let rights = Rights { answer: true, plan: true, question: false, start: false, stop: true, activity: true };
+    let hello = Hello::new(&code, &pp, &signer.public(), "Test phone", rights, VersionRange { min: 1, max: 1 });
+    let body = CommandBody::Answer { id: "req1".into(), choice: Choice::Allow, shown: "abc".into() };
+    let body_text = serde_json::to_string(&body).unwrap();
+    let cid = hex(&[7u8; 16]);
+    let cmd_bytes = command::command_bytes(1, &pp.device_id(), &dp.device_id(), body.kind(), &body.target(), &cid, 4242, 1_800_000_000_000, &body_text);
+    let cmd = command::build_with_cid(cid.clone(), 1, &pp.device_id(), &dp.device_id(), 4242, 1_800_000_000_000, &body, |m| signer.sign(m));
     json!({
+        "protocol": {
+            "pairingSecret": hex(&seed(6)), "pairingUri": code.to_uri(),
+            "relayToken": hex(&code.relay_token()), "relayTokenHash": hex(&code.relay_token_hash()), "macKey": hex(&code.mac_key()),
+            "hello": hello, "rightsMask": rights.to_mask(),
+            "commandBody": body_text, "cid": cid, "commandCounter": 4242, "issuedAt": 1_800_000_000_000u64,
+            "commandSignedBytes": hex(&cmd_bytes),
+            "command": cmd, "commandNote": "`command.sig` is verify-only; the bytes it signs are `commandSignedBytes`",
+            "byeBytes": hex(&command::bye_bytes(1, &pp.device_id(), &dp.device_id(), 9)),
+            "authBytes": hex(&command::auth_bytes("challenge-1")),
+        },
         "note": "hex unless a name ends in B64 (URL-safe, no padding). Secrets are 32 bytes of one repeated value.",
         "desktop": { "authSeed": hex(&seed(1)), "boxSecret": hex(&seed(2)), "authPublic": hex(&dp.auth),
                       "boxPublic": hex(&dp.boxk), "deviceId": dp.device_id() },
@@ -64,6 +86,7 @@ fn committed_vectors_are_reproduced_exactly() {
     let mut now = build();
     // ECDSA is not deterministic here either: only its verification is part of the vectors.
     now["p256"]["signatureDer"] = committed["p256"]["signatureDer"].clone();
+    now["protocol"]["command"]["sig"] = committed["protocol"]["command"]["sig"].clone();
     assert_eq!(now, committed);
 }
 
@@ -78,6 +101,22 @@ fn committed_signature_vectors_verify() {
     let m = bobix_link::unhex(v["authSignature"]["message"].as_str().unwrap()).unwrap();
     let s = bobix_link::unhex(v["authSignature"]["signature"].as_str().unwrap()).unwrap();
     assert!(bobix_link::keys::verify_auth(&a.try_into().unwrap(), &m, &s));
+}
+
+#[test]
+fn committed_command_verifies_against_the_committed_bytes() {
+    let v: Value = serde_json::from_str(FILE).unwrap();
+    let p = &v["protocol"];
+    let key = SignPublic::from_sec1(&bobix_link::unhex(v["phone"]["signPublicSec1"].as_str().unwrap()).unwrap()).unwrap();
+    let bytes = bobix_link::unhex(p["commandSignedBytes"].as_str().unwrap()).unwrap();
+    let sig = bobix_link::b64_decode(p["command"]["sig"].as_str().unwrap()).unwrap();
+    assert_eq!(key.verify(&bytes, &sig), Ok(()));
+    let cmd: command::Command = serde_json::from_value(p["command"].clone()).unwrap();
+    let ctx = command::VerifyCtx {
+        version: 1, phone_id: v["phone"]["deviceId"].as_str().unwrap(), computer_id: v["desktop"]["deviceId"].as_str().unwrap(),
+        sign_key: &key, counter: 4242, now_ms: 1_800_000_000_000,
+    };
+    assert!(command::verify(&ctx, &cmd).is_ok());
 }
 
 /// The committed packets open with the committed keys.

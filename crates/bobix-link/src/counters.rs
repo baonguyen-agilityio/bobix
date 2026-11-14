@@ -25,7 +25,7 @@ impl SendCounter {
     }
 
     /// The counter to use, and `Some(value)` when `value` must be stored before the packet leaves.
-    pub fn next(&mut self) -> (u64, Option<u64>) {
+    pub fn take(&mut self) -> (u64, Option<u64>) {
         let c = self.next;
         self.next += 1;
         if c >= self.stored {

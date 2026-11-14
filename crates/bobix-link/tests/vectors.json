@@ -67,5 +67,47 @@
     "deviceId": "b62e867fa2f33afe62d5d6b1642e1621",
     "signPublicSec1": "0307810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a9311",
     "signSecret": "0505050505050505050505050505050505050505050505050505050505050505"
+  },
+  "protocol": {
+    "authBytes": "0000000d626f6269782d617574682d76310000000b6368616c6c656e67652d31",
+    "byeBytes": "0000000c626f6269782d6279652d7631000000080000000000000001000000206236326538363766613266333361666536326435643662313634326531363231000000203334373530663938626435396663666339343664613435616161626539333362000000080000000000000009",
+    "cid": "07070707070707070707070707070707",
+    "command": {
+      "body": "{\"kind\":\"answer\",\"id\":\"req1\",\"choice\":\"allow\",\"shown\":\"abc\"}",
+      "cid": "07070707070707070707070707070707",
+      "computer": "34750f98bd59fcfc946da45aaabe933b",
+      "issuedAt": 1800000000000,
+      "sig": "MEUCIFLhI-WRKmKOg1mbd3J8PYs_MHXF1eUWYuGeL2PbP5LrAiEA5gHtGfvUB4fTMoQRDN2ru5GbsL5nMEtcqU_onbWj57o"
+    },
+    "commandBody": "{\"kind\":\"answer\",\"id\":\"req1\",\"choice\":\"allow\",\"shown\":\"abc\"}",
+    "commandCounter": 4242,
+    "commandNote": "`command.sig` is verify-only; the bytes it signs are `commandSignedBytes`",
+    "commandSignedBytes": "0000000c626f6269782d636d642d763100000008000000000000000100000020623632653836376661326633336166653632643564366231363432653136323100000020333437353066393862643539666366633934366461343561616162653933336200000006616e73776572000000047265713100000020303730373037303730373037303730373037303730373037303730373037303700000008000000000000109200000008000001a3185c500000000020bf59893f9637452ee4f362ac85eefaf9fc50ca65de43e1ea07077cedbed05a24",
+    "hello": {
+      "auth": "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E",
+      "boxk": "rAGyIJ6GNU-4UyN7XeD0-rE8f8v0M6YcAZNpYX_s8Qs",
+      "mac": "YG8Ig_ZgM_aXqB6fExAvbhvMjRbhfXBmMbleI9X4S5g",
+      "name": "Test phone",
+      "rights": {
+        "activity": true,
+        "answer": true,
+        "plan": true,
+        "question": false,
+        "start": false,
+        "stop": true
+      },
+      "sign": "AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
+      "versions": {
+        "max": 1,
+        "min": 1
+      }
+    },
+    "issuedAt": 1800000000000,
+    "macKey": "8ac6e9e57944f88b4a27ed0b02689c7e7408f942571c390855bff2e9d0fd96a7",
+    "pairingSecret": "0606060606060606060606060606060606060606060606060606060606060606",
+    "pairingUri": "bobix://pair?r=wss%3A%2F%2Frelay.example%2Fws&a=iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w&b=zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk&t=BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY",
+    "relayToken": "a91bfc95e0c8e56ece7088e72b966fd75df4b6b32de725186b73d2ab5707b10b",
+    "relayTokenHash": "3212b82fb75b67524b32686b21f5d34b66451bf5f62f5c16a9c1b8e3bbe83a5e",
+    "rightsMask": 51
   }
 }
