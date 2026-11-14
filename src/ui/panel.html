@@ -37,9 +37,9 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .lnk:hover{text-decoration:underline}
 .acts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:var(--s3)}
 /* a label that changes (Hide / Show, Prepare / Reading…): both laid out in one cell, one shown, so the button keeps its size */
-.two{display:inline-grid;place-items:center}
-.two>span{grid-area:1/1;pointer-events:none}
-.two>.alt{visibility:hidden}
+.swap{display:inline-grid;place-items:center}
+.swap>span{grid-area:1/1;pointer-events:none}
+.swap>.alt{visibility:hidden}
 
 /* the window */
 .b-win{height:100vh;height:100dvh;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;background:var(--surface)}
@@ -1581,8 +1581,8 @@ const ico = (id, cls = '') => `<span class="b-ico ${cls}">${ic(id)}</span>`;
 // The "?" by a group heading or a settings row that has help (TOUR.HELP); name: what it explains, for its label.
 const helpBtn = (kind, k, name) => { const h = TOUR.helpKey(kind, k);
   return h ? `<button class="help" type="button" data-help="${kind}.${h}" data-f="help:${kind}.${k}" aria-label="${esc(T('help.about', { x: name }))}">${ic('help')}</button>` : ''; };
-// Label a, or b while on, laid out together (.two) so the button never resizes between them.
-const two = (on, a, b) => `<span class="two"><span>${esc(on ? b : a)}</span><span class="alt" aria-hidden="true">${esc(on ? a : b)}</span></span>`;
+// Label a, or b while on, laid out together (.swap) so the button never resizes between them.
+const two = (on, a, b) => `<span class="swap"><span>${esc(on ? b : a)}</span><span class="alt" aria-hidden="true">${esc(on ? a : b)}</span></span>`;
 // A project's (or a ticket's) avatar: the project's own pet, resting.
 const projectPet = (p, cls = '') => `<span class="b-ico pet ${cls}">${creature(p, 'idle')}</span>`;
 const oneLine = t => String(t || '').replace(/\s+/g, ' ').trim();
@@ -3281,7 +3281,7 @@ async function tourShow() {
   const step = tourSteps[tourAt], n = tourSteps.length, last = tourAt === n - 1;
   tourBoxClose();
   // Skills shows one row until its lists are in: the element a step points at comes with them.
-  const goWait = async (tab, item) => { tourGo(tab, item); for (let k = 0; k < 50 && cur?.wait && tourSteps[tourAt] === step; k++) await new Promise(r => setTimeout(r, 200)); if (!cur?.wait) tourGo(tab, item); };
+  const goWait = async (tab, item) => { tourGo(tab, item); for (let k = 0; k < 50 && cur?.wait && tourSteps[tourAt] === step; k++) await new Promise(r => setTimeout(r, 200)); if (!cur?.wait && tourSteps[tourAt] === step) tourGo(tab, item); };
   await goWait(step.tab, step.item);
   if (tourSteps[tourAt] !== step) return;
   if (step.open === 'ticket') { const ts = items.filter(x => x.id.startsWith('t:')); const t = ts.find(x => x.meta.includes('dup')) || ts[0]; if (t) tourGo(step.tab, t.id); }
