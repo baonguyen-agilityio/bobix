@@ -8,7 +8,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `develop`, not released yet (after rc.8)
 
-Nothing yet: `develop` is v0.2.0-rc.8.
+- **A Full start interviews you before the plan** ([#216](https://github.com/baonguyen-agilityio/bobix/issues/216), for rc.9): the Full start's instructions (not Quick's) tell Claude to restate the ticket and wait for your confirmation, then ask in rounds through `AskUserQuestion` (about 8 at most) only what the ticket and the code cannot answer. Each question names its source (a ticket quote or file:line), carries a tag (scope / approach / edge case / done criteria) and offers "Out of scope for this ticket" (kept under `## Later`, out of the plan); "up to you" goes to Assumptions; a clear ticket gets one "No questions, because …" line. The plan ends with a Mapping table (requirement → step, answer → step). The work log has new sections `## Ticket`, `## Questions`, `## Later`, `## Mapping`; the parser keeps them and Work shows them. The method is in Bobix's own text, no skill needed. Unit tests cover the rules text and the parsing. While Claude asks (`AskUserQuestion`, seen as a PreToolUse or a PermissionRequest) the pet shows waiting with the question as its text and Bobix notifies once; Bobix never holds or answers that request, because an Allow without the answers would skip the question (Claude's hooks docs: "allow" alone is not enough for it), so you answer in Claude's own window. **To be verified by the owner's real ticket:** a full interview in Claude Desktop and in the terminal command.
 
 ## 2. In the test builds (v0.2.0-rc.1 to rc.8), no stable release yet
 

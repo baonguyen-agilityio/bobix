@@ -160,6 +160,8 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 /* The ticket flow (Work): assumptions are highlighted, the new ones marked; the prompt and "what to change" boxes. */
 .tk-as{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .tk-as li{padding:6px 10px;border-radius:var(--r-md);background:var(--warn-bg);color:var(--ink);font-size:var(--t-sm);border-left:3px solid var(--warn)}
+.tk-q{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.tk-q li{padding:6px 10px;border-radius:var(--r-md);background:var(--bg-2,transparent);font-size:var(--t-sm);border-left:3px solid var(--accent,currentColor)}
 .tk-as li.new{font-weight:600}
 .tk-as li.new::after{content:" ●";color:var(--warn)}
 .badge.ok{background:var(--ok-bg);color:var(--ok)}
@@ -2067,6 +2069,10 @@ function flowHTML(f, s) {
     ${asks ? (held ? `<label class="tk-ch"><span>${esc(T('tk.change.l'))}</span><textarea rows="2" data-tk-text="${k}" data-f="tkch:${k}" placeholder="${esc(T('tk.change.ph'))}">${esc(tkChange[f.key] || '')}</textarea></label>
       <div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-ok="${k}" data-f="tkok:${k}">${esc(T('tk.approve'))}</button><button class="btn" type="button" data-tk-no="${k}">${esc(T('tk.change'))}</button></div>
       <p class="note">${esc(T('tk.approve.note'))}</p>` : `<p class="note">${esc(T('tk.approve.where'))}</p>`) : ''}
+    ${p.ticket ? `<section class="b-sec"><h3>${esc(T('tk.ticket'))}</h3><div class="report md">${markdown(p.ticket)}</div></section>` : ''}
+    ${p.questions?.length ? `<section class="b-sec"><h3>${esc(T('tk.questions'))}</h3><ul class="tk-q">${p.questions.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}
+    ${p.later?.length ? `<section class="b-sec"><h3>${esc(T('tk.later'))}</h3><ul class="tk-q">${p.later.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}
+    ${p.mapping ? `<section class="b-sec"><h3>${esc(T('tk.mapping'))}</h3><div class="report md">${markdown(p.mapping)}</div></section>` : ''}
     <section class="b-sec"><h3>${esc(T('tk.assume'))}${f.new ? ` <span class="badge warn">${esc(T('tk.newA', { n: f.new }))}</span>` : ''}</h3>
       ${as.length ? `<ul class="tk-as">${as.map((a, n) => `<li${n >= f.seen ? ' class="new"' : ''}>${esc(a)}</li>`).join('')}</ul>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}</section>
     <section class="b-sec"><h3>${esc(T('tk.steps'))}</h3>${p.steps?.length ? `<ol class="tk-steps">${p.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}</section>
