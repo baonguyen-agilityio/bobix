@@ -425,8 +425,6 @@ mod tests {
     fn ap(m: &mut Sessions, e: Value) -> Option<Applied> { apply(m, &e, now()) }
     fn notice(r: Option<Applied>) -> Option<&'static str> { match r { Some(Applied::Updated { notice, .. }) => notice.map(|n| n.kind), _ => None } }
 
-    // The timing side sessions really have (9 measured): the first hook events come up to 4.6 s before the Claude
-    // app writes the session file, and the file carries the link from the start.
     #[test]
     fn a_long_file_path_keeps_its_file_name() {
         let path = format!("/home/dev/{}src/ui/pets.html", "deep/".repeat(20));
@@ -440,6 +438,8 @@ mod tests {
         assert!(a.starts_with("npm test -- x") && a.ends_with('…') && len16(&a) == 60, "{a}");
     }
 
+    // The timing side sessions really have (9 measured): the first hook events come up to 4.6 s before the Claude
+    // app writes the session file, and the file carries the link from the start.
     #[test]
     fn side_session_held_until_linked_then_shown_once() {
         let t0 = 1_000_000;

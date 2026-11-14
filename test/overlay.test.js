@@ -381,6 +381,42 @@ async function liveCard(b, url) {
     if (c.h !== first.h) out.push(`${o.tool}: the card's height moved ${first.h} → ${c.h}`);
     if (arg ? !c.arg.includes(arg) : c.arg) out.push(`${o.tool}: the status row says "${c.arg}", want ${arg ? `"${arg}" in it` : 'nothing'}`);
   }
+  // What a path shows, whatever its separator: the last folders and the file name; a short path whole; not a path, untouched.
+  for (const [tool, arg, want] of [
+    ['Edit', 'C:\\Users\\dev\\app\\src\\ui\\pets.html', '…\\src\\ui\\pets.html'],
+    ['Read', '/home/dev/my project/src/ui/pets file.html', '…/src/ui/pets file.html'],
+    ['Write', '…\\deep\\src\\ui\\pets.html', '…\\src\\ui\\pets.html'], // the Rust side already cut it
+    ['MultiEdit', 'C:\\app\\pets.html', 'C:\\app\\pets.html'], ['Read', '/a/b/c', '/a/b/c'],
+    ['Bash', 'cd /a/b/c/d/e && npm test', 'cd /a/b/c/d/e && npm test']]) {
+    const got = await ev(`argText(${JSON.stringify(tool)}, ${JSON.stringify(arg)})`);
+    if (got !== want) out.push(`${tool} "${arg}" shows "${got}", want "${want}"`);
+  }
+  // A long MCP status beside the badges: the status gives way (no overlap), what the tool names stays on screen, and a path
+  // too wide for the row keeps its file name.
+  const geo = () => ev(`(() => { const c = pets.get('w0').el.querySelector('.card'), q = x => c.querySelector(x).getBoundingClientRect();
+    const st = q('.row .st'), bdg = q('.row .bdg'), code = c.querySelector('.st code'), cr = code?.getBoundingClientRect(), stx = c.querySelector('.stx');
+    let end = null; if (code) { const t = code.querySelector('bdi').firstChild, r = document.createRange(); r.setStart(t, t.length - 1); r.setEnd(t, t.length); end = r.getBoundingClientRect(); }
+    return { stRight: st.right, bdgLeft: bdg.left, stxRight: stx.getBoundingClientRect().right, codeLeft: cr?.left, codeW: cr?.width, codeRight: cr?.right,
+      endLeft: end?.left, endRight: end?.right, h: Math.round(c.getBoundingClientRect().height * 10) / 10, stxCut: stx.scrollWidth > stx.clientWidth }; })()`);
+  await push({ tool: 'mcp__claude-in-chrome__browser_take_screenshot_of_the_page', toolArg: 'https://example.com/pricing', ctx: 30 }); await step(2);
+  { const g = await geo();
+    if (g.stRight > g.bdgLeft + 0.5) out.push(`a long MCP status runs over the badges: status ends ${g.stRight}, badges start ${g.bdgLeft}`);
+    if (!(g.codeW >= 40)) out.push(`a long MCP status leaves what the tool names ${g.codeW} px`);
+    if (g.stxRight > g.codeLeft + 0.5) out.push('the status runs over what the tool names');
+    if (!g.stxCut) out.push('the long status was not cut (the test no longer shows the case)');
+    if (g.h !== first.h) out.push(`the card's height moved ${first.h} → ${g.h} on a long MCP status`); }
+  await push({ tool: 'Edit', toolArg: '…/' + 'a-very-long-file-name-that-keeps-going-and-going-until-the-row-runs-out'.repeat(2) + '.html', ctx: 30 }); await step(2);
+  { const g = await geo();
+    if (g.endLeft < g.codeLeft - 0.5 || g.endRight > g.codeRight + 0.5) out.push(`a path wider than the row loses its file name: last letter ${g.endLeft}-${g.endRight}, box ${g.codeLeft}-${g.codeRight}`);
+    if (g.stRight > g.bdgLeft + 0.5) out.push('a long path runs over the badges'); }
+  // A bubble that changes kind (a tool it picked up, then a request) enters; only the same kind is redrawn in place.
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); await step(20);
+  await push({ tool: 'Bash', toolArg: 'ls', hits: 1 }); await step(2);
+  const bubble = () => ev(`(() => { const e = pets.get('w0').el.querySelector('.say'); return e && { cls: e.className }; })()`);
+  { const x = await bubble(); if (!x) out.push('no bubble for a tool it picked up'); }
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r[0], y: r[1] }); // hovered as the request arrives: the bubble shows it
+  await push({ state: 'waiting', tool: '', askTool: 'Bash', ask: 'ls', hits: 1 }); await step(1); // the frame it first shows in; a later redraw of the same bubble is still
+  { const x = await bubble(); if (!x) out.push('no bubble for a permission request'); else if (/\bstill\b/.test(x.cls)) out.push(`the request after a tool shows without its entrance: "${x.cls}"`); }
   await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
   return out.map(o => 'live card: ' + o);
 }

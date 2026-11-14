@@ -57,8 +57,11 @@ button{font:inherit;color:inherit}
 .card.still,.say.still{animation:none} /* redrawn while shown: no second entrance */
 .card .st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink);min-width:0}
 /* What the tool works on, beside the status: one line, so the card holds still while tools run. */
-.card .row .st{flex:1;white-space:nowrap}
+.card .row .st.live{flex:1;white-space:nowrap;overflow:hidden}
+/* The status gives way first (down to a few letters), then what the tool names; the badges beside them never move. */
+.card .st .stx{flex:0 100 auto;min-width:6ch;overflow:hidden;text-overflow:ellipsis}
 .card .st code{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal;font-size:var(--t-xs);margin-block:-1px}
+.card .st code.file{direction:rtl} /* too narrow for a path: the start goes (the ellipsis is on the left), the file name stays */
 .st-waiting .card .st{color:var(--accent-ink)}
 .card .meter{display:block;width:auto;margin:0 0 var(--s1)}
 .card .row.ctx{border-bottom:0;padding-bottom:4px}
@@ -129,8 +132,16 @@ button{font:inherit;color:inherit}
 <script src="/ui/usage.js"></script>
 <script>
 const IDLE_AFTER = 10 * 60e3, DONE_BUBBLE = 90e3, ACT_BUBBLE = 2500;
-// A file path keeps its last folders, where the name is; a command keeps its start (the card cuts its end).
-const argText = a => (/^[~/.…]/.test(a) && !/\s/.test(a) && a.split('/').length > 4 ? '…/' + a.split('/').slice(-3).join('/') : a);
+// What a file tool works on is a path: it keeps its last folders, where the name is, whatever the separator or spaces
+// in it. Anything else (a command, a pattern, a URL) keeps its start; the card cuts its end.
+const FILE_TOOLS = ['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+const argText = (tool, a) => {
+  if (!FILE_TOOLS.includes(tool)) return a;
+  const parts = a.split(/[\\/]/);
+  if (parts.length <= 4) return a;
+  const sep = a.match(/[\\/]/g).pop();
+  return '…' + sep + parts.slice(-3).join(sep);
+};
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const look = s => s.state === 'idle' || (s.state === 'done' && Date.now() - s.since > IDLE_AFTER) ? 'idle' : s.state;
 const bridge = window.bobix; // present inside the app (src-tauri/bridge.js); absent in a plain browser tab
@@ -214,14 +225,14 @@ function paint(p, now) {
   const keep = ['line-off', 'fx-hide', 'leaving'].filter(c => p.el.classList.contains(c)).map(c => ' ' + c).join(''); // set by the line and the effects
   p.el.className = `pet st-${st}${p.fx ? ` fx${['xp', 'ctx'].includes(p.fx.kind) ? ' fx-over' : ''}` : ''}${p.stepping ? ' walking' : ''}${p.dragging ? ' dragging' : ''}${p.hover ? ' hover' : ''}${s.parent ? ' side' : ''}${kidsOf(s).length ? ' parent' : ''}${keep} ${p.edge}`;
   const kids = kidsText(s), parent = s.parent && byId(s.parent), model = s.usage && USAGE.mix(s.usage)[0]?.name;
-  const result = st === 'done' && s.summary, shown = { card: card && p.cardOn, say: !!(say && say[1]) && p.sayOn }; // already on screen before this redraw
-  p.cardOn = !!card; p.sayOn = !!(say && say[1]);
+  const result = st === 'done' && s.summary, shown = { card: card && p.cardOn, say: !!(say && say[1]) && p.sayOn === say[0] }; // already on screen before this redraw (a bubble of another kind, a request after a tool, still enters)
+  p.cardOn = !!card; p.sayOn = say && say[1] ? say[0] : null;
   p.el.innerHTML = `
     ${card ? `<div class="card${shown.card ? ' still' : ''}">
         <h2>${esc(s.title || s.name)}</h2>
         <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
         ${result || s.quest ? `<p class="q">${esc(result || s.quest)}</p>` : ''}
-        <div class="row"><span class="st"><i class="dot ${st}"></i>${esc(statusText(s, st))}${st === 'working' && s.toolArg ? `<code title="${esc(s.toolArg)}">${esc(argText(s.toolArg))}</code>` : ''}</span><span class="bdg">${model ? `<span class="badge">${esc(model)}</span>` : ''}<span class="badge">${T('pet.lv', { n: s.lv })}</span></span></div>
+        <div class="row"><span class="st${st === 'working' ? ' live' : ''}"><i class="dot ${st}"></i><span class="stx" title="${esc(statusText(s, st))}">${esc(statusText(s, st))}</span>${st === 'working' && s.toolArg ? `<code${FILE_TOOLS.includes(s.tool) ? ' class="file"' : ''} title="${esc(s.toolArg)}"><bdi>${esc(argText(s.tool, s.toolArg))}</bdi></code>` : ''}</span><span class="bdg">${model ? `<span class="badge">${esc(model)}</span>` : ''}<span class="badge">${T('pet.lv', { n: s.lv })}</span></span></div>
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
