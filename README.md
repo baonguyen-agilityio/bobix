@@ -54,7 +54,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 
 ### Run your tickets
 - **Your GitHub and GitLab issues**, read through your own `gh` and `glab` (on by default wherever you are signed in; one switch each turns it off): to do, in progress with their sessions, waiting for review, done today. Bobix suggests the next one, warns when two sessions work on one issue, and flags stuck work with its next step.
-- **Start** an issue under **Work**, one of two ways: **Full** runs the ticket flow (its own worktree and branch, a plan you approve, checks, review, MR / PR and CI); **Quick** opens a plain Claude session in the project folder with a prompt you can edit and a skill suggested for that repository. Either session is named `[CODE-27] …`. **Change folder…** in the Start box points a project at another clone.
+- **Start** an issue under **Work**, one of two ways: **Full** runs the ticket flow (its own worktree and branch, cut from the branch you pick the first time in each repository (shown as "From: …" at every Start, changed there or in Settings), never a guess; a plan you approve, checks, review, MR / PR and CI); **Quick** opens a plain Claude session in the project folder with a prompt you can edit and a skill suggested for that repository. Either session is named `[CODE-27] …`. **Change folder…** in the Start box points a project at another clone.
 - **Stand-up and today's report** as plain text to copy. Bobix sends nothing.
 
 ### The panel

@@ -325,7 +325,7 @@ input[type=number]{width:104px}
 .rp-h[hidden]{display:none}.rp-row .p{overflow-wrap:anywhere}.rp-row .note{margin:0;white-space:nowrap}
 .pager{display:inline-flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-2);white-space:nowrap}
 .pager .ib{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:6px;background:none;color:var(--ink-2);font-size:15px}.pager .ib:disabled{opacity:.35}.pager .ib:not(:disabled):hover{background:var(--surface-3);color:var(--ink)}.wdirs .d{grid-column:1 / -1;justify-self:start;font-size:var(--t-xs);color:var(--ink-2);overflow-wrap:anywhere}
-.keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;min-height:28px;padding:0 8px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);text-transform:uppercase}
+.keys{display:grid;gap:var(--s2);width:100%}.keys label{display:flex;gap:var(--s2);align-items:center;justify-content:space-between}.keys input{width:8em;min-height:28px;padding:0 8px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);text-transform:uppercase}.keys input[data-base-of]{width:14em;text-transform:none}
 
 /* skills */
 .mine,.proc-list{display:grid;gap:var(--s2);width:100%}
@@ -1099,6 +1099,7 @@ const SECTIONS = [
     { k: 'workRepos', type: 'repos', wide: true, vars: () => ({ n: tickedCount() }) },
     { k: 'workKeys', type: 'keys', wide: true },
     { k: 'workDirs', type: 'dirs', wide: true },
+    { k: 'workBase', type: 'bases', wide: true },
   ]],
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
@@ -1166,6 +1167,11 @@ function control(r, s) {
     if (!ds.length) return `<p class="note">${T('set.workDirs.none')}</p>`;
     return `<div class="wdirs">${ds.map(([p, e]) => `<div class="wd"><span class="p">${esc(p)} <span class="badge">${esc(T('set.workDirs.' + e.how))}</span></span>
       <button class="btn sm" type="button" data-wk-forget="${esc(p)}">${esc(T('set.workDirs.forget'))}</button><code class="d" title="${esc(e.dir)}">${esc(home(e.dir))}</code></div>`).join('')}</div>`;
+  }
+  if (r.type === 'bases') { // the branch new work starts from, per repository (asked at the first Start); empty it to be asked again
+    const bs = Object.entries(s.workBase || {}).sort((a, b) => a[0].localeCompare(b[0]));
+    if (!bs.length) return `<p class="note">${T('set.workBase.none')}</p>`;
+    return `<div class="keys">${bs.map(([p, b]) => `<label><span>${esc(p)}</span><input type="text" data-base-of="${esc(p)}" value="${esc(b)}" maxlength="200" spellcheck="false" aria-label="${esc(T('set.workBase.of', { p }))}"></label>`).join('')}</div>`;
   }
   if (r.type === 'update') return updateHTML();
   if (r.type === 'prices') return `${usageMeta.error ? `<p class="note err">${esc(T('set.prices.err', { e: usageMeta.error }))}</p>` : ''}<button class="btn" type="button" data-act="prices">${T('set.prices.open')}</button>`;
@@ -1325,6 +1331,13 @@ $('#settings').addEventListener('change', e => {
     if (v && !/^[A-Z][A-Z0-9]{0,9}$/.test(v)) { e.target.value = keys[of] || ''; return toast(T('set.workKeys.bad')); }
     if (v) keys[of] = v; else delete keys[of];
     return save({ workKeys: keys });
+  }
+  const bo = e.target.dataset.baseOf;
+  if (bo) { // change the remembered branch (a name the remote does not have is caught at the next Start); empty: asked again
+    const v = e.target.value.trim(), bases = { ...(state.settings.workBase || {}) };
+    if (v && !/^[^\s~^:?*[\\-][^\s~^:?*[\\]{0,199}$/.test(v)) { e.target.value = bases[bo] || ''; return toast(T('set.workBase.bad')); }
+    if (v) bases[bo] = v; else delete bases[bo];
+    return save({ workBase: bases }).then(() => toast(T(v ? 'set.workBase.saved' : 'set.workBase.cleared', { p: bo, b: v })));
   }
   const k = e.target.dataset.k;
   if (!k || e.target.type === 'range') return;
@@ -2140,18 +2153,19 @@ function startHTML(i, g, k) {
   if (!p) return `${full}<div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-prep="${ek}" data-f="tkprep:${ek}"${pr?.loading ? ' disabled' : ''}>${two(pr?.loading, T('tk.prep'), T('tk.prep.busy'))}</button>${open}</div>`;
   if (!p.ok) return `${full}<p class="note err">${esc(T('work.new.fail'))}</p>`;
   const disk = p.room == null ? T('tk.disk.unknown') : T(p.room > 0 ? 'tk.disk.ok' : 'tk.disk.full', { n: p.room, free: BOARD.gb(p.free), need: BOARD.gb(p.need) });
-  const c = pr.cls, off = p.exists || pr.busy ? ' disabled' : '', low = p.room === 0 || pr.disk;
+  const c = pr.cls, off = p.exists || pr.busy || !pr.base ? ' disabled' : '', low = p.room === 0 || pr.disk;
   const opt = (v, label) => `<label><input type="radio" name="tkm-${ek}" data-tk-m="${ek}" value="${v}"${pr.sel === v ? ' checked' : ''}> <span>${esc(label)}</span></label>`;
   const cm = p.claude, cmWarn = cm && (!cm.exists || !cm.test) ? `<div class="tk-warn"><p><strong>${esc(T(cm.exists ? 'cm.notest' : 'cm.none'))}</strong> ${esc(T('cm.why'))}</p>
     <div class="acts" style="margin:8px 0 0"><button class="btn sm" type="button" data-tk-claude="${esc(p.repo)}">${esc(T('cm.fix'))}</button><button class="btn sm" type="button" data-copy="/init">${esc(T('cm.init'))}</button></div>
     <p class="note">${esc(T('cm.where', { dir: home(p.repo) }))}</p></div>` : '';
   const flow = p.exists && tickets.list.find(f => !f.cleaned && f.path === g.path && f.iid === i.iid && (f.code || f.path) === code);
-  return `${full}${p.exists ? `<p class="note err">${esc(T('tk.exists'))}${flow ? ` <button class="lnk" type="button" data-sel-flow="${esc(flow.key)}">${esc(T('tk.exists.go'))}</button>` : ''}</p>` : ''}${cmWarn}<p class="${low ? 'risk' : 'note'}">${esc(low ? T('tk.disk.low', { free: BOARD.gb(p.free), need: BOARD.gb(p.need) }) : disk)}</p>
+  return `${full}${p.exists ? `<p class="note err">${esc(T('tk.exists'))}${flow ? ` <button class="lnk" type="button" data-sel-flow="${esc(flow.key)}">${esc(T('tk.exists.go'))}</button>` : ''}</p>` : ''}${cmWarn}${pr.other ? `<div class="tk-warn"><p><strong>${esc(T('tk.other.t'))}</strong> ${esc(pr.other.was ? T('tk.other.was', { was: pr.other.was, b: pr.other.b }) : T('tk.other.unknown', { b: pr.other.b }))}</p><div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-tk-keep="${ek}">${esc(T('tk.other.keep'))}</button></div></div>` : ''}<p class="${low ? 'risk' : 'note'}">${esc(low ? T('tk.disk.low', { free: BOARD.gb(p.free), need: BOARD.gb(p.need) }) : disk)}</p>
+    ${fromHTML(pr, ek)}
     <section class="b-sec"><h3>${esc(T('tk.models'))}</h3><div class="tk-opts">${opt('small', T('tk.m.small'))}${c?.ok ? opt('haiku', T('tk.m.haiku', { x: modelsLine(c) })) + `<p class="note">${esc(c.why)}</p>` : ''}</div>
       ${c && !c.ok ? `<p class="note err">${esc(c.error || '')}</p>` : ''}
       <div class="acts" style="margin:0"><button class="btn sm" type="button" data-tk-ask="${ek}"${pr.asking ? ' disabled' : ''}>${two(pr.asking, T('tk.ask'), T('tk.ask.busy'))}</button></div><p class="note">${esc(T('tk.ask.note'))}</p></section>
     <section class="b-sec"><h3>${esc(T('tk.prompt'))}</h3><textarea class="tk-prompt" rows="12" spellcheck="false" data-tk-prompt="${ek}" data-f="tkp:${ek}" aria-label="${esc(T('tk.prompt'))}">${esc(pr.prompt)}</textarea>
-      <p class="note">${esc(T('tk.where', { dir: home(p.dir), b: p.branch }))}</p></section>
+      <p class="note">${esc(T('tk.where', { dir: home(p.dir), b: p.branch, from: pr.base || '…' }))}</p></section>
     <div class="acts" style="margin:0">${low ? `<button class="btn pri" type="button" data-tk-any="${ek}" data-f="tkany:${ek}"${off}>${esc(T('tk.start.anyway'))}</button><button class="btn" type="button" data-tk-quick="${ek}">${esc(T('tk.quick.instead'))}</button>` : `<button class="btn pri" type="button" data-tk-go="${ek}"${off}>${esc(T('tk.start'))}</button><button class="btn" type="button" data-tk-cli="${ek}"${off}>${esc(T('tk.cli'))}</button>`}</div>
     <p class="note">${esc(T('tk.start.note'))}</p>`;
 }
@@ -2167,6 +2181,17 @@ async function tkDir(k) {
   nextFocus = 'tkdir:' + k;
   return tkHow[k] === 'quick' ? render() : tkPrepare(k);
 }
+// Where new work starts from: the branch remembered for this repository, when the remote still has it. Never a guess:
+// else nothing, and the person picks.
+function tkFrom(p) { return p?.remembered && p.from?.branches?.includes(p.remembered) ? p.remembered : null; }
+function fromHTML(pr, ek) {
+  const f = pr.prep.from;
+  const sec = body => `<section class="b-sec"><h3>${esc(T('tk.from'))}</h3>${body}</section>`;
+  if (!f.ok) return sec(`<p class="note err">${esc(T('tk.from.e.' + f.kind, { e: f.detail }))}</p><div class="acts" style="margin:0"><button class="btn sm" type="button" data-tk-prep="${ek}" data-f="tkprep:${ek}">${esc(T('tk.from.retry'))}</button></div>`);
+  if (pr.base && !pr.pick) return sec(`<p><strong>${esc(T('tk.from.now', { b: pr.base }))}</strong> <button class="btn sm" type="button" data-tk-from-change="${ek}" data-f="tkfrom:${ek}">${esc(T('tk.from.change'))}</button></p><p class="note">${esc(T('tk.from.note', { b: pr.base }))}</p>`);
+  return sec(`${pr.gone ? `<p class="note err">${esc(T('tk.from.gone', { b: pr.gone }))}</p>` : ''}<p class="note">${esc(T('tk.from.ask'))}</p>
+    <div class="tk-opts">${f.branches.map(b => `<label><input type="radio" name="tkb-${ek}" data-tk-from="${ek}" data-f="tkb:${ek}:${esc(b)}" value="${esc(b)}"${pr.base === b ? ' checked' : ''}> <span><code>${esc(b)}</code></span></label>`).join('')}</div>`);
+}
 async function tkPrepare(k) {
   const x = tkIssue(k);
   if (!x || !bridge) return;
@@ -2175,7 +2200,7 @@ async function tkPrepare(k) {
   tkPrep[k] = { loading: true, code }; render();
   const [p, r] = await Promise.all([bridge.ticketPrep(path, iid, code), bridge.issueBrief(path, iid).catch(() => null)]);
   const body = r?.ok ? r.body : '';
-  tkPrep[k] = { code, prep: p || { ok: false }, body, sel: 'small', mtext: p?.models || '', prompt: p?.ok ? BOARD.flowPrompt(x[0], body, p.models, p.rules) : '' };
+  tkPrep[k] = { code, prep: p || { ok: false }, base: tkFrom(p), gone: p?.from?.ok && p.remembered && !tkFrom(p) ? p.remembered : '', body, sel: 'small', mtext: p?.models || '', prompt: p?.ok ? BOARD.flowPrompt(x[0], body, p.models, p.rules) : '' };
   nextFocus = 'tkp:' + k;
   render();
 }
@@ -2196,20 +2221,26 @@ async function tkAsk(k) {
   pr.asking = false;
   pr.cls?.ok ? tkModels(k, 'haiku') : render();
 }
-async function tkGo(k, how, anyway) {
+async function tkGo(k, how, anyway, keep) {
   const pr = tkPrep[k], [path, iid] = tkSplit(k);
-  if (!pr?.prep?.ok || pr.busy) return;
+  if (!pr?.prep?.ok || pr.busy || !pr.base) return;
+  if (keep !== true) pr.other = null;
+  pr.how = how;
   pr.busy = true; render();
   if (how !== 'cli') try { await navigator.clipboard.writeText(pr.prompt); } catch {}
-  const r = await bridge.ticketStart(path, iid, pr.prompt, pr.sel === 'haiku' && pr.cls?.ok ? pr.cls : { size: 'small' }, how, tkCode(k), anyway === true);
+  const r = await bridge.ticketStart(path, iid, pr.prompt, pr.sel === 'haiku' && pr.cls?.ok ? pr.cls : { size: 'small' }, how, tkCode(k), anyway === true, pr.base, keep === true);
   pr.busy = false;
   if (!r?.ok && r?.reason !== undefined && !r.dir) {
     if (r.reason === 'disk') pr.disk = true; // the box offers Start anyway and Quick start now
+    if (r.reason === 'base-otherbase') { pr.other = { was: r.detail, b: r.branch }; return render(); } // said in the box; you decide
+    if (r.reason === 'base-gone') { toast(T('tk.from.gone', { b: r.branch })); return tkPrepare(k); } // asked again, with the remote's list now
+    if (r.reason?.startsWith('base-')) { toast(T('tk.from.e.' + r.reason.slice(5), { e: r.detail })); return render(); }
+    if (r.reason === 'nobase') { toast(T('tk.from.ask')); return render(); }
     toast(r.reason === 'disk' ? T('tk.disk.low', { free: BOARD.gb(r.free), need: BOARD.gb(pr.prep.need) }) : r.reason === 'exists' ? T('tk.exists') : r.reason === 'git' ? T('tk.fail.git', { e: r.detail }) : T('work.new.fail'));
     return render();
   }
-  // offline: it started from the last fetched copy, and says from when; your Tests line went into its folder too
-  const after = [r.fetch && !r.fetch.ok ? T('tk.fetch.off', { b: r.fetch.from, x: r.fetch.at ? ago(r.fetch.at) : T('tk.fetch.never') }) : '', r.tests ? T('tk.tests.carried') : ''].filter(Boolean).join(' ');
+  // your Tests line went into its folder too
+  const after = r.tests ? T('tk.tests.carried') : '';
   if (how === 'cli') { try { await navigator.clipboard.writeText(r.cmd); toast([T('tk.cli.done'), after].filter(Boolean).join(' ')); } catch { toast(r.cmd); } }
   else toast([T(r.ok ? 'tk.start.done' : 'tk.start.open'), after].filter(Boolean).join(' '));
   delete tkPrep[k]; tkAgain.delete(k);
@@ -3160,6 +3191,8 @@ async function onAct(e) {
   if (d.selFlow) { bsel.work = 'f:' + d.selFlow; showTab('work'); return; }
   if (d.tkAgain) { tkAgain.add(d.tkAgain); bsel.work = 'n:' + d.tkAgain; showTab('work'); return; }
   if (d.tkPrep) return tkPrepare(d.tkPrep);
+  if (d.tkFromChange && tkPrep[d.tkFromChange]) { tkPrep[d.tkFromChange].pick = true; nextFocus = 'tkb:' + d.tkFromChange + ':' + tkPrep[d.tkFromChange].base; return render(); }
+  if (d.tkKeep) return tkGo(d.tkKeep, tkPrep[d.tkKeep]?.how, undefined, true);
   if (d.tkDir) return tkDir(d.tkDir);
   if (d.tkClone) return tkClone(d.tkClone);
   if (d.tkAsk) return tkAsk(d.tkAsk);
@@ -3203,6 +3236,7 @@ $('#b-dyn').addEventListener('input', e => {
 $('#b-dyn').addEventListener('change', e => {
   const d = e.target.dataset;
   if (d.tkM) tkModels(d.tkM, e.target.value);
+  if (d.tkFrom && tkPrep[d.tkFrom]) { Object.assign(tkPrep[d.tkFrom], { base: e.target.value, pick: false, gone: '', other: null }); nextFocus = 'tkfrom:' + d.tkFrom; render(); }
   if (d.tkCode) { tkPrep[d.tkCode] = { code: e.target.value }; render(); } // another repository: prepared again for it
   if (d.tkHow) { tkHow[d.tkHow] = e.target.value; nextFocus = `tkh:${d.tkHow}:${e.target.value}`; render(); }
   if (d.rpTick && rp.list) { rpDraft()[d.rpTick][e.target.checked ? 'add' : 'delete'](e.target.value); rp.dirty = true; render(); }

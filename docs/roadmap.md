@@ -8,7 +8,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `develop`, not released yet (after rc.8)
 
-Nothing yet: `develop` is v0.2.0-rc.8.
+- **Start asks which branch new work starts from** ([#214](https://github.com/baonguyen-agilityio/bobix/issues/214), for rc.9; one of the three fixes before 0.2.0, [#195](https://github.com/baonguyen-agilityio/bobix/issues/195)): a Full start cut the worktree from the remote's default branch, which for this repository is `main` (old code) while the work is on `develop`. Now the first Start in a repository asks "Start new work from which branch?" with the branches the remote has at that moment (`git ls-remote`), nothing preselected, one branch included. The choice is remembered per repository (`workBase`), shown as "From: develop" at every Start (click Change) and in Settings → Work → Starting branch (edit a name, or empty it to be asked again). The branch is fetched at the start and the worktree is cut from `origin/<branch>`, never a local copy; HEAD is checked to be that commit, else the worktree is removed. Offline, a branch gone from the remote ("Branch develop no longer exists, pick again") or no remote: Start stops, no stale list, no default branch. A ticket whose branch already exists and was cut from another branch is not reused silently: Bobix says which and asks. Open MR / PR targets that branch (`--target-branch`, `--base`). Flows from before rc.9 have no recorded branch: their MR / PR goes where the forge's default sends it, as before. **Unverified:** a Windows or Linux run, and a GitLab remote with many branches (`ls-remote` lists them all).
 
 ## 2. In the test builds (v0.2.0-rc.1 to rc.8), no stable release yet
 

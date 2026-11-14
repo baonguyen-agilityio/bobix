@@ -24,6 +24,7 @@ pub const CLEANED_KEEP: usize = 20;
 pub struct Flow {
     pub key: String, pub path: String, pub iid: i64, pub title: String, pub url: String,
     pub repo: String, pub dir: String, pub branch: String, pub base: String,
+    pub base_branch: String, // the remote branch `base` was cut from ("develop"): the merge / pull request targets it; empty on a flow from before it was asked
     pub status: String, pub session: Option<String>, pub plan: String, pub log: String,
     pub seen: usize, // assumptions you have seen; more in the log put a mark on the pet
     pub summary: String, pub models: Value, pub at: u64, pub cleaned: bool,
@@ -147,6 +148,9 @@ pub fn read_ci_gh(gh: &str, host: &str, path: &str, n: i64) -> Option<Value> {
     Some(ci_of_checks(&checks, state["state"].as_str().unwrap_or("")))
 }
 
+// A commit id of `rev` in a folder ("" when git cannot say), for the smoke check that a worktree sits on the remote branch's commit.
+pub fn head_commit_of(dir: &str, rev: &str) -> String { git(dir, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")]).out.trim().to_string() }
+pub fn head_commit(dir: &str) -> String { head_commit_of(dir, "HEAD") }
 // Commits on the ticket's branch that no remote has.
 pub fn unpushed(dir: &str, branch: &str) -> u64 {
     let r = git(dir, &["rev-list", "--count", branch, "--not", "--remotes"]);
@@ -154,6 +158,9 @@ pub fn unpushed(dir: &str, branch: &str) -> u64 {
 }
 // Push the ticket's branch (never the default one) and open its merge request with your own glab, or its pull request
 // with your own gh (`bin`, for the flow's forge). → the link.
+// The branch the ticket was cut from is where its merge / pull request goes (`flag`: the forge's option for it);
+// a flow from before the branch was asked passes none, and the forge uses its own default as it did.
+fn target<'a>(f: &'a Flow, flag: &'a str) -> Vec<&'a str> { if f.base_branch.is_empty() { vec![] } else { vec![flag, &f.base_branch] } }
 pub fn open_mr(bin: &str, host: &str, f: &Flow, title: &str, body: &str) -> Result<String, String> {
     if f.branch.is_empty() || ["main", "master", "develop"].contains(&f.branch.as_str()) { return Err("not a ticket branch".into()); }
     // nothing committed on it (the session worked in another folder, or did not commit): said, not pushed as an empty MR
@@ -162,12 +169,12 @@ pub fn open_mr(bin: &str, host: &str, f: &Flow, title: &str, body: &str) -> Resu
     if !r.ok { return Err(format!("git push: {}", one_line(&r))); }
     if f.github() {
         let env: Vec<(&str, &str)> = GH_ENV.iter().copied().chain([("GH_HOST", host)]).collect();
-        let r = procs::exec(bin, &["pr", "create", "--repo", f.code_repo(), "--head", &f.branch, "--title", title, "--body", body], 60, &env);
+        let r = procs::exec(bin, &["pr", "create", "--repo", f.code_repo(), "--head", &f.branch, "--title", title, "--body", body].into_iter().chain(target(f, "--base")).collect::<Vec<_>>(), 60, &env);
         return mr_url(&format!("{}\n{}", r.out, r.err)).ok_or_else(|| format!("gh pr create: {}", one_line(&r)));
     }
     let glab = bin;
     let repo = format!("https://{host}/{}", f.code_repo());
-    let r = procs::exec(glab, &["mr", "create", "--repo", &repo, "--source-branch", &f.branch, "--title", title, "--description", body, "--yes"], 60, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1")]);
+    let r = procs::exec(glab, &["mr", "create", "--repo", &repo, "--source-branch", &f.branch, "--title", title, "--description", body, "--yes"].into_iter().chain(target(f, "--target-branch")).collect::<Vec<_>>(), 60, &[("GITLAB_HOST", host), ("NO_PROMPT", "1"), ("NO_COLOR", "1")]);
     let out = format!("{}\n{}", r.out, r.err);
     match mr_url(&out) { Some(u) => Ok(u), None => Err(format!("glab mr create: {}", one_line(&r))) }
 }
@@ -371,49 +378,70 @@ fn git_for(dir: &str, args: &[&str], secs: u64) -> procs::Ran {
 // A fetch before a Full start gets this long; offline it fails at once, a slow network is not waited for.
 pub const FETCH_SECS: u64 = 30;
 
-// What a ticket branch starts from: the remote's default branch (`name`, "origin/main"; `commit`, its id), fetched
-// first. `fetched` false: the fetch failed or took too long (offline, VPN down), so it is the copy from the last fetch
-// (`at`, ms, when git knows it).
+// What a ticket branch starts from: the remote branch you picked (`name` "origin/develop", `branch` "develop",
+// `commit` its id), fetched at that moment. Never a local copy and never a guessed default branch.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Base { pub name: String, pub commit: String, pub fetched: bool, pub at: Option<u64> }
-pub fn base_of(repo: &str) -> Result<Base, String> {
+pub struct Base { pub name: String, pub branch: String, pub commit: String }
+// Why a start from a branch stopped. kind: noremote | offline (the remote could not be asked) | none (no branch on it) |
+// gone (the picked one is not there any more) | otherbase (the ticket's branch was cut from another one, `detail`) |
+// mismatch (the new worktree is not on that commit) | git.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BaseErr { pub kind: &'static str, pub detail: String }
+fn berr(kind: &'static str, detail: impl Into<String>) -> BaseErr { BaseErr { kind, detail: detail.into() } }
+fn remote_of(repo: &str) -> Result<String, BaseErr> {
     let remotes = git(repo, &["remote"]).out;
-    let remote = remotes.lines().map(str::trim).find(|r| *r == "origin").or_else(|| remotes.lines().map(str::trim).find(|r| !r.is_empty()))
-        .ok_or("this repository has no remote to start from")?.to_string();
-    let fetched = git_for(repo, &["fetch", "--quiet", &remote], FETCH_SECS).ok;
-    let has = |r: &str| git(repo, &["rev-parse", "--verify", "--quiet", &format!("{r}^{{commit}}")]).ok;
-    let head = format!("{remote}/HEAD");
-    if !has(&head) && fetched { let _ = git_for(repo, &["remote", "set-head", &remote, "--auto"], FETCH_SECS); } // asks the remote which branch
-    let name = if has(&head) { git(repo, &["rev-parse", "--abbrev-ref", &head]).out.trim().to_string() } else {
-        ["main", "master"].iter().map(|b| format!("{remote}/{b}")).find(|b| has(b))
-            .ok_or_else(|| format!("no default branch of {remote} was found (no {remote}/HEAD, main or master); fetch it once in a terminal"))?
-    };
+    remotes.lines().map(str::trim).find(|r| *r == "origin").or_else(|| remotes.lines().map(str::trim).find(|r| !r.is_empty()))
+        .map(String::from).ok_or_else(|| berr("noremote", "this repository has no remote to start from"))
+}
+// The branches the remote has right now (`git ls-remote`, asked each time). Offline or refused: an error, not a stale list.
+pub fn branches(repo: &str) -> Result<Vec<String>, BaseErr> {
+    let remote = remote_of(repo)?;
+    let r = git_for(repo, &["ls-remote", "--heads", &remote], FETCH_SECS);
+    if !r.ok { return Err(berr("offline", one_line(&r))); }
+    let mut v: Vec<String> = r.out.lines().filter_map(|l| l.split_once('\t')).filter_map(|(_, n)| n.trim().strip_prefix("refs/heads/")).map(String::from).collect();
+    v.sort();
+    if v.is_empty() { return Err(berr("none", format!("{remote} has no branch"))); }
+    Ok(v)
+}
+// The picked branch, fetched now, and its commit.
+pub fn base_of(repo: &str, branch: &str) -> Result<Base, BaseErr> {
+    if !branches(repo)?.iter().any(|b| b == branch) { return Err(berr("gone", branch)); }
+    let remote = remote_of(repo)?;
+    let r = git_for(repo, &["fetch", "--quiet", &remote, &format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}")], FETCH_SECS);
+    if !r.ok { return Err(berr("offline", one_line(&r))); }
+    let name = format!("{remote}/{branch}");
     let commit = git(repo, &["rev-parse", &format!("{name}^{{commit}}")]).out.trim().to_string();
-    if commit.is_empty() { return Err(format!("{name} could not be read")); }
-    let fh = git(repo, &["rev-parse", "--git-path", "FETCH_HEAD"]).out.trim().to_string();
-    let at = fs::metadata(Path::new(repo).join(&fh)).or_else(|_| fs::metadata(&fh)).and_then(|m| m.modified()).ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
-    Ok(Base { name, commit, fetched, at })
+    if commit.is_empty() { return Err(berr("git", format!("{name} could not be read"))); }
+    Ok(Base { name, branch: branch.into(), commit })
 }
 fn one_line(r: &procs::Ran) -> String { head16(&format!("{} {}", r.err, r.out).split_whitespace().collect::<Vec<_>>().join(" "), 300).to_string() }
 
-// A new worktree for the ticket, on a new branch from the remote's default branch (fetched first: base_of), with the
-// work log's template in its self-ignoring folder. A branch of that name already there is checked out instead; the
-// worktree of a flow you removed but kept (on that branch) is used again, its log kept. → the base used.
-pub fn create_worktree(repo: &str, dir: &Path, branch: &str, log: &str) -> Result<Base, String> {
+// Is the new worktree on the commit it was meant to be cut from? When not, the worktree and its new branch are removed.
+fn verify_cut(repo: &str, dir: &Path, branch: &str, want: &str) -> Result<(), BaseErr> {
+    let got = git(&dir.to_string_lossy(), &["rev-parse", "HEAD"]).out.trim().to_string();
+    if got == want { return Ok(()); }
+    let _ = git(repo, &["worktree", "remove", "--force", &dir.to_string_lossy()]);
+    let _ = git(repo, &["branch", "-D", branch]);
+    Err(berr("mismatch", format!("the worktree is on {} instead of {}", head16(&got, 10), head16(want, 10))))
+}
+// A new worktree for the ticket, on a new branch cut from `base` (fetched by base_of), with the work log's template in
+// its self-ignoring folder. The cut is checked: HEAD must be `base.commit`. A branch of that name already there (or the
+// worktree of a flow you removed but kept) is checked out instead, its log kept, but only when it was cut from the same
+// branch (`prior`, what the flow recorded) or you said to use it anyway (`keep`): else `otherbase`.
+pub fn create_worktree(repo: &str, dir: &Path, branch: &str, log: &str, base: &Base, prior: Option<&str>, keep: bool) -> Result<(), BaseErr> {
     let d = dir.to_string_lossy();
     let kept = dir.exists() && git(&d, &["rev-parse", "--abbrev-ref", "HEAD"]).out.trim() == branch;
-    if dir.exists() && !kept { return Err(format!("{} is already there", dir.display())); }
-    let base = base_of(repo)?;
+    if dir.exists() && !kept { return Err(berr("git", format!("{} is already there", dir.display()))); }
+    let has = git(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).ok;
+    if (kept || has) && !keep && prior != Some(base.branch.as_str()) { return Err(berr("otherbase", prior.unwrap_or(""))); }
     if !kept {
         ignored_parent(dir);
         forget_missing(repo, branch);
-        let has = git(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).ok;
         let r = if has { git(repo, &["worktree", "add", &d, branch]) } else { git(repo, &["worktree", "add", "-b", branch, &d, &base.commit]) };
-        if !r.ok { return Err(one_line(&r)); }
+        if !r.ok { return Err(berr("git", one_line(&r))); }
+        if !has { verify_cut(repo, dir, branch, &base.commit)?; }
     }
-    seed_log(dir, log).map_err(|e| e.to_string())?;
-    Ok(base)
+    seed_log(dir, log).map_err(|e| berr("git", e.to_string()))
 }
 // The work log's self-ignoring folder in `dir`, with `log` as the file when there is none yet.
 pub fn seed_log(dir: &Path, log: &str) -> std::io::Result<()> {
@@ -845,44 +873,95 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-    // Full start: the remote's default branch, fetched first; offline, the last copy and said so; no default branch:
-    // refused with why. A worktree kept from a removed flow is used again.
+    // Cut `branch`'s worktree from the remote branch `from` the way Start does.
+    fn cut_from(repo: &str, dir: &Path, branch: &str, from: &str) -> Result<Base, BaseErr> {
+        let b = base_of(repo, from)?;
+        create_worktree(repo, dir, branch, "log", &b, Some(from), false).map(|_| b)
+    }
+
+    // Full start from a picked branch: the list comes from the remote now, the branch is fetched now and the worktree
+    // is cut from origin/<branch> (not from a local copy that is behind). Offline, a branch that is gone, no remote:
+    // stopped with why, never a stale copy or the default branch. A worktree kept from a removed flow is used again only
+    // for the branch it was cut from.
     #[test]
-    fn a_worktree_starts_from_the_fetched_default_branch() {
+    fn a_worktree_starts_from_the_picked_fetched_branch() {
         let root = std::env::temp_dir().join(format!("bobix-base-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         let r = |p: &Path| p.to_string_lossy().into_owned();
         let g = |dir: &Path, a: &[&str]| { let x = git(&r(dir), a); assert!(x.ok, "{a:?}: {}", x.err); x.out };
+        let commit = |dir: &Path, m: &str| g(dir, &["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", m]);
         let (up, me) = (root.join("up"), root.join("me"));
         fs::create_dir_all(&up).unwrap();
         g(&up, &["init", "-q", "-b", "trunk"]);
-        g(&up, &["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "one"]);
+        commit(&up, "one");
+        g(&up, &["branch", "develop"]);
         assert!(procs::exec("git", &["clone", "-q", &r(&up), &r(&me)], 30, &[]).ok);
-        g(&up, &["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "two"]);
-        let new = g(&up, &["rev-parse", "HEAD"]).trim().to_string();
-        let b = base_of(&r(&me)).unwrap();
-        assert_eq!((b.name.as_str(), b.commit.as_str(), b.fetched), ("origin/trunk", new.as_str(), true), "fetched first: the newest commit");
-        assert!(b.at.is_some());
+        // the remote moves on after the clone: develop gets a commit, and the local develop stays behind
+        g(&me, &["branch", "develop", "origin/develop"]);
+        g(&up, &["checkout", "-q", "develop"]);
+        commit(&up, "two on develop");
+        let new = g(&up, &["rev-parse", "develop"]).trim().to_string();
+        let old = g(&me, &["rev-parse", "develop"]).trim().to_string();
+        assert_ne!(new, old);
+        // the list is the remote's, asked now
+        assert_eq!(branches(&r(&me)).unwrap(), ["develop", "trunk"]);
+        let b = base_of(&r(&me), "develop").unwrap();
+        assert_eq!((b.name.as_str(), b.branch.as_str(), b.commit.as_str()), ("origin/develop", "develop", new.as_str()), "fetched now: the newest commit, not the local copy");
         let wt = root.join("me/.claude/worktrees/bobix-7");
-        assert_eq!(create_worktree(&r(&me), &wt, "7-x", "log").unwrap().commit, new);
+        assert_eq!(cut_from(&r(&me), &wt, "7-x", "develop").unwrap().commit, new);
+        assert_eq!(g(&wt, &["rev-parse", "HEAD"]).trim(), new, "HEAD is the commit of origin/develop");
         fs::write(wt.join(LOG_DIR).join(LOG_FILE), "my notes").unwrap();
-        assert!(create_worktree(&r(&me), &wt, "7-x", "log").is_ok(), "kept from a removed flow: used again");
+        assert!(cut_from(&r(&me), &wt, "7-x", "develop").is_ok(), "kept from a removed flow, cut from the same branch: used again");
         assert_eq!(fs::read_to_string(wt.join(LOG_DIR).join(LOG_FILE)).unwrap(), "my notes", "its log kept");
-        assert!(create_worktree(&r(&me), &wt, "8-other", "log").is_err(), "a folder there for another branch: refused");
-        // offline: the remote is gone; the last copy, and said so
+        // cut from another branch: not silently reused; said which, and the person can keep it
+        let t = base_of(&r(&me), "trunk").unwrap();
+        let e = create_worktree(&r(&me), &wt, "7-x", "log", &t, Some("develop"), false).unwrap_err();
+        assert_eq!((e.kind, e.detail.as_str()), ("otherbase", "develop"));
+        assert!(create_worktree(&r(&me), &wt, "7-x", "log", &t, Some("develop"), true).is_ok(), "use it anyway");
+        assert_eq!(create_worktree(&r(&me), &wt, "7-x", "log", &t, None, false).unwrap_err().kind, "otherbase", "a branch whose origin is not known is asked about too");
+        assert!(cut_from(&r(&me), &wt, "8-other", "develop").is_err(), "a folder there for another branch: refused");
+        // a branch that is not on the remote (any more)
+        assert_eq!(base_of(&r(&me), "nope").unwrap_err().kind, "gone");
+        // offline: the remote is gone; no stale list, no stale copy
         fs::rename(&up, root.join("up-away")).unwrap();
-        let b = base_of(&r(&me)).unwrap();
-        assert_eq!((b.commit.as_str(), b.fetched), (new.as_str(), false));
-        // no default branch: refused, not started from whatever is checked out
+        assert_eq!(branches(&r(&me)).unwrap_err().kind, "offline");
+        assert_eq!(base_of(&r(&me), "develop").unwrap_err().kind, "offline");
+        // no remote
         let lone = root.join("lone");
         fs::create_dir_all(&lone).unwrap();
         g(&lone, &["init", "-q"]);
-        g(&lone, &["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "x"]);
-        assert!(base_of(&r(&lone)).unwrap_err().contains("no remote"));
-        g(&lone, &["remote", "add", "origin", &r(&root.join("nowhere"))]);
-        assert!(base_of(&r(&lone)).unwrap_err().contains("no default branch"));
+        commit(&lone, "x");
+        assert_eq!(branches(&r(&lone)).unwrap_err().kind, "noremote");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    // After the cut Bobix checks HEAD is the commit of origin/<branch>; a mismatch removes the worktree and its branch.
+    #[test]
+    fn a_cut_on_the_wrong_commit_is_removed() {
+        let root = std::env::temp_dir().join(format!("bobix-head-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let repo = root.join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        let r = repo.to_string_lossy().into_owned();
+        for a in [&["init", "-q", "-b", "main"][..], &["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "one"]] { assert!(git(&r, a).ok); }
+        let dir = root.join("wt");
+        assert!(git(&r, &["worktree", "add", "-q", "-b", "7-x", &dir.to_string_lossy()]).ok);
+        let head = git(&r, &["rev-parse", "HEAD"]).out.trim().to_string();
+        assert_eq!(verify_cut(&r, &dir, "7-x", &head), Ok(()));
+        assert!(dir.exists());
+        let e = verify_cut(&r, &dir, "7-x", &"0".repeat(40)).unwrap_err();
+        assert_eq!(e.kind, "mismatch");
+        assert!(!dir.exists() && !git(&r, &["rev-parse", "--verify", "--quiet", "refs/heads/7-x"]).ok, "the worktree and its new branch are gone");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // The merge / pull request goes to the branch the ticket was cut from.
+    #[test]
+    fn the_merge_request_targets_the_base_branch() {
+        let f = Flow { base_branch: "develop".into(), ..Default::default() };
+        assert_eq!((target(&f, "--base"), target(&f, "--target-branch")), (vec!["--base", "develop"], vec!["--target-branch", "develop"]));
+        assert!(target(&Flow::default(), "--base").is_empty(), "a flow from before the branch was asked: the forge's own default, as before");
     }
 
     // The work log follows Bobix's language (kept per flow from its start); what the team reads stays English: the
@@ -1074,11 +1153,11 @@ mod tests {
         assert!(procs::exec("git", &["clone", "-q", &u, &repo.to_string_lossy()], 30, &[]).ok);
         let r = repo.to_string_lossy().to_string();
         let dir = worktree_dir(&r, 7, "g/r", "");
-        assert_eq!(create_worktree(&r, &dir, "7-add-subtract", "log").unwrap().name, "origin/main");
+        assert_eq!(cut_from(&r, &dir, "7-add-subtract", "main").unwrap().name, "origin/main");
         assert_eq!(read_log(&dir.to_string_lossy()).as_deref(), Some("log"));
         assert!(git(&dir.to_string_lossy(), &["status", "--porcelain"]).out.trim().is_empty(), "the log folder ignores itself");
         assert!(dir.starts_with(repo.join(".bobix").join("worktrees")) && git(&r, &["status", "--porcelain"]).out.trim().is_empty(), "the worktrees' folder ignores itself: the main folder's status stays clean");
-        assert!(create_worktree(&r, &dir, "8-other", "log").is_err(), "already there, for another branch");
+        assert!(cut_from(&r, &dir, "8-other", "main").is_err(), "already there, for another branch");
         assert_eq!(at_risk(&dir.to_string_lossy(), "7-add-subtract"), Some((0, 0)));
         fs::write(dir.join("new.txt"), "x").unwrap();
         assert_eq!(at_risk(&dir.to_string_lossy(), "7-add-subtract"), Some((1, 0)), "what would be lost is counted first");
@@ -1093,7 +1172,7 @@ mod tests {
         assert!(remove_worktree(&r, &dir.to_string_lossy(), false).is_err(), "work not committed: Clean up never forces");
         remove_worktree(&r, &dir.to_string_lossy(), true).unwrap();
         assert!(!dir.exists() && at_risk(&dir.to_string_lossy(), "7-add-subtract").is_none(), "Remove and delete the folder, after you saw it");
-        create_worktree(&r, &dir, "7-add-subtract", "log").unwrap();
+        cut_from(&r, &dir, "7-add-subtract", "main").unwrap();
         assert!(git(&dir.to_string_lossy(), &["-c", "user.email=demo@example.test", "-c", "user.name=demo", "commit", "-q", "--allow-empty", "-m", "work"]).ok);
         remove_worktree(&r, &dir.to_string_lossy(), false).unwrap();
         assert!(!dir.exists());
@@ -1101,7 +1180,7 @@ mod tests {
         assert_eq!(unpushed(&r, "7-add-subtract"), 1, "no remote has it");
         // the worktree deleted by hand (not with git): its branch and commit are still in the repository, so what is
         // not pushed is still said and Open MR still pushes it; a new Start makes the worktree again on that branch
-        let base = create_worktree(&r, &dir, "7-add-subtract", "log").unwrap().commit;
+        let base = cut_from(&r, &dir, "7-add-subtract", "main").unwrap().commit;
         fs::remove_dir_all(&dir).unwrap();
         let f = Flow { dir: dir.to_string_lossy().into(), repo: r.clone(), branch: "7-add-subtract".into(), base, ..Default::default() };
         assert_eq!((f.git_dir(), unpushed(f.git_dir(), &f.branch)), (r.as_str(), 1));
@@ -1110,7 +1189,7 @@ mod tests {
         assert_eq!(remove_worktree(&r, &dir.to_string_lossy(), false), Ok(()), "Clean up of a folder that is gone only forgets it");
         fs::create_dir_all(&dir).unwrap(); // git still lists the old one until pruned
         fs::remove_dir_all(&dir).unwrap();
-        create_worktree(&r, &dir, "7-add-subtract", "log").unwrap();
+        cut_from(&r, &dir, "7-add-subtract", "main").unwrap();
         assert_eq!(git(&dir.to_string_lossy(), &["rev-list", "--count", "HEAD", "--not", "origin/main"]).out.trim(), "1", "the same branch, its commit kept");
         // Claude cuts its own worktree from the main folder's HEAD: a commit of yours there that no remote has rides
         // along; it is counted (what Bobix shows at placement and in Open MR)
@@ -1122,7 +1201,7 @@ mod tests {
         assert!(git(&r, &["reset", "-q", "--hard", "HEAD~1"]).ok);
         // a branch with nothing committed on it is never pushed as an empty merge request
         let empty = worktree_dir(&r, 8, "g/r", "");
-        let b8 = create_worktree(&r, &empty, "8-nothing-yet", "log").unwrap().commit;
+        let b8 = cut_from(&r, &empty, "8-nothing-yet", "main").unwrap().commit;
         let f8 = Flow { dir: empty.to_string_lossy().into(), repo: r.clone(), branch: "8-nothing-yet".into(), base: b8, ..Default::default() };
         assert_eq!(open_mr("no-such-glab", "h", &f8, "t", "b"), Err("nocommits".into()));
         assert!(!git(&u, &["rev-parse", "--verify", "--quiet", "refs/heads/8-nothing-yet"]).ok);
@@ -1136,7 +1215,7 @@ mod tests {
         assert_eq!(move_kept(&r, 10, "g/r", "", "10-x", &worktree_dir(&r, 10, "g/r", "")), Ok(false));
         assert_eq!(move_kept(&r, 9, "g/r", "", "9-old-place", &to), Ok(true));
         assert!(!old.exists() && to.join("half-done.txt").is_file() && !to.to_string_lossy().contains(".claude"));
-        assert_eq!(create_worktree(&r, &to, "9-old-place", "log").map(|_| ()), Ok(()), "a new Start uses it there");
+        assert_eq!(cut_from(&r, &to, "9-old-place", "main").map(|_| ()), Ok(()), "a new Start uses it there");
         assert!(git(&r, &["status", "--porcelain"]).out.trim().is_empty());
         // a worktree deleted by hand holds only its own branch: git forgets that one, not another missing one
         let (a, b) = (root.join("away-a"), root.join("away-b"));
