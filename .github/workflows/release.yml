@@ -3,8 +3,9 @@
 # this workflow can be started by hand on any branch); a tag like v0.2.0 also attaches them to a GitHub Release (a tag
 # with "-" makes a pre-release). Each installed (or opened) app runs the smoke check; Windows and Linux install the last
 # Electron-based release first, so upgrading from it is checked too.
-# The app updates itself from signed update files (docs/development.md, "Update feed"): with the repository secrets
-# TAURI_SIGNING_PRIVATE_KEY (and its _PASSWORD) set, a build for a `v*` tag also signs its update file, attaches it and
+# The app updates itself from signed update files (docs/development.md, "Update feed"): with the secrets
+# TAURI_SIGNING_PRIVATE_KEY (and its _PASSWORD) set in the GitHub Environment `release` (which only `v*` tags may use),
+# a build for a `v*` tag also signs its update file, attaches it and
 # publishes the update lists (latest.json on a stable release, test.json on the "test-channel" release, for every tag).
 # The key reaches no other run: a develop push or a run by hand builds the installers as before, without update files.
 # A tag build without the secrets, with the placeholder public key, or whose tag is not package.json's version stops
@@ -21,6 +22,9 @@ permissions:
 
 jobs:
   build:
+    # Only a v* tag run joins the environment that holds the signing key; a develop push or a run by hand has no
+    # environment, so it needs nothing set up and gets no key.
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
