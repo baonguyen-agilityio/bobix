@@ -58,8 +58,8 @@ button{font:inherit;color:inherit}
 .card .st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink);min-width:0}
 /* What the tool works on, beside the status: one line, so the card holds still while tools run. */
 .card .row .st.live{flex:1;white-space:nowrap;overflow:hidden}
-/* The status gives way first (down to a few letters), then what the tool names; the badges beside them never move. */
-.card .st .stx{flex:0 100 auto;min-width:6ch;overflow:hidden;text-overflow:ellipsis}
+/* The status and what the tool names share what the badges leave (the status down to a few letters); the badges never move. */
+.card .st .stx{flex:0 1 auto;min-width:6ch;overflow:hidden;text-overflow:ellipsis}
 .card .st code{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal;font-size:var(--t-xs);margin-block:-1px}
 .card .st code.file{direction:rtl} /* too narrow for a path: the start goes (the ellipsis is on the left), the file name stays */
 .st-waiting .card .st{color:var(--accent-ink)}
