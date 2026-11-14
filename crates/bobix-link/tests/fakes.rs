@@ -292,7 +292,7 @@ async fn scenario_two_computers() {
     }
     for c in [&a, &b] {
         let cid = phone.command(c, body()).await.unwrap();
-        assert!(matches!(phone.wait_for(WAIT, |m| matches!(m, DesktopMsg::Result(r) if r.cid == cid && r.outcome == Outcome::Ok)).await, Some(_)));
+        assert!(phone.wait_for(WAIT, |m| matches!(m, DesktopMsg::Result(r) if r.cid == cid && r.outcome == Outcome::Ok)).await.is_some());
     }
     let homes: Vec<&String> = phone.log.iter().filter(|(_, m)| matches!(m, DesktopMsg::Home(_))).map(|(c, _)| c).collect();
     assert!(homes.contains(&&a) && homes.contains(&&b));
