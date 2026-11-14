@@ -21,6 +21,13 @@ updates:
     groups:
       cargo:
         patterns: ['*']
+  - package-ecosystem: cargo
+    directory: /relay
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ['*']
   - package-ecosystem: npm
     directory: /
     schedule:
