@@ -51,8 +51,9 @@ fn append(f: &Path, v: Value) {
 pub fn project_of(dir: &str) -> Option<String> {
     if dir.is_empty() { return None; }
     let p = Path::new(dir);
-    // <repo>/.claude/worktrees/<name>/…: the repository above it (by path parts, so "\\" and "/" both count)
-    let main = p.ancestors().find(|a| a.file_name().is_some_and(|n| n == "worktrees") && a.parent().and_then(Path::file_name).is_some_and(|n| n == ".claude"))
+    // <repo>/.claude/worktrees/<name>/… (Claude's worktrees) and <repo>/.bobix/worktrees/<name>/… (a ticket flow's):
+    // the repository above it (by path parts, so "\\" and "/" both count)
+    let main = p.ancestors().find(|a| a.file_name().is_some_and(|n| n == "worktrees") && a.parent().and_then(Path::file_name).is_some_and(|n| n == ".claude" || n == ".bobix"))
         .and_then(|w| w.parent()?.parent()).unwrap_or(p);
     main.ancestors().find(|d| d.join(".git").exists()).map(|d| d.to_string_lossy().into_owned())
 }
@@ -309,6 +310,10 @@ mod tests {
         fs::create_dir_all(repo.join(".claude/worktrees/bobix-7/src")).unwrap();
         let wt = repo.join(".claude").join("worktrees").join("bobix-7").join("src");
         assert!(project_of(&wt.to_string_lossy()).is_some_and(|p| crate::paths::same_dir(&p, &repo.to_string_lossy())), "a worktree is its repository");
+        let flow = repo.join(".bobix").join("worktrees").join("shop-7");
+        fs::create_dir_all(&flow).unwrap();
+        fs::write(flow.join(".git"), "gitdir: x\n").unwrap();
+        assert!(project_of(&flow.join("src").to_string_lossy()).is_some_and(|p| crate::paths::same_dir(&p, &repo.to_string_lossy())), "a ticket flow's worktree too");
         assert!(project_of(&repo.join("src").to_string_lossy()).is_some_and(|p| crate::paths::same_dir(&p, &repo.to_string_lossy())));
         assert_eq!(project_of(&d.to_string_lossy()), None);
         record(&d, "tests", Some(&repo.to_string_lossy()), "npm test", 5);

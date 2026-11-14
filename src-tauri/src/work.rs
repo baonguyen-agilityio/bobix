@@ -422,8 +422,9 @@ fn linked_issue(f: Forge, v: &Value) -> Option<Value> {
     Some(i)
 }
 
-// One session as the Work tab sees it: { id, path (GitLab project), dir, iid }.
-pub struct Live { pub id: String, pub path: Option<String>, pub dir: String, pub iid: Option<i64> }
+// One session as the Work tab sees it: { id, path (its repository's project), dir, iid and of (the issue it works on:
+// its number, and its project, which is another one than `path` when the issue's code is in this repository) }.
+pub struct Live { pub id: String, pub path: Option<String>, pub dir: String, pub iid: Option<i64>, pub of: Option<String> }
 
 // Issues by project, local repositories first (a session of theirs runs here), the rest "not on this machine". Each
 // issue gets `sessions`: the ids working on it. In progress first, then by due date, then newest.
@@ -434,7 +435,7 @@ pub fn group_issues(issues: &[Value], live: &[Live], known: &HashMap<String, Str
     let mut groups: indexmap::IndexMap<String, Vec<Value>> = Default::default();
     for i in issues {
         let p = i["project"].as_str().unwrap_or("").to_string();
-        let working: Vec<&str> = live.iter().filter(|s| s.path.as_deref() == Some(&p) && s.iid.is_some() && s.iid == i["iid"].as_i64()).map(|s| s.id.as_str()).collect();
+        let working: Vec<&str> = live.iter().filter(|s| s.of.as_deref() == Some(&p) && s.iid.is_some() && s.iid == i["iid"].as_i64()).map(|s| s.id.as_str()).collect();
         let mut x = i.clone();
         x["sessions"] = json!(working);
         groups.entry(p).or_default().push(x);
@@ -641,8 +642,8 @@ impl Work {
     pub fn view(&self, settings: &Value, m: &Model) -> Value {
         if !any_on(settings) { return json!({ "status": "off" }); }
         let live: Vec<Live> = m.sessions.iter().filter_map(|s| Some(Live { id: s.id.clone(), path: s.repo.as_ref().map(|r| r.to.path.clone()),
-            dir: s.dir.as_ref()?.to.path.clone(), iid: s.issue.as_ref().map(|i| i.to.iid) })).collect();
-        let works_on = |i: &Value| live.iter().any(|s| s.path.as_deref() == i["project"].as_str() && s.iid.is_some() && s.iid == i["iid"].as_i64());
+            dir: s.dir.as_ref()?.to.path.clone(), iid: s.issue.as_ref().map(|i| i.to.iid), of: s.issue.as_ref().map(|i| i.to.project.clone()) })).collect();
+        let works_on = |i: &Value| live.iter().any(|s| s.of.as_deref() == i["project"].as_str() && s.iid.is_some() && s.iid == i["iid"].as_i64());
         // one page of the ticked repositories' issues, newest first; an issue a session here works on stays on any page;
         // one read only because a session worked on it (linked) leaves with its last session
         let mut listed: Vec<&Value> = self.list(settings).into_iter().filter(|i| i["linked"] != true).collect();
@@ -778,13 +779,22 @@ rm -f "$d/runs/$$"
         assert_eq!(w.claim("/code/other", prompt), None, "another folder");
         assert_eq!(w.claim("/code/service", prompt).map(|x| x["path"].clone()), Some(json!("acme/web-shop")), "the issue's project names it, not the code's");
         assert!(w.new_for.is_empty() && w.claim("/code/service", prompt).is_none(), "taken once");
-        // Full: waits in the flow's worktree; Claude starts in the main folder, a Claude worktree there, or the worktree
-        for cwd in ["/code/service", "/code/service/.claude/worktrees/brave-otter", "/code/service/.claude/worktrees/bobix-401", "/code/service/.claude/worktrees/bobix-401/src"] {
-            w.wait_for("/code/service/.claude/worktrees/bobix-401", "/code/service", "acme/web-shop", 401, &title, &url);
-            assert_eq!(iid(w.claim(cwd, prompt)), Some(401), "{cwd}");
+        // Full: waits in the flow's worktree; Claude starts in that worktree, the main folder, or a Claude worktree there
+        // (and a start from before, in a worktree where Claude keeps its own)
+        for (dir, cwd) in [("/code/service/.bobix/worktrees/service-401", "/code/service/.bobix/worktrees/service-401"), ("/code/service/.bobix/worktrees/service-401", "/code/service/.bobix/worktrees/service-401/src"),
+            ("/code/service/.bobix/worktrees/service-401", "/code/service"), ("/code/service/.bobix/worktrees/service-401", "/code/service/.claude/worktrees/brave-otter"),
+            ("/code/service/.claude/worktrees/bobix-401", "/code/service"), ("/code/service/.claude/worktrees/bobix-401", "/code/service/.claude/worktrees/bobix-401/src"),
+            // the same folders as Windows spells them: git with "/", Claude with "\\", a trailing separator
+            ("C:/code/service\\.bobix\\worktrees\\service-401", "C:\\code\\service\\.bobix\\worktrees\\service-401\\"), ("C:/code/service\\.bobix\\worktrees\\service-401", "C:\\code\\service"),
+            ("C:/code/service\\.bobix\\worktrees\\service-401", "C:\\code\\service\\.claude\\worktrees\\brave-otter")] {
+            w.wait_for(dir, if dir.starts_with("C:") { "C:/code/service" } else { "/code/service" }, "acme/web-shop", 401, &title, &url);
+            assert_eq!(iid(w.claim(cwd, prompt)), Some(401), "{dir} <- {cwd}");
+            assert!(w.new_for.is_empty());
         }
-        w.wait_for("/code/service/.claude/worktrees/bobix-401", "/code/service", "acme/web-shop", 401, &title, &url);
+        w.wait_for("/code/service/.bobix/worktrees/service-401", "/code/service", "acme/web-shop", 401, &title, &url);
         assert_eq!(w.claim("/code/service-old", prompt), None, "a folder whose name only begins the same");
+        assert_eq!(w.claim("/code/service/.bobix/worktrees/service-402", prompt), None, "another flow's worktree");
+        assert_eq!(w.claim("/code/service/src", prompt), None, "a folder inside the main one");
         // the prompt edited: its link kept, or "#401 <title>" kept, is enough; "#401" alone is not
         assert_eq!(w.claim("/code/service", "#401 please"), None);
         assert_eq!(iid(w.claim("/code/service", "Look at https://gl.example.test/acme/web-shop/-/issues/401 first")), Some(401));
@@ -935,18 +945,22 @@ rm -f "$d/runs/$$"
     #[test]
     fn issues_count_the_sessions_on_them() {
         let issues = [json!({ "iid": 29, "project": "g/a", "title": "x", "labels": [], "due": null, "url": "u" })];
-        let live = |id: &str, p: &str, iid| Live { id: id.into(), path: Some(p.into()), dir: String::new(), iid: Some(iid) };
+        let live = |id: &str, p: &str, iid| Live { id: id.into(), path: Some(p.into()), dir: String::new(), iid: Some(iid), of: Some(p.into()) };
         let (local, away) = group_issues(&issues, &[], &HashMap::new());
         assert!(local.is_empty() && away[0]["issues"][0]["sessions"] == json!([]));
         let (local, _) = group_issues(&issues, &[live("s1", "g/a", 29), live("s2", "g/b", 29), live("s3", "g/a", 290)], &HashMap::new());
         assert_eq!(local[0]["issues"][0]["sessions"], json!(["s1"]), "same number in another project does not count");
+        // a session in g/b started for g/a's issue 29 (its code is in g/b): listed under that issue, and g/b's folder is its own
+        let cross = Live { id: "s4".into(), path: Some("g/b".into()), dir: "/src/b".into(), iid: Some(29), of: Some("g/a".into()) };
+        let (local, away) = group_issues(&issues, &[cross], &HashMap::new());
+        assert!(local.is_empty() && away[0]["issues"][0]["sessions"] == json!(["s4"]), "g/a has no folder here: the session's folder is g/b's");
     }
 
     #[test]
     fn issues_grouped_local_first() {
         let mk = |p: &str, iid: i64, due: Value| json!({ "iid": iid, "project": p, "title": format!("t{iid}"), "labels": [], "due": due, "url": format!("u{iid}") });
         let issues = [mk("g/away", 1, Value::Null), mk("g/here", 2, json!("2026-12-01")), mk("g/here", 3, json!("2026-11-10")), mk("g/here", 4, Value::Null)];
-        let live = [Live { id: "s".into(), path: Some("g/here".into()), dir: "/src/here".into(), iid: Some(4) }, Live { id: "x".into(), path: None, dir: "/tmp/x".into(), iid: None }];
+        let live = [Live { id: "s".into(), path: Some("g/here".into()), dir: "/src/here".into(), iid: Some(4), of: Some("g/here".into()) }, Live { id: "x".into(), path: None, dir: "/tmp/x".into(), iid: None, of: None }];
         let (local, away) = group_issues(&issues, &live, &HashMap::new());
         assert_eq!(local.len(), 1);
         assert_eq!((local[0]["path"].as_str(), local[0]["dir"].as_str()), (Some("g/here"), Some("/src/here")));

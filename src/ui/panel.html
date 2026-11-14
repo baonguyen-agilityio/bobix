@@ -1966,12 +1966,20 @@ function mrHTML(f) {
   if (!bridge || f.cleaned || f.status !== 'done' || !m?.open) return '';
   return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h', fw(f)))}</h3>
     ${unchecked(f) ? `<p class="risk">⚠ ${esc(T('tk.mr.nochecks', fw(f)))}</p>` : ''}
+    ${f.carried ? `<p class="risk">⚠ ${esc(T(f.carried === 1 ? 'tk.place.carried.1' : 'tk.place.carried', { ...fw(f), n: f.carried, b: f.branch }))}</p>` : ''}
     ${tkDet[f.key]?.mrReady === false ? `<div class="tk-warn tk-mr-en"><p><strong>${esc(T('tk.mr.noen.t', fw(f)))}</strong> ${esc(T('tk.mr.noen', fw(f)))}</p><div class="cmd"><code>${esc(MR_ASK)}</code><button class="btn sm" type="button" data-copy="${esc(MR_ASK)}">${esc(T('work.copy'))}</button></div></div>`
       : f.lang && f.lang !== 'en' ? `<p class="note">${esc(T('tk.mr.en', fw(f)))}</p>` : ''}
     <label class="tk-ch"><span>${esc(T('tk.mr.title'))}</span><input type="text" data-tk-mr-title="${k}" data-f="tkmt:${k}" value="${esc(m.title)}"></label>
     <label class="tk-ch"><span>${esc(T('tk.mr.body', fw(f)))}</span><textarea class="tk-prompt" rows="10" spellcheck="false" data-tk-mr-body="${k}" data-f="tkmb:${k}">${esc(m.body)}</textarea></label>
     <p class="note">${esc(T('tk.mr.note', { ...fw(f), b: f.branch }))}</p>
     <div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-mr-go="${k}"${m.busy ? ' disabled' : ''}>${esc(T(m.busy ? 'tk.mr.busy' : 'tk.mr.go', fw(f)))}</button><button class="btn" type="button" data-tk-mr-cancel="${k}">${esc(T('pd.cancel'))}</button></div></section>`;
+}
+// Claude opened the flow's session somewhere else than the worktree Bobix made (#188): said, with what it means. In a
+// worktree Claude made, the flow works there; in the repository's main folder the flow keeps its own worktree.
+function placeHTML(f) {
+  if (!f.place || f.cleaned) return '';
+  if (f.place === 'claude') return `<div class="tk-warn tk-place"><p><strong>${esc(T('tk.place.claude.t'))}</strong> ${esc(T('tk.place.claude', { ...fw(f), dir: home(f.dir), b: f.branch }))}${f.carried ? ' ' + esc(T(f.carried === 1 ? 'tk.place.carried.1' : 'tk.place.carried', { ...fw(f), n: f.carried, b: f.branch })) : ''}</p></div>`;
+  return `<div class="tk-warn tk-place"><p><strong>${esc(T('tk.place.main.t'))}</strong> ${esc(T('tk.place.main', { dir: home(f.dir) }))}${f.mixed ? ' ' + esc(T(f.mixed === 1 ? 'tk.place.mixed.1' : 'tk.place.mixed', { n: f.mixed })) : ''}</p></div>`;
 }
 function flowHTML(f, s) {
   const det = tkDetail(f), p = det?.parsed || f.parsed || {}, at = BOARD.FLOW.indexOf(BOARD.flowStep(f.status)), k = esc(f.key), asks = f.status === 'approve', held = asks && !!s?.answer && bridge;
@@ -1982,7 +1990,7 @@ function flowHTML(f, s) {
   return `${head(s ? pet(s, 'lg') : projectPet(f.path, 'lg'), `#${f.iid} ${f.title}`, `${f.path}${f.code ? ' → ' + f.code : ''} · ${T('tk.st.' + f.status)}`)}
     <div class="stg">${steps}<p class="why">${esc(T('tk.why.' + f.status))}</p></div>
     ${flowsHTML(f.path, f.iid, f.key)}
-    ${rmHTML(f)}${loading}
+    ${rmHTML(f)}${placeHTML(f)}${loading}
     ${asks ? `<div class="ask"><strong>${esc(T('tk.gate'))}</strong> ${esc(T('tk.gate.note'))}</div>` : ''}
     ${plan ? `<section class="b-sec"><h3>${esc(T('tk.plan'))}</h3>${asks ? `<div class="report md">${markdown(plan)}</div>` : moreHTML('tkp:' + f.key, markdown(plan), 'report md')}</section>` : ''}
     ${asks ? (held ? `<label class="tk-ch"><span>${esc(T('tk.change.l'))}</span><textarea rows="2" data-tk-text="${k}" data-f="tkch:${k}" placeholder="${esc(T('tk.change.ph'))}">${esc(tkChange[f.key] || '')}</textarea></label>
@@ -2001,7 +2009,8 @@ function flowHTML(f, s) {
     ${f.status === 'starting' && f.cmd ? `<section class="b-sec"><h3>${esc(T('tk.waiting'))}</h3><p class="note">${esc(T('tk.waiting.note'))}</p><div class="cmd"><code>${esc(f.cmd)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(f.cmd)}">${esc(T('work.copy'))}</button>` : ''}</div></section>` : ''}
     <section class="b-sec"><dl class="kv">
       <dt>${esc(T('tk.branch'))}</dt><dd><code>${esc(f.branch)}</code></dd>
-      <dt>${esc(T('tk.dir'))}</dt><dd><code>${esc(home(f.dir))}</code>${f.cleaned ? ` · ${esc(T('tk.cleaned'))}` : ''}</dd>
+      <dt>${esc(T('tk.dir'))}</dt><dd><code>${esc(home(f.dir))}</code>${f.place === 'claude' ? ` · ${esc(T('tk.dir.claude'))}` : ''}${f.cleaned ? ` · ${esc(T('tk.cleaned'))}` : ''}</dd>
+      ${f.own ? `<dt>${esc(T('tk.own'))}</dt><dd><code>${esc(home(f.own))}</code></dd>` : ''}
       <dt>${esc(T('tk.models'))}</dt><dd>${esc(modelsLine(f.models))}</dd>
       ${s ? `<dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>` : ''}</dl></section>
     ${bridge ? `<div class="acts" style="margin:0">${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `${f.status === 'done' && !f.mr && !tkMr[f.key]?.open ? `<button class="btn pri" type="button" data-tk-mr-open="${k}">${esc(T('tk.mr', fw(f)))}</button>` : ''}<button class="btn${f.status === 'done' && !f.mr ? '' : ' pri'}" type="button" data-tk-review="${k}">${esc(T('tk.review'))}</button><button class="btn" type="button" data-tk-review-cli="${k}">${esc(T('tk.review.cli'))}</button><button class="btn" type="button" data-tk-clean="${k}">${esc(T('tk.clean'))}</button>` : ''}
@@ -2182,7 +2191,7 @@ async function tkMrGo(key) {
   m.busy = false;
   const f = tickets.list.find(x => x.key === key);
   if (r?.ok) { delete tkMr[key]; toast(T('tk.mr.done', { ...fw(f), n: mrRef(r.url) })); }
-  else toast(T('tk.mr.fail', { ...fw(f), e: ['nogh', 'noglab', 'notdone'].includes(r?.error) ? T('tk.mr.e.' + r.error) : r?.error || '' }));
+  else toast(T('tk.mr.fail', { ...fw(f), e: ['nogh', 'noglab', 'notdone', 'nocommits'].includes(r?.error) ? T('tk.mr.e.' + r.error, { b: f?.branch || '' }) : r?.error || '' }));
   render();
 }
 // Remove…: Bobix checks first (is its session still open, what is not committed or pushed), shown in the details;
@@ -2194,6 +2203,7 @@ function rmHTML(f) {
   const risk = [r.exists ? '' : T('tk.rm.gone'), r.changed ? T(r.changed === 1 ? 'tk.rm.changed.1' : 'tk.rm.changed', { n: r.changed, dir: home(r.dir) }) : '', r.unpushed ? T(r.unpushed === 1 ? 'tk.rm.unpushed.1' : 'tk.rm.unpushed', { n: r.unpushed, b: r.branch }) : ''].filter(Boolean);
   return `<div class="tk-warn tk-rm"><p><strong>${esc(T(r.live ? 'tk.rm.liveT' : 'tk.rm.t'))}</strong> ${esc(T(r.live ? 'tk.rm.live' : 'tk.rm.why', { dir: home(r.dir) }))}</p>
     ${risk.length ? `<ul class="tk-as">${risk.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${r.left ? `<p class="note">${esc(T('tk.rm.left', { dir: home(r.left) }))}</p>` : ''}
     <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-tk-rm-keep="${k}" data-f="tkrm:${k}"${r.going ? ' disabled' : ''}>${esc(T(r.live ? 'tk.rm.stop' : 'tk.rm.keep'))}</button>${r.live || !r.exists ? '' : `<button class="btn sm danger" type="button" data-tk-rm-del="${k}"${r.going ? ' disabled' : ''}>${esc(T('tk.rm.del'))}</button>`}<button class="btn sm" type="button" data-tk-rm-no="${k}">${esc(T('pd.cancel'))}</button></div></div>`;
 }
 async function tkRmAsk(key) {
@@ -2207,16 +2217,17 @@ async function tkRmGo(key, act) {
   const f = tickets.list.find(x => x.key === key);
   if (!tkRm[key]) return;
   tkRm[key].going = true; render();
+  const made = tkRm[key].dir || f?.dir || ''; // the folder Bobix made: the only one it keeps or deletes
   const r = await bridge.ticketRemove(key, act).catch(e => ({ ok: false, error: String(e) }));
   delete tkRm[key];
-  toast(r?.ok ? T(act === 'keep' ? 'tk.rm.done.keep' : 'tk.rm.done.del', { n: f ? '#' + f.iid : '', dir: home(f?.dir || '') }) : T('tk.rm.fail', { e: r?.error === 'live' ? T('tk.rm.liveT') : r?.error || '' }));
+  toast(r?.ok ? T(act === 'keep' ? 'tk.rm.done.keep' : 'tk.rm.done.del', { n: f ? '#' + f.iid : '', dir: home(made) }) : T('tk.rm.fail', { e: r?.error === 'live' ? T('tk.rm.liveT') : r?.error || '' }));
   render();
 }
 async function tkClean(key, force) {
   const r = await bridge.ticketClean(key, force);
   if (r?.error === 'unpushed') { tkUnpushed[key] = r.n; render(); return document.querySelector('#b-dyn .tk-unpushed')?.scrollIntoView({ block: 'nearest' }); }
   delete tkUnpushed[key];
-  toast(r?.ok ? T('tk.cleaned.t') : T('tk.clean.fail', { e: r?.error === 'running' ? T('tk.st.running') : r?.error || '' }));
+  toast(r?.ok ? T(r.kept ? 'tk.cleaned.kept' : r.left ? 'tk.cleaned.left' : 'tk.cleaned.t', { dir: home(r.left || ''), own: home(r.kept || '') }) : T('tk.clean.fail', { e: r?.error === 'running' ? T('tk.st.running') : r?.error || '' }));
 }
 // What the session's work log says, in its details (the full view is under Work).
 function flowPaneHTML(s) {
