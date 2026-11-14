@@ -62,10 +62,10 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - Every action has a key, and ⌘K / Ctrl+K finds any action, session or screen.
 
 ### And
-- **Notifications** when a session needs approval or finishes, the number of sessions waiting for you on the menu bar or tray icon, **Do not disturb** for 30 or 60 minutes, an optional local log of your habits with Claude (opt-in, 30 days, never what you write), and a notification when a new version is out.
+- **Notifications** when a session needs approval or finishes, the number of sessions waiting for you on the menu bar or tray icon, **Do not disturb** for 30 or 60 minutes, an optional local log of your habits with Claude (opt-in, 30 days, never what you write), and a notification when a new version is out, which you can install from the app (it asks first).
 - **Stays out of your way**: pick the screen, edge, area, size and visibility; pets fade near the cursor and let clicks through.
 - **macOS, Windows and Linux**, in English and Vietnamese.
-- **Private by design**: runs locally, no account, nothing about you or your sessions sent anywhere. The only request it makes on its own is a daily check on GitHub for a new version, which you can turn off. See [Privacy](docs/privacy.md).
+- **Private by design**: runs locally, no account, nothing about you or your sessions sent anywhere. The only request it makes on its own is a daily read of GitHub's update list for a new version, which you can turn off; it downloads a new version only when you press Update. See [Privacy](docs/privacy.md).
 
 ## Install
 

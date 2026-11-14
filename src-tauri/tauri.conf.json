@@ -15,6 +15,16 @@
       "capabilities": []
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_THE_PUBLIC_KEY",
+      "requireSignedVersion": true,
+      "endpoints": [
+        "https://github.com/baonguyen-agilityio/bobix/releases/latest/download/latest.json",
+        "https://github.com/baonguyen-agilityio/bobix/releases/download/test-channel/test.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": [

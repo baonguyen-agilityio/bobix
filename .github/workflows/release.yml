@@ -3,6 +3,10 @@
 # this workflow can be started by hand on any branch); a tag like v0.2.0 also attaches them to a GitHub Release (a tag
 # with "-" makes a pre-release). Each installed (or opened) app runs the smoke check; Windows and Linux install the last
 # Electron-based release first, so upgrading from it is checked too.
+# The app updates itself from signed update files (docs/development.md, "Update feed"): with the repository secrets
+# TAURI_SIGNING_PRIVATE_KEY (and its _PASSWORD) set, each build also signs its update file; a tag build attaches them and
+# publishes the update lists (latest.json on a stable release, test.json on the "test-channel" release, for every tag).
+# Without the secrets the installers are built as before, and a tag build stops before it publishes anything.
 name: release
 on:
   push:
@@ -19,8 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, target: aarch64-apple-darwin, bundles: dmg, out: Bobix-mac-arm64.dmg, smoke: true }
-          - { os: macos-latest, target: x86_64-apple-darwin, bundles: dmg, out: Bobix-mac-x64.dmg }
+          - { os: macos-latest, target: aarch64-apple-darwin, bundles: dmg, make: 'app,dmg', out: Bobix-mac-arm64.dmg, smoke: true }
+          - { os: macos-latest, target: x86_64-apple-darwin, bundles: dmg, make: 'app,dmg', out: Bobix-mac-x64.dmg }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis, out: Bobix-windows-x64.exe, smoke: true }
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: deb, out: bobix-linux-amd64.deb, smoke: true }
           - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, bundles: deb, out: bobix-linux-arm64.deb }
@@ -70,13 +74,27 @@ jobs:
       - run: npm ci
       - name: Build the installer
         shell: bash
-        run: npm run tauri -- build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        run: |
+          cfg=()
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then cfg=(--config '{"bundle":{"createUpdaterArtifacts":true}}'); else echo "no signing key: no update files"; fi
+          npm run tauri -- build --ci --target ${{ matrix.target }} --bundles ${{ matrix.make || matrix.bundles }} "${cfg[@]}"
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Name it
         shell: bash
+        # The update file is the installer itself on Windows and Linux; on macOS it is the .app, zipped by Tauri, which it only
+        # makes when the app bundle is asked for next to the dmg (hence `make`).
         run: |
           ext="${OUT##*.}"
           mkdir -p out
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundles }}/*.$ext "out/$OUT"
+          bundle=src-tauri/target/${{ matrix.target }}/release/bundle
+          cp $bundle/${{ matrix.bundles }}/*.$ext "out/$OUT"
+          if [ "$ext" = dmg ]; then
+            cp $bundle/macos/*.app.tar.gz "out/${OUT%.dmg}.app.tar.gz" 2> /dev/null && cp $bundle/macos/*.app.tar.gz.sig "out/${OUT%.dmg}.app.tar.gz.sig" || echo "no update file"
+          else
+            cp $bundle/${{ matrix.bundles }}/*.$ext.sig "out/$OUT.sig" 2> /dev/null || echo "no update file"
+          fi
           ls -l out
         env:
           OUT: ${{ matrix.out }}
@@ -85,6 +103,13 @@ jobs:
           name: ${{ matrix.out }}
           path: out/${{ matrix.out }}
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bobix-update-${{ matrix.out }}
+          path: |
+            out/*.sig
+            out/*.app.tar.gz
+          if-no-files-found: ignore
 
       # ---------- macOS: the bundle, then the app itself ----------
       - name: macOS bundle
@@ -158,13 +183,33 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
           path: out
-          pattern: '[Bb]obix-*' # the installers, not the smoke reports
+          pattern: '[Bb]obix-*' # the installers and their update files, not the smoke reports
           merge-multiple: true
+      # Fails here, before anything is published, when an update file or its signature is missing.
+      - name: Update list
+        run: |
+          mkdir -p lists
+          node .github/scripts/update-manifest.mjs --dir out --tag "$GITHUB_REF_NAME" --base "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" --out lists/latest.json
+          cp lists/latest.json lists/test.json
       - uses: softprops/action-gh-release@v2
         with:
           files: out/*
           prerelease: ${{ contains(github.ref_name, '-') }} # v0.2.0-rc.1 → test build, not "latest"
+      # A stable release carries latest.json (releases/latest/download/latest.json is the stable list). Test builds read
+      # test.json on the pre-release "test-channel": the newest build of any kind, so a test build also sees a release.
+      - name: Publish the update lists
+        run: |
+          case "$GITHUB_REF_NAME" in *-*) ;; *) gh release upload "$GITHUB_REF_NAME" lists/latest.json --clobber ;; esac
+          gh release view test-channel > /dev/null 2>&1 || gh release create test-channel --prerelease --target "$GITHUB_SHA" --title "Update list for test builds" \
+            --notes "Not a version. This release only holds test.json, the list that Bobix reads when Settings → Get test builds is on. Install Bobix from the other releases."
+          gh release upload test-channel lists/test.json --clobber

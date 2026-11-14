@@ -50,6 +50,17 @@ Other Linux distributions aren't packaged yet.
 - On Wayland, Bobix restarts itself through XWayland so the pets stay on top. Set `BOBIX_WAYLAND=1` to keep native Wayland.
 - Through XWayland, Bobix sees the cursor only while it is on a pet, so **Fade when the cursor comes near** works only right next to a pet.
 
+## Updating
+
+Bobix tells you when a new version is out (Settings → **Tell me about new versions**, on by default) and updates itself, but only when you press **Update**: in a notification (macOS), the tray menu or Settings → App → Updates. It downloads the new version, checks its signature, tells you about held permission requests and running ticket flows, then installs and restarts. **Check now** (Settings → App → Updates) looks right away, also with the daily check off. Nothing about you is sent: see [Privacy](privacy.md).
+
+- **Test builds** (`-rc.N`) are offered only when Settings → **Get test builds** is on (off by default). Turning it off never installs an older version.
+- **macOS:** open Bobix from **Applications**. From the disk image, or from the folder a browser downloaded it to, it cannot replace itself and says so. The updated app opens without the "not notarized" warning; only the first, hand-made install shows it. If Bobix is in a folder only an administrator can write to, macOS asks for your password.
+- **Windows:** the installer runs for your user, shows a progress bar, and Bobix starts again.
+- **Linux:** the `.deb` is installed by your package manager, which asks for your password (a system prompt: `pkexec`, or `zenity` / `kdialog`). Where none is installed, or you decline, Bobix shows the release page link instead.
+- **Versions before the first one with the updater** (0.1.x and earlier test builds): install that first version by hand, as in step 1. From then on Bobix updates itself.
+- If an update fails (no network, a download that stops, a file that fails its signature check), nothing is installed and the version you have keeps working; the message says which. The link to the release page is always there.
+
 ## 3. Connect Claude Code
 
 The control panel opens on **Settings → Connect Claude Code** the first time.

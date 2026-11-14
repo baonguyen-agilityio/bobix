@@ -56,7 +56,7 @@ pub struct Core {
     pub pending: std::collections::HashMap<String, answers::Pending>, // held permission requests by answer id
     pub node_path: Option<String>,
     pub work: work::Work,
-    pub update: Option<(String, String)>, // a newer release: (version, its page)
+    pub update: update::Ui,               // a newer version, and where an update stands (update.rs)
     pub update_told: Option<String>,       // the version a notification was shown for
     pub main_errors: Vec<String>,          // last errors of the app itself, for feedback
     pub save_gen: u64,                     // settings saves are debounced: only the newest one writes
@@ -1018,32 +1018,11 @@ pub fn update_settings(b: &Arc<Bobix>, patch: Value) -> Value {
     answers::release_unseen(b);
     if changed("workRepos") || changed("workFilter") { b.core.lock().unwrap().work.page = 1; ask_issues(b); } // a new list: from its first page
     else { for f in work::FORGES { if changed(f.key()) { refresh_forge(b, f); } } }
-    if next["checkUpdates"] == true && prev["checkUpdates"] != true { let ub = b.clone(); thread::spawn(move || check_for_update(&ub)); }
-    if next["checkUpdates"] != true && b.core.lock().unwrap().update.take().is_some() { if let Some(app) = b.app.get() { tray::build(app, b); } }
+    if next["checkUpdates"] == true && prev["checkUpdates"] != true { let ub = b.clone(); tauri::async_runtime::spawn(async move { update::check(&ub, false).await; }); }
+    if next["checkUpdates"] != true && prev["checkUpdates"] == true { update::forget(b); }
+    if changed("testBuilds") { update::channel_changed(b); }
     if let Some(app) = b.app.get() { for w in [overlay::LABEL, panel::LABEL] { panel::emit(app, w, "settings", &next); } }
     next
-}
-
-// ---------- new version ----------
-// Once at start and then daily: ask GitHub for the latest release. A newer one shows a notification once per version
-// and a tray item that opens its release page.
-fn check_for_update(b: &Arc<Bobix>) {
-    let Some(app) = b.app.get() else { return };
-    if b.core.lock().unwrap().settings["checkUpdates"] != true { return; }
-    let current = app.package_info().version.to_string();
-    let Some((v, url)) = update::check_latest(&current) else { return };
-    let (tell, l) = {
-        let mut c = b.core.lock().unwrap();
-        if c.update.as_ref().is_some_and(|u| u.0 == v) { return; }
-        c.update = Some((v.clone(), url.clone()));
-        let tell = c.update_told.as_deref() != Some(v.as_str());
-        c.update_told = Some(v.clone());
-        (tell, lang(&c.settings))
-    };
-    tray::build(app, b);
-    if !tell { return; }
-    let note = notify::Note { title: i18n::t(&l, "update.title", &[("v", &v)]), body: i18n::t(&l, "update.body", &[("v", &current)]), sound: true, buttons: None, open: i18n::t(&l, "notify.open", &[]) };
-    notify::show(note, move |_| { let _ = tauri_plugin_opener::open_url(url, None::<&str>); });
 }
 
 // ---------- diagnostics and feedback ----------
@@ -1139,7 +1118,7 @@ fn state(b: B, app: AppHandle) -> Value {
         json!({ "id": name, "label": format!("{name} ({}×{})", (z.width as f64 / f).round(), (z.height as f64 / f).round()) })
     }).collect();
     json!({ "settings": c.settings, "version": version, "news": settings::news_for(&c.settings, &version, &i18n::NEWS), "platform": platform(),
-        "nodePath": c.node_path, "lastEventAt": c.last_event_at, "hooks": hooks::status(&paths::home()), "screen": screen, "displays": displays })
+        "update": c.update, "nodePath": c.node_path, "lastEventAt": c.last_event_at, "hooks": hooks::status(&paths::home()), "screen": screen, "displays": displays })
 }
 
 #[tauri::command]
@@ -1157,6 +1136,21 @@ async fn settings_reset(b: B<'_>) -> Result<Value, ()> {
     let mut patch = settings::defaults();
     { let c = b.core.lock().unwrap(); for k in ["language", "port", "autostart", "petImages", "guideSeen", "seenVersion", "tourSeen"] { patch[k] = c.settings[k].clone(); } }
     tauri::async_runtime::spawn_blocking(move || update_settings(&b, patch)).await.map_err(|_| ())
+}
+
+// Update (update.rs). act: check (Check now: works with the daily check off) | install (Update, or "Install and restart"
+// at the confirmation) | later (Not now) | page (the release page, in the browser). Answers at once; the page follows the
+// progress through its "update" channel.
+#[tauri::command]
+fn update_act(act: String, b: B) {
+    let b = b.inner().clone();
+    match act.as_str() {
+        "check" => { tauri::async_runtime::spawn(async move { update::check(&b, true).await; }); }
+        "install" => { tauri::async_runtime::spawn(update::install(b)); }
+        "later" => update::later(&b),
+        "page" => { let _ = tauri_plugin_opener::open_url(update::page_of(&b), None::<&str>); }
+        _ => {}
+    }
 }
 
 #[tauri::command]
@@ -1899,7 +1893,7 @@ fn pet_reset(id: String, b: B) -> Value {
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects"];
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -1996,7 +1990,7 @@ fn main() {
     let (tx, _) = broadcast::channel(4); // the pages only need the newest state (a page that lags gets the next one whole)
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
-            node_path: None, work: Default::default(), update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
+            node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
         tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
     });
     {
@@ -2010,7 +2004,7 @@ fn main() {
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
-            settings_set, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
+            settings_set, update_act, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove, usage_effects,
             pet_choose, pet_original, pet_save, pet_reset])
         .setup(move |app| {
@@ -2078,11 +2072,12 @@ fn main() {
             let ib = b.clone(); // does nothing while GitLab is off
             thread::spawn(move || loop { refresh_issues(&ib); thread::sleep(Duration::from_secs(300)); });
             let ub = b.clone();
-            thread::spawn(move || { thread::sleep(Duration::from_secs(15)); loop { check_for_update(&ub); thread::sleep(Duration::from_secs(24 * 3600)); } });
+            thread::spawn(move || { thread::sleep(Duration::from_secs(15)); loop { tauri::async_runtime::block_on(update::check(&ub, false)); thread::sleep(Duration::from_secs(24 * 3600)); } });
             if !has_hooks() { panel::show(&handle, &b, None, Some("setup".into()), None); } // first run: help connect Claude Code
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .build(tauri::generate_context!())
         .expect("error while starting Bobix")
         .run(move |app, e| match e {
@@ -2174,7 +2169,7 @@ mod snapshot_tests {
         ];
         work.wait_for("/src/shop", "/src/shop", "team/shop", 32, &json!("t32"), &Value::Null);
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: None, update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");

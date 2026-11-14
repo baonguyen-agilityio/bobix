@@ -30,6 +30,7 @@ h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.005em;text-wrap:balance}
 svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .note{margin:0;font-size:var(--t-xs);color:var(--ink-3)}
 .note.err{color:var(--accent-ink);font-weight:600}
+.upd{display:flex;flex-direction:column;gap:8px;align-items:flex-start;width:100%}.upd .note,.upd .acts{margin:0}.upd progress{width:100%;max-width:320px}
 .hot{color:var(--accent-ink);font-weight:600}
 
 /* buttons */
@@ -1040,7 +1041,6 @@ const SECTIONS = [
     { k: 'notifyDone', type: 'switch', dim: s => s.paused },
     { k: 'badge', type: 'switch', dim: s => !!dndLeft(s) },
     { k: 'sound', type: 'switch', dim: s => s.paused || (!s.notifyWaiting && !s.notifyDone) },
-    { k: 'checkUpdates', type: 'switch' },
   ]],
   ['set.section.stuck', [
     { k: 'stuckOn', type: 'switch' },
@@ -1070,12 +1070,42 @@ const SECTIONS = [
   ['set.section.app', [
     { k: 'language', type: 'seg', opts: () => [['auto', T('set.language.auto')], ['en', 'English'], ['vi', 'Tiếng Việt']] },
     { k: 'autostart', type: 'switch' },
+    { k: 'checkUpdates', type: 'switch' },
+    { k: 'testBuilds', type: 'switch' },
+    { k: 'update', type: 'update', wide: true },
   ]],
   ['set.section.advanced', [{ k: 'port', type: 'port' }, { k: 'reset', type: 'reset' }]],
 ];
 const ROWS = SECTIONS.flatMap(x => x[1]);
 const fill = (r, v) => `${((v - r.min) / (r.max - r.min)) * 100}%`;
 
+// Settings → Updates: where an update stands (src-tauri/src/update.rs). Nothing is downloaded until Update is pressed.
+function updateHTML() {
+  const u = state.update || {}, f = u.found, ph = u.phase || 'idle', v = f ? f.version : '';
+  const btn = (act, label, cls = '') => `<button class="btn${cls}" type="button" data-act="update-${act}">${esc(label)}</button>`;
+  const note = (txt, cls = '') => `<p class="note${cls}">${esc(txt)}</p>`;
+  const when = t => (new Date(t).toDateString() === new Date().toDateString() ? timeOf(t) : new Date(t).toLocaleString(LOCALE(), { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }));
+  let out = '';
+  if (ph === 'checking') out = note(T('update.checking'));
+  else if (ph === 'downloading') {
+    const pct = u.total ? Math.floor(u.done * 100 / u.total) : 0;
+    out = note(T('update.avail', { v })) + `<progress max="100" value="${pct}" aria-label="${esc(T('update.down', { p: pct + '%' }))}"></progress>` + note(T('update.down', { p: u.total ? pct + '%' : '' }));
+  } else if (ph === 'installing') out = note(T('update.installing'));
+  else if (ph === 'confirm') {
+    out = note(T('update.ready', { v })) + (u.held ? note(T('update.held', { n: u.held })) : '') + (u.flows ? note(T('update.flows', { n: u.flows })) : '')
+      + `<div class="acts">${btn('go', T('update.install'), ' pri')}${btn('later', T('update.notNow'))}</div>`;
+  } else {
+    if (u.error) out += note(T('update.err.' + u.error), ' err" role="alert');
+    if (f) {
+      out += note(T('update.avail', { v })) + (f.why ? note(T('update.why.' + f.why)) : '');
+      out += `<div class="acts">${f.why ? '' : btn('go', T('update.go', { v }), ' pri')}${btn('page', T('update.page'))}${btn('check', T('update.check'))}</div>`;
+    } else {
+      out += note(T('update.cur', { v: state.version }) + ' ' + (u.checked ? T('update.newest') + ' ' + T('update.checked', { t: when(u.checked) }) : T('update.never')));
+      out += `<div class="acts">${btn('check', T('update.check'))}${u.error ? btn('page', T('update.page')) : ''}</div>`;
+    }
+  }
+  return `<div class="upd">${out}</div>`;
+}
 function control(r, s) {
   const v = r.get ? r.get(s) : s[r.k], id = `f-${r.k}`;
   if (r.type === 'switch') return `<input type="checkbox" role="switch" class="sw" id="${id}" data-k="${r.k}" ${v ? 'checked' : ''}>`;
@@ -1104,6 +1134,7 @@ function control(r, s) {
     return `<div class="wdirs">${ds.map(([p, e]) => `<div class="wd"><span class="p">${esc(p)} <span class="badge">${esc(T('set.workDirs.' + e.how))}</span></span>
       <button class="btn sm" type="button" data-wk-forget="${esc(p)}">${esc(T('set.workDirs.forget'))}</button><code class="d" title="${esc(e.dir)}">${esc(home(e.dir))}</code></div>`).join('')}</div>`;
   }
+  if (r.type === 'update') return updateHTML();
   if (r.type === 'prices') return `${usageMeta.error ? `<p class="note err">${esc(T('set.prices.err', { e: usageMeta.error }))}</p>` : ''}<button class="btn" type="button" data-act="prices">${T('set.prices.open')}</button>`;
   if (r.type === 'port') return `<input type="number" id="${id}" min="1024" max="65535" value="${s.port}" aria-labelledby="l-port"><button class="btn" type="button" data-act="port">${T('set.port.apply')}</button>`;
   return `<button class="btn danger" type="button" data-act="reset">${T('set.reset')}</button>`;
@@ -1287,6 +1318,7 @@ $('#settings').addEventListener('click', async e => {
     toast(T('hab.set.wiped'));
     return $('#f-habitsOn')?.focus();
   }
+  if (t.dataset.act?.startsWith('update-')) return bridge.update(t.dataset.act.slice(7) === 'go' ? 'install' : t.dataset.act.slice(7));
   if (t.dataset.act === 'prices') return bridge.openPrices();
   if (t.dataset.act === 'port') {
     const v = Number($('#f-port').value);
@@ -2970,6 +3002,7 @@ function drawBar() {
 function showTab(name) {
   if (name === 'feedback') return openFeedback(); // from the tray, over whichever screen is open
   if (name === 'setup') { name = 'settings'; bsel.settings = 'setup'; }
+  if (name === 'update') { name = 'settings'; bsel.settings = 'set:app'; }
   if (!SCOPES.includes(name)) name = 'overview';
   scope = name; bq = ''; $('#bq').value = '';
   if (name === 'skills') loadSkillLists();
@@ -3321,6 +3354,7 @@ setInterval(() => list.some(s => s.answer) && render(), 1000); // countdown of a
     bridge.onSelect(select);
     bridge.onShowTab(showTab);
     bridge.onOpenFail(showHint);
+    bridge.onUpdate(u => { state.update = u; const el = $('[data-row="update"] .ctl'); if (el) el.innerHTML = updateHTML(); });
     bridge.onSettings(s => {
       if (JSON.stringify(s) === JSON.stringify(state.settings)) return; // our own save echoing back: keep the form as is (slider drag)
       const langChanged = s.language !== state.settings.language, habits = s.habitsOn !== state.settings.habitsOn;

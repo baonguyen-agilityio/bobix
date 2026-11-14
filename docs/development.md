@@ -60,6 +60,27 @@ npm run tauri build   # installers land in src-tauri's build folder, under bundl
 
 Installers have fixed names (`Bobix-mac-arm64.dmg`, `Bobix-mac-x64.dmg`, `Bobix-windows-x64.exe`, `bobix-linux-amd64.deb`, `bobix-linux-arm64.deb`), given by [the release workflow](../.github/workflows/release.yml), so `releases/latest/download/<name>` always serves the newest version. Keep the names there and the links in the READMEs and `docs/install.md` in step. Every push to `develop` builds them too: they are that run's artifacts on GitHub Actions, to try a build before it is released. Pull requests only run the smoke workflow; to try a PR's installers, start the release workflow by hand on its branch (Actions → release → Run workflow).
 
+## Update feed
+
+Bobix updates itself from signed update files ([update.rs](../src-tauri/src/update.rs), Tauri's updater plugin). The release workflow builds them next to the installers and a tag build publishes two update lists (a small JSON file naming the newest version, and for each system its file and signature):
+
+| List | Where | Who reads it |
+|---|---|---|
+| `latest.json` | attached to each stable release: `releases/latest/download/latest.json` | everyone |
+| `test.json` | attached to the pre-release `test-channel` (not a version: do not delete it, and never make it "latest"), replaced by every tag, stable or `-rc`: the newest build of any kind | only Settings → **Get test builds** on |
+
+Both URLs are `plugins.updater.endpoints` in `tauri.conf.json` (stable first, test second). The update files are named like the installers (`Bobix-mac-arm64.app.tar.gz`, `Bobix-windows-x64.exe`, `bobix-linux-amd64.deb` and their `.sig`); [`update-manifest.mjs`](../.github/scripts/update-manifest.mjs) writes the lists and a tag build stops, before it publishes anything, when a file or a signature is missing. The app installs only a version greater than the running one, so a test build is never a step back from a release, and a release is a step up from its own test builds.
+
+**Signing key (the owner's, never in the repository, a log or a session).**
+
+1. On your own computer: `npm run tauri signer generate -- -w ~/bobix-updater.key`. It makes the private key (that file, protected by the password you type) and a public key (`bobix-updater.key.pub`).
+2. Store the private key's contents as the repository Actions secret `TAURI_SIGNING_PRIVATE_KEY`, and the password as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep one backup of the key file and the password somewhere only you can open (a password manager).
+3. Put the public key's contents (it is not secret) in `plugins.updater.pubkey` of `tauri.conf.json`, replacing `REPLACE_WITH_THE_PUBLIC_KEY`, in a pull request. Until then a build announces new versions with the link only (it cannot install them).
+
+Without the secrets the workflow builds the installers as before, with no update files. **Rotating the key:** an installed Bobix checks signatures with the public key it was built with. Release one version that carries the **new** public key, signed with the **old** private key; once people are on it, sign with the new key. **If the private key is lost** with no such release made, no installed copy can update in-app again: publish a build with the new key, and tell people in the release notes to install it by hand (links in the [install guide](install.md)). The same hand install is needed once for anyone on a version from before the updater.
+
+**Try an update on your own computer** (nothing of yours is touched): make a throwaway key (`tauri signer generate -w <scratch>/k.key`), build two versions with `tauri build --debug --config <file>` where the file sets `version`, `bundle.createUpdaterArtifacts`, `plugins.updater` (`pubkey` of the throwaway key, `endpoints` of `http://127.0.0.1:<port>/latest.json` and `/test.json`, `dangerousInsecureTransportProtocol: true`), sign with `TAURI_SIGNING_PRIVATE_KEY`, write the lists with `update-manifest.mjs --partial --base http://127.0.0.1:<port>`, serve the folder and open the older build with a scratch `BOBIX_HOME`, `BOBIX_DATA_DIR` and `BOBIX_PORT`. Delete the key afterwards.
+
 ## Branches
 
 - **`main`** is the latest stable release and the default branch. It does not take direct changes: it moves to a new version only when that version is released as stable.
@@ -72,7 +93,7 @@ Installers have fixed names (`Bobix-mac-arm64.dmg`, `Bobix-mac-x64.dmg`, `Bobix-
 
 1. Bump `version` in `package.json` (the app reads it from there) on a branch such as `chore/release-0.2.0` cut from the branch you release from (`develop`, or `v1` for a v0.1.x fix), and open a pull request to that branch. Those branches are protected, so the bump cannot be pushed straight to them: the smoke checks run on the pull request and the owner merges it.
 2. When it has merged, tag the merge commit: `git fetch origin && git tag v0.2.0 origin/develop && git push origin v0.2.0` (`origin/v1` for a v0.1.x fix). Tags are not protected. The release workflow builds on macOS, Windows and Ubuntu and attaches the installers to a GitHub Release. A tag with a dash (`v0.2.0-rc.1`) makes a pre-release, which does not become "latest".
-3. Add release notes to the release.
+3. Add release notes to the release. The first release with the updater says so: copies before it (0.1.x and earlier test builds) update by hand once.
 4. For a release with changes people should know about, rewrite the tour's steps (`STEPS` in `src/ui/tour.js`, each pointing at a real element, with its `tour.<key>.title` / `.body` strings in EN and VI) and `NEWS` in `src/ui/i18n.js` before tagging: the panel walks everyone updating to that version through it once (Skip or Done marks it seen), never a new install; Setup → "Show the tour again" shows it again.
 
 ## CI

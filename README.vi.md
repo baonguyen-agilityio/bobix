@@ -65,7 +65,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - **Thông báo** khi session cần duyệt hoặc xong việc, số session đang chờ bạn duyệt trên biểu tượng ở thanh menu hoặc khay hệ thống, **Đừng làm phiền** 30 hoặc 60 phút, nhật ký thói quen làm việc với Claude lưu trên máy (tự bật, 30 ngày, không bao giờ lưu nội dung bạn viết), và thông báo khi có bản mới.
 - **Không vướng víu**: chọn màn hình, mép, vùng, kích thước và độ rõ; chú thú mờ đi khi chuột tới gần và để cú bấm đi xuyên qua.
 - **macOS, Windows và Linux**, tiếng Anh và tiếng Việt.
-- **Riêng tư từ thiết kế**: chạy trên máy bạn, không tài khoản, không gửi gì về bạn hay các session đi đâu. Yêu cầu mạng duy nhất Bobix tự làm là mỗi ngày hỏi GitHub có bản mới không, và bạn tắt được. Xem [Quyền riêng tư](docs/privacy.md).
+- **Riêng tư từ thiết kế**: chạy trên máy bạn, không tài khoản, không gửi gì về bạn hay các session đi đâu. Yêu cầu mạng duy nhất Bobix tự làm là mỗi ngày đọc danh sách cập nhật trên GitHub để biết có bản mới không, và bạn tắt được; Bobix chỉ tải bản mới khi bạn bấm Cập nhật. Xem [Quyền riêng tư](docs/privacy.md).
 
 ## Cài đặt
 
