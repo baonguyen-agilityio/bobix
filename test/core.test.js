@@ -729,6 +729,8 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   assert.equal(e.tool_response, undefined);
   assert.equal(e.bobix_claude_pid, 4242);
   assert.equal(e.bobix_host_session, 'local_test-1');
+  await run({ session_id: 's7', hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: '[scope] Negative results?', options: [{ label: 'Yes' }] }, { question: 'second' }] } });
+  assert.deepEqual(got[got.length - 1].e.tool_input, { questions: [{ question: '[scope] Negative results?' }] }, 'a question reaches the app, only its text');
   assert.deepEqual(JSON.parse(await run({ session_id: 's5', hook_event_name: 'SessionStart', source: 'startup' })), titled, 'a session title reaches Claude Code');
   assert.deepEqual(JSON.parse(await run({ session_id: 's6', hook_event_name: 'UserPromptSubmit', prompt: '#401 Checkout rounds totals wrong' })), byPrompt, 'and one given by the first prompt (#184)');
   srv.close();
