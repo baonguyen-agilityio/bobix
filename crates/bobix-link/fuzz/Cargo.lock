@@ -66,6 +66,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "crypto_box",
+ "curve25519-dalek",
  "ed25519-dalek",
  "getrandom 0.2.17",
  "hmac 0.12.1",

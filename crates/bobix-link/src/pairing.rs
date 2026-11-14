@@ -26,7 +26,7 @@ pub enum PairError {
 }
 
 /// `bobix://pair?r=<relay url>&a=<desktop auth key>&b=<desktop box key>&t=<one-time secret>`
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PairingCode {
     pub relay: String,
     pub desktop: PublicKeys,
@@ -34,16 +34,23 @@ pub struct PairingCode {
     pub secret: [u8; 32],
 }
 
+/// The part between the scheme and the first `/`, `?` or `#`; None when it could hide another host (userinfo,
+/// backslashes, spaces).
+fn authority(rest: &str) -> Option<&str> {
+    let a = rest.split(['/', '?', '#']).next()?;
+    (!a.is_empty() && !a.contains(['@', '\\', ' '])).then_some(a)
+}
+
 fn is_local(url: &str) -> bool {
-    let host = url.strip_prefix("ws://").unwrap_or("");
-    let host = host.split(['/', '?']).next().unwrap_or("");
+    let Some(host) = url.strip_prefix("ws://").and_then(authority) else { return false };
     let host = if let Some(rest) = host.strip_prefix('[') { rest.split(']').next().unwrap_or("") } else { host.rsplit_once(':').map_or(host, |h| h.0) };
     matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
-/// Whether a relay address may appear in a pairing code or in `relayMoved`.
+/// Whether a relay address may appear in a pairing code or in `relayMoved`: `wss://`, or plain `ws://` for a relay on
+/// localhost only. An address with userinfo (`ws://localhost@evil.example`) is refused.
 pub fn relay_url_ok(url: &str) -> bool {
-    url.starts_with("wss://") && url.len() > 6 || is_local(url)
+    url.strip_prefix("wss://").and_then(authority).is_some() || is_local(url)
 }
 
 fn encode_component(s: &str) -> String {
@@ -66,6 +73,13 @@ fn decode_component(s: &str) -> Option<String> {
         }
     }
     String::from_utf8(out).ok()
+}
+
+/// The one-time secret is left out: a log line must not carry it.
+impl std::fmt::Debug for PairingCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PairingCode").field("relay", &self.relay).field("desktop", &self.desktop).field("secret", &"<hidden>").finish()
+    }
 }
 
 impl PairingCode {
@@ -111,6 +125,9 @@ impl PairingCode {
         };
         let relay = decode_component(r.ok_or(PairError::Malformed)?).ok_or(PairError::Malformed)?;
         let desktop = PublicKeys { auth: key(a)?, boxk: key(b)? };
+        if crate::keys::is_low_order(&desktop.boxk) {
+            return Err(PairError::Malformed);
+        }
         PairingCode::with_secret(&relay, desktop, key(t)?)
     }
 
@@ -167,7 +184,8 @@ pub struct Hello {
     pub mac: String,
 }
 
-fn mac_input(desktop: &PublicKeys, phone: &PublicKeys, sign: &[u8], name: &str, rights: Rights) -> Vec<u8> {
+/// The bytes the `hello` MAC covers (also in the test vectors).
+pub fn hello_mac_input(desktop: &PublicKeys, phone: &PublicKeys, sign: &[u8], name: &str, rights: Rights) -> Vec<u8> {
     Fields::new("bobix-hello-v1")
         .field(&desktop.auth)
         .field(&desktop.boxk)
@@ -184,7 +202,7 @@ fn hmac(key: &[u8; 32]) -> Hmac<Sha256> {
 }
 
 /// The first 32 bytes of a pairing body are the phone's box public key; the rest is the sealed packet. The desktop
-/// needs the key to open the packet, and the MAC inside covers it.
+/// needs the key to open the packet; `PairingSession::on_hello` refuses a `hello` whose own (MACed) `boxk` differs.
 pub fn hello_body(phone_box_public: &[u8; 32], packet: &[u8]) -> Vec<u8> {
     [phone_box_public.as_slice(), packet].concat()
 }
@@ -198,7 +216,7 @@ impl Hello {
     pub fn new(code: &PairingCode, phone: &PublicKeys, sign: &SignPublic, name: &str, rights: Rights, versions: VersionRange) -> Self {
         let sign = sign.to_sec1();
         let mut m = hmac(&code.mac_key());
-        m.update(&mac_input(&code.desktop, phone, &sign, name, rights));
+        m.update(&hello_mac_input(&code.desktop, phone, &sign, name, rights));
         Hello {
             auth: b64(&phone.auth),
             boxk: b64(&phone.boxk),
@@ -219,9 +237,12 @@ impl Hello {
         };
         let phone = PublicKeys { auth, boxk };
         let mut m = hmac(&code.mac_key());
-        m.update(&mac_input(&code.desktop, &phone, &sign, &self.name, self.rights));
+        m.update(&hello_mac_input(&code.desktop, &phone, &sign, &self.name, self.rights));
         m.verify_slice(&mac).map_err(|_| PairError::Mac)?;
         let sign = SignPublic::from_sec1(&sign).map_err(|_| PairError::Hello)?;
+        if crate::keys::is_low_order(&boxk) {
+            return Err(PairError::Hello);
+        }
         if self.name.is_empty() || !is_plain_text(&self.name, MAX_NAME) || self.name.contains('\n') {
             return Err(PairError::Hello);
         }
@@ -291,14 +312,16 @@ impl PairingSession {
         }
     }
 
-    /// `hello` is what was opened from the pairing body, `from_id` the device id the relay says sent it. A `hello`
-    /// whose keys do not hash to `from_id`, or whose MAC fails, is `Err` and changes nothing.
-    pub fn on_hello(&mut self, hello: &Hello, from_id: &str, now_ms: u64) -> Result<Offer, PairError> {
+    /// `hello` is what was opened from the pairing body, `outer_box` the key in front of it (the one the packet was
+    /// opened with), `from_id` the device id the relay says sent it. A `hello` whose keys do not hash to `from_id`,
+    /// whose own `boxk` is not `outer_box`, or whose MAC fails, is `Err` and changes nothing: the desktop keeps one
+    /// phone box key.
+    pub fn on_hello(&mut self, hello: &Hello, outer_box: &[u8; 32], from_id: &str, now_ms: u64) -> Result<Offer, PairError> {
         if matches!(self.status(now_ms), PairStatus::Expired | PairStatus::Cancelled | PairStatus::Done | PairStatus::Confirmed) {
             return Err(PairError::Expired);
         }
         let (phone, sign) = hello.verify(&self.code)?;
-        if phone.device_id() != from_id {
+        if phone.device_id() != from_id || &phone.boxk != outer_box {
             return Err(PairError::Hello);
         }
         match self.first {

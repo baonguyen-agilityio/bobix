@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 struct Item {
+    session: String,
     what: DetailKind,
     text: String,
     cut: bool,
@@ -50,13 +51,14 @@ pub struct Desktop {
 const COMPUTER_NAME: &str = "Studio Mac (demo)";
 
 fn items_for(s: Scenario) -> HashMap<String, Item> {
-    let tool = |text: &str, cut: bool, risky: bool| Item { what: DetailKind::ToolInput, text: text.into(), cut, risky, questions: vec![] };
+    let tool = |text: &str, cut: bool, risky: bool| Item { session: "s1".into(), what: DetailKind::ToolInput, text: text.into(), cut, risky, questions: vec![] };
     let mut m = HashMap::new();
     m.insert("req1".into(), tool("npm test -- --watch=false", false, false));
-    m.insert("plan1".into(), Item { what: DetailKind::Plan, text: "# Plan\n\n1. Add the retry\n2. Test it\n".into(), cut: false, risky: false, questions: vec![] });
+    m.insert("plan1".into(), Item { session: "s1".into(), what: DetailKind::Plan, text: "# Plan\n\n1. Add the retry\n2. Test it\n".into(), cut: false, risky: false, questions: vec![] });
     m.insert(
         "q1".into(),
         Item {
+            session: "s1".into(),
             what: DetailKind::Question,
             text: "Which database?".into(),
             cut: false,
@@ -64,7 +66,7 @@ fn items_for(s: Scenario) -> HashMap<String, Item> {
             questions: vec![Question { text: "Which database?".into(), options: vec!["SQLite".into(), "Postgres".into()], multi_select: false }],
         },
     );
-    m.insert("lines1".into(), Item { what: DetailKind::LastLines, text: "ran 12 tests\nall passed".into(), cut: false, risky: false, questions: vec![] });
+    m.insert("lines1".into(), Item { session: "s1".into(), what: DetailKind::LastLines, text: "ran 12 tests\nall passed".into(), cut: false, risky: false, questions: vec![] });
     match s {
         Scenario::LongCommand => {
             m.insert("req1".into(), tool(&format!("cat <<'EOF'\n{}", "x".repeat(MAX_TOOL_INPUT - 16) + "\nEOF"), false, false));
@@ -80,7 +82,7 @@ fn items_for(s: Scenario) -> HashMap<String, Item> {
             while plan.len() < MAX_PLAN - 40 {
                 plan.push_str("- step: change a file and run its tests\n");
             }
-            m.insert("plan1".into(), Item { what: DetailKind::Plan, text: plan, cut: false, risky: false, questions: vec![] });
+            m.insert("plan1".into(), Item { session: "s1".into(), what: DetailKind::Plan, text: plan, cut: false, risky: false, questions: vec![] });
         }
         Scenario::OddInput => {
             m.insert("req1".into(), tool("ls \u{202e}gpj.sh\u{200b}\nrm secret", false, true));
@@ -169,7 +171,7 @@ impl Desktop {
         let mut link = new_link(Direction::ToPhone, &self.id, phone_box);
         let Ok(opened) = link.open(packet) else { return Flow::Go };
         let Ok(PhoneMsg::Hello(hello)) = PhoneMsg::from_json(&opened.plaintext) else { return Flow::Go };
-        match self.pairing.on_hello(&hello, from, now_ms()) {
+        match self.pairing.on_hello(&hello, &phone_box, from, now_ms()) {
             Err(e) => self.note(format!("hello refused: {e:?}")),
             Ok(Offer::Duplicate) => {}
             Ok(Offer::New { phone, sign, name, rights, .. }) => {
@@ -344,14 +346,18 @@ impl Desktop {
                 }
             }
             PhoneMsg::Detail { id } => {
-                if let Some(d) = self.detail(&id) {
+                let activity_only = self.items.get(&id).is_some_and(|i| i.what == DetailKind::LastLines);
+                if activity_only && !self.phones[from].rights.activity {
+                    // A session's last lines go only to a phone with the "see session activity" right.
+                    self.tell(from, &DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }).await;
+                } else if let Some(d) = self.detail(&id) {
                     self.tell(from, &DesktopMsg::Detail(d)).await;
                 }
             }
             PhoneMsg::StartPreview { project, iid, mode } => {
                 let prompt = format!("Implement ticket {iid} of {project} in {mode:?} mode.\nKeep the change small and add a test.");
                 let (known, disk) = (self.scenario != Scenario::FolderMissing, if self.scenario == Scenario::LowDisk { 40_000_000 } else { 80_000_000_000 });
-                let m = DesktopMsg::StartPrompt(StartPrompt { project, iid, mode, prompt_hash: shown_hash(&prompt), prompt, folder_known: known, free_disk: disk });
+                let m = DesktopMsg::StartPrompt(StartPrompt { project, iid, mode, prompt_hash: prompt_hash(&prompt), prompt, folder_known: known, free_disk: disk });
                 self.tell(from, &m).await;
             }
             PhoneMsg::Cmd(cmd) => {
@@ -378,8 +384,7 @@ impl Desktop {
 
     fn detail(&self, id: &str) -> Option<Detail> {
         let i = self.items.get(id)?;
-        let (text, odd) = visible_escapes(&i.text);
-        Some(Detail { id: id.into(), what: i.what, shown: shown_hash(&text), text, odd, cut: i.cut, questions: i.questions.clone() })
+        Some(Detail::build(id, i.what, &i.text, i.cut, i.questions.clone()))
     }
 
     /// The decision for a verified or refused command.
@@ -411,12 +416,12 @@ impl Desktop {
         if !allowed {
             return CmdResult::refused(&cmd.cid, "right");
         }
-        let held = |id: &str| self.detail(id).map(|d| d.text);
+        let held = |id: &str| self.detail(id);
         let ok = CmdResult::new(&cmd.cid, Outcome::Ok);
         match &body {
             CommandBody::Answer { id, choice, shown } => {
-                let Some(text) = held(id) else { return CmdResult::refused(&cmd.cid, "unknown") };
-                if !command::shown_matches(&text, shown) {
+                let Some(item) = held(id) else { return CmdResult::refused(&cmd.cid, "unknown") };
+                if !command::shown_matches(&item, shown) {
                     return CmdResult::new(&cmd.cid, Outcome::Stale);
                 }
                 match self.scenario {
@@ -436,12 +441,12 @@ impl Desktop {
                 match self.scenario {
                     Scenario::FolderMissing => CmdResult::refused(&cmd.cid, "folder"),
                     Scenario::LowDisk => CmdResult::refused(&cmd.cid, "disk"),
-                    _ if &shown_hash(&prompt) != prompt_hash => CmdResult::new(&cmd.cid, Outcome::Stale),
+                    _ if bobix_link::messages::prompt_hash(&prompt) != *prompt_hash => CmdResult::new(&cmd.cid, Outcome::Stale),
                     _ => ok,
                 }
             }
             // Only a session that waits on a held request can be stopped (deny with interrupt).
-            CommandBody::Stop { request, .. } if self.items.contains_key(request) => ok,
+            CommandBody::Stop { session, request } if self.items.get(request).is_some_and(|i| &i.session == session) => ok,
             CommandBody::Stop { .. } => CmdResult::refused(&cmd.cid, "not-held"),
         }
     }

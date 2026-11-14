@@ -17,10 +17,14 @@ fuzz_target!(|data: &[u8]| {
     let _ = receiver.open(data);
     // A genuine packet with the fuzzer's bytes xored over it must never open as something else.
     let sender = link(Direction::ToPhone, 1, 2);
-    let mut packet = sender.seal_with(Stream::Event, 7, b"{\"kind\":\"paired\"}");
+    const PLAIN: &[u8] = b"{\"kind\":\"paired\"}";
+    let mut packet = sender.seal_with(Stream::Event, 7, PLAIN);
     for (i, b) in data.iter().enumerate() {
         let n = packet.len();
         packet[i % n] ^= b;
     }
-    let _ = receiver.open(&packet);
+    // Whatever the fuzzer changed, a packet either fails to open or is the original, with its original header.
+    if let Ok(o) = receiver.open(&packet) {
+        assert_eq!((o.plaintext.as_slice(), o.counter, o.stream), (PLAIN, 7, Stream::Event));
+    }
 });

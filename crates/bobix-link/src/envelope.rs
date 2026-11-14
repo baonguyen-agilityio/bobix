@@ -124,7 +124,8 @@ pub struct Header {
 pub enum OpenError {
     /// Shorter than a nonce and a tag.
     Short,
-    /// The version byte is outside the accepted range; says which side must update.
+    /// The packet authenticated but carries a version outside the accepted range; says which side must update.
+    /// Never returned for a packet that did not authenticate.
     Version(Update),
     /// The lane byte is not a known direction and stream.
     Lane,
@@ -169,22 +170,29 @@ pub fn seal_with_tail(
     [nonce.as_slice(), &ct].concat()
 }
 
-/// Reads and checks the cleartext part of a packet without opening it: length, version, lane. `receives` is the
-/// direction the receiver sends in; a packet in that direction is refused.
-pub fn peek(accepted: &VersionRange, receiver_sends: Direction, packet: &[u8]) -> Result<Header, OpenError> {
+/// Reads the cleartext part of a packet without opening it: length, lane, counter. `receiver_sends` is the direction
+/// the receiver sends in; a packet in that direction is refused. The version byte is only reported here: nothing
+/// unauthenticated may decide "which side must update", so `check_version` runs after `open` succeeded.
+pub fn peek(receiver_sends: Direction, packet: &[u8]) -> Result<Header, OpenError> {
     if packet.len() < NONCE_LEN + TAG_LEN {
         return Err(OpenError::Short);
     }
     let version = packet[0];
-    if !accepted.contains(version) {
-        return Err(OpenError::Version(accepted.outside(version)));
-    }
     let lane = Lane::from_byte(packet[1]).ok_or(OpenError::Lane)?;
     if lane.dir == receiver_sends {
         return Err(OpenError::Reflected);
     }
     let counter = u64::from_be_bytes(packet[2..10].try_into().expect("8 bytes"));
     Ok(Header { version, lane, counter })
+}
+
+/// For a packet that authenticated: is its version one we understand, and if not, which side must update?
+pub fn check_version(accepted: &VersionRange, version: u8) -> Result<(), OpenError> {
+    if accepted.contains(version) {
+        Ok(())
+    } else {
+        Err(OpenError::Version(accepted.outside(version)))
+    }
 }
 
 /// Opens a packet that `peek` accepted. Anything that does not authenticate is `Decrypt`.

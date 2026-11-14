@@ -70,8 +70,15 @@ pub fn verify_auth(auth_public: &[u8; 32], msg: &[u8], sig: &[u8]) -> bool {
     key.verify_strict(msg, &ed25519_dalek::Signature::from_bytes(&sig)).is_ok()
 }
 
-pub fn box_public(bytes: [u8; 32]) -> PublicKey {
-    PublicKey::from(bytes)
+/// True for the small-order points of Curve25519: a Diffie-Hellman with one of them gives an all-zero secret, so
+/// whoever chose the key could read and forge every packet of the pair. Any clamped scalar shows it.
+pub fn is_low_order(public: &[u8; 32]) -> bool {
+    curve25519_dalek::MontgomeryPoint(*public).mul_clamped([9u8; 32]).0 == [0u8; 32]
+}
+
+/// A box public key from outside (a QR code, a `hello`), refused when it is of low order.
+pub fn box_public(bytes: [u8; 32]) -> Option<PublicKey> {
+    (!is_low_order(&bytes)).then(|| PublicKey::from(bytes))
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

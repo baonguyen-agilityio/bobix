@@ -119,14 +119,31 @@ fn length_prefixes_keep_neighbouring_fields_apart() {
 
 #[test]
 fn shown_must_match_what_the_desktop_holds() {
-    let text = "rm -rf build";
-    let shown = shown_hash(text);
-    assert!(command::shown_matches(text, &shown));
-    assert!(!command::shown_matches("rm -rf /", &shown));
-    // the same hash is what `detail` carries
-    let (escaped, odd) = visible_escapes(text);
-    assert!(!odd);
-    assert_eq!(shown_hash(&escaped), shown);
+    let held = Detail::build("r1", DetailKind::ToolInput, "rm -rf build", false, vec![]);
+    assert!(command::shown_matches(&held, &held.shown));
+    // what the phone was shown is the text as displayed; the desktop recomputes from what it holds
+    assert!(!command::shown_matches(&Detail::build("r1", DetailKind::ToolInput, "rm -rf /", false, vec![]), &held.shown));
+    let odd = Detail::build("r1", DetailKind::ToolInput, "ls \u{202e}x", false, vec![]);
+    assert!(odd.odd && command::shown_matches(&odd, &odd.shown), "an item with hidden characters is not stale against its own hash");
+}
+
+#[test]
+fn shown_covers_the_options_their_order_and_cut() {
+    let q = |opts: &[&str]| vec![Question { text: "Which?".into(), options: opts.iter().map(|s| s.to_string()).collect(), multi_select: false }];
+    let base = Detail::build("q1", DetailKind::Question, "Which?", false, q(&["SQLite", "Postgres"]));
+    for changed in [
+        Detail::build("q1", DetailKind::Question, "Which?", false, q(&["Postgres", "SQLite"])), // order
+        Detail::build("q1", DetailKind::Question, "Which?", false, q(&["SQLite", "Postgres", "Other"])), // options
+        Detail::build("q1", DetailKind::Question, "Which?", true, q(&["SQLite", "Postgres"])), // cut
+        Detail::build("q1", DetailKind::Question, "Which?", false, vec![Question { multi_select: true, ..q(&["SQLite", "Postgres"]).remove(0) }]),
+    ] {
+        assert!(!command::shown_matches(&changed, &base.shown));
+    }
+    assert!(command::shown_matches(&base, &base.shown));
+    // a boundary between two options cannot be moved: ["ab", "c"] is not ["a", "bc"]
+    let a = Detail::build("q", DetailKind::Question, "t", false, q(&["ab", "c"]));
+    let b = Detail::build("q", DetailKind::Question, "t", false, q(&["a", "bc"]));
+    assert_ne!(a.shown, b.shown);
 }
 
 #[test]
@@ -171,13 +188,13 @@ fn desktop_messages_round_trip_with_documented_names() {
     assert_eq!(v["groups"][0]["group"], "needsYou");
 
     let detail = DesktopMsg::Detail(Detail {
-        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls"), odd: false, cut: false, questions: vec![],
+        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![],
     });
     assert_eq!(round_trip(&detail)["what"], "toolInput");
 
     let prompt = DesktopMsg::StartPrompt(StartPrompt {
         project: "demo".into(), iid: "12".into(), mode: Mode::Quick, prompt: "Do it".into(),
-        prompt_hash: shown_hash("Do it"), folder_known: true, free_disk: 5_000_000_000,
+        prompt_hash: prompt_hash("Do it"), folder_known: true, free_disk: 5_000_000_000,
     });
     let v = round_trip(&prompt);
     assert_eq!((v["kind"].as_str(), v["promptHash"].is_string(), v["folderKnown"].as_bool()), (Some("startPrompt"), true, Some(true)));
@@ -364,7 +381,8 @@ fn hello_travels_sealed_to_the_desktop_with_the_phone_box_key_in_front() {
 }
 
 fn offer(s: &mut PairingSession, h: &Hello, id: &str, now: u64) -> Result<Offer, PairError> {
-    s.on_hello(h, id, now)
+    let outer: [u8; 32] = bobix_link::b64_decode(&h.boxk).unwrap().try_into().unwrap();
+    s.on_hello(h, &outer, id, now)
 }
 
 #[test]
@@ -493,4 +511,55 @@ fn frames_are_cut_at_256_kib_and_the_body_stays_opaque() {
 fn pairing_keys_are_public_keys_only() {
     let k: PublicKeys = world().desktop.public();
     assert_eq!(k.device_id().len(), 32);
+}
+
+#[test]
+fn the_outer_hello_key_must_be_the_macd_box_key() {
+    let w = world();
+    let mut s = PairingSession::new(code(&w), NOW);
+    let h = hello(&w, s.code(), "Pixel", rights());
+    let other = Identity::generate().public().boxk; // the packet was opened with another key than the one the MAC covers
+    assert_eq!(s.on_hello(&h, &other, &w.phone.device_id(), NOW), Err(PairError::Hello));
+    assert_eq!(s.status(NOW), PairStatus::Open, "nothing changed");
+    let own: [u8; 32] = bobix_link::b64_decode(&h.boxk).unwrap().try_into().unwrap();
+    assert!(matches!(s.on_hello(&h, &own, &w.phone.device_id(), NOW), Ok(Offer::New { .. })));
+}
+
+#[test]
+fn low_order_keys_in_a_code_or_a_hello_are_refused() {
+    let w = world();
+    let mut zero = w.desktop.public();
+    zero.boxk = [0; 32];
+    let uri = PairingCode::with_secret("wss://r.example", zero, [1; 32]).unwrap().to_uri();
+    assert_eq!(PairingCode::parse(&uri), Err(PairError::Malformed));
+    // a hello with a zero box key and a valid MAC (a phone that knows the code secret)
+    let c = code(&w);
+    let mut keys = w.phone.public();
+    keys.boxk = [0; 32];
+    let h = Hello::new(&c, &keys, &w.signer.public(), "Pixel", rights(), VersionRange::current());
+    assert_eq!(h.verify(&c).unwrap_err(), PairError::Hello);
+}
+
+#[test]
+fn a_relay_address_cannot_hide_another_host_behind_userinfo() {
+    for bad in [
+        "ws://localhost:80@evil.example/x", "ws://127.0.0.1:1@evil.example", "ws://[::1]@evil.example", "ws://localhost\\@evil.example",
+        "wss://user@relay.example", "wss://relay.example@evil.example/x", "ws://localhost @evil.example", "ws://", "wss://", "wss:///x",
+    ] {
+        assert!(!relay_url_ok(bad), "{bad}");
+    }
+    for ok in ["wss://relay.example", "wss://relay.example:8443/ws?a=b", "ws://localhost:8787", "ws://127.0.0.1", "ws://[::1]:9/x"] {
+        assert!(relay_url_ok(ok), "{ok}");
+    }
+}
+
+#[test]
+fn the_pairing_secret_is_not_printed_by_debug() {
+    let w = world();
+    let c = code(&w);
+    let shown = format!("{c:?} {:?}", PairingSession::new(c.clone(), NOW).code());
+    for secret in [bobix_link::hex(&c.secret), bobix_link::b64(&c.secret), format!("{:?}", c.secret)] {
+        assert!(!shown.contains(&secret));
+    }
+    assert!(shown.contains("<hidden>"));
 }

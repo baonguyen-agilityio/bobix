@@ -158,8 +158,8 @@ pub fn verify(ctx: &VerifyCtx, cmd: &Command) -> Result<CommandBody, Refusal> {
 }
 
 /// False when what the phone says it was shown differs from what the desktop holds now: the answer is `stale`.
-pub fn shown_matches(held_text: &str, shown: &str) -> bool {
-    crate::messages::shown_hash(held_text) == shown
+pub fn shown_matches(held: &crate::messages::Detail, shown: &str) -> bool {
+    held.shown_now() == shown
 }
 
 /// The desktop's reply to `sync { waiting }`: the stored result of each command it knows, and `unknown` for the

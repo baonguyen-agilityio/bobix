@@ -60,6 +60,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "crypto_box",
+ "curve25519-dalek",
  "ed25519-dalek",
  "futures-util",
  "getrandom 0.2.17",

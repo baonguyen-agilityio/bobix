@@ -21,15 +21,17 @@ pub struct SendCounter {
 
 impl SendCounter {
     pub fn resume(stored_reservation: u64, now_unix_ms: u64) -> Self {
-        SendCounter { next: stored_reservation.max(now_unix_ms), stored: stored_reservation }
+        // A stored value in the top half of u64 is corrupt (the clock is ~2^41): it is treated like a lost file.
+        let stored = if stored_reservation > u64::MAX / 2 { 0 } else { stored_reservation };
+        SendCounter { next: stored.max(now_unix_ms), stored }
     }
 
     /// The counter to use, and `Some(value)` when `value` must be stored before the packet leaves.
     pub fn take(&mut self) -> (u64, Option<u64>) {
         let c = self.next;
-        self.next += 1;
+        self.next = self.next.saturating_add(1);
         if c >= self.stored {
-            self.stored = c + RESERVE_BLOCK;
+            self.stored = c.saturating_add(RESERVE_BLOCK);
             (c, Some(self.stored))
         } else {
             (c, None)
@@ -39,10 +41,29 @@ impl SendCounter {
 
 /// What a receiver has seen on one stream.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "RawStreamState")]
 pub struct StreamState {
     highest: Option<u64>,
     /// Bit `c % 1024` is set when counter `c`, inside the window below `highest`, was accepted.
     seen: Vec<u64>,
+}
+
+#[derive(Deserialize)]
+struct RawStreamState {
+    highest: Option<u64>,
+    seen: Vec<u64>,
+}
+
+impl TryFrom<RawStreamState> for StreamState {
+    type Error = String;
+    /// A stored state with a window of the wrong size is an error, never a panic later.
+    fn try_from(r: RawStreamState) -> Result<Self, String> {
+        if r.seen.is_empty() || r.seen.len() == WORDS {
+            Ok(StreamState { highest: r.highest, seen: r.seen })
+        } else {
+            Err(format!("the receive window has {} words, not {WORDS}", r.seen.len()))
+        }
+    }
 }
 
 impl StreamState {

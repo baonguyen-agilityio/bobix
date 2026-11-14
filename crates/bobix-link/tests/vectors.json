@@ -19,6 +19,7 @@
     {
       "counter": 1800000000001,
       "dir": "ToPhone",
+      "laneByte": 0,
       "packet": "0100000001a3185c5001a1a1a1a1a1a1a1a1a1a1a1a1a1a106734f6dfda4f686fdb8c6c73a27ed6ae879def86eb1eca6cfde8f73720b0d",
       "plaintext": "{\"kind\":\"home\"}",
       "stream": "State",
@@ -28,6 +29,7 @@
     {
       "counter": 42,
       "dir": "ToPhone",
+      "laneByte": 1,
       "packet": "0101000000000000002aa2a2a2a2a2a2a2a2a2a2a2a2a2a2300d055ef0e83f683d64448d5f05a72b38370bba8af7209cd9a4ccf78ecb5364d5",
       "plaintext": "{\"kind\":\"paired\"}",
       "stream": "Event",
@@ -37,6 +39,7 @@
     {
       "counter": 7,
       "dir": "ToDesktop",
+      "laneByte": 129,
       "packet": "01810000000000000007a3a3a3a3a3a3a3a3a3a3a3a3a3a39466fb7a6ce0abe640e714cc8a53bd0be7c06db52a23b2fdb7d195a18bbda3c17a8fa433f7c595ec82bd68df",
       "plaintext": "{\"kind\":\"sync\",\"waiting\":[]}",
       "stream": "Event",
@@ -46,6 +49,7 @@
     {
       "counter": 9,
       "dir": "ToPhone",
+      "laneByte": 2,
       "packet": "01020000000000000009a4a4a4a4a4a4a4a4a4a4a4a4a4a41a4101820e03150091bb186b8cc2fb4372d1ba0ad8ebdf9fa250d2189bc21e7064",
       "plaintext": "{\"kind\":\"notice\"}",
       "stream": "Activity",
@@ -53,7 +57,34 @@
       "version": 1
     }
   ],
-  "note": "hex unless a name ends in B64 (URL-safe, no padding). Secrets are 32 bytes of one repeated value.",
+  "negative": {
+    "highSSignature": {
+      "expect": "verifies (S is not normalised by the secure hardware)",
+      "message": "626f626978207465737420766563746f72206d657373616765",
+      "signatureDer": "3046022100f5a9294fd705a22d036ca11c16b59ad280e67767fb5a6fb085d3aabb8048c713022100b9e9764740210eb4f4701f30d3be3199d4fd9b5974ccb89b8c95bd07deeddd4a"
+    },
+    "lowOrderBoxKeys": {
+      "expect": "refused as a box public key: the shared secret would be all zeros",
+      "keys": [
+        "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0100000000000000000000000000000000000000000000000000000000000000"
+      ]
+    },
+    "reflectedPacket": {
+      "expect": "refused: its own direction (lane bit 7 = 0 means desktop to phone)",
+      "openedBy": "desktop",
+      "packet": "0101000000000000002aa2a2a2a2a2a2a2a2a2a2a2a2a2a2300d055ef0e83f683d64448d5f05a72b38370bba8af7209cd9a4ccf78ecb5364d5"
+    },
+    "tamperedPacket": {
+      "expect": "decrypt-failure",
+      "openedBy": "phone",
+      "packet": "0101000000000000002aa2a2a2a2a2a2a2a2a2a2a2a2a2a2300d055ef0e83f683d64448d5f05a72b38370bba8af7209cd9a4ccf78ecb5364d4"
+    }
+  },
+  "note": "Binary values are hex, except the parts of the pairing URI, the hello fields (auth, boxk, sign, mac) and command.sig, which are URL-safe base64 without padding (cid is hex). Secrets are 32 bytes of one repeated value. laneByte = bit 7 (1: phone to desktop) | stream (0 state, 1 event, 2 activity).",
   "p256": {
     "message": "626f626978207465737420766563746f72206d657373616765",
     "note": "verify-only; the signature changes with the nonce",
@@ -102,6 +133,13 @@
         "min": 1
       }
     },
+    "helloBody": {
+      "body": "ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10b0181000000000000000bb1b1b1b1b1b1b1b1b1b1b1b1b1b19862e52da9ec658cfd1338e653d7bd72ee9652eb74c762c68a25933a57c8e240e5df3cf3a0d4c015711d67f957522492e76e147baaf5e707e9139de46f632bd9fdaf2636f287a641a4ceb64712b7f6f54e9dde00556d1f346470e0028f4c626547a3c3e95649d0476d97c4f6d933c79eefb641ca6147fd7e916942838d8b3726ad5889714d44d5ea653d19474cae0739f4e8cf64b2fabc7ada8b9dbf0b25ccf3c6626e54784c2597e03f18e570096bcd506933dffbb65534ff33465bcf8c8ef5490d4623e524a46d802301ae8b492653cd525c797f98469d7974f9789b5787d97d5ffa5ee5c179630f3f4efb121053058c4f1edf6b683edf97548750fe3981079489a29d19cb840e1b2bdf85820f6e88a4c0d3a6134f9f393e259edf9d1c3d36d2c6324544675c26d70db94db854229f4ef6cc9f91427fdb79fd613a578e5dec2571da622abdbf973132a004f53e4bc4b59801391bb021d211f025ece296a02e8f7e2bf41a9e38ccace662ddbd026b5b90fe19fd2010d0b0542abd0c533ffe8a57934facf3",
+      "note": "the body is the 32-byte phone box key followed by the sealed packet; the packet carries the hello JSON",
+      "packet": "0181000000000000000bb1b1b1b1b1b1b1b1b1b1b1b1b1b19862e52da9ec658cfd1338e653d7bd72ee9652eb74c762c68a25933a57c8e240e5df3cf3a0d4c015711d67f957522492e76e147baaf5e707e9139de46f632bd9fdaf2636f287a641a4ceb64712b7f6f54e9dde00556d1f346470e0028f4c626547a3c3e95649d0476d97c4f6d933c79eefb641ca6147fd7e916942838d8b3726ad5889714d44d5ea653d19474cae0739f4e8cf64b2fabc7ada8b9dbf0b25ccf3c6626e54784c2597e03f18e570096bcd506933dffbb65534ff33465bcf8c8ef5490d4623e524a46d802301ae8b492653cd525c797f98469d7974f9789b5787d97d5ffa5ee5c179630f3f4efb121053058c4f1edf6b683edf97548750fe3981079489a29d19cb840e1b2bdf85820f6e88a4c0d3a6134f9f393e259edf9d1c3d36d2c6324544675c26d70db94db854229f4ef6cc9f91427fdb79fd613a578e5dec2571da622abdbf973132a004f53e4bc4b59801391bb021d211f025ece296a02e8f7e2bf41a9e38ccace662ddbd026b5b90fe19fd2010d0b0542abd0c533ffe8a57934facf3",
+      "phoneBoxPublic": "ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10b"
+    },
+    "helloMacInput": "0000000e626f6269782d68656c6c6f2d7631000000208a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c00000020ce8d3ad1ccb633ec7b70c17814a5c76ecd029685050d344745ba05870e587d5900000020ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000020ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10b000000210307810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a93110000000a546573742070686f6e650000000133",
     "issuedAt": 1800000000000,
     "macKey": "8ac6e9e57944f88b4a27ed0b02689c7e7408f942571c390855bff2e9d0fd96a7",
     "pairingSecret": "0606060606060606060606060606060606060606060606060606060606060606",

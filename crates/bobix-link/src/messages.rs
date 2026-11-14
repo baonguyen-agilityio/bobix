@@ -5,7 +5,7 @@
 
 use crate::envelope::VersionRange;
 use crate::pairing::Rights;
-use crate::{hex, sha256};
+use crate::{hex, sha256, Fields};
 use serde::{Deserialize, Serialize};
 
 // Limits, all in UTF-8 bytes.
@@ -63,9 +63,23 @@ pub fn visible_escapes(text: &str) -> (String, bool) {
     (out, odd)
 }
 
-/// The `shown` hash: SHA-256 of the text, in hex. `detail` carries it; `answer`, `plan` and `question` send it back.
-pub fn shown_hash(text: &str) -> String {
-    hex(&sha256(&[text.as_bytes()]))
+/// The `shown` hash: SHA-256, in hex, of a canonical encoding of everything the phone renders for an item: the text
+/// as displayed (with visible escapes), whether it was cut, and the questions with their options in order. `detail`
+/// carries it; `answer`, `plan` and `question` send it back; the desktop recomputes it from what it holds.
+pub fn shown_hash(text: &str, cut: bool, questions: &[Question]) -> String {
+    let mut f = Fields::new("bobix-shown-v1").field(text.as_bytes()).num(cut as u64).num(questions.len() as u64);
+    for q in questions {
+        f = f.field(q.text.as_bytes()).num(q.multi_select as u64).num(q.options.len() as u64);
+        for o in &q.options {
+            f = f.field(o.as_bytes());
+        }
+    }
+    hex(&sha256(&[&f.done()]))
+}
+
+/// The hash a `start` carries: SHA-256 of the whole prompt, in hex.
+pub fn prompt_hash(prompt: &str) -> String {
+    hex(&sha256(&[prompt.as_bytes()]))
 }
 
 /// Text a phone sends (a name, a note) must be plain: no control or format characters.
@@ -205,7 +219,7 @@ pub struct Detail {
     pub what: DetailKind,
     /// With `odd`, every control or format character is already a visible escape.
     pub text: String,
-    /// SHA-256 of `text` (see `shown_hash`).
+    /// See `shown_hash`: covers `text`, `cut` and `questions`.
     pub shown: String,
     pub odd: bool,
     /// Anything was dropped from `text`: a remote Allow is refused.
@@ -213,6 +227,20 @@ pub struct Detail {
     /// For a question: the questions with their options, in the order `question { answers }` answers them.
     #[serde(default)]
     pub questions: Vec<Question>,
+}
+
+impl Detail {
+    /// Builds the reply for an item the desktop holds: escapes odd characters, sets `odd`, and computes `shown` over
+    /// the text as displayed, `cut` and `questions`.
+    pub fn build(id: &str, what: DetailKind, raw_text: &str, cut: bool, questions: Vec<Question>) -> Detail {
+        let (text, odd) = visible_escapes(raw_text);
+        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions }
+    }
+
+    /// Recomputes `shown` from the content (not from the stored field).
+    pub fn shown_now(&self) -> String {
+        shown_hash(&self.text, self.cut, &self.questions)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -238,7 +266,7 @@ pub struct StartPrompt {
     pub iid: String,
     pub mode: Mode,
     pub prompt: String,
-    /// SHA-256 of `prompt`, in hex; `start` sends it back as `prompt_hash`.
+    /// See `prompt_hash`; `start` sends it back.
     pub prompt_hash: String,
     pub folder_known: bool,
     /// Free disk space on that repository's volume, in bytes.

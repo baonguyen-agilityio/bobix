@@ -30,10 +30,14 @@ async fn desktop_on(relay: &str, s: Scenario) -> (String, JoinHandle<Vec<String>
 }
 
 async fn run(s: Scenario) -> Run {
+    run_with(s, all_rights()).await
+}
+
+async fn run_with(s: Scenario, rights: Rights) -> Run {
     let relay = stub::spawn().await;
     let (qr, desktop) = desktop_on(&relay, s).await;
     let mut phone = Phone::connect(&relay, "Test phone (demo)").await.unwrap();
-    let computer = phone.pair(&qr, all_rights()).await.unwrap();
+    let computer = phone.pair(&qr, rights).await.unwrap();
     Run { phone, computer, desktop }
 }
 
@@ -116,7 +120,7 @@ async fn the_same_cid_gets_its_first_result_and_is_not_applied_twice() {
 async fn a_changed_shown_hash_is_stale_and_a_wrong_clock_is_refused() {
     let mut r = run(Scenario::Normal).await;
     let c = r.computer.clone();
-    let cid = r.phone.command(&c, CommandBody::Answer { id: "req1".into(), choice: Choice::Allow, shown: shown_hash("something else") }).await.unwrap();
+    let cid = r.phone.command(&c, CommandBody::Answer { id: "req1".into(), choice: Choice::Allow, shown: shown_hash("something else", false, &[]) }).await.unwrap();
     assert_eq!(r.result_of(&cid).await.outcome, Outcome::Stale);
     let shown = r.detail("req1").await.shown;
     for skew in [-11 * 60 * 1000, 3 * 60 * 1000] {
@@ -185,7 +189,7 @@ async fn scenario_long_command() {
     let mut r = run(Scenario::LongCommand).await;
     let d = r.detail("req1").await;
     assert_eq!(d.text.len(), MAX_TOOL_INPUT);
-    assert_eq!(d.shown, shown_hash(&d.text));
+    assert_eq!(d.shown, shown_hash(&d.text, d.cut, &d.questions));
     assert!(!d.cut);
     assert!(DesktopMsg::Detail(d).validate().is_ok());
     assert_eq!(r.answer("req1", Choice::Allow).await.outcome, Outcome::Ok);
@@ -255,10 +259,10 @@ async fn scenario_low_disk() {
 async fn a_start_with_the_whole_prompt_is_accepted_and_a_changed_prompt_is_stale() {
     let mut r = run(Scenario::Normal).await;
     let (prompt, res) = r.start().await;
-    assert_eq!(prompt.prompt_hash, shown_hash(&prompt.prompt));
+    assert_eq!(prompt.prompt_hash, prompt_hash(&prompt.prompt));
     assert_eq!(res.outcome, Outcome::Ok);
     let c = r.computer.clone();
-    let cid = r.phone.command(&c, CommandBody::Start { project: "demo-app".into(), iid: "12".into(), mode: Mode::Full, prompt_hash: shown_hash("another prompt") }).await.unwrap();
+    let cid = r.phone.command(&c, CommandBody::Start { project: "demo-app".into(), iid: "12".into(), mode: Mode::Full, prompt_hash: prompt_hash("another prompt") }).await.unwrap();
     assert_eq!(r.result_of(&cid).await.outcome, Outcome::Stale);
     r.finish().await;
 }
@@ -270,6 +274,9 @@ async fn stop_names_a_held_request_and_nothing_else_can_be_stopped() {
     let cid = r.phone.command(&c, CommandBody::Stop { session: "s1".into(), request: "req1".into() }).await.unwrap();
     assert_eq!(r.result_of(&cid).await.outcome, Outcome::Ok);
     let cid = r.phone.command(&c, CommandBody::Stop { session: "s1".into(), request: "gone".into() }).await.unwrap();
+    assert!(refused("not-held")(&r.result_of(&cid).await));
+    // the request must belong to the session being stopped
+    let cid = r.phone.command(&c, CommandBody::Stop { session: "another-session".into(), request: "req1".into() }).await.unwrap();
     assert!(refused("not-held")(&r.result_of(&cid).await));
     r.finish().await;
 }
@@ -331,7 +338,7 @@ async fn scenario_odd_input() {
     assert!(d.odd);
     assert!(d.text.contains("\\u{202e}") && d.text.contains("\\u{200b}"));
     assert!(!d.text.contains('\u{202e}') && !d.text.contains('\u{200b}'), "no raw hidden character reaches the phone");
-    assert_eq!(d.shown, shown_hash(&d.text));
+    assert_eq!(d.shown, shown_hash(&d.text, d.cut, &d.questions));
     assert_eq!(r.answer("req1", Choice::Deny).await.outcome, Outcome::Ok);
     r.finish().await;
 }
@@ -401,4 +408,32 @@ async fn the_tools_print_no_key_material() {
     assert!(!out.contains("signSecret") && !out.contains("macKey"));
     let events = r.finish().await.join("\n");
     assert!(!events.contains("macKey") && !events.contains("secret"));
+}
+
+#[tokio::test]
+async fn a_sessions_last_lines_go_only_to_a_phone_with_the_activity_right() {
+    let mut with = run(Scenario::Normal).await;
+    assert!(with.detail("lines1").await.text.contains("all passed"));
+    with.finish().await;
+
+    let mut without = run_with(Scenario::Normal, Rights { activity: false, ..all_rights() }).await;
+    let c = without.computer.clone();
+    without.phone.send(&c, &PhoneMsg::Detail { id: "lines1".into() }).await.unwrap();
+    let err = without.phone.wait_for(WAIT, |m| matches!(m, DesktopMsg::Error { .. } | DesktopMsg::Detail(_))).await;
+    assert!(matches!(err, Some(DesktopMsg::Error { ref code, .. }) if code == "right"), "{err:?}");
+    // the other items still show
+    assert_eq!(without.detail("req1").await.id, "req1");
+    without.finish().await;
+}
+
+#[tokio::test]
+async fn an_answer_built_from_changed_options_is_stale() {
+    let mut r = run(Scenario::Question).await;
+    let d = r.detail("q1").await;
+    let c = r.computer.clone();
+    // the phone saw one set of options; the item the desktop holds now has a different one
+    let other = shown_hash(&d.text, d.cut, &[Question { text: d.text.clone(), options: vec!["Postgres".into(), "SQLite".into()], multi_select: false }]);
+    let cid = r.phone.command(&c, CommandBody::Question { id: "q1".into(), answers: vec!["SQLite".into()], shown: other }).await.unwrap();
+    assert_eq!(r.result_of(&cid).await.outcome, Outcome::Stale);
+    r.finish().await;
 }

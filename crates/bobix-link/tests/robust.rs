@@ -60,3 +60,27 @@ fn truncated_and_extended_packets_never_panic() {
     assert!(receiver.open(&longer).is_err());
     assert!(receiver.open(&packet).is_ok());
 }
+
+#[test]
+fn a_used_receive_state_survives_garbage_and_mutated_packets() {
+    let (d, p) = (Identity::generate(), Identity::generate());
+    let sender = Link::new(Direction::ToPhone, *d.box_secret(), p.public().boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], 0, RecvState::default());
+    let mut receiver = Link::new(Direction::ToDesktop, *p.box_secret(), d.public().boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], 0, RecvState::default());
+    for c in [5_000u64, 5_001, 9_000] {
+        receiver.open(&sender.seal_with(Stream::Event, c, b"{}")).unwrap();
+        receiver.open(&sender.seal_with(Stream::State, c, b"{}")).unwrap();
+    }
+    let packet = sender.seal_with(Stream::Event, 9_001, b"{\"k\":1}");
+    let mut seed = 0x1234_5678_9abc_def1u64;
+    for i in 0..3000 {
+        let mut m = packet.clone();
+        let flips = bytes(&mut seed, 3);
+        for (k, f) in flips.iter().enumerate() {
+            let at = (*f as usize * (i + k + 1)) % m.len();
+            m[at] ^= 1 << (f % 8);
+        }
+        if let Ok(o) = receiver.open(&m) {
+            assert_eq!((o.plaintext.as_slice(), o.counter), (b"{\"k\":1}".as_slice(), 9_001));
+        }
+    }
+}

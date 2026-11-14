@@ -6,7 +6,8 @@
 use bobix_link::command;
 use bobix_link::envelope::{seal_with_tail, Direction, Lane, Stream, VersionRange};
 use bobix_link::messages::{Choice, CommandBody};
-use bobix_link::pairing::{Hello, PairingCode, Rights};
+use bobix_link::pairing::{hello_body, hello_mac_input, Hello, PairingCode, Rights};
+use bobix_link::messages::PhoneMsg;
 use bobix_link::keys::{soft::SoftSigner, Identity, SignPublic};
 use bobix_link::{b64, hex};
 use crypto_box::{PublicKey, SecretKey};
@@ -35,7 +36,7 @@ pub fn build() -> Value {
             text.as_bytes(),
         );
         json!({ "version": 1, "dir": format!("{dir:?}"), "stream": format!("{stream:?}"), "counter": counter,
-                "tail": hex(&[tail; 14]), "plaintext": text, "packet": hex(&packet) })
+                "laneByte": Lane { dir, stream }.to_byte(), "tail": hex(&[tail; 14]), "plaintext": text, "packet": hex(&packet) })
     };
 
     let signer = SoftSigner::from_secret(&seed(5)).expect("valid P-256 scalar");
@@ -49,8 +50,33 @@ pub fn build() -> Value {
     let cid = hex(&[7u8; 16]);
     let cmd_bytes = command::command_bytes(1, &pp.device_id(), &dp.device_id(), body.kind(), &body.target(), &cid, 4242, 1_800_000_000_000, &body_text);
     let cmd = command::build_with_cid(cid.clone(), 1, &pp.device_id(), &dp.device_id(), 4242, 1_800_000_000_000, &body, |m| signer.sign(m));
+    let hello_packet = seal_with_tail(
+        1, Lane { dir: Direction::ToDesktop, stream: Stream::Event }, 11, [0xb1; 14],
+        &SecretKey::from(seed(4)), &PublicKey::from(dp.boxk), &PhoneMsg::Hello(hello.clone()).to_json(),
+    );
+    let sign_pub = signer.public().to_sec1();
+    // Negative vectors: each must be refused (or, for the signature, accepted although S is high).
+    let first = envelope(Direction::ToPhone, Stream::Event, 42, 0xa2, "{\"kind\":\"paired\"}");
+    let packet_hex = first["packet"].as_str().unwrap().to_string();
+    let mut tampered = bobix_link::unhex(&packet_hex).unwrap();
+    let last = tampered.len() - 1;
+    tampered[last] ^= 1;
+    let low = p256::ecdsa::Signature::from_der(&signer.sign(sign_msg)).unwrap().normalize_s();
+    let (r, s) = low.split_scalars();
+    let high = p256::ecdsa::Signature::from_scalars(r, -*s).unwrap();
+    let low_order: Vec<String> = (0..3u8).map(|i| { let mut k = [0xffu8; 32]; k[0] = 0xec + i; k[31] = 0x7f; hex(&k) })
+        .chain([hex(&[0u8; 32]), hex(&{ let mut o = [0u8; 32]; o[0] = 1; o })]).collect();
     json!({
+        "negative": {
+            "tamperedPacket": { "packet": hex(&tampered), "openedBy": "phone", "expect": "decrypt-failure" },
+            "reflectedPacket": { "packet": packet_hex, "openedBy": "desktop", "expect": "refused: its own direction (lane bit 7 = 0 means desktop to phone)" },
+            "highSSignature": { "message": hex(sign_msg), "signatureDer": hex(high.to_der().as_bytes()), "expect": "verifies (S is not normalised by the secure hardware)" },
+            "lowOrderBoxKeys": { "keys": low_order, "expect": "refused as a box public key: the shared secret would be all zeros" },
+        },
         "protocol": {
+            "helloMacInput": hex(&hello_mac_input(&dp, &pp, &sign_pub, "Test phone", rights)),
+            "helloBody": { "phoneBoxPublic": hex(&pp.boxk), "packet": hex(&hello_packet), "body": hex(&hello_body(&pp.boxk, &hello_packet)),
+                            "note": "the body is the 32-byte phone box key followed by the sealed packet; the packet carries the hello JSON" },
             "pairingSecret": hex(&seed(6)), "pairingUri": code.to_uri(),
             "relayToken": hex(&code.relay_token()), "relayTokenHash": hex(&code.relay_token_hash()), "macKey": hex(&code.mac_key()),
             "hello": hello, "rightsMask": rights.to_mask(),
@@ -60,7 +86,7 @@ pub fn build() -> Value {
             "byeBytes": hex(&command::bye_bytes(1, &pp.device_id(), &dp.device_id(), 9)),
             "authBytes": hex(&command::auth_bytes("challenge-1")),
         },
-        "note": "hex unless a name ends in B64 (URL-safe, no padding). Secrets are 32 bytes of one repeated value.",
+        "note": "Binary values are hex, except the parts of the pairing URI, the hello fields (auth, boxk, sign, mac) and command.sig, which are URL-safe base64 without padding (cid is hex). Secrets are 32 bytes of one repeated value. laneByte = bit 7 (1: phone to desktop) | stream (0 state, 1 event, 2 activity).",
         "desktop": { "authSeed": hex(&seed(1)), "boxSecret": hex(&seed(2)), "authPublic": hex(&dp.auth),
                       "boxPublic": hex(&dp.boxk), "deviceId": dp.device_id() },
         "phone": { "authSeed": hex(&seed(3)), "boxSecret": hex(&seed(4)), "authPublic": hex(&pp.auth),
@@ -87,6 +113,7 @@ fn committed_vectors_are_reproduced_exactly() {
     // ECDSA is not deterministic here either: only its verification is part of the vectors.
     now["p256"]["signatureDer"] = committed["p256"]["signatureDer"].clone();
     now["protocol"]["command"]["sig"] = committed["protocol"]["command"]["sig"].clone();
+    now["negative"]["highSSignature"]["signatureDer"] = committed["negative"]["highSSignature"]["signatureDer"].clone();
     assert_eq!(now, committed);
 }
 
@@ -141,6 +168,37 @@ fn committed_envelopes_open() {
         assert_eq!(opened.plaintext, e["plaintext"].as_str().unwrap().as_bytes());
         assert_eq!(opened.counter, e["counter"].as_u64().unwrap());
     }
+}
+
+#[test]
+fn committed_negative_vectors_are_refused_or_accepted_as_stated() {
+    use bobix_link::counters::RecvState;
+    use bobix_link::envelope::{OpenError, CURRENT_VERSION};
+    use bobix_link::link::Link;
+    let v: Value = serde_json::from_str(FILE).unwrap();
+    let get = |p: &str, k: &str| -> [u8; 32] { bobix_link::unhex(v[p][k].as_str().unwrap()).unwrap().try_into().unwrap() };
+    let n = &v["negative"];
+    let mut phone = Link::new(Direction::ToDesktop, get("phone", "boxSecret"), get("desktop", "boxPublic"), CURRENT_VERSION, VersionRange::current(), [0; 3], 0, RecvState::default());
+    let mut desktop = Link::new(Direction::ToPhone, get("desktop", "boxSecret"), get("phone", "boxPublic"), CURRENT_VERSION, VersionRange::current(), [0; 3], 0, RecvState::default());
+    let tampered = bobix_link::unhex(n["tamperedPacket"]["packet"].as_str().unwrap()).unwrap();
+    assert_eq!(phone.open(&tampered).unwrap_err(), OpenError::Decrypt);
+    let reflected = bobix_link::unhex(n["reflectedPacket"]["packet"].as_str().unwrap()).unwrap();
+    assert_eq!(desktop.open(&reflected).unwrap_err(), OpenError::Reflected);
+    let key = SignPublic::from_sec1(&bobix_link::unhex(v["phone"]["signPublicSec1"].as_str().unwrap()).unwrap()).unwrap();
+    let high = bobix_link::unhex(n["highSSignature"]["signatureDer"].as_str().unwrap()).unwrap();
+    let msg = bobix_link::unhex(n["highSSignature"]["message"].as_str().unwrap()).unwrap();
+    assert_eq!(key.verify(&msg, &high), Ok(()));
+    for k in n["lowOrderBoxKeys"]["keys"].as_array().unwrap() {
+        let k: [u8; 32] = bobix_link::unhex(k.as_str().unwrap()).unwrap().try_into().unwrap();
+        assert!(bobix_link::keys::box_public(k).is_none());
+    }
+    // the hello body opens with the committed keys and its MAC input is the committed bytes
+    let p = &v["protocol"];
+    let body = bobix_link::unhex(p["helloBody"]["body"].as_str().unwrap()).unwrap();
+    let (phone_box, packet) = bobix_link::pairing::split_hello_body(&body).unwrap();
+    assert_eq!(phone_box, get("phone", "boxPublic"));
+    assert!(desktop.open(packet).is_ok());
+    assert!(!p["helloMacInput"].as_str().unwrap().is_empty());
 }
 
 #[test]

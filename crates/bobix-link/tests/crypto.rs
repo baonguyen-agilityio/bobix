@@ -87,11 +87,14 @@ fn reflected_packet_is_refused() {
 fn unknown_version_or_lane_is_refused_without_a_panic() {
     let (mut d, mut p) = pair();
     let s = d.seal(Stream::Event, b"x");
+    // An unauthenticated version byte never says which side must update: it is just a packet that does not open.
     let mut v = s.packet.clone();
     v[0] = 99;
-    assert_eq!(p.open(&v).unwrap_err(), OpenError::Version(Update::Us));
+    assert_eq!(p.open(&v).unwrap_err(), OpenError::Decrypt);
     v[0] = 0;
-    assert_eq!(p.open(&v).unwrap_err(), OpenError::Version(Update::Peer));
+    assert_eq!(p.open(&v).unwrap_err(), OpenError::Decrypt);
+    let junk: Vec<u8> = [0xFF, 0x01].into_iter().chain(std::iter::repeat(7).take(60)).collect();
+    assert_eq!(p.open(&junk).unwrap_err(), OpenError::Decrypt);
     let mut l = s.packet.clone();
     l[1] = 0x07;
     assert_eq!(p.open(&l).unwrap_err(), OpenError::Lane);
@@ -239,4 +242,80 @@ fn p256_high_s_signature_verifies() {
     let high = Signature::from_scalars(r, -*sv).unwrap();
     assert_ne!(high, high.normalize_s(), "built a high-S signature");
     assert_eq!(s.public().verify(b"msg", high.to_der().as_bytes()), Ok(()));
+}
+
+fn link_with(version: u8, sends: Direction, own: &Identity, peer: &Identity) -> Link {
+    Link::new(sends, *own.box_secret(), peer.public().boxk, version, VersionRange::current(), [0; 3], NOW, RecvState::default())
+}
+
+#[test]
+fn a_version_outside_the_range_is_reported_only_for_an_authenticated_packet() {
+    let (d, p) = (Identity::generate(), Identity::generate());
+    let mut phone = link_with(CURRENT_VERSION, Direction::ToDesktop, &p, &d);
+    let too_new = link_with(CURRENT_VERSION + 5, Direction::ToPhone, &d, &p);
+    let packet = too_new.seal_with(Stream::Event, 1, b"{}");
+    assert_eq!(phone.open(&packet).unwrap_err(), OpenError::Version(Update::Us), "we must update");
+    let too_old = link_with(0, Direction::ToPhone, &d, &p);
+    assert_eq!(phone.open(&too_old.seal_with(Stream::Event, 2, b"{}")).unwrap_err(), OpenError::Version(Update::Peer));
+    // a stranger's packet with the same version byte says nothing
+    let stranger = link_with(CURRENT_VERSION + 5, Direction::ToPhone, &Identity::generate(), &p);
+    assert_eq!(phone.open(&stranger.seal_with(Stream::Event, 3, b"{}")).unwrap_err(), OpenError::Decrypt);
+}
+
+#[test]
+fn low_order_box_keys_are_refused() {
+    use bobix_link::keys::{box_public, is_low_order};
+    let mut points = vec![[0u8; 32], {
+        let mut one = [0u8; 32];
+        one[0] = 1;
+        one
+    }];
+    for (head, tail) in [(0xecu8, 0x7fu8), (0xed, 0x7f), (0xee, 0x7f)] {
+        let mut p = [0xffu8; 32];
+        p[0] = head;
+        p[31] = tail;
+        points.push(p);
+    }
+    for pt in &points {
+        assert!(is_low_order(pt), "{pt:?}");
+        assert!(box_public(*pt).is_none());
+    }
+    let ok = Identity::generate().public().boxk;
+    assert!(!is_low_order(&ok) && box_public(ok).is_some());
+    // a link whose peer key is low-order opens nothing, even a packet that the zero shared secret would "authenticate"
+    use bobix_link::envelope::{seal, Lane};
+    let p = Identity::generate();
+    let mut zero_peer = Link::new(Direction::ToDesktop, *p.box_secret(), [0; 32], CURRENT_VERSION, VersionRange::current(), [0; 3], NOW, RecvState::default());
+    // Sealed to the zero key, the shared secret is all zeros: anyone can make this packet, and without the check it would open.
+    let lane = Lane { dir: Direction::ToPhone, stream: Stream::Event };
+    let forged = seal(CURRENT_VERSION, lane, 1, &crypto_box::SecretKey::from([5u8; 32]), &crypto_box::PublicKey::from([0u8; 32]), b"{}");
+    assert_eq!(zero_peer.open(&forged).unwrap_err(), OpenError::Decrypt);
+}
+
+#[test]
+fn a_corrupt_stored_receive_state_is_an_error_not_a_panic() {
+    let good = serde_json::to_value(RecvState::default()).unwrap();
+    assert!(serde_json::from_value::<RecvState>(good).is_ok());
+    let bad = r#"{"state":{"highest":null,"seen":[]},"event":{"highest":5,"seen":[1,2,3]},"activity":{"highest":null,"seen":[]}}"#;
+    assert!(serde_json::from_str::<RecvState>(bad).is_err());
+    // and a state that was used round-trips
+    let (d, mut p) = pair();
+    p.open(&d.seal_with(Stream::Event, 77, b"{}")).unwrap();
+    let again: RecvState = serde_json::from_str(&serde_json::to_string(p.recv_state()).unwrap()).unwrap();
+    assert!(!again.check(Stream::Event, 77));
+}
+
+#[test]
+fn a_send_counter_near_the_top_of_u64_does_not_overflow() {
+    for stored in [u64::MAX, u64::MAX - 3, u64::MAX / 2 + 1] {
+        let mut c = SendCounter::resume(stored, NOW);
+        let (first, _) = c.take();
+        assert!((NOW..u64::MAX / 2).contains(&first), "a corrupt reservation is treated as a lost file");
+        c.take();
+    }
+    // even a clock at the very top cannot panic
+    let mut c = SendCounter::resume(0, u64::MAX - 1);
+    for _ in 0..4 {
+        c.take();
+    }
 }

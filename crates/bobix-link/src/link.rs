@@ -2,6 +2,11 @@
 //! the counters of both. No file I/O: the caller stores `Sealed::reserve` before it sends the packet, and the
 //! `RecvState` whenever it changes (a device that lost it accepts one old packet once; commands stay bound by
 //! `issuedAt`, `cid`, the `shown` hash and the open-item check).
+//!
+//! Keep the `Link` (or at least its `RecvState`) that opened the pairing `hello`: a sender's counters start at its
+//! clock, so the `hello`'s counter is what puts replays of packets from an earlier pairing with the same keys below
+//! the window. A fresh `RecvState` at confirm time would accept one such old packet (an old `bye`, an old `revoked`)
+//! once.
 
 use crate::counters::{RecvState, SendCounter};
 use crate::envelope::{self, Direction, Lane, OpenError, Stream, VersionRange};
@@ -28,6 +33,8 @@ pub struct Link {
     sends: Direction,
     secret: Zeroizing<[u8; 32]>,
     peer: [u8; 32],
+    /// Checked once: the peer key is a small-order point, so nothing can authenticate.
+    peer_low_order: bool,
     accepted: VersionRange,
     /// The version used for sealing.
     version: u8,
@@ -53,6 +60,7 @@ impl Link {
             sends,
             secret: Zeroizing::new(box_secret),
             peer: peer_box_public,
+            peer_low_order: crate::keys::is_low_order(&peer_box_public),
             accepted,
             version,
             counters: reservations.map(|r| SendCounter::resume(r, now_unix_ms)),
@@ -90,13 +98,18 @@ impl Link {
     }
 
     /// Opens a packet from the peer. The counter rule is checked before the open and committed only after the packet
-    /// authenticated, so a forged packet cannot move the window. A packet outside its stream's rule is `Dropped`.
+    /// authenticated, so a forged packet cannot move the window. A packet outside its stream's rule is `Dropped`. The
+    /// version is judged only after the open: an unauthenticated byte never says which side must update.
     pub fn open(&mut self, packet: &[u8]) -> Result<Opened, OpenError> {
-        let h = envelope::peek(&self.accepted, self.sends, packet)?;
+        let h = envelope::peek(self.sends, packet)?;
         if !self.recv.check(h.lane.stream, h.counter) {
             return Err(OpenError::Dropped);
         }
+        if self.peer_low_order {
+            return Err(OpenError::Decrypt);
+        }
         let plaintext = envelope::open(&SecretKey::from(*self.secret), &PublicKey::from(self.peer), packet)?;
+        envelope::check_version(&self.accepted, h.version)?;
         self.recv.commit(h.lane.stream, h.counter);
         Ok(Opened { stream: h.lane.stream, counter: h.counter, version: h.version, plaintext })
     }
