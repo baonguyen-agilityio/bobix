@@ -130,7 +130,7 @@ cd crates/bobix-link && cargo test
   ```
   `fake-desktop --scenario list` names the 19 scenarios; `tests/fakes.rs` runs each of them in-process. `fake-phone` reads commands from standard input (the list is at the top of its source file) and signs with a software key.
 
-[The link workflow](../.github/workflows/link.yml) runs on every pull request, but its jobs skip themselves when nothing under `crates/bobix-link/` changed (a skipped job counts as passing for a required check). Jobs: `link (macos-latest)`, `link (windows-latest)`, `link (ubuntu-22.04)` (clippy, tests, the fake tools built and kept as an artifact), `fuzz` and `audit` (known vulnerabilities in the dependencies, with cargo-deny). They have their own cache keys, so they never evict the app's cache. The owner adds these job names to the required checks of `develop` and `main` after the first pull request that touches the crate has run them.
+[The link workflow](../.github/workflows/link.yml) runs on every pull request, but its jobs skip themselves when nothing under `crates/bobix-link/` changed (a skipped job counts as passing for a required check). Jobs: `link` on macOS, Windows and Ubuntu (clippy, tests, the fake tools built and kept as an artifact), `fuzz`, `audit` (known vulnerabilities in the dependencies, with cargo-deny), and `link-ok`, which fails when any of them failed. They have their own cache keys, so they never evict the app's cache. The owner makes `link-ok` a required check of `develop` and `main` after the workflow has run once; it is the only name to require, because a skipped matrix job does not report one check per system.
 
 ## Demo and screenshots
 
