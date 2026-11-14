@@ -10,6 +10,8 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 Nothing yet: `develop` is v0.2.0-rc.9.
 
+On the integration branch `feat/phone-access` (not on `develop`): phone access on the desktop (Settings → Phones, off by default). Verified with `fake-phone` against the link crate's relay stub on macOS; the real relay, Windows, Linux (the keychain, the input time) and the phone app are not verified yet.
+
 ## 2. In the test builds (v0.2.0-rc.1 to rc.9), no stable release yet
 
 Release notes: [rc.5](releases/0.2.0-rc.5.md), [rc.6](releases/0.2.0-rc.6.md), [rc.7](releases/0.2.0-rc.7.md), [rc.8](releases/0.2.0-rc.8.md), [rc.9](releases/0.2.0-rc.9.md). The last stable release is v0.1.3 (Electron); the test builds are the Tauri app.
