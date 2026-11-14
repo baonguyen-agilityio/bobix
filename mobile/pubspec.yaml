@@ -7,9 +7,12 @@ environment:
   sdk: ^3.13.7
 
 dependencies:
+  bobix_phone_core:
+    path: rust_builder
   flutter:
     sdk: flutter
   flutter_riverpod: ^3.5.0
+  flutter_rust_bridge: 2.13.0
   flutter_svg: ^2.4.0
 
 dev_dependencies:
@@ -22,3 +25,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # A copy of crates/bobix-link/tests/vectors.json for the simulator test; test/core_vectors_test.dart keeps it equal.
+    - assets/vectors.json

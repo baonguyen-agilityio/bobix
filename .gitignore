@@ -22,3 +22,5 @@ mobile/android/key.properties
 *.mobileprovision
 crates/*/fuzz/corpus/
 crates/*/fuzz/artifacts/
+# Phone app: the Rust core's build output
+mobile/rust/target/

@@ -1,0 +1,22 @@
+PODS:
+  - bobix_phone_core (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+
+DEPENDENCIES:
+  - bobix_phone_core (from `.symlinks/plugins/bobix_phone_core/ios`)
+  - Flutter (from `Flutter`)
+
+EXTERNAL SOURCES:
+  bobix_phone_core:
+    :path: ".symlinks/plugins/bobix_phone_core/ios"
+  Flutter:
+    :path: Flutter
+
+SPEC CHECKSUMS:
+  bobix_phone_core: 21679a628e7a345c65b92b3d41d42f10542f9040
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
+
+PODFILE CHECKSUM: 3ba3a73b1b12adcf321a227a745625fe0888cc82
+
+COCOAPODS: 1.16.2

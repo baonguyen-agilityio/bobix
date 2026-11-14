@@ -1,0 +1,114 @@
+# The phone app (mobile/): generated files are current, the Rust core builds and passes the shared crate's test vectors
+# through the bridge, `flutter analyze` and `flutter test`, the iOS simulator build, the Swift key-store tests and the
+# vectors again inside the app on a simulator. The Android job comes with the Android project.
+# The workflow starts on every pull request so its check always reports; the job skips itself when nothing it covers
+# changed (a skipped job counts as passing for a required check, a workflow that never started would block the merge).
+name: mobile
+on:
+  push:
+    branches: [develop, main, feat/phone-access]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.47.9
+  FRB_VERSION: 2.13.0
+
+jobs:
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        # Not a pull request (push, manual run): always run. A pull request: only when the app, the shared crate it builds,
+        # the strings or the pets it generates from, or this file changed.
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || git diff --name-only "origin/$BASE"...HEAD | grep -qE '^(mobile/|crates/bobix-link/|src/ui/i18n\.js|src/ui/creature\.js|test/creature-fixtures\.js|\.github/workflows/mobile\.yml)'; then
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mobile=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  mobile:
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/rust
+      - name: flutter_rust_bridge_codegen (cached)
+        id: codegen-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/flutter_rust_bridge_codegen
+          key: frb-codegen-${{ env.FRB_VERSION }}-${{ runner.os }}
+      - if: steps.codegen-cache.outputs.cache-hit != 'true'
+        run: cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION" --locked
+
+      - run: flutter pub get
+
+      # Generated files must be what their sources say: strings, pets fixtures, and the bridge's Dart and Rust glue.
+      - name: Strings and pets fixtures are current
+        working-directory: .
+        run: |
+          node mobile/tool/strings.mjs --check
+          node test/creature-fixtures.js --check
+      - name: The bridge is current
+        run: |
+          flutter_rust_bridge_codegen generate
+          git diff --exit-code -- lib/src/rust rust/src/frb_generated.rs
+
+      - name: Rust core
+        run: |
+          cargo clippy --manifest-path rust/Cargo.toml -- -D warnings
+          cargo build --manifest-path rust/Cargo.toml
+      - run: flutter analyze
+      - name: Dart tests (the shared crate's test vectors through the bridge, on this computer)
+        run: flutter test
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k in sorted(d, reverse=True) if 'iOS' in k for x in d[k] if 'iPhone' in x['name']))")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID"
+      - name: iOS simulator build
+        run: flutter build ios --simulator --debug --no-codesign
+      - name: Key store tests (Swift, simulator)
+        working-directory: mobile/ios
+        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests
+      - name: Test vectors and key store inside the app (simulator)
+        run: |
+          flutter test integration_test/core_vectors_test.dart -d "${{ steps.sim.outputs.udid }}"
+          flutter test integration_test/secure_keys_test.dart -d "${{ steps.sim.outputs.udid }}" --dart-define=BOBIX_SOFTWARE_KEY=true
