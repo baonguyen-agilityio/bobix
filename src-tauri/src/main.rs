@@ -20,6 +20,7 @@ mod overlay;
 mod panel;
 mod paths;
 mod petstore;
+mod presence;
 mod phone_view;
 mod phones;
 mod procs;
@@ -156,7 +157,7 @@ impl Bobix {
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, closed, settings, work, waits, ended, habits: mem, tickets: flows, .. } = &mut *c;
+            let Core { sessions, pending, closed, phones, settings, work, waits, ended, habits: mem, tickets: flows, .. } = &mut *c;
             let gitlab = work::any_on(settings);
             let remember = habits::on(settings);
             let before = if remember { habits::before(sessions, &e) } else { None };
@@ -195,7 +196,7 @@ impl Bobix {
                     }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
                     // AskUserQuestion is never held: an "Allow" from Bobix would skip the question; Claude asks in its own window
-                    let reply = if wait && ev == "PermissionRequest" && tool != "AskUserQuestion" { answers::wait(self, pending, closed, settings, s, &e, plan) }
+                    let reply = if wait && ev == "PermissionRequest" && tool != "AskUserQuestion" { answers::wait(self, pending, closed, phones, settings, s, &e, plan) }
                         // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
                         // way /rename names it; one that has a name keeps it. One new where a start waits is named by its
                         // first prompt, once that names the issue (Work::claim): not one you opened there yourself.

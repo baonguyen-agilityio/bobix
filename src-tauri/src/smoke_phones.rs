@@ -29,6 +29,17 @@ pub fn until(secs: u64, mut f: impl FnMut() -> bool) -> bool {
     f()
 }
 
+// Holds a permission request of session `sid` as Claude's hook would; returns the hook's output (when it ends) and the request id.
+fn hold(b: &Arc<Bobix>, sid: &str, command: &str) -> (thread::JoinHandle<String>, String) {
+    let ask = json!({ "session_id": sid, "cwd": "/tmp/demo-app", "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": { "command": command } }).to_string();
+    let (hook, port) = (crate::hooks::hook_target(&crate::paths::home()), b.port);
+    let h = thread::spawn(move || crate::smoke::run_hook_out(&hook, port, &ask));
+    let mut got = None;
+    until(10, || { got = b.core.lock().unwrap().pending.iter().find(|(_, p)| p.sid == sid).map(|(k, _)| k.clone()); got.is_some() });
+    (h, got.unwrap_or_default())
+}
+fn outcomes(f: &Fake, what: &str) -> usize { f.lines.lock().unwrap().iter().filter(|l| l.contains("\"kind\":\"result\"") && l.contains(what)).count() }
+
 pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
     let mut r = json!({});
     let Some((relay, bin)) = spec.split_once('|') else { return json!({ "pass": false, "error": "spec" }) };
@@ -51,7 +62,6 @@ pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
     r["rights"] = json!(phone["rights"]["answer"] == true && phone["rights"]["stop"] == false && phone["rights"]["start"] == false && phone["rights"]["activity"] == false);
     r["pairedSeen"] = json!(until(10, || fake.saw("paired with")));
     r["confirmWithoutPairing"] = json!(phones::pair_confirm(b, granted).is_err());
-    let id = phone["id"].as_str().unwrap_or("").to_string();
     // What a phone sees: a request held in the app reaches it as a redacted preview, a notice and, on asking, the whole thing.
     let token = format!("ghp_{}", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4");
     let ask = json!({ "session_id": "ph1", "cwd": "/tmp/demo-app", "hook_event_name": "PermissionRequest", "tool_name": "Bash",
@@ -70,10 +80,38 @@ pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
     crate::answers::answer(b, &rid, "allow");
     r["closedSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"what\":\"closed\""))));
     r["hookAnswered"] = json!(held.join().unwrap_or_default().contains("\"behavior\":\"allow\""));
-    r["disconnected"] = json!(phones::disconnect(b, &id).is_ok() && v()["phones"].as_array().is_some_and(|a| a.is_empty()));
+    // Pets hidden and nobody at the computer (the input time is fixed under the smoke run): a request is held for the phones,
+    // and a phone allows it, another it denies.
+    crate::update_settings(b, json!({ "petsVisible": false }));
+    let (h1, r1) = hold(b, "ph2", "echo allow me");
+    r["heldForPhones"] = json!(b.core.lock().unwrap().pending.get(&r1).is_some_and(|p| p.for_phones));
+    fake.say(&format!("answer {r1} allow"));
+    r["phoneAllowed"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"ok\"") >= 1) && h1.join().unwrap_or_default().contains("\"behavior\":\"allow\""));
+    let (h2, r2) = hold(b, "ph3", "echo deny me");
+    fake.say(&format!("answer {r2} deny"));
+    r["phoneDenied"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"ok\"") >= 2) && h2.join().unwrap_or_default().contains("\"behavior\":\"deny\""));
+    // answered at the computer first: the phone is told it was late
+    let (h3, r3) = hold(b, "ph4", "echo computer first");
+    fake.say(&format!("detail {r3}"));
+    until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"detail\"") && l.contains("computer first")));
+    crate::answers::answer(b, &r3, "allow");
+    fake.say(&format!("answer {r3} allow"));
+    r["latePc"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 1) && h3.join().unwrap_or_default().contains("allow"));
+    r["logged"] = json!(phones::log(b).as_array().is_some_and(|a| a.len() >= 3 && a.iter().all(|l| !l["what"].as_str().unwrap_or("").contains("ghp_"))));
+    // a disconnected phone's next command is refused: the request stays held
+    let (h4, r4) = hold(b, "ph5", "echo after disconnect");
+    let pid = phones::view(b)["phones"][0]["id"].as_str().unwrap_or("").to_string();
+    phones::disconnect(b, &pid).ok();
+    fake.say(&format!("answer {r4} allow"));
+    thread::sleep(Duration::from_secs(2));
+    r["refusedAfterDisconnect"] = json!(b.core.lock().unwrap().pending.contains_key(&r4));
+    crate::answers::answer(b, &r4, "deny");
+    let _ = h4.join();
+    crate::update_settings(b, json!({ "petsVisible": true }));
+    r["disconnected"] = json!(v()["phones"].as_array().is_some_and(|a| a.is_empty()));
     r["told"] = json!(until(10, || fake.saw("revoked") || fake.saw("Revoked")));
     fake.stop();
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false));
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "closedSeen", "hookAnswered", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "closedSeen", "hookAnswered", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }

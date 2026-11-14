@@ -317,6 +317,12 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         st.send_close(); // the link reconnects to the new address
     }
     st.results.retain(|_, r| t < r.1 + RESULT_KEEP_MS);
+    // a request held only for the phones: the first input at the computer marks it released (no more pushes; still answerable)
+    if pending.values().any(|p| p.for_phones && !p.released) {
+        if let Some(idle) = crate::presence::source().idle_ms() {
+            for p in pending.values_mut().filter(|p| p.for_phones && !p.released && idle < t.saturating_sub(p.held_at)) { p.released = true; }
+        }
+    }
     // requests that ended: the phones that were told of them are told they are gone
     let mut out = vec![];
     for (id, sid, _) in std::mem::take(&mut st.closed_events) {
@@ -345,7 +351,15 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     }
     out
 }
-impl State { fn send_close(&self) { if let Some(tx) = &self.tx { let _ = tx.send(Out::Close); } } }
+impl State {
+    // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone is
+    // paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the input time
+    // cannot be read, the choice in Settings decides.
+    pub fn holds_for_phones(&self, settings: &Value, src: &dyn crate::presence::Source) -> bool {
+        if !self.cfg.on || self.store.phones.is_empty() || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
+        match src.idle_ms() { Some(ms) => ms >= crate::presence::AT_COMPUTER_MS, None => self.cfg.hold != "computer" }
+    }
+    fn send_close(&self) { if let Some(tx) = &self.tx { let _ = tx.send(Out::Close); } } }
 
 // ---------- frames from the relay ----------
 pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
@@ -353,30 +367,34 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
     let mut changed = false;
     {
         let mut c = b.core.lock().unwrap();
-        let crate::Core { phones: st, pending, .. } = &mut *c;
         match f {
             Frame::Msg { pid, from, body } => {
                 out.push(Frame::Ack { pid });
                 if let Some(packet) = b64_decode(&body) {
-                    if st.store.phones.iter().any(|p| p.id == from) { out.extend(on_packet(st, pending, &from, &packet)); }
-                    else { changed = on_hello(st, &from, &packet); }
+                    if c.phones.store.phones.iter().any(|p| p.id == from) { out.extend(on_packet(&mut c, &from, &packet, &mut changed)); }
+                    else { changed = on_hello(&mut c.phones, &from, &packet); }
                 }
             }
-            Frame::Delivered { pid } => {
-                if let Some(m) = st.moving.as_mut() { m.waiting.remove(&pid); }
-                if let Some(r) = st.revoking.as_mut() { r.pids.remove(&pid); }
+            f => {
+                let st = &mut c.phones;
+                match f {
+                    Frame::Delivered { pid } => {
+                        if let Some(m) = st.moving.as_mut() { m.waiting.remove(&pid); }
+                        if let Some(r) = st.revoking.as_mut() { r.pids.remove(&pid); }
+                    }
+                    Frame::Presence { peer, state } => {
+                        if state == bobix_link::relay_frames::PresenceState::Online { if st.online.insert(peer.clone()) { st.home_now.insert(peer); } } else { st.online.remove(&peer); }
+                    }
+                    Frame::Error { code, .. } => match code {
+                        ErrorCode::Invite => st.status = "invite".into(),
+                        ErrorCode::Update => st.status = "update".into(),
+                        ErrorCode::RelayUrl => st.status = "url".into(),
+                        ErrorCode::Auth => st.status = "auth".into(),
+                        _ => {}
+                    },
+                    _ => {}
+                }
             }
-            Frame::Presence { peer, state } => {
-                if state == bobix_link::relay_frames::PresenceState::Online { if st.online.insert(peer.clone()) { st.home_now.insert(peer); } } else { st.online.remove(&peer); }
-            }
-            Frame::Error { code, .. } => match code {
-                ErrorCode::Invite => st.status = "invite".into(),
-                ErrorCode::Update => st.status = "update".into(),
-                ErrorCode::RelayUrl => st.status = "url".into(),
-                ErrorCode::Auth => st.status = "auth".into(),
-                _ => {}
-            },
-            _ => {}
         }
     }
     if changed { b.broadcast(); }
@@ -397,7 +415,8 @@ fn on_hello(st: &mut State, from: &str, body: &[u8]) -> bool {
     }
 }
 
-fn on_packet(st: &mut State, pending: &HashMap<String, crate::answers::Pending>, from: &str, packet: &[u8]) -> Vec<Frame> {
+fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool) -> Vec<Frame> {
+    let st = &mut c.phones;
     let Some(link) = st.link_of(from) else { return vec![] };
     let opened = match link.open(packet) { Ok(o) => o, Err(_) => return vec![] };
     st.remember_recv(from);
@@ -420,19 +439,92 @@ fn on_packet(st: &mut State, pending: &HashMap<String, crate::answers::Pending>,
             }
         }
         PhoneMsg::Detail { id } => {
-            let m = match crate::phone_view::detail(pending, &id, rights) {
+            let m = match crate::phone_view::detail(&c.pending, &id, rights) {
                 Ok(d) => DesktopMsg::Detail(d),
                 Err(code) => DesktopMsg::Error { code: code.into(), who: Some(Who::Desktop) },
             };
-            if let Some((_, f)) = st.tell(from, &m, None, None) { out.push(f); }
+            if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
         }
         PhoneMsg::Sync { waiting, .. } => {
+            let st = &mut c.phones;
             let results = command::sync_results(&waiting, |cid| st.results.get(cid).map(|r| r.0.clone()));
             for r in results { if let Some((_, f)) = st.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); } }
+        }
+        PhoneMsg::Cmd(cmd) => {
+            let r = on_command(c, from, opened.counter, &cmd, changed);
+            if let Some((_, f)) = c.phones.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); }
         }
         _ => {}
     }
     out
+}
+
+// A command from a phone, checked in this order: signature (with phone id, computer id, age), counter (already by the
+// link), a `cid` seen before (the stored result), the phone's right for the kind of thing held, `cut`, the `shown`
+// hash against what is held, and the request still open. Every result is stored per `cid` for 24 hours and logged.
+fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Command, changed: &mut bool) -> CmdResult {
+    use crate::answers::By;
+    if let Some(stored) = c.phones.results.get(&cmd.cid) { return stored.0.clone(); }
+    let t = now();
+    let Some(phone) = c.phones.store.phones.iter().find(|p| p.id == from).cloned() else { return CmdResult::refused(&cmd.cid, "unknown") };
+    let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return CmdResult::refused(&cmd.cid, "encoding") };
+    let ctx = command::VerifyCtx { version: CURRENT_VERSION, phone_id: from, computer_id: &cid, sign_key: &sign, counter, now_ms: t };
+    let (result, what) = match command::verify(&ctx, cmd) {
+        Err(r) => (CmdResult::refused(&cmd.cid, r.why()), "command".to_string()),
+        Ok(body) => {
+            let target = match &body { CommandBody::Answer { id, .. } | CommandBody::Plan { id, .. } | CommandBody::Question { id, .. } => Some(id.clone()), _ => None };
+            let shown_of = target.as_deref().and_then(|id| c.pending.get(id)).map(|p| crate::phone_view::preview(p.raw.lines().next().unwrap_or(""), 60)).unwrap_or_default();
+            let what = format!("{} {}", body.kind(), shown_of).trim().to_string();
+            let refuse = |why: &str| CmdResult::refused(&cmd.cid, why);
+            let r = if !phone.rights.allows(&body) { refuse("right") } else { match &body {
+                CommandBody::Answer { id, choice, shown } => {
+                    let allow = *choice == Choice::Allow;
+                    apply(c, &cmd.cid, id, shown, if allow { "allow" } else { "deny" }, "", false, By::Phone, changed, &phone.rights)
+                }
+                CommandBody::Plan { id, decision, note, shown } => {
+                    let approve = *decision == Decision::Approve;
+                    apply(c, &cmd.cid, id, shown, if approve { "allow" } else { "deny" }, note.as_deref().unwrap_or(""), true, By::Phone, changed, &phone.rights)
+                }
+                _ => refuse("unsupported"), // questions, starts and stops come with the remote actions
+            } };
+            (r, what)
+        }
+    };
+    let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+    let shown = if let Some(w) = &result.why { format!("{word} ({w})") } else { word };
+    c.phones.push_log(&phone.name, &what, &shown);
+    c.phones.results.insert(cmd.cid.clone(), (result.clone(), t));
+    result
+}
+
+// An `answer` (plan: false) or `plan` (plan: true) command that passed the signature and the right.
+#[allow(clippy::too_many_arguments)]
+fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, note: &str, plan: bool, by: crate::answers::By, changed: &mut bool, _rights: &Rights) -> CmdResult {
+    use crate::answers::{respond_core, Answered};
+    // what is held, as the phone saw it: the kind first (an answer for a plan id is refused, and the reverse)
+    match c.pending.get(id) {
+        Some(p) if p.plan != plan => return CmdResult::refused(cid, "kind"),
+        Some(p) => {
+            if !plan && p.cut && choice == "allow" { return CmdResult::refused(cid, "cut"); }
+            let rights = Rights { answer: true, plan: true, ..Default::default() };
+            match crate::phone_view::detail(&c.pending, id, rights) {
+                Ok(d) if command::shown_matches(&d, shown) => {}
+                _ => return CmdResult::new(cid, Outcome::Stale),
+            }
+        }
+        None => {}
+    }
+    let r = respond_core(c, id, choice, note, by, Some(plan), now());
+    match r {
+        Answered::Ok => { *changed = true; CmdResult::new(cid, Outcome::Ok) }
+        Answered::LatePc => CmdResult { by: Some("computer".into()), ..CmdResult::new(cid, Outcome::LatePc) },
+        Answered::LatePhone => CmdResult { by: Some("phone".into()), ..CmdResult::new(cid, Outcome::LatePhone) },
+        Answered::Expired => CmdResult::new(cid, Outcome::Expired),
+        Answered::Released(why) => CmdResult { why: Some(why.into()), ..CmdResult::new(cid, Outcome::Released) },
+        Answered::WrongKind => CmdResult::refused(cid, "kind"),
+        Answered::Unknown => CmdResult::refused(cid, "unknown"),
+        Answered::Invalid => CmdResult::refused(cid, "encoding"),
+    }
 }
 
 // ---------- what the pages ask ----------
@@ -668,5 +760,74 @@ mod tests {
         let mut bad = bytes.clone();
         *bad.last_mut().unwrap() ^= 1;
         assert!(open_store(&c, &bad).is_none(), "a changed file is refused");
+    }
+
+    use crate::{answers::{Pending, By}, presence::Fixed};
+
+    fn on_state() -> State {
+        let mut st = State::default();
+        st.cfg.on = true; st.cfg.hold = "phone".into();
+        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights::default(), since: 0, needs_pairing: false });
+        st
+    }
+
+    #[test]
+    fn a_request_is_held_for_phones_only_when_nobody_is_at_the_computer() {
+        let s = json!({ "approveWait": -1 });
+        let st = on_state();
+        assert!(!st.holds_for_phones(&s, &Fixed(Some(5_000))), "input 5 seconds ago: not held");
+        assert!(st.holds_for_phones(&s, &Fixed(Some(30_000))), "input 30 seconds ago: held");
+        assert!(!st.holds_for_phones(&json!({ "approveWait": 0 }), &Fixed(Some(30_000))), "never hold wins");
+        assert!(st.holds_for_phones(&s, &Fixed(None)), "no reading: the choice decides, keep for the phone by default");
+        let mut c = on_state();
+        c.cfg.hold = "computer".into();
+        assert!(!c.holds_for_phones(&s, &Fixed(None)), "no reading, let Claude ask at the computer");
+        assert!(c.holds_for_phones(&s, &Fixed(Some(60_000))), "a reading beats the choice");
+        let mut off = on_state();
+        off.cfg.on = false;
+        assert!(!off.holds_for_phones(&s, &Fixed(Some(60_000))), "switch off");
+        let mut none = on_state();
+        none.store.phones.clear();
+        assert!(!none.holds_for_phones(&s, &Fixed(Some(60_000))), "no phone paired");
+    }
+
+    fn held(c: &mut crate::Core, id: &str, plan: bool, raw: &str, cut: bool) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        std::mem::forget(rx);
+        c.pending.insert(id.into(), Pending::for_test("s1", plan, tx, raw, cut));
+    }
+    fn shown(c: &crate::Core, id: &str) -> String { crate::phone_view::detail(&c.pending, id, Rights { answer: true, plan: true, ..Default::default() }).unwrap().shown }
+
+    #[test]
+    fn a_command_is_applied_by_what_was_shown_and_what_is_held() {
+        let mut c = crate::Core::default();
+        let mut changed = false;
+        held(&mut c, "req", false, "npm test", false);
+        held(&mut c, "plan", true, "1. do it", false);
+        held(&mut c, "cutreq", false, "echo hi", true);
+        let a = |c: &mut crate::Core, id: &str, sh: &str, choice: &str, plan: bool, ch: &mut bool| apply(c, "cid", id, sh, choice, "", plan, By::Phone, ch, &Rights::default());
+        let (sh, shp, shc) = (shown(&c, "req"), shown(&c, "plan"), shown(&c, "cutreq"));
+        assert_eq!(a(&mut c, "plan", &shp, "allow", false, &mut changed).why.as_deref(), Some("kind"), "an answer for a plan id");
+        assert_eq!(a(&mut c, "req", &sh, "allow", true, &mut changed).why.as_deref(), Some("kind"), "a plan decision for a request id");
+        assert_eq!(a(&mut c, "cutreq", &shc, "allow", false, &mut changed).why.as_deref(), Some("cut"), "allow on a cut request");
+        assert_eq!(a(&mut c, "req", "not what was shown", "allow", false, &mut changed).outcome, Outcome::Stale);
+        assert!(c.pending.contains_key("req") && !changed, "nothing was applied");
+        assert_eq!(a(&mut c, "cutreq", &shc, "deny", false, &mut changed).outcome, Outcome::Ok, "deny on a cut request is allowed");
+        assert_eq!(a(&mut c, "req", &sh, "allow", false, &mut changed).outcome, Outcome::Ok);
+        assert_eq!(a(&mut c, "req", &sh, "deny", false, &mut changed).outcome, Outcome::LatePhone, "the second answer is late, with who answered");
+        assert_eq!(a(&mut c, "plan", &shp, "allow", true, &mut changed).outcome, Outcome::Ok, "a plan is approved the way it is at the computer");
+        // answered at the computer first: a phone's answer is late
+        held(&mut c, "pc", false, "ls", false);
+        let sh = shown(&c, "pc");
+        crate::answers::respond_core(&mut c, "pc", "allow", "", By::Pc, None, 5);
+        let r = a(&mut c, "pc", &sh, "allow", false, &mut changed);
+        assert!(r.outcome == Outcome::LatePc && r.by.as_deref() == Some("computer"));
+    }
+
+    #[test]
+    fn a_held_for_phones_request_is_not_handed_back_by_a_settings_change() {
+        // release_unseen skips it: the filter reads for_phones from the pending entry
+        let src = include_str!("answers.rs");
+        assert!(src.contains("!c.pending.get(id).is_some_and(|p| p.for_phones)"));
     }
 }

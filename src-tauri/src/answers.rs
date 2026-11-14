@@ -9,12 +9,14 @@ use tokio::sync::oneshot;
 // plan: a ticket flow's plan (ExitPlanMode), held until answered; approving it puts that one session in auto mode.
 // raw: the request's text as it arrives (what a phone is shown, escaped by phone_view); until: when it stops waiting, if it does.
 // released: someone is at the computer, so the phones get no more pushes for it; it can still be answered.
-pub struct Pending { pub sid: String, pub plan: bool, tx: oneshot::Sender<Option<Value>>, pub raw: String, pub cut: bool, pub risky: bool, pub until: Option<u64>, pub released: bool }
+pub struct Pending { pub sid: String, pub plan: bool, tx: oneshot::Sender<Option<Value>>, pub raw: String, pub cut: bool, pub risky: bool, pub until: Option<u64>, pub released: bool,
+    // held for the phones only (the pets were hidden or paused, nobody at the computer): a settings change does not hand it back
+    pub for_phones: bool, pub held_at: u64 }
 
 impl Pending {
     #[cfg(test)]
     pub fn for_test(sid: &str, plan: bool, tx: oneshot::Sender<Option<Value>>, raw: &str, cut: bool) -> Pending {
-        Pending { sid: sid.into(), plan, tx, raw: raw.into(), cut, risky: false, until: None, released: false }
+        Pending { sid: sid.into(), plan, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0 }
     }
 }
 
@@ -122,8 +124,11 @@ fn new_id() -> String {
 
 // Holds session `s`'s request when the person can see it (settings::hold_secs). Called with the core locked.
 // plan: a ticket flow's plan, held until you answer whatever the pets show (it is the flow's one gate).
-pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut HashMap<String, Closed>, settings: &Value, s: &mut Session, e: &Value, plan: bool) -> Option<Reply> {
-    let secs = if plan { f64::INFINITY } else { settings::hold_secs(settings, &s.pet) };
+pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut HashMap<String, Closed>, phones: &crate::phones::State, settings: &Value, s: &mut Session, e: &Value, plan: bool) -> Option<Reply> {
+    let mut secs = if plan { f64::INFINITY } else { settings::hold_secs(settings, &s.pet) };
+    // nothing is shown to the person here (pets hidden or paused), but a phone is paired and nobody is at the computer: hold it for the phones
+    let for_phones = secs == 0.0 && !plan && phones.holds_for_phones(settings, &*crate::presence::source());
+    if for_phones { secs = f64::INFINITY; }
     if secs == 0.0 { return None; }
     // one open request per session
     let now = crate::state::now();
@@ -141,7 +146,7 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
     // (shown as escapes). full: the request's text, whole.
     s.answer = Some(json!({ "id": id, "until": if forever { Value::Null } else { json!(now + (secs * 1000.0) as u64) },
         "risky": risky, "cut": cut, "odd": odd(&e["tool_input"]), "full": full_text(e), "plan": plan }));
-    pending.insert(id.clone(), Pending { sid: s.id.clone(), plan, tx, raw: raw_text(e), cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false });
+    pending.insert(id.clone(), Pending { sid: s.id.clone(), plan, tx, raw: raw_text(e), cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now });
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
     let (b1, id1) = (b.clone(), id.clone());
     tauri::async_runtime::spawn(async move {
@@ -189,18 +194,20 @@ fn late(c: &crate::Core, id: &str, expect: Option<bool>) -> Answered {
 // change, from the Work screen. `expect`: Some(false) only a plain request, Some(true) only a plan; a page that shows what
 // it asks about passes None. The first answer wins; the others are told why they are late.
 pub fn respond(b: &Arc<Bobix>, id: &str, choice: &str, change: &str, by: By, expect: Option<bool>) -> Answered {
+    let r = respond_core(&mut b.core.lock().unwrap(), id, choice, change, by, expect, crate::state::now());
+    if r == Answered::Ok { b.broadcast(); }
+    r
+}
+// The same with the core already locked (a command from a phone arrives with it locked).
+pub fn respond_core(c: &mut crate::Core, id: &str, choice: &str, change: &str, by: By, expect: Option<bool>, now: u64) -> Answered {
     if !matches!(choice, "allow" | "deny") { return Answered::Invalid; }
-    let mut c = b.core.lock().unwrap();
     let plan = match c.pending.get(id) {
         Some(p) if expect.is_some_and(|e| e != p.plan) => return Answered::WrongKind,
         Some(p) => p.plan,
-        None => return late(&c, id, expect),
+        None => return late(c, id, expect),
     };
     let d = if plan { plan_decision(choice == "allow", change) } else { decision(choice).unwrap() };
-    let end = End::Answered(by, choice == "allow");
-    if !close(&mut c, id, Some(d), end, crate::state::now()) { return late(&c, id, expect); }
-    drop(c);
-    b.broadcast();
+    if !close(c, id, Some(d), End::Answered(by, choice == "allow"), now) { return late(c, id, expect); }
     Answered::Ok
 }
 
@@ -213,7 +220,7 @@ pub fn release_unseen(b: &Arc<Bobix>) {
     let ids: Vec<String> = {
         let c = b.core.lock().unwrap();
         c.sessions.values().filter(|s| s.answer.as_ref().is_some_and(|a| a["plan"] != true) && settings::hold_secs(&c.settings, &s.pet) == 0.0)
-            .filter_map(|s| s.answer.as_ref()?["id"].as_str().map(String::from)).collect()
+            .filter_map(|s| s.answer.as_ref()?["id"].as_str().map(String::from)).filter(|id| !c.pending.get(id).is_some_and(|p| p.for_phones)).collect()
     };
     for id in ids { done(b, &id, None, End::Released("settings")); }
 }
@@ -280,7 +287,7 @@ mod tests {
 
     fn pending(c: &mut crate::Core, id: &str, plan: bool) -> oneshot::Receiver<Option<Value>> {
         let (tx, rx) = oneshot::channel();
-        c.pending.insert(id.into(), Pending { sid: "s1".into(), plan, tx, raw: String::new(), cut: false, risky: false, until: None, released: false });
+        c.pending.insert(id.into(), Pending { sid: "s1".into(), plan, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0 });
         rx
     }
 
