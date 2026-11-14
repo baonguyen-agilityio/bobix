@@ -349,13 +349,15 @@ async function oneCard(b, url) {
   await move((at.k2[0] + at.k2[1]) / 2, y); await step(10);
   await move((at.k1[0] + at.k1[1]) / 2, y);
   for (let i = 0; i < 6; i++) { await step(1); const k = await cards(); if (k.length > 1) out.push(`moved from k2 to k1, frame ${i + 1}: cards ${JSON.stringify(k)}`); }
-  // The cursor leaves the window from that pet (onto a Wayland window, where XWayland stops reporting it): what the
-  // browser sends then, mouseout with no relatedTarget and a mouseleave that does not bubble, both on <html>.
-  await ev(`(() => { const h = document.documentElement;
-    h.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: null }));
-    h.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false, relatedTarget: null })); })()`);
-  await step(10); // past the 250 ms grace
-  { const k = await cards(); if (k.length) out.push(`the cursor left the window: cards still open ${JSON.stringify(k)}`); }
+  // The cursor leaves the window from that pet (onto a Wayland window, where XWayland stops reporting it). The browser
+  // sends mouseout with no relatedTarget, or a mouseleave that does not bubble, both on <html>: each one alone closes the card.
+  for (const [name, init] of [['mouseout', { bubbles: true }], ['mouseleave', { bubbles: false }]]) {
+    await move((at.k1[0] + at.k1[1]) / 2, y); await step(10);
+    { const k = await cards(); if (k.length !== 1) { out.push(`${name}: no card to close before the cursor leaves: ${JSON.stringify(k)}`); continue; } }
+    await ev(`document.documentElement.dispatchEvent(new MouseEvent(${JSON.stringify(name)}, { ...${JSON.stringify(init)}, relatedTarget: null }))`);
+    await step(10); // past the 250 ms grace
+    { const k = await cards(); if (k.length) out.push(`${name} alone: cards still open after the cursor left the window ${JSON.stringify(k)}`); }
+  }
   await move(1, 1);
   return out.map(o => 'one card at a time: ' + o);
 }
