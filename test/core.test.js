@@ -1200,10 +1200,10 @@ test('update manifest: a release the app could never update from is refused', as
   const base = 'https://example.test/d', pkg = { version: '0.2.0-rc.8' };
   const conf = id => ({ plugins: { updater: { pubkey: minisign('minisign public key', id) } } });
   sign('0102030405060708');
-  assert.equal(keyId(minisign('x', '0102030405060708')), '0102030405060708');
+  assert.equal(keyId(minisign('x', '0102030405060708')), '0807060504030201', 'shown the way minisign prints it');
   assert.ok(manifest({ dir, tag: 'v0.2.0-rc.8', base, conf: conf('0102030405060708'), pkg }), 'a real key, the right tag, signed with that key');
   assert.throws(() => manifest({ dir, tag: 'v0.2.0-rc.8', base, conf: { plugins: { updater: { pubkey: 'REPLACE_WITH_THE_PUBLIC_KEY' } } }, pkg }), /not a public key/);
   assert.throws(() => manifest({ dir, tag: 'v0.2.0-rc.9', base, conf: conf('0102030405060708'), pkg }), /not package.json's version/);
-  assert.throws(() => manifest({ dir, tag: 'v0.2.0-rc.8', base, conf: conf('ffffffffffffffff'), pkg }), /not signed with the key/);
+  assert.throws(() => manifest({ dir, tag: 'v0.2.0-rc.8', base, conf: conf('ffffffffffffffff'), pkg }), /signed with key 0807060504030201, not the key FFFFFFFFFFFFFFFF/);
   fs.rmSync(dir, { recursive: true });
 });
