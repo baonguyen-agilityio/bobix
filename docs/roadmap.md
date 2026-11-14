@@ -8,7 +8,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `develop`, not released yet (after rc.8)
 
-Nothing yet: `develop` is v0.2.0-rc.8.
+- **Open a session from wherever it shows** ([#215](https://github.com/baonguyen-agilityio/bobix/issues/215), for rc.9): the Overview rows and the Today usage rows have an **Open session** button, ⌘K opens a session on ↵ (⇧↵ or its Details link shows it), the pet's card always has **Open session** whatever the click action is, and the tray (menu bar) lists up to five sessions waiting for you, each opening its session. A waiting session says **Approve** instead. In Work, a running session's button says **Open session** and **Resume** stays for one that has ended in Claude desktop. All use the one `open_session`, which now also reopens a session that ended while Bobix ran: in Claude desktop through its link, a terminal one with a toast that copies `claude --resume <id>` (the last 50 ended sessions of this run; after a restart Bobix does not know them). Failures say why (no window, Wayland, no Node.js, ended) in every place. Tested: Rust tests for the tray list and the ended sessions, and the smoke run opens a session from Overview, ⌘K, the pet card and the tray. **Unverified:** a click on the real tray menu item (the smoke run calls its handler) and Windows / Linux on real machines.
 
 ## 2. In the test builds (v0.2.0-rc.1 to rc.8), no stable release yet
 
@@ -94,7 +94,7 @@ Next up (the [product direction](product-direction.md); its five steps are built
 - [ ] **Room on company tailnets**: a design for tailnets that only allow user → server (today Room needs laptops that can reach each other, see known limits).
 - [ ] **Remind when stuck**: a session waiting for approval longer than N minutes notifies again, and its pet changes look.
 - [ ] **Global shortcut**: jump to the next session that is waiting for you.
-- [ ] **Stop / resume**: stop a running session (interrupt its claude process); copy `claude --resume <id>` for a session whose terminal is closed.
+- [ ] **Stop / resume**: stop a running session (interrupt its claude process). Copying `claude --resume <id>` for a session that ended while Bobix ran is done (#215); one that ended before Bobix started is not known.
 
 Larger, each needs its own plan:
 

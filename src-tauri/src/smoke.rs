@@ -175,6 +175,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         if let Ok(sdir) = std::env::var("BOBIX_SMOKE_READS") { report["reads"] = reads_step(&app, &sdir); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_NAME") { report["name"] = name_step(&app, b.port, &dir, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_FOLLOW") { report["follow"] = follow_step(&app, &b, &dir, &spec); }
+        report["open"] = open_step(&app, &b);
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
@@ -184,6 +185,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
             && ["audit", "disable", "undoDisable", "remove", "undoRemove", "lines", "rulesAdd", "rulesRemove"].iter().all(|k| report["skillsPanel"][k] == true)
+            && report["open"]["pass"] == true
             && (report.get("ticket").is_none() || report["ticket"]["pass"] == true)
             && (report.get("clones").is_none() || report["clones"]["pass"] == true)
             && (report.get("repos").is_none() || report["repos"]["pass"] == true)
@@ -1062,4 +1064,70 @@ fn run_hook(hook: &PathBuf, port: u16, input: &str) -> String {
         Ok(o) => format!("error: {} {}", o.status, String::from_utf8_lossy(&o.stderr).chars().take(200).collect::<String>()),
         Err(e) => format!("error: {e}"),
     }
+}
+
+// Opening a session from wherever it shows (#215): a Claude desktop session is opened from the Overview row's button,
+// from the command bar (Enter; Shift+Enter shows details instead), from the pet card and from the tray menu. Each must
+// reach open_session, which in a smoke run notes the claude:// link it would open; a session that has ended opens as well.
+fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
+    let (id, link) = ("smoke-open", "claude://code/continue?session=local_smoke-open");
+    let send = |name: &str, extra: Value| {
+        let mut e = json!({ "session_id": id, "cwd": "/smoke/open-app", "hook_event_name": name, "bobix_host_session": "local_smoke-open" });
+        for (k, v) in extra.as_object().unwrap() { e[k] = v.clone(); }
+        b.on_event(e, false);
+    };
+    send("SessionStart", json!({ "source": "startup" }));
+    send("UserPromptSubmit", json!({ "prompt": "Open me from everywhere" }));
+    // A new Claude desktop session is held back from the lists until its parent link is known (up to state::LINK_HOLD_MS).
+    let held = || b.core.lock().unwrap().sessions.get(id).is_some_and(|s| crate::state::linking(s, crate::state::now()));
+    let t = Instant::now();
+    while held() && t.elapsed() < Duration::from_secs(20) { thread::sleep(Duration::from_millis(200)); }
+    thread::sleep(Duration::from_millis(1500)); // the lists get it
+    let hits = || OPENED.lock().unwrap().iter().filter(|u| *u == link).count();
+    let mut r = json!({});
+    let until = |f: &dyn Fn() -> bool| { let t = Instant::now(); while !f() && t.elapsed() < Duration::from_secs(8) { thread::sleep(Duration::from_millis(100)); } f() };
+    // The Overview: the session's row has an Open button; one click opens it.
+    r["overview"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); showTab('overview'); \
+        for (let t = 0; t < 8000 && !document.querySelector('#b-list [data-open-id={id:?}]'); t += 100) await w(100); \
+        const bt = document.querySelector('#b-list [data-open-id={id:?}]'); const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '' }}; \
+        if (bt) {{ const ev = new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true, cancelable: true }}); bt.focus(); bt.dispatchEvent(ev); r.enterKept = !ev.defaultPrevented; }} /* Enter on the button must not run the selected row's action */ \
+        bt?.click(); return r; }})()"), 15);
+    r["overviewOpened"] = json!(until(&|| hits() == 1));
+    // The command bar: Enter opens, Shift+Enter shows the details and opens nothing more.
+    r["search"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); const s = list.find(x => x.id === {id:?}); \
+        openCmdk(); $('#cmdk-q').value = s.title || s.name; $('#cmdk-q').dispatchEvent(new Event('input')); await w(200); \
+        const r = {{ found: cmdItems.length > 0 && !!document.querySelector('#cmdk-res [data-ci-alt]') }}; \
+        $('#cmdk').dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }})); await w(400); r.closed = !$('#cmdk').open; return r; }})()"), 15);
+    r["searchOpened"] = json!(until(&|| hits() == 2));
+    r["searchDetails"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); const s = list.find(x => x.id === {id:?}); \
+        showTab('overview'); bsel.sessions = null; openCmdk(); $('#cmdk-q').value = s.title || s.name; $('#cmdk-q').dispatchEvent(new Event('input')); await w(200); \
+        $('#cmdk').dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', shiftKey: true, bubbles: true }})); await w(600); \
+        return scope === 'sessions' || bsel[scope] === 's:' + {id:?}; }})()"), 15);
+    thread::sleep(Duration::from_millis(500));
+    r["searchDetailsOpenedNothing"] = json!(hits() == 2);
+    // The pet card: hover it, press its Open session button.
+    r["card"] = ask_for(app, overlay::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); \
+        for (let t = 0; t < 8000 && !pets.get({id:?}); t += 100) await w(100); const p = pets.get({id:?}); if (!p) return {{ error: 'no pet' }}; \
+        let bt; /* point at the pet as the mouse does (another pet under a real pointer would end its hover), and keep doing so until the card is there */ \
+        for (let t = 0; t < 8000 && !(bt = p.el.querySelector('.card [data-open]')); t += 100) {{ const b = p.el.querySelector('.spr').getBoundingClientRect(); mouse.x = b.left + b.width / 2; mouse.y = b.top + b.height / 2; mouseMoved = true; p.hoverUntil = Date.now() + 8000; wake(); await w(100); }} \
+        const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '', why: bt ? '' : [p.el.className, p.hover, p.hoverUntil, Date.now(), mouse.x, mouse.y, document.hidden, p.s.state, !!p.el.querySelector('.card')].join(' | ') }}; bt?.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); return r; }})()"), 15);
+    r["cardOpened"] = json!(until(&|| hits() == 3));
+    // The tray menu item of a session that needs you.
+    crate::tray::on_menu(app, &format!("open:{id}"));
+    r["trayOpened"] = json!(until(&|| hits() == 4));
+    // Ended: a terminal session reopens as the command that resumes it.
+    let ended = "smoke-ended-terminal";
+    for (n, extra) in [("SessionStart", json!({ "source": "startup" })), ("SessionEnd", json!({}))] {
+        let mut e = json!({ "session_id": ended, "cwd": "/smoke/ended-app", "hook_event_name": n });
+        for (k, v) in extra.as_object().unwrap() { e[k] = v.clone(); }
+        b.on_event(e, false);
+    }
+    let gone = b.open_session(ended, true, false);
+    r["ended"] = json!(gone["ok"] == false && gone["reason"] == "ended" && gone["cmd"] == format!("claude --resume {ended}"));
+    send("SessionEnd", json!({}));
+    let mut pass = ["overviewOpened", "searchOpened", "searchDetailsOpenedNothing", "cardOpened", "trayOpened", "ended"].iter().all(|k| r[k] == true);
+    pass = pass && r["overview"]["button"] == true && r["overview"]["enterKept"] == true && r["search"]["found"] == true && r["search"]["closed"] == true && r["searchDetails"] == true && r["card"]["button"] == true
+        && ["overview", "card"].iter().all(|k| r[k]["label"].as_str().is_some_and(|l| l.contains("Open me from everywhere") || l.contains("open-app")));
+    r["pass"] = json!(pass);
+    r
 }

@@ -131,8 +131,24 @@ pub fn waiting(settings: &serde_json::Value, sessions: &crate::state::Sessions, 
     (settings["badge"] == true && !dnd).then(|| sessions.values().filter(|s| s.state == "waiting").count())
 }
 
-// What the tray and the panel window show now: (count, language). None: not set yet (a new tray or panel window).
-static SHOWN: std::sync::Mutex<Option<(usize, String)>> = std::sync::Mutex::new(None);
+// The sessions that need the person, for the menu: waiting for an approval, longest waiting first, at most MENU_MAX as
+// (id, name). Whatever the badge setting says: the list is not a notification.
+const MENU_MAX: usize = 5;
+pub fn needs(sessions: &crate::state::Sessions) -> Vec<(String, String)> {
+    let mut w: Vec<_> = sessions.values().filter(|s| s.state == "waiting").collect();
+    w.sort_by_key(|s| s.since);
+    w.into_iter().take(MENU_MAX).map(|s| (s.id.clone(), if s.title.is_empty() { s.name.clone() } else { s.title.clone() })).collect()
+}
+
+// A name that fits a menu line.
+fn short(name: &str) -> String {
+    let n: Vec<char> = name.chars().collect();
+    if n.len() > 40 { n[..39].iter().collect::<String>() + "…" } else { name.to_string() }
+}
+
+// What the tray and the panel window show now: (count, language, the menu's list). None: not set yet (a new tray or panel window).
+type Shown = (usize, String, Vec<(String, String)>);
+static SHOWN: std::sync::Mutex<Option<Shown>> = std::sync::Mutex::new(None);
 // The count last put on the tray icon, for the smoke check.
 pub static APPLIED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -140,12 +156,15 @@ pub static APPLIED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUs
 // the icon) and in its tooltip, and, while the panel is open, on the Dock icon (macOS) or its taskbar button
 // (Windows). Called on every change of state; does nothing when the count is the same.
 pub fn badge(app: &AppHandle, b: &Arc<Bobix>, force: bool) {
-    let (n, l) = { let c = b.core.lock().unwrap(); (waiting(&c.settings, &c.sessions, crate::state::now()).unwrap_or(0), crate::lang(&c.settings)) };
-    {
+    let (n, l, list) = { let c = b.core.lock().unwrap(); (waiting(&c.settings, &c.sessions, crate::state::now()).unwrap_or(0), crate::lang(&c.settings), needs(&c.sessions)) };
+    let relist = {
         let mut shown = SHOWN.lock().unwrap();
-        if !force && shown.as_ref().is_some_and(|(m, k)| *m == n && *k == l) { return; }
-        *shown = Some((n, l.clone()));
-    }
+        if !force && shown.as_ref().is_some_and(|(m, k, x)| *m == n && *k == l && *x == list) { return; }
+        let relist = shown.as_ref().is_some_and(|(_, _, x)| *x != list);
+        *shown = Some((n, l.clone(), list));
+        relist
+    };
+    if relist { build(app, b); } // the sessions on the menu changed
     let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
         let app = app2;
@@ -183,6 +202,13 @@ fn menu(app: &AppHandle, b: &Bobix) -> tauri::Result<Menu<tauri::Wry>> {
     m.append(&MenuItem::with_id(app, "version", format!("Bobix {version}"), false, None::<&str>)?)?;
     m.append(&sep()?)?;
     m.append(&item("panel", tr("tray.panel"))?)?;
+    let need = needs(&b.core.lock().unwrap().sessions);
+    if !need.is_empty() {
+        m.append(&sep()?)?;
+        m.append(&MenuItem::with_id(app, "needs", tr("tray.needs"), false, None::<&str>)?)?;
+        for (id, name) in &need { m.append(&item(&format!("open:{id}"), t(&l, "tray.approve", &[("name", &short(name))]))?)?; }
+        m.append(&sep()?)?;
+    }
     m.append(&item("pets", tr(if st["petsVisible"] == true { "tray.hide" } else { "tray.show" }))?)?;
     m.append(&item("showAll", tr("tray.showAll"))?)?;
     m.append(&CheckMenuItem::with_id(app, "pause", tr("tray.pause"), true, st["paused"] == true, None::<&str>)?)?;
@@ -198,9 +224,14 @@ fn menu(app: &AppHandle, b: &Bobix) -> tauri::Result<Menu<tauri::Wry>> {
     Ok(m)
 }
 
-fn on_menu(app: &AppHandle, id: &str) {
+pub fn on_menu(app: &AppHandle, id: &str) {
     let b = app.state::<Arc<Bobix>>().inner().clone();
     let st = b.core.lock().unwrap().settings.clone();
+    if let Some(sid) = id.strip_prefix("open:") { // a session that needs you: bring it forward, or say why not
+        let sid = sid.to_string();
+        std::thread::spawn(move || { b.open_session(&sid, true, true); });
+        return;
+    }
     match id {
         "panel" => panel::show(app, &b, None, None, None),
         "pets" => { crate::update_settings(&b, json!({ "petsVisible": st["petsVisible"] != true })); }
@@ -264,6 +295,28 @@ mod tests {
         let mut wide = vec![0u8; 32 * 32 * 4];
         super::draw_badge(&mut wide, 32, 12, 16);
         assert!((0..32).any(|x| wide[(8 * 32 + x) * 4 + 3] == 255 && x < 16), "9+ makes the pill wider");
+    }
+
+    #[test]
+    fn the_menu_lists_sessions_that_need_you() {
+        let mut sessions = crate::state::Sessions::new();
+        assert!(super::needs(&sessions).is_empty(), "none waiting: no list");
+        for (i, st) in ["waiting", "working", "waiting", "waiting", "waiting", "waiting", "waiting", "waiting"].iter().enumerate() {
+            let mut s = crate::state::Session::default();
+            s.id = format!("s{i}"); s.name = format!("n{i}"); s.state = (*st).into(); s.since = 100 - i as u64;
+            if i == 2 { s.title = "Titled".into(); }
+            sessions.insert(s.id.clone(), s);
+        }
+        let l = super::needs(&sessions);
+        assert_eq!(l.len(), 5, "at most five");
+        assert_eq!(l[0].0, "s7", "the longest waiting first");
+        assert!(l.iter().all(|(id, _)| id != "s1"), "a working session is not listed");
+        assert_eq!(super::needs(&sessions).iter().find(|x| x.0 == "s2").map(|x| x.1.as_str()), None, "cut off by the limit");
+        sessions.get_mut("s2").unwrap().since = 0;
+        assert_eq!(super::needs(&sessions)[0], ("s2".to_string(), "Titled".to_string()), "the title when there is one");
+        sessions.get_mut("s2").unwrap().state = "done".into();
+        assert!(super::needs(&sessions).iter().all(|(id, _)| id != "s2"), "it leaves the list when it stops waiting");
+        assert_eq!(super::short(&"x".repeat(60)).chars().count(), 40, "long names are cut");
     }
 
     #[test]

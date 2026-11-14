@@ -153,6 +153,8 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .row:hover{background:var(--surface-2)}
 .row .b-tx .lb{font-weight:500}
 .row .mt{font-size:12px;color:var(--ink-3);white-space:nowrap}
+.rowx{display:flex;gap:6px;align-items:center}.rowx>.row{flex:1;min-width:0;width:auto}.rowx>.btn{flex:none}
+.b-itw{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px}.b-itw>.btn{margin-right:6px}
 .st{display:inline-flex;align-items:center;gap:6px}
 .wt.long{color:var(--accent-ink);font-weight:600}
 .dup{font-size:var(--t-xs);font-weight:600;color:var(--ink-2)}
@@ -501,6 +503,7 @@ input[type=number]{width:104px}
 .cmdk .it .lab{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cmdk .it .lab small{color:var(--ink-3);margin-left:6px;font-size:var(--t-xs)}
 .cmdk .it .hint{display:flex;gap:3px}
+.cmdk .it .ci-alt{border:0;background:none;color:var(--ink-3);font:inherit;font-size:var(--t-xs);cursor:pointer;padding:2px 6px;border-radius:6px}.cmdk .it .ci-alt:hover{background:var(--surface-2);color:var(--ink)}
 .cmdk .it[aria-selected="true"]{background:var(--accent-bg)}
 .cmdk .it>svg{color:var(--ink-3)}
 .cmdk .ft{display:flex;align-items:center;gap:var(--s4);height:36px;padding:0 var(--s4);border-top:1px solid var(--line);color:var(--ink-3);font-size:var(--t-xs)}
@@ -883,8 +886,22 @@ const hintText = r => [r.app || r.folder ? T(r.app ? 'pane.hint.where' : 'pane.h
   T(r.reason === 'wayland' || r.reason === 'xdotool' ? 'pane.hint.' + r.reason : 'pane.openFail.' + (r.reason || 'notfound'))].filter(Boolean).join(' ');
 // Why a session could not be brought forward, and where it is: "It runs in Terminal, in ~/app."
 function openFail(r) {
+  if (r?.reason === 'ended') { // a terminal session that has ended: the command that resumes it
+    const cmd = r.cmd;
+    return toast(T('pane.openFail.ended'), cmd && { label: T('pane.copyResume'), run: async () => { try { await navigator.clipboard.writeText(cmd); toast(T('pane.resumeCopied')); } catch { toast(cmd); } } });
+  }
   const where = r?.app || r?.folder ? ' ' + T(r.app ? 'pane.openFail.where' : 'pane.openFail.whereFolder', { app: r.app, folder: r.folder }) : '';
   toast(T('pane.openFail.' + (r?.reason || 'notfound')) + where);
+}
+// Open a session from wherever it shows: the same open_session the Sessions tab uses; why not is told, never silent.
+const openWhat = s => T(look(s) === 'waiting' ? 'pane.approve' : 'pane.open'); // a session that waits for you: Approve
+const openBtn = s => bridge ? `<button class="btn sm${look(s) === 'waiting' ? ' pri' : ''}" type="button" data-open-id="${esc(s.id)}" aria-label="${esc(T('pane.openFor', { what: openWhat(s), name: s.title || s.name }))}">${esc(openWhat(s))}</button>` : '';
+// A session as a row with its Open button beside it: the row shows its details, the button opens it.
+const withOpen = (s, row) => `<div class="rowx">${row}${openBtn(s)}</div>`;
+async function openById(id) {
+  if (!bridge) return select(id);
+  const r = await bridge.openSession(id);
+  if (!r?.ok) openFail(r);
 }
 // ---------- work: GitLab / GitHub issues assigned to you ----------
 let usageMeta = {}; // the price table's date and state (usage.rs Store::meta)
@@ -1637,7 +1654,7 @@ const GRP = { aq: 'day.aq', stuck: 'day.stuck', warn: 'b.warnings', hab: 'hab.ti
 const grpName = (k, n) => (k === 'stuckOld' ? T('day.stuckOld', { n, d: stuckCfg().stuckMaxAge ?? 14 }) : GRP[k] ? T(GRP[k]) : '');
 const head = (lead, title, note = '') => `<div class="b-dh">${lead}<div><h2>${esc(title)}</h2>${note ? `<p class="note">${esc(note)}</p>` : ''}</div></div>`;
 // A session as a row inside a detail (a ticket's sessions, side sessions); a click shows it.
-const rowBtn = s => `<button class="row" type="button" data-sel="${esc(s.id)}">${pet(s)}<span class="b-tx"><span class="lb">${esc(s.title || s.name)}</span><span class="sb">${esc(statusText(s, look(s)) + ' · ' + oneLine(line2(s, look(s))))}</span></span><span class="mt">${dupBranch(s)} ${lowCtx(s.ctx)} ${esc(ago(s.since))}</span></button>`;
+const rowBtn = s => withOpen(s, `<button class="row" type="button" data-sel="${esc(s.id)}">${pet(s)}<span class="b-tx"><span class="lb">${esc(s.title || s.name)}</span><span class="sb">${esc(statusText(s, look(s)) + ' · ' + oneLine(line2(s, look(s))))}</span></span><span class="mt">${dupBranch(s)} ${lowCtx(s.ctx)} ${esc(ago(s.since))}</span></button>`);
 // Tokens split: re-reading context (cache reads), new input (input + cache writes), output. From the app's usage numbers.
 function splitHTML(t) {
   const parts = [['ctx', t?.cacheRead || 0, 'var(--c-ctx)'], ['in', (t?.input || 0) + (t?.cacheWrite || 0), 'var(--c-in)'], ['out', t?.output || 0, 'var(--c-out)']];
@@ -1672,7 +1689,7 @@ function todayHTML() {
       <div class="b-stat"><b class="${w.length ? 'hot' : ''}">${w.length}</b><span>${esc(T('b.stat.need'))}${w.length ? ' · ' + esc(ago(w[0].since)) : ''}</span></div>
       <div class="b-stat"><b>${warned.length}</b><span>${esc(T('b.stat.warn'))}</span></div></div>
     <div class="acts" style="margin:0"><button class="btn" type="button" data-standup data-f="standup">${T('su.title')}</button><button class="btn" type="button" data-report data-f="report">${T('day.report')}</button>${bridge && list.some(offScreen) ? `<button class="btn" type="button" data-show-all>${esc(T('board.showAll'))}</button>` : ''}</div>
-    <section class="b-sec" id="d-use"><h3>${esc(T('use.title'))}</h3>${xs.length ? `${splitHTML(tot)}<ul class="rows" style="margin-top:10px">${xs.map(s => `<li><button class="row" type="button" data-sel="${esc(s.id)}">${pet(s)}<span class="b-tx"><span class="lb">${esc(s.title || s.name)}</span><span class="sb">${esc(USAGE.line(s.usage, T, state?.settings))}</span>${USAGE.warns(s.usage, T).map(x => `<span class="uw">⚠ ${esc(x.text)}</span>`).join('')}</span><span class="mt">${esc(ago(s.since))}</span></button></li>`).join('')}</ul>` : `<p class="note">${esc(T('b.usage.none'))}</p>`}</section>
+    <section class="b-sec" id="d-use"><h3>${esc(T('use.title'))}</h3>${xs.length ? `${splitHTML(tot)}<ul class="rows" style="margin-top:10px">${xs.map(s => `<li>${withOpen(s, `<button class="row" type="button" data-sel="${esc(s.id)}">${pet(s)}<span class="b-tx"><span class="lb">${esc(s.title || s.name)}</span><span class="sb">${esc(USAGE.line(s.usage, T, state?.settings))}</span>${USAGE.warns(s.usage, T).map(x => `<span class="uw">⚠ ${esc(x.text)}</span>`).join('')}</span><span class="mt">${esc(ago(s.since))}</span></button>`)}</li>`).join('')}</ul>` : `<p class="note">${esc(T('b.usage.none'))}</p>`}</section>
     <p class="note">${esc(T('use.note'))}</p>`;
 }
 // One permission request: who asks, what (whole), how long it waited, and Allow / Deny while Bobix holds it.
@@ -1865,7 +1882,7 @@ function sessionHTML(s) {
       <p class="note"><span class="st"><span class="dot ${lk}"></span>${esc(statusText(s, lk))}</span> · ${esc(s.name)} · ${T('pet.lv', { n: s.lv })} · ${esc(ago(s.since))}</p></div></div>
     ${lk === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${held(s) ? `${secsLeft(s) === Infinity ? T('pane.askUntil') : T('pane.askWithin', { n: secsLeft(s) })}
       <div class="acts"><button class="btn pri" type="button" ${answerAttrs(s, 'allow')} data-f="allow:${esc(s.id)}">${T('ask.allow')}</button><button class="btn" type="button" ${answerAttrs(s, 'deny')}>${T('ask.deny')}</button></div>` : T(approveWhere(s))}</div>` : ''}
-    ${bridge ? `<div class="pane-acts"><button class="btn${lk === 'waiting' ? '' : ' pri'}" type="button" data-act="open">${T('pane.open')}</button>
+    ${bridge ? `<div class="pane-acts"><button class="btn${lk === 'waiting' ? '' : ' pri'}" type="button" data-act="open">${esc(openWhat(s))}</button>
       <button class="btn" type="button" data-act="pet">${two(offScreen(s), T('pane.hidePet'), T('pane.showPet'))}</button>
       ${PICTURE_PETS ? `<button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.pixel ? `<button class="btn" type="button" data-act="picEdit">${T('pane.petAdjust')}</button>` : ''}${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}` : ''}</div>` : ''}
     ${hint?.id === s.id ? `<p class="note err">${esc(hintText(hint))}</p>` : ''}
@@ -2103,7 +2120,7 @@ function startItem([i, g]) {
   const acts = wait ? [[T('work.wait.cancel'), ['↵'], `data-cancel="${esc(wait.dir)}" data-cancel-iid="${i.iid}"`]]
     : i.resume && bridge ? [[T('work.resume'), ['↵'], `data-start="${i.iid}" data-path="${esc(g.path)}"`]]
     : !dir ? [[T('work.link'), ['↵'], `data-wk-link="${esc(code)}"${of}`], [T('work.clone'), [CMD, '⇧', 'L'], `data-wk-clone="${esc(code)}"${of}`]]
-    : tkHow[k] === 'quick' ? [[T(i.sessions?.length ? 'work.resume' : 'tk.quick.go'), ['↵'], i.sessions?.length ? `data-start="${i.iid}" data-path="${esc(g.path)}"` : quickAttrs(i, g, dir)]]
+    : tkHow[k] === 'quick' ? [[T(i.sessions?.length ? 'pane.open' : 'tk.quick.go'), ['↵'], i.sessions?.length ? `data-start="${i.iid}" data-path="${esc(g.path)}"` : quickAttrs(i, g, dir)]]
     : pr?.prep?.ok && (pr.prep.room === 0 || pr.disk) ? [[T('tk.start.anyway'), ['↵'], `data-tk-any="${ek}"`], [T('tk.quick.instead'), [CMD, '⇧', 'C'], `data-tk-quick="${ek}"`]]
     : pr?.prep?.ok ? [[T('tk.start'), ['↵'], `data-tk-go="${ek}"`], [T('tk.cli'), [CMD, '⇧', 'C'], `data-tk-cli="${ek}"`]] : [[T('tk.prep'), ['↵'], `data-tk-prep="${ek}"`]];
   return { id: 'n:' + k, grp: 'fstart', kind: 'board', lead: projectPet(g.path), label: `#${i.iid} ${i.title}`, cls: od ? 'hot' : '',
@@ -2133,7 +2150,7 @@ function startHTML(i, g, k) {
   const radio = (v, d) => `<label><input type="radio" name="tkh-${ek}" data-tk-how="${ek}" data-f="tkh:${ek}:${v}" value="${v}"${(quick ? 'quick' : 'full') === v ? ' checked' : ''}> <span><strong>${esc(T('tk.how.' + v))}</strong> · ${esc(d)}</span></label>`;
   const howHTML = `${resume}<section class="b-sec"><h3>${esc(T('tk.how'))}${helpBtn('sec', 'how', `${T('tk.how.full')} / ${T('tk.how.quick')}`)}</h3><div class="tk-opts">${radio('full', T('tk.how.full.d'))}${radio('quick', T('tk.how.quick.d'))}</div></section>`;
   if (quick && live) return `${top}${howHTML}<p class="note">${esc(T('tk.quick.live'))}</p>
-    <div class="acts" style="margin:0"><button class="btn pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" data-f="tkq:${ek}">${esc(T('work.resume'))}</button>${open}</div>`;
+    <div class="acts" style="margin:0"><button class="btn pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" data-f="tkq:${ek}">${esc(T('pane.open'))}</button>${open}</div>`;
   if (quick) return `${top}${howHTML}<p class="note">${esc(T('tk.quick.note', { dir: home(dirOf) }))}</p>
     <div class="acts" style="margin:0"><button class="btn pri" type="button" ${quickAttrs(i, g, dirOf)} data-f="tkq:${ek}">${esc(T('tk.quick.go'))}</button>${open}</div>`;
   const full = `${top}${howHTML}<p class="note">${esc(T('tk.flow.note'))}</p>`;
@@ -3021,7 +3038,8 @@ function drawScopes() {
 function drawList() {
   const groups = [];
   for (const x of items) { const g = groups.at(-1), k = x.grp || ''; if (g && g.k === k) g.xs.push(x); else groups.push({ k, xs: [x] }); }
-  const it = x => `<button type="button" class="b-it ${x.cls || ''}" role="option" id="bi-${items.indexOf(x)}" data-bsel="${esc(x.id)}" data-f="it:${esc(x.id)}" aria-selected="${x === cur}">${x.lead}<span class="b-tx"><span class="lb${x.mono ? ' mono' : ''}">${esc(x.label)}</span>${x.sub ? `<span class="sb">${esc(x.sub)}</span>` : ''}</span><span class="mt">${x.meta || ''}</span></button>`;
+  const it0 = x => `<button type="button" class="b-it ${x.cls || ''}" role="option" id="bi-${items.indexOf(x)}" data-bsel="${esc(x.id)}" data-f="it:${esc(x.id)}" aria-selected="${x === cur}">${x.lead}<span class="b-tx"><span class="lb${x.mono ? ' mono' : ''}">${esc(x.label)}</span>${x.sub ? `<span class="sb">${esc(x.sub)}</span>` : ''}</span><span class="mt">${x.meta || ''}</span></button>`;
+  const it = x => { const sid = x.kind === 'session' ? x.s : x.id.startsWith('ask:') ? x.id.slice(4) : null, s = scope === 'overview' && sid && list.find(y => y.id === sid); return s && bridge ? `<div class="b-itw">${it0(x)}${openBtn(s)}</div>` : it0(x); }; // Overview: each session row has its Open button
   const refresh = bridge && work.status !== 'off' ? `<span class="sp"></span>${work.at ? `<span>${esc(ago(work.at))}</span>` : ''}<button class="ib" type="button" data-act="refresh" aria-label="${esc(T('work.refresh'))}" title="${esc(T('work.refresh'))}"${work.status === 'loading' || reading() ? ' disabled aria-busy="true"' : ''}>${ic('refresh')}</button>` : '';
   swap($('#b-list'), groups.map(({ k, xs }) => `<div class="b-g" data-grp="${k}" role="group"${k ? ` aria-label="${esc(grpName(k, xs.length))}"` : ''}>${k ? `<div class="b-grp" role="presentation"><span>${esc(grpName(k, xs.length))}</span><span class="n">${xs.length}</span>${helpBtn('grp', k, grpName(k, xs.length))}${k === 'fstart' ? refresh : ''}</div>` : ''}${xs.map(it).join('')}</div>`).join('')
     || `<div class="b-empty"><p>${esc(bq ? T('b.noMatch', { q: bq }) : T('b.empty'))}</p></div>`);
@@ -3092,6 +3110,8 @@ $('#scopes').addEventListener('change', e => {
 $('#b-list').addEventListener('click', e => {
   const r = e.target.closest('[data-act="refresh"]');
   if (r && bridge) return askIssues(() => bridge.refreshWork());
+  const o = e.target.closest('[data-open-id]');
+  if (o && bridge) return openById(o.dataset.openId);
   const b = e.target.closest('.b-it');
   if (!b) return;
   bsel[scope] = b.dataset.bsel; nextFocus = 'it:' + b.dataset.bsel;
@@ -3113,6 +3133,7 @@ async function onAct(e) {
   if (d.sk !== undefined || d.skGo) return skAct(d);
   if (d.more) { moreOpen.has(d.more) ? moreOpen.delete(d.more) : moreOpen.add(d.more); $('#b-dyn').dataset.html = ''; return render(); }
   if (d.choice) { const s = list.find(x => x.id === d.s); if (s?.answer && bridge) await bridge.answer(s.answer.id, d.choice); return; }
+  if (d.openId) return openById(d.openId);
   if (d.sel) return select(d.sel);
   if (d.standup !== undefined) return openStandup();
   if (d.report !== undefined) return openReport();
@@ -3220,7 +3241,7 @@ function commands() {
   if (bridge && work.status !== 'off') c.push({ g: A, label: T('work.refresh'), icon: ic('refresh'), run: () => askIssues(() => bridge.refreshWork()) });
   if (bridge && list.some(offScreen)) c.push({ g: A, label: T('board.showAll'), icon: ic('eye'), run: () => bridge.setPet('*', 'shown') });
   if (bridge) c.push({ g: A, label: T('fb.title'), icon: ic('chat'), run: openFeedback }, { g: A, label: T('set.tour.open'), icon: ic('bulb'), run: () => tourStart(false) });
-  for (const s of list) c.push({ g: T('tab.sessions'), label: s.title || s.name, sub: statusText(s, look(s)), icon: pet(s, 'xs'), run: () => select(s.id) });
+  for (const s of list) c.push({ g: T('tab.sessions'), label: s.title || s.name, sub: statusText(s, look(s)), icon: pet(s, 'xs'), run: () => openById(s.id), alt: () => select(s.id) }); // ↵ opens the session, ⇧↵ shows its details
   if (bridge && state) for (const x of settingItems()) c.push({ g: T('tab.settings'), label: x.label, sub: x.sub, icon: x.lead, run: () => { bsel.settings = x.id; showTab('settings'); } });
   SCOPES.forEach((k, i) => c.push({ g: T('b.cmd.go'), label: T('tab.' + k), icon: ic(k), keys: [CMD, String(i + 1)], run: () => showTab(k) }));
   return c;
@@ -3232,7 +3253,7 @@ function drawCmdk() {
   let g = '', html = '';
   cmdItems.forEach((c, i) => {
     if (c.g !== g) { g = c.g; html += `<div class="grp" role="presentation">${esc(g)}</div>`; }
-    html += `<div class="it" role="option" id="ci-${i}" data-ci="${i}" aria-selected="${i === cmdIdx}">${c.icon || ''}<span class="lab">${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</span>${c.keys ? `<span class="hint">${K(c.keys)}</span>` : ''}</div>`;
+    html += `<div class="it" role="option" id="ci-${i}" data-ci="${i}" aria-selected="${i === cmdIdx}">${c.icon || ''}<span class="lab">${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</span>${c.alt ? `<button type="button" class="ci-alt" tabindex="-1" data-ci-alt="${i}" aria-label="${esc(T('pane.details') + ': ' + c.label)}">${esc(T('pane.details'))}</button>` : ''}${c.keys ? `<span class="hint">${K(c.keys)}</span>` : ''}</div>`;
   });
   $('#cmdk-res').innerHTML = html || `<div class="b-empty"><p>${esc(T('b.noMatch', { q }))}</p></div>`;
   $('#cmdk-q').setAttribute('aria-activedescendant', cmdItems.length ? 'ci-' + cmdIdx : '');
@@ -3244,20 +3265,20 @@ function openCmdk() {
   $('#cmdk-q').value = '';
   $('#cmdk-q').placeholder = T('b.cmd.ph');
   $('#cmdk-q').setAttribute('aria-label', T('b.cmd.ph'));
-  $('#cmdk-ft').innerHTML = `<span>${K(['↑', '↓'])} ${esc(T('b.cmd.move'))}</span><span>${K(['↵'])} ${esc(T('b.cmd.run'))}</span><span>${K(['esc'])} ${esc(T('b.cmd.close'))}</span>`;
+  $('#cmdk-ft').innerHTML = `<span>${K(['↑', '↓'])} ${esc(T('b.cmd.move'))}</span><span>${K(['↵'])} ${esc(T('b.cmd.run'))}</span><span>${K(['⇧', '↵'])} ${esc(T('b.cmd.details'))}</span><span>${K(['esc'])} ${esc(T('b.cmd.close'))}</span>`;
   drawCmdk();
   $('#cmdk').showModal();
   $('#cmdk-q').focus();
 }
 const closeCmdk = () => $('#cmdk').close();
-function runCmd(i) { const c = cmdItems[i]; if (!c) return; closeCmdk(); c.run(); }
+function runCmd(i, alt) { const c = cmdItems[i]; if (!c) return; const f = alt && c.alt ? c.alt : c.run; closeCmdk(); f(); }
 $('#cmdk').addEventListener('close', () => cmdBack?.isConnected && cmdBack.focus({ preventScroll: true }));
 $('#cmdk-q').addEventListener('input', () => { cmdIdx = 0; drawCmdk(); });
-$('#cmdk-res').addEventListener('click', e => { const it = e.target.closest('[data-ci]'); if (it) runCmd(+it.dataset.ci); });
+$('#cmdk-res').addEventListener('click', e => { const a = e.target.closest('[data-ci-alt]'); if (a) return runCmd(+a.dataset.ciAlt, true); const it = e.target.closest('[data-ci]'); if (it) runCmd(+it.dataset.ci); });
 $('#cmdk').addEventListener('click', e => { if (e.target === e.currentTarget) closeCmdk(); }); // the backdrop
 $('#cmdk').addEventListener('keydown', e => {
   if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && cmdItems.length) { e.preventDefault(); cmdIdx = (cmdIdx + (e.key === 'ArrowDown' ? 1 : -1) + cmdItems.length) % cmdItems.length; drawCmdk(); }
-  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); runCmd(cmdIdx); }
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); runCmd(cmdIdx, e.shiftKey); }
 });
 
 // ---------- keys: ↑ ↓ move, ↵ the main action, the bar's other keys, ⌘1–6 the screens, ⌘K or / the command bar, type to search ----------
@@ -3267,7 +3288,7 @@ document.addEventListener('keydown', e => {
   if (document.querySelector('dialog[open]') || e.isComposing) return; // a dialog takes its own keys (Esc closes it)
   const a = document.activeElement, inBq = a?.id === 'bq', inList = !!a?.closest?.('#b-list'), onPage = !a || a === document.body || a.id === 'b-detail';
   if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && !inBq) return;
-  if (a?.classList?.contains('help') && (k === 'Enter' || k === ' ')) return; // the "?" shows its tip, not the selected item's action
+  if (a?.matches?.('.help, [data-open-id]') && (k === 'Enter' || k === ' ')) return; // the "?" shows its tip, a row's Open / Approve opens its own session: not the selected item's action
   if (!mod && (k === 'ArrowDown' || k === 'ArrowUp') && (inBq || inList || onPage)) { e.preventDefault(); return move(k === 'ArrowDown' ? 1 : -1, inList); }
   if (mod && !e.shiftKey && !e.altKey && /^[1-6]$/.test(k)) { e.preventDefault(); return showTab(SCOPES[+k - 1]); }
   const combo = (mod ? CMD : '') + (mod && e.shiftKey ? '⇧' : '') + ({ Backspace: '⌫', Enter: '↵' }[k] || (k.length === 1 ? k.toUpperCase() : k));
@@ -3482,7 +3503,7 @@ setInterval(() => list.some(s => s.answer) && render(), 1000); // countdown of a
     loadHabits();
     bridge.onSelect(select);
     bridge.onShowTab(showTab);
-    bridge.onOpenFail(showHint);
+    bridge.onOpenFail(r => (r?.reason === 'ended' || !(selected || pendingSel) ? openFail(r) : showHint(r)));
     bridge.onUpdate(u => { state.update = u; const el = $('[data-row="update"] .ctl'); if (el) el.innerHTML = updateHTML(); });
     bridge.onSettings(s => {
       if (JSON.stringify(s) === JSON.stringify(state.settings)) return; // our own save echoing back: keep the form as is (slider drag)
