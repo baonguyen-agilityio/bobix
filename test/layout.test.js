@@ -9,37 +9,14 @@
 // place); without it the test is skipped. CPU_THROTTLE=<n> runs the panel n times slower (a slow runner).
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs'), path = require('path'), os = require('os'), http = require('http');
-const { spawn } = require('child_process');
+const fs = require('fs'), path = require('path'), http = require('http');
 
 const UI = path.join(__dirname, '../src/ui');
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-function chrome() {
-  const c = [process.env.CHROME_PATH,
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser',
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'];
-  return c.find(p => p && fs.existsSync(p));
-}
+const { chrome, launch, sleep } = require('./chrome-helper');
 
 // ---- Chrome over the DevTools protocol (Node's own WebSocket) ----
 async function browser(exe) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-layout-'));
-  const proc = spawn(exe, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--mute-audio',
-    '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--window-size=1180,780', '--force-device-scale-factor=1', 'about:blank'], { stdio: 'ignore' });
-  let port;
-  for (let k = 0; k < 200 && !port; k++) { try { port = fs.readFileSync(path.join(dir, 'DevToolsActivePort'), 'utf8').split('\n')[0]; } catch { await sleep(50); } }
-  let page;
-  for (let k = 0; k < 100 && !page; k++) { try { page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => t.type === 'page'); } catch {} if (!page) await sleep(50); }
-  const ws = new WebSocket(page.webSocketDebuggerUrl), calls = new Map(), on = new Map(); let id = 0;
-  await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = no; });
-  ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id) { const c = calls.get(d.id); calls.delete(d.id); d.error ? c[1](new Error(d.error.message)) : c[0](d.result); } else on.get(d.method)?.(d.params); };
-  // A busy machine is slow, never silent: a call or an event that does not come fails the run instead of hanging it.
-  const late = (what, ms = 60e3) => new Promise((_, no) => setTimeout(() => no(new Error('no answer in time: ' + what)), ms).unref());
-  const send = (method, params = {}) => Promise.race([new Promise((ok, no) => { calls.set(++id, [ok, no]); ws.send(JSON.stringify({ id, method, params })); }), late(method)]);
-  const once = method => Promise.race([new Promise(ok => on.set(method, p => { on.delete(method); ok(p); })), late(method)]);
-  const errors = []; on.set('Runtime.exceptionThrown', p => errors.push(p.exceptionDetails.exception?.description || p.exceptionDetails.text));
+  const { send, once, close, errors } = await launch(exe, 'bobix-layout-', ['--window-size=1180,780']);
   const ev = async x => { const r = await send('Runtime.evaluate', { expression: x, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   // Each input the test gives is noted with its time (window.__acts): a shift right after one was asked for.
   const acted = () => ev('window.__acts && __acts.push(performance.now())');
@@ -62,7 +39,6 @@ async function browser(exe) {
     try { return await until(`document.querySelector(${JSON.stringify('#b-list ' + sel)})?.dataset.bsel === (cur && cur.id)`, 'the picked row ' + sel, 20); } catch (e) { if (k === 4) throw e; } } };
   const key = async (k, code, vk, modifiers = 0) => { await acted(); for (const type of ['rawKeyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers }); };
   const type = async t => { await acted(); for (const c of t) await send('Input.insertText', { text: c }); };
-  const close = async () => { try { ws.close(); } catch {} proc.kill(); await sleep(200); try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} };
   return { send, once, ev, until, acted, click, pick, mouse, key, type, close, errors };
 }
 
@@ -303,6 +279,10 @@ async function panel(b, url, { width, height, lang, dark }) {
       const f0 = await hover(g);
       await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 }); await hides('the pointer leaving');
       await still('hidden', f0);
+      // a scroll or resize while the tip waits to hide (a narrow window's list moves as data arrives) must not cancel the hide
+      await hover(g);
+      await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 });
+      await b.ev(`document.querySelector('#b-list').dispatchEvent(new Event('scroll'))`); await hides('the pointer leaving, with a scroll right after');
       // keyboard: Tab to it from the row before; Esc hides it and keeps focus and the search; ↵ shows it, Space hides it, the selection stays
       const sel0 = await b.ev(`document.querySelector('#b-list [aria-selected="true"]')?.dataset.bsel`);
       await b.ev(`(() => { const bs = [...document.querySelectorAll('#b-list button')]; bs[bs.indexOf(document.querySelector(${JSON.stringify(g)})) - 1].focus(); })()`);

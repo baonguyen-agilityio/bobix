@@ -6,19 +6,12 @@
 // needed" (onDemand below). Needs Chrome (CHROME_PATH, or the usual install place); without it the test is skipped.
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs'), path = require('path'), os = require('os'), http = require('http'), zlib = require('zlib');
-const { spawn } = require('child_process');
+const fs = require('fs'), path = require('path'), http = require('http'), zlib = require('zlib');
 
 const UI = path.join(__dirname, '../src/ui');
 const W = 1920, H = 404; // the pets window
 
-function chrome() {
-  const c = [process.env.CHROME_PATH,
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser',
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'];
-  return c.find(p => p && fs.existsSync(p));
-}
+const { chrome, launch, sleep } = require('./chrome-helper');
 
 // ---- a PNG reader (8-bit RGB / RGBA, not interlaced: what Chrome writes) ----
 function png(buf) {
@@ -52,34 +45,16 @@ function pngOut(w, h, rgba) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', hd), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
 
-// ---- Chrome over the DevTools protocol (Node's own WebSocket) ----
+// ---- Chrome over the DevTools protocol (see chrome-helper.js: limits on every wait, a retried start, always cleaned up) ----
 async function browser(exe) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-overlay-'));
-  const proc = spawn(exe, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars', '--mute-audio',
+  const b = await launch(exe, 'bobix-overlay-', ['--hide-scrollbars', `--window-size=${W},${H}`,
     // Frames on demand, not at 60 Hz: each screenshot is drawn right away instead of waiting for the next vsync (about 3x
     // faster, and the runner's macOS Chrome is slow enough that this is what keeps the test in its time).
-    '--disable-frame-rate-limit', '--disable-gpu-vsync',
-    '--remote-debugging-port=0', `--user-data-dir=${dir}`, `--window-size=${W},${H}`, '--force-device-scale-factor=1', 'about:blank'], { stdio: 'ignore' });
-  let port;
-  for (let k = 0; k < 200 && !port; k++) { try { port = fs.readFileSync(path.join(dir, 'DevToolsActivePort'), 'utf8').split('\n')[0]; } catch { await sleep(50); } }
-  if (!port) { proc.kill(); throw new Error('Chrome did not start: no DevToolsActivePort in 10 s'); }
-  const page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => t.type === 'page');
-  const ws = new WebSocket(page.webSocketDebuggerUrl), calls = new Map(), on = new Map(); let id = 0;
-  await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = no; });
-  ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id) { const c = calls.get(d.id); calls.delete(d.id); d.error ? c[1](new Error(d.error.message)) : c[0](d.result); } else on.get(d.method)?.(d.params); };
-  // Every call and every wait has a limit: a Chrome that stops answering fails the test with what it waited for, and
-  // the test's finally closes Chrome and the server, so the run ends instead of hanging until the job is killed.
-  const send = (method, params = {}) => within(new Promise((ok, no) => { calls.set(++id, [ok, no]); ws.send(JSON.stringify({ id, method, params })); }), method);
-  const once = method => within(new Promise(ok => on.set(method, p => { on.delete(method); ok(p); })), method);
+    '--disable-frame-rate-limit', '--disable-gpu-vsync']);
   // The load event can come before Page.navigate's own answer: wait for it from before the navigation starts.
-  const go = async url => { const loaded = once('Page.loadEventFired'); await send('Page.navigate', { url }); await loaded; };
-  const errors = []; on.set('Runtime.exceptionThrown', p => errors.push(p.exceptionDetails.exception?.description || p.exceptionDetails.text));
-  const close = () => { try { ws.close(); } catch {} proc.kill(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} };
-  return { send, once, go, close, errors };
+  b.go = async url => { const loaded = b.once('Page.loadEventFired'); await b.send('Page.navigate', { url }); await loaded; };
+  return b;
 }
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-const STEP_MS = 30e3;
-const within = (p, what) => { let t; return Promise.race([p, new Promise((_, no) => { t = setTimeout(() => no(new Error(`Chrome: no answer to ${what} in ${STEP_MS / 1000} s`)), STEP_MS); })]).finally(() => clearTimeout(t)); };
 
 // Serves the pages as the app does: /pets, and under /ui/ only the files the app's server lists (ASSETS in
 // src-tauri/src/server.rs) and its fonts, so a file the app would not serve fails here too.
@@ -488,8 +463,9 @@ const poses = async ({ push, steps, ses, ev, fail }) => {
 
 const exe = chrome();
 test('no effect pixel lands on another pet, a tag, a balloon or another effect, and no pets overlap (real overlay, both edges, both ways, 32/56/128 px)', { skip: !exe && 'no Chrome', timeout: 240e3 }, async () => {
-  const srv = await server(), b = await browser(exe), bad = [];
+  const srv = await server(), bad = []; let b;
   try {
+    b = await browser(exe);
     await b.send('Page.enable'); await b.send('Runtime.enable');
     await b.send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
     await b.send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
@@ -520,6 +496,6 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
       const found = await run(b, url, { ...s, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' }, script, name, s.size === 128 && /narrow/.test(name));
       bad.push(...found.slice(0, 6).map(f => `${name}: ${f}`));
     }
-  } finally { b.close(); srv.close(); }
+  } finally { await b?.close(); srv.closeAllConnections?.(); srv.close(); }
   assert.deepEqual(bad, []);
 });
