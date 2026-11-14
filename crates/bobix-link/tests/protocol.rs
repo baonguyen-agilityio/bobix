@@ -218,7 +218,7 @@ fn phone_messages_round_trip_with_documented_names() {
         (CommandBody::Plan { id: "p".into(), decision: Decision::Back, note: Some("no".into()), shown: "s".into() }, json!({"kind":"plan","id":"p","decision":"back","note":"no","shown":"s"})),
         (CommandBody::Question { id: "q".into(), answers: vec!["a".into()], shown: "s".into() }, json!({"kind":"question","id":"q","answers":["a"],"shown":"s"})),
         (CommandBody::Start { project: "demo".into(), iid: "3".into(), mode: Mode::Quick, prompt_hash: "h".into() }, json!({"kind":"start","project":"demo","iid":"3","mode":"quick","promptHash":"h"})),
-        (CommandBody::Stop { session: "s1".into(), since: 5 }, json!({"kind":"stop","session":"s1","since":5})),
+        (CommandBody::Stop { session: "s1".into(), request: "req1".into() }, json!({"kind":"stop","session":"s1","request":"req1"})),
     ];
     for (b, expected) in bodies {
         assert_eq!(serde_json::to_value(&b).unwrap(), expected);

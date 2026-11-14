@@ -1,6 +1,7 @@
 //! The messages sealed inside packets. JSON, camelCase, tagged by `kind`.
 //!
-//! Assumptions that no spike has confirmed yet are marked `// assumption (spike N): ...`.
+//! Spike results that shaped the format are noted where they apply; guesses nobody has confirmed are marked
+//! `// assumption: ...`.
 
 use crate::envelope::VersionRange;
 use crate::pairing::Rights;
@@ -209,7 +210,7 @@ pub struct Detail {
     pub odd: bool,
     /// Anything was dropped from `text`: a remote Allow is refused.
     pub cut: bool,
-    /// For a question: the questions with their options. // assumption (spike 1): AskUserQuestion answers fit this shape.
+    /// For a question: the questions with their options, in the order `question { answers }` answers them.
     #[serde(default)]
     pub questions: Vec<Question>,
 }
@@ -387,11 +388,14 @@ pub enum Decision {
 pub enum CommandBody {
     Answer { id: String, choice: Choice, shown: String },
     Plan { id: String, decision: Decision, note: Option<String>, shown: String },
-    /// // assumption (spike 1): an answer is a list of chosen option texts or free text, one per question.
+    /// One string per question, in the order of the `detail`'s `questions`: an option label, several labels joined
+    /// by ", " for a multi-select, or free text. The desktop turns it into the hook's `answers` object keyed by
+    /// question text (confirmed by the hook spike).
     Question { id: String, answers: Vec<String>, shown: String },
     Start { project: String, iid: String, mode: Mode, prompt_hash: String },
-    /// // assumption (spike 2): `since` is the session's last-activity time the phone saw, to refuse a stale Stop.
-    Stop { session: String, since: u64 },
+    /// Stops a session that waits on a held request: the desktop denies that request with `interrupt` (the only
+    /// clean stop the CLI offers; stopping a running turn is not part of v1). `request` is the held request's id.
+    Stop { session: String, request: String },
 }
 
 impl CommandBody {

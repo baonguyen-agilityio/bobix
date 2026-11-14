@@ -4,7 +4,7 @@
 //!
 //! After pairing it prints what arrives and reads commands from standard input, one per line:
 //!   detail <id> | preview <project> <iid> <full|quick> | answer <id> <allow|deny> | plan <id> <approve|back> [note]
-//!   question <id> <answer>... | start <project> <iid> <full|quick> | stop <session> | sync <cid>... | bye | quit
+//!   question <id> <answer>... | start <project> <iid> <full|quick> | stop <session> <held request id> | sync <cid>... | bye | quit
 //! `answer`, `plan` and `question` send back the `shown` hash of the latest `detail` for that id (asking for it first).
 //! It signs with a software key and prints no key material. It speaks plain `ws://` only.
 mod common;
@@ -51,7 +51,7 @@ async fn main() {
                     ["detail", id] => p.send(&computer, &PhoneMsg::Detail { id: id.to_string() }).await,
                     ["preview", project, iid, m] => p.send(&computer, &PhoneMsg::StartPreview { project: project.to_string(), iid: iid.to_string(), mode: mode(m) }).await,
                     ["sync", cids @ ..] => p.send(&computer, &PhoneMsg::Sync { waiting: cids.iter().map(|c| c.to_string()).collect(), versions: bobix_link::envelope::VersionRange::current() }).await,
-                    ["stop", s] => p.command(&computer, CommandBody::Stop { session: s.to_string(), since: 0 }).await.map(|c| println!("cid {c}")),
+                    ["stop", s, req] => p.command(&computer, CommandBody::Stop { session: s.to_string(), request: req.to_string() }).await.map(|c| println!("cid {c}")),
                     ["start", project, iid, m] => {
                         if p.prompt_hash_for(project, iid).is_none() {
                             let _ = p.send(&computer, &PhoneMsg::StartPreview { project: project.to_string(), iid: iid.to_string(), mode: mode(m) }).await;

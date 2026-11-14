@@ -146,7 +146,7 @@ async fn scenario_offline() {
     assert!(r.phone.frames.iter().any(|f| matches!(f, Frame::Presence { state: PresenceState::Offline, .. })), "{:?}", r.phone.frames);
     // A command sent to a computer that is offline is queued by the relay, and can be withdrawn.
     let c = r.computer.clone();
-    r.phone.command(&c, CommandBody::Stop { session: "s1".into(), since: 0 }).await.unwrap();
+    r.phone.command(&c, CommandBody::Stop { session: "s1".into(), request: "req1".into() }).await.unwrap();
     r.phone.settle(Duration::from_millis(300)).await;
     assert!(r.phone.frames.iter().any(|f| matches!(f, Frame::Queued { .. })));
 }
@@ -264,6 +264,17 @@ async fn a_start_with_the_whole_prompt_is_accepted_and_a_changed_prompt_is_stale
 }
 
 #[tokio::test]
+async fn stop_names_a_held_request_and_nothing_else_can_be_stopped() {
+    let mut r = run(Scenario::Normal).await;
+    let c = r.computer.clone();
+    let cid = r.phone.command(&c, CommandBody::Stop { session: "s1".into(), request: "req1".into() }).await.unwrap();
+    assert_eq!(r.result_of(&cid).await.outcome, Outcome::Ok);
+    let cid = r.phone.command(&c, CommandBody::Stop { session: "s1".into(), request: "gone".into() }).await.unwrap();
+    assert!(refused("not-held")(&r.result_of(&cid).await));
+    r.finish().await;
+}
+
+#[tokio::test]
 async fn scenario_two_computers() {
     let relay = stub::spawn().await;
     let (qr_a, da) = desktop_on(&relay, Scenario::TwoComputers).await;
@@ -273,7 +284,7 @@ async fn scenario_two_computers() {
     let b = phone.pair(&qr_b, all_rights()).await.unwrap();
     assert_ne!(a, b);
     // A command meant for A that reaches B is refused by B; each computer takes its own.
-    let body = || CommandBody::Stop { session: "s1".into(), since: 0 };
+    let body = || CommandBody::Stop { session: "s1".into(), request: "req1".into() };
     let cid = phone.command_addressed(&b, &a, body()).await.unwrap();
     match phone.wait_for(WAIT, |m| matches!(m, DesktopMsg::Result(r) if r.cid == cid)).await {
         Some(DesktopMsg::Result(r)) => assert!(refused("computer")(&r), "{r:?}"),
