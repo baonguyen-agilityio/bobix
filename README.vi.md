@@ -39,7 +39,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - **Tín hiệu nhỏ**: lên cấp khi session xong một việc, pin yếu khi context sắp hết. Khi bật giảm chuyển động thì không có hiệu ứng; huy hiệu và vòng cam vẫn cho biết việc gì cần bạn.
 
 ### Duyệt yêu cầu mà không chuyển cửa sổ
-- Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu.
+- Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu. Câu hỏi Claude đặt cho bạn (`AskUserQuestion`) hiện trên chú thú kèm nội dung; bạn trả lời trong Claude.
 - Claude vẫn hỏi trong terminal cùng lúc nên bạn trả lời ở đâu cũng được. Bobix không đặt quy tắc cho phép lâu dài; muốn vậy hãy dùng chế độ auto của chính Claude.
 
 ### Xem mỗi session dùng bao nhiêu
@@ -54,7 +54,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 
 ### Chạy ticket của bạn
 - **Issue GitHub và GitLab của bạn**, đọc qua chính `gh` và `glab` của bạn (mặc định bật ở nơi bạn đã đăng nhập; mỗi bên có một công tắc để tắt): cần làm, đang làm cùng các session của nó, chờ review, xong hôm nay. Bobix gợi ý việc làm tiếp, cảnh báo khi hai session cùng làm một issue, và chỉ ra việc bị kẹt kèm bước tiếp theo.
-- **Bắt đầu** một issue trong **Công việc**, theo một trong hai cách: **Đầy đủ** chạy luồng ticket (worktree và nhánh riêng, tạo từ nhánh bạn chọn ở lần Bắt đầu đầu tiên trong mỗi kho (hiện "Từ nhánh: …" ở mỗi lần Bắt đầu, đổi ở đó hoặc trong Cài đặt), không bao giờ đoán; kế hoạch bạn duyệt, kiểm tra, review, MR / PR và CI); **Nhanh** mở một session Claude thường trong thư mục dự án với prompt bạn sửa được, kèm skill gợi ý cho repo đó. Session nào cũng được đặt tên `[CODE-27] …`. **Đổi thư mục…** trong hộp Bắt đầu trỏ dự án sang một bản clone khác.
+- **Bắt đầu** một issue trong **Công việc**, theo một trong hai cách: **Đầy đủ** chạy luồng ticket (worktree và nhánh riêng, tạo từ nhánh bạn chọn ở lần Bắt đầu đầu tiên trong mỗi kho (hiện "Từ nhánh: …" ở mỗi lần Bắt đầu, đổi ở đó hoặc trong Cài đặt), không bao giờ đoán; Claude nhắc lại ticket và hỏi bạn những gì code không trả lời được, mỗi câu kèm nguồn, một nhãn và lựa chọn "Ngoài phạm vi ticket này"; rồi kế hoạch bạn duyệt, có bảng đối chiếu yêu cầu → bước; kiểm tra, review, MR / PR và CI); **Nhanh** mở một session Claude thường trong thư mục dự án với prompt bạn sửa được, kèm skill gợi ý cho repo đó. Session nào cũng được đặt tên `[CODE-27] …`. **Đổi thư mục…** trong hộp Bắt đầu trỏ dự án sang một bản clone khác.
 - **Stand-up và báo cáo hôm nay** dạng văn bản để chép. Bobix không gửi gì đi.
 
 ### Bảng điều khiển

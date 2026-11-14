@@ -44,6 +44,8 @@ fn issue_of(s: &Session) -> Option<i64> {
 // short and safe to say.
 pub fn rule_of(tool: &str, input: &Value) -> Option<String> {
     if tool.is_empty() || !tool.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') { return None; }
+    // these are questions and plan approvals, not permissions: an "allow" rule for them would let Claude skip asking
+    if matches!(tool, "AskUserQuestion" | "ExitPlanMode") { return None; }
     if tool != "Bash" { return Some(tool.to_string()); }
     let words: Vec<&str> = input["command"].as_str()?.split_whitespace().collect();
     let plain = |w: &str| !w.is_empty() && w.len() <= 30 && w.chars().all(|c| c.is_ascii_alphanumeric() || "-_:".contains(c));
@@ -199,6 +201,7 @@ mod tests {
         assert_eq!(r(""), None);
         assert_eq!(rule_of("WebFetch", &json!({ "url": "https://docs.example.com/x" })).as_deref(), Some("WebFetch"));
         assert_eq!(rule_of("mcp__x; rm", &json!({})), None);
+        assert_eq!((rule_of("AskUserQuestion", &json!({})), rule_of("ExitPlanMode", &json!({}))), (None, None), "never suggested as an allow rule");
         assert_eq!(skill_of(&json!({ "hook_event_name": "UserPromptSubmit", "prompt": "/fix the login bug please" })).as_deref(), Some("fix"));
         assert_eq!(skill_of(&json!({ "hook_event_name": "UserPromptSubmit", "prompt": "fix it /now" })), None);
         for c in ["/clear", "/compact", "/help", "/model sonnet", "/resume", "/config"] {

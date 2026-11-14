@@ -39,7 +39,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - **Small signals**: a level-up when a session finishes a task, a low battery when its context runs low. With reduced motion they stay off; the badge and the coral ring still say what needs you.
 
 ### Answer approvals without switching windows
-- When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked.
+- When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked. A question Claude asks you (`AskUserQuestion`) shows on the pet with its text; you answer it in Claude.
 - Claude still asks in the terminal at the same time, so you can answer in either place. Bobix sets no standing rules; for that, use Claude's own auto mode.
 
 ### See what each session uses
@@ -54,7 +54,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 
 ### Run your tickets
 - **Your GitHub and GitLab issues**, read through your own `gh` and `glab` (on by default wherever you are signed in; one switch each turns it off): to do, in progress with their sessions, waiting for review, done today. Bobix suggests the next one, warns when two sessions work on one issue, and flags stuck work with its next step.
-- **Start** an issue under **Work**, one of two ways: **Full** runs the ticket flow (its own worktree and branch, cut from the branch you pick the first time in each repository (shown as "From: …" at every Start, changed there or in Settings), never a guess; a plan you approve, checks, review, MR / PR and CI); **Quick** opens a plain Claude session in the project folder with a prompt you can edit and a skill suggested for that repository. Either session is named `[CODE-27] …`. **Change folder…** in the Start box points a project at another clone.
+- **Start** an issue under **Work**, one of two ways: **Full** runs the ticket flow (its own worktree and branch, cut from the branch you pick the first time in each repository (shown as "From: …" at every Start, changed there or in Settings), never a guess; Claude restates the ticket and asks you what the code cannot answer, each question with its source, a tag and an "Out of scope for this ticket" choice; then a plan you approve, with a requirement → step mapping; checks, review, MR / PR and CI); **Quick** opens a plain Claude session in the project folder with a prompt you can edit and a skill suggested for that repository. Either session is named `[CODE-27] …`. **Change folder…** in the Start box points a project at another clone.
 - **Stand-up and today's report** as plain text to copy. Bobix sends nothing.
 
 ### The panel

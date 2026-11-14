@@ -26,6 +26,9 @@ process.stdin.on('end', () => {
   if (input) {
     const t = {};
     for (const k of KEEP_INPUT) if (typeof input[k] === 'string') t[k] = input[k].slice(0, 300);
+    // Claude asking you a question (the ticket flow's interview): only the first question's text, for the pet
+    const q = e.tool_name === 'AskUserQuestion' && Array.isArray(input.questions) && input.questions[0] && input.questions[0].question;
+    if (typeof q === 'string') t.questions = [{ question: q.slice(0, 300) }];
     if (plan && typeof input.plan === 'string') t.plan = input.plan.slice(0, 20000);
     e.tool_input = t;
   }
