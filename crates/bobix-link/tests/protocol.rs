@@ -172,7 +172,7 @@ fn round_trip<T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + st
 fn desktop_messages_round_trip_with_documented_names() {
     let waiting = Waiting {
         id: "r1".into(), session: "s1".into(), what: WaitingKind::Request, preview: "npm test".into(),
-        cut: false, risky: true, seconds_left: Some(280),
+        cut: false, risky: true, at_computer: false, seconds_left: Some(280),
     };
     let home = DesktopMsg::Home(Home {
         sent_at: NOW,
@@ -185,6 +185,7 @@ fn desktop_messages_round_trip_with_documented_names() {
     assert_eq!(v["kind"], "home");
     assert_eq!(v["sentAt"], NOW);
     assert_eq!(v["waiting"][0]["secondsLeft"], 280);
+    assert_eq!(v["waiting"][0]["atComputer"], false);
     assert_eq!(v["groups"][0]["group"], "needsYou");
 
     let detail = DesktopMsg::Detail(Detail {
@@ -256,7 +257,7 @@ fn limits_are_measured_in_bytes() {
     assert!(detail(DetailKind::Plan, "€".repeat(6666)).validate().is_ok());
     let home = |p: String| DesktopMsg::Home(Home {
         sent_at: 0, computer: Computer { name: "c".into(), state: ComputerState::Asleep, unfinished: 2 }, sessions: vec![], groups: vec![],
-        waiting: vec![Waiting { id: "i".into(), session: "s".into(), what: WaitingKind::Plan, preview: p, cut: false, risky: false, seconds_left: None }],
+        waiting: vec![Waiting { id: "i".into(), session: "s".into(), what: WaitingKind::Plan, preview: p, cut: false, risky: false, at_computer: false, seconds_left: None }],
     });
     assert!(home("a".repeat(MAX_PREVIEW)).validate().is_ok());
     assert!(home("a".repeat(MAX_PREVIEW + 1)).validate().is_err());
@@ -562,4 +563,15 @@ fn the_pairing_secret_is_not_printed_by_debug() {
         assert!(!shown.contains(&secret));
     }
     assert!(shown.contains("<hidden>"));
+}
+
+#[test]
+fn stop_needs_both_the_stop_and_the_answer_right() {
+    let stop = CommandBody::Stop { session: "s1".into(), request: "req1".into() };
+    let r = |answer, stop| Rights { answer, stop, ..Rights::default() };
+    assert!(r(true, true).allows(&stop));
+    assert!(!r(false, true).allows(&stop), "a phone with `stop` alone cannot deny a held request");
+    assert!(!r(true, false).allows(&stop));
+    assert!(r(true, false).allows(&answer("x")) && !r(false, true).allows(&answer("x")));
+    assert!(!Rights::default().allows(&CommandBody::Start { project: "p".into(), iid: "1".into(), mode: Mode::Full, prompt_hash: "h".into() }));
 }

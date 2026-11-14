@@ -161,6 +161,18 @@ pub struct Rights {
 }
 
 impl Rights {
+    /// Whether a phone with these rights may send `body`. `stop` denies a held request, so it also needs `answer`.
+    pub fn allows(&self, body: &crate::messages::CommandBody) -> bool {
+        use crate::messages::CommandBody as C;
+        match body {
+            C::Answer { .. } => self.answer,
+            C::Plan { .. } => self.plan,
+            C::Question { .. } => self.question,
+            C::Start { .. } => self.start,
+            C::Stop { .. } => self.stop && self.answer,
+        }
+    }
+
     pub fn to_mask(self) -> u8 {
         [self.answer, self.plan, self.question, self.start, self.stop, self.activity]
             .iter()

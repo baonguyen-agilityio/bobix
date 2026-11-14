@@ -241,6 +241,7 @@ impl Desktop {
                 preview: visible_escapes(&i.text).0.chars().take(60).collect(),
                 cut: i.cut,
                 risky: i.risky,
+                at_computer: self.scenario == Scenario::Released,
                 seconds_left: Some(280),
             })
             .collect();
@@ -405,14 +406,7 @@ impl Desktop {
             Ok(b) => b,
             Err(r @ (Refusal::Clock | Refusal::Computer | Refusal::Signature | Refusal::Encoding)) => return CmdResult::refused(&cmd.cid, r.why()),
         };
-        let r = &k.rights;
-        let allowed = match body {
-            CommandBody::Answer { .. } => r.answer,
-            CommandBody::Plan { .. } => r.plan,
-            CommandBody::Question { .. } => r.question,
-            CommandBody::Start { .. } => r.start,
-            CommandBody::Stop { .. } => r.stop,
-        };
+        let allowed = k.rights.allows(&body);
         if !allowed {
             return CmdResult::refused(&cmd.cid, "right");
         }

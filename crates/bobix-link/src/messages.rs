@@ -179,6 +179,9 @@ pub struct Waiting {
     /// The input was cut or too long to show whole: the desktop refuses a remote Allow.
     pub cut: bool,
     pub risky: bool,
+    /// Released (see `Outcome::Released`): someone is at the computer. Still answerable; the first answer wins.
+    #[serde(default)]
+    pub at_computer: bool,
     /// "Seconds left", counted by the receiver from its own receive time. None when the desktop waits forever.
     pub seconds_left: Option<u64>,
 }
@@ -280,6 +283,9 @@ pub enum Outcome {
     LatePc,
     LatePhone,
     Expired,
+    /// Someone is at the computer: the request was released from the phones. The phone gets no more pushes for it and
+    /// shows it as "being handled at the computer". It is NOT withdrawn: the phone can still answer, the first answer
+    /// wins, and an answer to a released request is applied (`ok`), not `stale`.
     Released,
     Stale,
     Refused,

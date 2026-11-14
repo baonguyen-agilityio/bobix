@@ -128,7 +128,7 @@ cd crates/bobix-link && cargo test
   cargo run --example fake-desktop -- --relay ws://127.0.0.1:PORT --scenario normal   # prints a QR string
   cargo run --example fake-phone -- --relay ws://127.0.0.1:PORT --qr 'bobix://pair?...'
   ```
-  `fake-desktop --scenario list` names the 19 scenarios; `tests/fakes.rs` runs each of them in-process. `fake-phone` reads commands from standard input (the list is at the top of its source file) and signs with a software key.
+  `fake-desktop --scenario list` names the 20 scenarios; `tests/fakes.rs` runs each of them in-process. `fake-phone` reads commands from standard input (the list is at the top of its source file) and signs with a software key.
 
 [The link workflow](../.github/workflows/link.yml) runs on every pull request, but its jobs skip themselves when nothing under `crates/bobix-link/` changed (a skipped job counts as passing for a required check). Jobs: `link` on macOS, Windows and Ubuntu (clippy, tests, the fake tools built and kept as an artifact), `fuzz`, `audit` (known vulnerabilities in the dependencies, with cargo-deny), and `link-ok`, which fails when any of them failed. They have their own cache keys, so they never evict the app's cache. The owner makes `link-ok` a required check of `develop`, `main` and the phone-access integration branch `feat/phone-access` after the workflow has run once; it is the only name to require, because a skipped matrix job does not report one check per system.
 

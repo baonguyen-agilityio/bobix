@@ -282,6 +282,25 @@ async fn stop_names_a_held_request_and_nothing_else_can_be_stopped() {
 }
 
 #[tokio::test]
+async fn a_phone_with_stop_alone_cannot_deny_a_held_request() {
+    let mut r = run_with(Scenario::Normal, Rights { answer: false, stop: true, ..all_rights() }).await;
+    let c = r.computer.clone();
+    let cid = r.phone.command(&c, CommandBody::Stop { session: "s1".into(), request: "req1".into() }).await.unwrap();
+    assert!(refused("right")(&r.result_of(&cid).await));
+    r.finish().await;
+}
+
+#[tokio::test]
+async fn scenario_released() {
+    let mut r = run(Scenario::Released).await;
+    let Some(DesktopMsg::Home(h)) = r.phone.wait_for(WAIT, |m| matches!(m, DesktopMsg::Home(_))).await else { panic!() };
+    assert!(h.waiting.iter().all(|w| w.at_computer), "released: being handled at the computer");
+    // not withdrawn: the phone can still answer, and the answer is applied, not stale
+    assert_eq!(r.answer("req1", Choice::Allow).await.outcome, Outcome::Ok);
+    r.finish().await;
+}
+
+#[tokio::test]
 async fn scenario_two_computers() {
     let relay = stub::spawn().await;
     let (qr_a, da) = desktop_on(&relay, Scenario::TwoComputers).await;
@@ -363,7 +382,7 @@ async fn scenario_unknown_command() {
 
 #[tokio::test]
 async fn every_scenario_name_is_known_and_an_unknown_one_lists_them() {
-    assert_eq!(ALL.len(), 19);
+    assert_eq!(ALL.len(), 20);
     for (name, s) in ALL {
         assert_eq!(Scenario::parse(name), Ok(s));
     }
