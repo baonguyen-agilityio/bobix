@@ -5,7 +5,7 @@
 name: link
 on:
   push:
-    branches: [develop, main]
+    branches: [develop, main, feat/phone-access]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -94,9 +94,11 @@ jobs:
           tool: cargo-fuzz
       - name: Open an envelope, parse a relay frame (a short run each)
         working-directory: crates/bobix-link
+        # The prebuilt cargo-fuzz is a musl binary and would default to the musl target, which has no sanitizer
+        # support: name the GNU target.
         run: |
-          cargo fuzz run open_envelope -- -max_total_time=45
-          cargo fuzz run parse_relay_frame -- -max_total_time=45
+          cargo fuzz run --target x86_64-unknown-linux-gnu open_envelope -- -max_total_time=45
+          cargo fuzz run --target x86_64-unknown-linux-gnu parse_relay_frame -- -max_total_time=45
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
