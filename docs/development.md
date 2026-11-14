@@ -48,7 +48,7 @@ How a change gets made, by people and by Claude Code sessions alike. The working
 | `src/ui/` | Pages: `pets.html` (overlay), `panel.html` (control panel), strings in `i18n.js` (the app reads them too), pet pictures as pixel art (`pixelate.js`, run in a Web Worker; hidden for now behind `PICTURE_PETS` in `creature.js`). The pages load only the files listed in `ASSETS` in `src-tauri/src/server.rs` |
 | `src/ui/gif/` | GIF code copied unchanged from gifenc and gifuct-js (MIT, licenses next to it) |
 | `src/hook/hook.js` | The forwarder Claude Code runs on each hook event (copied to `~/.claude/bobix/`) |
-| `test/` | `core.test.js`: Node tests (`node --test`), run by `npm test`. `overlay.test.js`: the pets overlay in headless Chrome (CI runs it; skipped without Chrome). `fixtures/`: their input files |
+| `test/` | `core.test.js`: Node tests (`node --test`), run by `npm test`. `overlay.test.js` and `layout.test.js`: the pets overlay, and the panel with the pets card (no layout shift), in headless Chrome (CI runs them; skipped without Chrome); `chrome-helper.js` starts Chrome for both, with limits and cleanup. `fixtures/`: their input files |
 | `docs/` | This documentation; `docs/media/` holds the screenshots and `demo.gif`, `docs/releases/` the release notes |
 | `site/` | The project's web page (published by `.github/workflows/pages.yml`) |
 | `.github/` | Workflows (`smoke.yml`, `release.yml`, `claude-review.yml`, `pages.yml`), `dependabot.yml`, the pull request template |
