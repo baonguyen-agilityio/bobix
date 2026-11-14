@@ -342,6 +342,18 @@ async function panel(b, url, { width, height, lang, dark }) {
       await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 }); await hides('the pointer leaving a row\'s "?"');
       await noShift(n1);
     });
+    // The tour: every step points at an element that is on screen (or, when it has an alt, at that one), with the bubble up.
+    await part('tour targets', async () => {
+      const keys = await b.ev('TOUR.STEPS.map(s => s.key)'), n0 = await b.ev('__shifts.length');
+      for (const [i, key] of keys.entries()) {
+        const r = await b.ev(`(async () => { tourStart(false); tourAt = ${i}; await tourShow(); const s = tourSteps[tourAt], t = tourTarget(s.at) || (s.alt && tourTarget(s.alt.at)), r = t && t.getBoundingClientRect();
+          return { key: s.key, ok: !!r && r.width > 0 && r.height > 0, shown: document.querySelector('#tour-pop').getBoundingClientRect().height > 0 }; })()`);
+        if (r.key !== key || !r.ok) fail(`tour step ${key}: the element it points at is not on screen`);
+        if (!r.shown) fail(`tour step ${key}: no bubble`);
+      }
+      await b.ev('tourEnd()'); await sleep(400);
+      await b.ev(`__shifts.length = ${n0}`); // the bubble and its highlight are an overlay that moves from step to step on purpose
+    });
     await b.ev(`document.querySelectorAll('dialog[open]').forEach(d => d.close())`);
     // Nothing the layout-shift API sees either (narrow: a tab switch moves the detail below the list, as asked).
     const acts = await b.ev('__acts'), asked = s => s.input || acts.some(a => s.t >= a && s.t - a < 3000);
