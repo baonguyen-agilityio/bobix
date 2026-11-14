@@ -16,7 +16,7 @@ stable branch. How to run it and how it is built: `docs/development.md`. What is
   Do not edit the main checkout. Every task has a GitHub issue first.
 - Pull requests target `develop` and say "Closes #N". Conventional commits (`feat(scope): ...`), no AI mention.
 - Never merge, and never `gh pr merge --auto`: the owner approves every merge. Answer every review comment (fixed, or not an issue with the reason) before asking.
-- Every string the app shows exists in EN and VI (`src/ui/i18n.js`; the Rust side reads the same file).
+- Every string the app shows exists in EN and VI (`src/ui/i18n.js`; the Rust side reads the same file). The phone app's strings are the `phone.*` keys there; after editing them run `node mobile/tool/strings.mjs` and commit `mobile/lib/l10n/strings.g.dart` (`npm test` fails when it is stale).
 - A new Tauri command goes in all three lists: `generate_handler!` and `COMMANDS` in `src-tauri/src/main.rs`, and `src-tauri/build.rs`. A Rust test checks them; the pages are refused at run time otherwise.
 - A new file under `src/ui/` goes in `ASSETS` in `src-tauri/src/server.rs`; `npm test` checks it.
 - Verify a change in the real built app (real IPC), not only in tests with a stubbed bridge: a throwaway `BOBIX_HOME`,

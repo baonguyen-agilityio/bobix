@@ -14,7 +14,7 @@ class Session {
     this.waitingMinutes = 0,
     this.tool,
     this.pullRequest,
-    this.petDesign = 0,
+    this.petDesign = 'default',
     this.petColor = 0,
   });
 
@@ -25,7 +25,8 @@ class Session {
   final int waitingMinutes;
   final String? tool;
   final int? pullRequest;
-  final int petDesign, petColor;
+  final String petDesign;
+  final int petColor;
 }
 
 const fixtureComputer = 'Studio Mac';
@@ -40,7 +41,7 @@ const fixtureSessions = <Session>[
     needsYou: true,
     waitingMinutes: 4,
     tool: 'Bash',
-    petDesign: 0,
+    petDesign: 'default',
     petColor: 0,
   ),
   Session(
@@ -50,7 +51,7 @@ const fixtureSessions = <Session>[
     issue: 38,
     stage: Stage.doing,
     tool: 'Edit',
-    petDesign: 1,
+    petDesign: 'nota',
     petColor: 2,
   ),
   Session(
@@ -60,7 +61,7 @@ const fixtureSessions = <Session>[
     issue: 12,
     stage: Stage.verify,
     pullRequest: 57,
-    petDesign: 2,
+    petDesign: 'tty',
     petColor: 4,
   ),
   Session(
@@ -69,7 +70,7 @@ const fixtureSessions = <Session>[
     project: 'blog',
     issue: 9,
     stage: Stage.stuck,
-    petDesign: 0,
+    petDesign: 'default',
     petColor: 5,
   ),
   Session(
@@ -78,7 +79,7 @@ const fixtureSessions = <Session>[
     project: 'shop',
     issue: 35,
     stage: Stage.done,
-    petDesign: 1,
+    petDesign: 'nota',
     petColor: 1,
   ),
 ];

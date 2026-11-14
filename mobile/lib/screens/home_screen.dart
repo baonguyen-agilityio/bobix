@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../fixtures/fixtures.dart';
 import '../l10n/l10n.dart';
-import '../pets/pet_view.dart';
 import '../theme/tokens.dart';
 import '../widgets/glass.dart';
 import '../widgets/session_row.dart';
@@ -44,7 +43,14 @@ class HomeScreen extends ConsumerWidget {
       child: SessionRow(
         petDesign: x.petDesign,
         petColor: x.petColor,
-        petState: needsYou ? PetState.waiting : PetState.working,
+        petState: needsYou
+            ? 'waiting'
+            : switch (x.stage) {
+                Stage.doing => 'working',
+                Stage.verify => 'idle',
+                Stage.stuck => 'failed',
+                _ => 'done',
+              },
         title: x.name,
         subtitle: subtitle,
         meta: meta ?? '${x.project} #${x.issue}',

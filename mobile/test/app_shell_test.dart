@@ -117,4 +117,25 @@ void main() {
     await tester.pumpWidget(app(lang: 'vi', conn: ConnState.asleep));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'pets animate by frame, and stand still when the system asks for reduced motion',
+    (tester) async {
+      await tester.pumpWidget(app());
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        tester.binding.hasScheduledFrame,
+        isTrue,
+        reason: 'a pet is animating',
+      );
+
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+    },
+  );
 }

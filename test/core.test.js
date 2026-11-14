@@ -1227,3 +1227,8 @@ test('phone strings: every phone.* key has EN and VI with the same {names}, and 
   assert.throws(() => render({ en: { 'phone.a': 'A {n}' }, vi: { 'phone.a': 'B' } }), /different \{placeholders\}/);
   assert.ok(render({ en: { 'phone.a': "it's $5" }, vi: { 'phone.a': 'x' } }).includes("'it\\'s \\$5'"));
 });
+
+test('phone pets: the fixtures of the Dart port match creature.js as it is now', () => {
+  const run = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'creature-fixtures.js'), '--check'], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+});

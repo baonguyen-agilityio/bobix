@@ -10,3 +10,11 @@ plans/
 .claude/worktrees/
 .claude/settings.local.json
 CLAUDE.local.md
+# Phone app: signing material and push-service config are never committed
+mobile/ios/**/GoogleService-Info.plist
+mobile/android/app/google-services.json
+mobile/android/key.properties
+*.jks
+*.keystore
+*.p8
+*.mobileprovision

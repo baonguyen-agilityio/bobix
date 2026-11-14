@@ -21,8 +21,9 @@ class SessionRow extends StatelessWidget {
     this.onTap,
   });
 
-  final int petDesign, petColor;
-  final PetState petState;
+  final String petDesign;
+  final int petColor;
+  final String petState;
   final String title, subtitle, meta;
   final bool needsYou, muted;
   final Color? subtitleColor;
