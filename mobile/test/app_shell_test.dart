@@ -238,9 +238,45 @@ void main() {
     expect(find.text('Về Trang chủ'), findsOneWidget);
   });
 
-  Widget sessionPage(String id) => ProviderScope(
+  testWidgets(
+    'a request being handled at the computer can still be answered here',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(app());
+      await tester.pump();
+      expect(
+        find.text('Being handled at the computer'),
+        findsOneWidget,
+      ); // the Home row
+      await tester.tap(find.text('Tidy the image uploads'));
+      await settle(tester);
+      expect(
+        find.text('Being handled at the computer'),
+        findsNWidgets(2),
+      ); // the badge and the banner
+      expect(find.textContaining('the first answer wins'), findsOneWidget);
+      expect(find.text('Deny'), findsOneWidget);
+      expect(find.text('Allow'), findsOneWidget);
+      expect(find.text('Back to Home'), findsNothing);
+    },
+  );
+
+  testWidgets('in Vietnamese the state is named too', (tester) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app(lang: 'vi'));
+    await tester.pump();
+    await tester.tap(find.text('Tidy the image uploads'));
+    await settle(tester);
+    expect(find.text('Đang được xử lý trên máy tính'), findsNWidgets(2));
+    expect(find.text('Cho phép'), findsOneWidget);
+  });
+
+  Widget sessionPage(
+    String id, {
+    FixturePhoneData data = const FixturePhoneData(),
+  }) => ProviderScope(
     key: UniqueKey(),
-    overrides: [phoneDataProvider.overrideWithValue(const FixturePhoneData())],
+    overrides: [phoneDataProvider.overrideWithValue(data)],
     child: MaterialApp(
       theme: bobixTheme(Brightness.light),
       home: SessionScreen(sessionId: id),
@@ -254,6 +290,15 @@ void main() {
       await tester.pumpWidget(sessionPage('s1')); // waits, request held
       await settle(tester);
       expect(find.text('Stop'), findsOneWidget);
+      // Stop needs both the Stop and the Answer right, even on a held request.
+      for (final data in const [
+        FixturePhoneData(mayStop: false),
+        FixturePhoneData(mayAnswer: false),
+      ]) {
+        await tester.pumpWidget(sessionPage('s1', data: data));
+        await settle(tester);
+        expect(find.text('Stop'), findsNothing);
+      }
       for (final id in ['s2', 's7', 's8']) {
         // running turn without a request / answered at the computer / not held for phones
         await tester.pumpWidget(sessionPage(id));

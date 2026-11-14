@@ -13,6 +13,7 @@ class Session {
     this.needsYou = false,
     this.answerAtComputer = false,
     this.answeredAtComputer = false,
+    this.handledAtComputer = false,
     this.waitingMinutes = 0,
     this.tool,
     this.pullRequest,
@@ -32,6 +33,10 @@ class Session {
 
   /// The request was answered at the computer first (the first answer wins), so it is withdrawn here.
   final bool answeredAtComputer;
+
+  /// Someone is at the computer: the phone gets no pushes for the request, but it can still be answered here and the
+  /// first answer wins. Not the same as [answeredAtComputer].
+  final bool handledAtComputer;
   final int waitingMinutes;
   final String? tool;
   final int? pullRequest;

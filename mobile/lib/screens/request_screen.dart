@@ -60,8 +60,20 @@ class _RequestScreenState extends ConsumerState<RequestScreen> {
                     tone: PillTone.accent,
                   ),
                   Pill(s('phone.rq.exp', {'n': r.expiresMinutes})),
+                  if (sess.handledAtComputer)
+                    Pill(s('phone.hc.short'), tone: PillTone.info),
                 ],
         ),
+        if (sess.handledAtComputer)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: StatusBanner(
+              kind: BannerKind.info,
+              icon: Icons.person_outline,
+              title: s('phone.rq.hc'),
+              body: s('phone.rq.hc.d', {'c': computer}),
+            ),
+          ),
         if (done)
           Padding(
             padding: const EdgeInsets.only(top: 12),

@@ -52,6 +52,19 @@ const _sessions = <Session>[
     petColor: 2,
   ),
   Session(
+    id: 's9',
+    name: 'Tidy the image uploads',
+    project: 'blog',
+    issue: 17,
+    stage: Stage.doing,
+    needsYou: true,
+    handledAtComputer: true,
+    waitingMinutes: 2,
+    tool: 'Edit',
+    petDesign: 'nota',
+    petColor: 5,
+  ),
+  Session(
     id: 's2',
     name: 'Fix the cart total rounding',
     project: 'shop',
@@ -101,6 +114,13 @@ const _longCommand =
     '  && echo done';
 
 const _requests = <String, RequestDetail>{
+  's9': RequestDetail(
+    sessionId: 's9',
+    tool: 'Edit',
+    command: 'src/uploads/resize.ts',
+    folder: '~/work/blog',
+    expiresMinutes: 7,
+  ),
   's8': RequestDetail(
     sessionId: 's8',
     tool: 'Bash',
@@ -138,9 +158,16 @@ const _activity = <String>[
 const _conn = String.fromEnvironment('BOBIX_FIXTURE_CONN');
 
 class FixturePhoneData implements PhoneData {
-  const FixturePhoneData({this.connection});
+  const FixturePhoneData({
+    this.connection,
+    this.mayAnswer = true,
+    this.mayStop = true,
+  });
 
   final ConnState? connection;
+
+  /// The rights the computer granted this phone.
+  final bool mayAnswer, mayStop;
 
   ConnState get _state =>
       connection ??
@@ -174,7 +201,7 @@ class FixturePhoneData implements PhoneData {
             session: s,
             activity: _activity,
             lastContact: _contact,
-            canStop: s.needsYou && !s.answerAtComputer,
+            canStop: mayAnswer && mayStop && s.needsYou && !s.answerAtComputer,
           );
   }
 }

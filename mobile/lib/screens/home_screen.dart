@@ -194,6 +194,8 @@ class HomeScreen extends ConsumerWidget {
               x,
               x.answerAtComputer
                   ? s('phone.home.atpc')
+                  : x.handledAtComputer
+                  ? s('phone.hc.short')
                   : s('phone.ask.h', {'tool': x.tool ?? ''}),
               meta:
                   '${x.project} · ${s('phone.home.waited', {'n': minutes(x.waitingMinutes)})}',
