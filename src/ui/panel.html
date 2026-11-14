@@ -1897,6 +1897,8 @@ function sessionHTML(s) {
     <section class="b-sec"><h3>${T('pane.log')}</h3><ol class="log">${LOG.fold(s.log).map(l => { const k = `l:${s.id}:${l.from}:${l.kind}`;
       return `<li class="k-${esc(l.kind)}"><time title="${time(l.t)}">${hm(l.t)}</time><div class="msg">${moreHTML(k, logHTML(l, moreOpen.has(k)), '', l.kind === 'tool' && LOG.mid(l.text) !== l.text)}</div></li>`; }).join('')}</ol></section>`;
 }
+// A click that could not open a session: with a session selected its hint shows there; an ended or unknown one (none selected) as a message.
+const onOpenFail = r => (r?.reason === 'ended' || !(selected || pendingSel) ? openFail(r) : showHint(r));
 function showHint(r) { const id = selected || pendingSel; hint = r && id ? { ...r, id } : null; render(); }
 
 // ---------- Work: the ticket flow (#112) ----------
@@ -3503,7 +3505,7 @@ setInterval(() => list.some(s => s.answer) && render(), 1000); // countdown of a
     loadHabits();
     bridge.onSelect(select);
     bridge.onShowTab(showTab);
-    bridge.onOpenFail(r => (r?.reason === 'ended' || !(selected || pendingSel) ? openFail(r) : showHint(r)));
+    bridge.onOpenFail(onOpenFail);
     bridge.onUpdate(u => { state.update = u; const el = $('[data-row="update"] .ctl'); if (el) el.innerHTML = updateHTML(); });
     bridge.onSettings(s => {
       if (JSON.stringify(s) === JSON.stringify(state.settings)) return; // our own save echoing back: keep the form as is (slider drag)
@@ -3516,7 +3518,7 @@ setInterval(() => list.some(s => s.answer) && render(), 1000); // countdown of a
   }
   applyLang();
   showTab(new URLSearchParams(location.search).get('tab') || 'overview');
-  try { const f = new URLSearchParams(location.search).get('fail'); if (f) showHint(JSON.parse(f)); } catch {} // a pet or notification click opened this window
+  try { const f = new URLSearchParams(location.search).get('fail'); if (f) onOpenFail(JSON.parse(f)); } catch {} // a pet or notification click opened this window
   arrived('state');
 })();
 </script>
