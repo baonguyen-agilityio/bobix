@@ -74,6 +74,18 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .b-grp .ib{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:6px;background:none;color:var(--ink-3)}
 .b-grp .ib:hover{background:var(--surface-3);color:var(--ink)}
 .b-grp .ib svg.i{width:13px;height:13px}
+/* "?" by a group or a setting: no taller than the text beside it; its ::before is a finger-sized target that takes no room */
+.help{position:relative;display:inline-grid;place-items:center;flex:none;width:16px;height:16px;margin:-2px 0;padding:0;border:0;border-radius:50%;background:none;color:var(--ink-3);cursor:help}
+.help::before{content:"";position:absolute;inset:-6px}
+.help:hover,.help[aria-describedby]{color:var(--ink)}
+.help svg.i{width:14px;height:14px}
+.lbl-h{display:flex;align-items:center;gap:6px}
+.b-sec h3 .help{margin:-2px 0 -2px 6px;vertical-align:middle}
+/* its tip: fixed above everything, so showing it moves nothing; placed by TOUR.tip, inside the window */
+.tip{position:fixed;left:0;top:0;z-index:45;box-sizing:border-box;width:max-content;max-width:min(280px,calc(100vw - 16px));padding:7px 10px;border-radius:8px;
+  background:var(--ink);color:var(--surface);font-size:12px;font-weight:400;line-height:1.45;text-align:left;box-shadow:var(--pop);opacity:0;visibility:hidden;pointer-events:none}
+.tip.on{opacity:1;visibility:visible;pointer-events:auto;transition:opacity 120ms var(--ease)}
+@media (prefers-reduced-motion:reduce){.tip.on{transition:none}}
 .b-it{display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:10px;width:100%;min-height:44px;padding:5px 10px;border:0;border-radius:9px;background:transparent;text-align:left;color:var(--ink)}
 .b-it:hover{background:var(--surface-2)}
 .b-it[aria-selected="true"]{background:color-mix(in oklch,var(--ink) 9%,transparent)}
@@ -560,6 +572,7 @@ input[type=number]{width:104px}
   <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></symbol>
   <symbol id="i-x" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
   <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2.5l6 10.5H2z"/><path d="M8 6.5v3M8 11.3v.2"/></symbol>
+  <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M6.3 6.4a1.8 1.8 0 013.5.5c0 1.2-1.8 1.5-1.8 2.7M8 11.3v.2"/></symbol>
   <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7.5V11M8 5v.2"/></symbol>
   <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></symbol>
   <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 1.5h5.5L12.5 4.5v10h-8.5z"/><path d="M9.5 1.5v3h3M6 8h4.5M6 11h4.5"/></symbol>
@@ -619,6 +632,7 @@ input[type=number]{width:104px}
 </form></dialog>
 <dialog id="sk-dialog" class="fb" aria-labelledby="sk-heading"></dialog>
 <div class="toasts" id="toasts"></div>
+<div class="tip" id="tip" role="tooltip"></div>
 <dialog class="tour" id="tour" aria-labelledby="tour-h"><div class="tour-hole" id="tour-hole"></div><div class="tour-pop" id="tour-pop"></div></dialog>
 
 <script src="/ui/i18n.js"></script>
@@ -1564,6 +1578,9 @@ const CMD = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
 const K = ks => ks.map(k => `<span class="kbd">${esc(k)}</span>`).join('');
 const ic = id => `<svg class="i"><use href="#i-${id}"/></svg>`;
 const ico = (id, cls = '') => `<span class="b-ico ${cls}">${ic(id)}</span>`;
+// The "?" by a group heading or a settings row that has help (TOUR.HELP); name: what it explains, for its label.
+const helpBtn = (kind, k, name) => { const h = TOUR.helpKey(kind, k);
+  return h ? `<button class="help" type="button" data-help="${kind}.${h}" data-f="help:${kind}.${k}" aria-label="${esc(T('help.about', { x: name }))}">${ic('help')}</button>` : ''; };
 // Label a, or b while on, laid out together (.two) so the button never resizes between them.
 const two = (on, a, b) => `<span class="two"><span>${esc(on ? b : a)}</span><span class="alt" aria-hidden="true">${esc(on ? a : b)}</span></span>`;
 // A project's (or a ticket's) avatar: the project's own pet, resting.
@@ -1980,13 +1997,13 @@ function mrHTML(f) {
   const k = esc(f.key), m = tkMr[f.key];
   if (f.mr) {
     const ci = f.ci?.status || 'unknown', red = ci === 'failed';
-    return `<section class="b-sec"><h3>${esc(T('tk.mr.h', fw(f)))} ${ciBadge(f)}</h3><p><button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(mrRef(f.mr))} ${esc(f.title)}</button></p>
+    return `<section class="b-sec"><h3>${esc(T('tk.mr.h', fw(f)))}${helpBtn('sec', 'mr', T('tk.mr.h', fw(f)))} ${ciBadge(f)}</h3><p><button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(mrRef(f.mr))} ${esc(f.title)}</button></p>
       <p class="note">${esc(T('tk.ci.' + ci + (red && fresh(f.ci.since) ? 'Now' : ''), { ...fw(f), x: f.ci?.since ? ago(f.ci.since) : '' }))}${f.ci?.at ? ` · ${esc(fresh(f.ci.at) ? T('tk.ci.readNow') : T('tk.ci.read', { x: ago(f.ci.at) }))}` : ''}</p>
       ${red ? `<div class="tk-warn"><p><strong>${esc(T('tk.ci.redT'))}</strong> ${esc(T('tk.ci.redWhy'))}</p><div class="cmd"><code>${esc(fixCiPrompt(f))}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(fixCiPrompt(f))}">${esc(T('tk.ci.fix'))}</button>` : ''}</div></div>` : ''}
       ${bridge ? `<div class="acts" style="margin:8px 0 0"><button class="btn sm" type="button" data-tk-ci="${k}"${tkBusy.has('ci:' + f.key) ? ' disabled' : ''}>${esc(T('tk.ci.check'))}</button>${f.ci?.url ? `<button class="btn sm" type="button" data-url="${esc(f.ci.url)}">${esc(T('tk.ci.open'))}</button>` : ''}</div>` : ''}</section>`;
   }
   if (!bridge || f.cleaned || f.status !== 'done' || !m?.open) return '';
-  return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h', fw(f)))}</h3>
+  return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h', fw(f)))}${helpBtn('sec', 'mr', T('tk.mr.h', fw(f)))}</h3>
     ${unchecked(f) ? `<p class="risk">⚠ ${esc(T('tk.mr.nochecks', fw(f)))}</p>` : ''}
     ${f.carried ? `<p class="risk">⚠ ${esc(T(f.carried === 1 ? 'tk.place.carried.1' : 'tk.place.carried', { ...fw(f), n: f.carried, b: f.branch }))}</p>` : ''}
     ${tkDet[f.key]?.mrReady === false ? `<div class="tk-warn tk-mr-en"><p><strong>${esc(T('tk.mr.noen.t', fw(f)))}</strong> ${esc(T('tk.mr.noen', fw(f)))}</p><div class="cmd"><code>${esc(MR_ASK)}</code><button class="btn sm" type="button" data-copy="${esc(MR_ASK)}">${esc(T('work.copy'))}</button></div></div>`
@@ -2082,7 +2099,7 @@ function startHTML(i, g, k) {
   if (wait) return `${top}<p class="note">${esc(T('work.wait.desc'))}</p><div class="acts" style="margin:0"><span class="badge">${esc(T('work.wait'))}</span><button class="btn" type="button" data-cancel="${esc(wait.dir)}" data-cancel-iid="${i.iid}">${esc(T('work.wait.cancel'))}</button>${open}</div>`;
   const resume = i.resume && bridge ? `<div class="tk-warn"><p><strong>${esc(T('work.resume'))}</strong> ${esc(T('tk.resume.note'))}</p><div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${esc(T('work.resume'))}</button></div></div>` : '';
   const radio = (v, d) => `<label><input type="radio" name="tkh-${ek}" data-tk-how="${ek}" data-f="tkh:${ek}:${v}" value="${v}"${(quick ? 'quick' : 'full') === v ? ' checked' : ''}> <span><strong>${esc(T('tk.how.' + v))}</strong> · ${esc(d)}</span></label>`;
-  const howHTML = `${resume}<section class="b-sec"><h3>${esc(T('tk.how'))}</h3><div class="tk-opts">${radio('full', T('tk.how.full.d'))}${radio('quick', T('tk.how.quick.d'))}</div></section>`;
+  const howHTML = `${resume}<section class="b-sec"><h3>${esc(T('tk.how'))}${helpBtn('sec', 'how', `${T('tk.how.full')} / ${T('tk.how.quick')}`)}</h3><div class="tk-opts">${radio('full', T('tk.how.full.d'))}${radio('quick', T('tk.how.quick.d'))}</div></section>`;
   if (quick && live) return `${top}${howHTML}<p class="note">${esc(T('tk.quick.live'))}</p>
     <div class="acts" style="margin:0"><button class="btn pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" data-f="tkq:${ek}">${esc(T('work.resume'))}</button>${open}</div>`;
   if (quick) return `${top}${howHTML}<p class="note">${esc(T('tk.quick.note', { dir: home(dirOf) }))}</p>
@@ -2911,10 +2928,11 @@ function renderSettings() {
     ${pv ? `<div class="pv-wrap"><div class="preview" id="preview"></div><p class="note">${T('set.preview.desc')}</p></div>` : ''}
     <section class="sec">${rows.map(r => `
       <div class="opt${r.wide ? ' wide' : ''}${r.dim?.(s) ? ' dim' : ''}" data-row="${r.k}">
-        <div><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`, r.vars?.())}${r.k === 'dnd' && dndLeft(s) ? ' ' + T('set.dnd.left', { n: dndLeft(s) }) : ''}</div>` : ''}</div>
+        <div>${TOUR.helpKey('row', r.k) ? `<div class="lbl-h"><div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>${helpBtn('row', r.k, T('set.' + r.k))}</div>` : `<div class="lbl" id="l-${r.k}">${T('set.' + r.k)}</div>`}${has(`set.${r.k}.desc`) ? `<div class="desc">${T(`set.${r.k}.desc`, r.vars?.())}${r.k === 'dnd' && dndLeft(s) ? ' ' + T('set.dnd.left', { n: dndLeft(s) }) : ''}</div>` : ''}</div>
         <div class="ctl">${control(r, s)}</div>
       </div>`).join('')}${title === 'set.section.work' ? `<p class="note sec-note">${esc(T('set.work.privacy'))}</p>` : ''}</section>`;
   renderPreview();
+  tipSync();
 }
 $('#settings').addEventListener('click', e => { if (e.target.closest('[data-act="feedback"]')) openFeedback(); });
 
@@ -2922,6 +2940,9 @@ $('#settings').addEventListener('click', e => { if (e.target.closest('[data-act=
 function buildItems(sc) {
   return sc === 'overview' ? overviewItems() : sc === 'sessions' ? sessionItems() : sc === 'skills' ? skillItems() : sc === 'work' ? workItems() : sc === 'settings' ? settingItems() : [comingItem(sc)];
 }
+// The "?" tip shown (see "help" below): its "?", how it was opened, its hide timer; refocus: swap() gives the focus
+// back after a redraw (tipSync keeps the tip by the new "?"). Up here: a redraw can come before that part has run.
+let tipAt = null, tipBy = '', tipTimer = 0, refocus = false;
 // Replaces a box's content when it changed; the focused control (and the caret in a field) survives the redraw.
 function swap(box, html) {
   if (box.dataset.html === html) return false;
@@ -2929,7 +2950,7 @@ function swap(box, html) {
   box.dataset.html = html;
   box.innerHTML = html;
   const el = f && box.querySelector(`[data-f="${CSS.escape(f)}"]`);
-  if (el) { el.focus({ preventScroll: true }); if (sel != null && el.setSelectionRange) try { el.setSelectionRange(sel, sel); } catch {} if (nextFocus === f) nextFocus = null; }
+  if (el) { refocus = true; try { el.focus({ preventScroll: true }); } finally { refocus = false; } if (sel != null && el.setSelectionRange) try { el.setSelectionRange(sel, sel); } catch {} if (nextFocus === f) nextFocus = null; }
   return true;
 }
 function render(force) {
@@ -2947,6 +2968,7 @@ function render(force) {
   selected = cur?.kind === 'session' ? cur.s : null;
   drawScopes(); drawList(); drawDetail(changed); drawBar();
   nextFocus = null;
+  tipSync();
   const n = waitingList().length;
   document.title = n ? `(${n}) ${T('app.name')}` : T('app.name');
 }
@@ -2969,7 +2991,7 @@ function drawList() {
   for (const x of items) { const g = groups.at(-1), k = x.grp || ''; if (g && g.k === k) g.xs.push(x); else groups.push({ k, xs: [x] }); }
   const it = x => `<button type="button" class="b-it ${x.cls || ''}" role="option" id="bi-${items.indexOf(x)}" data-bsel="${esc(x.id)}" data-f="it:${esc(x.id)}" aria-selected="${x === cur}">${x.lead}<span class="b-tx"><span class="lb${x.mono ? ' mono' : ''}">${esc(x.label)}</span>${x.sub ? `<span class="sb">${esc(x.sub)}</span>` : ''}</span><span class="mt">${x.meta || ''}</span></button>`;
   const refresh = bridge && work.status !== 'off' ? `<span class="sp"></span>${work.at ? `<span>${esc(ago(work.at))}</span>` : ''}<button class="ib" type="button" data-act="refresh" aria-label="${esc(T('work.refresh'))}" title="${esc(T('work.refresh'))}"${work.status === 'loading' || reading() ? ' disabled aria-busy="true"' : ''}>${ic('refresh')}</button>` : '';
-  swap($('#b-list'), groups.map(({ k, xs }) => `<div class="b-g" data-grp="${k}" role="group"${k ? ` aria-label="${esc(grpName(k, xs.length))}"` : ''}>${k ? `<div class="b-grp" role="presentation"><span>${esc(grpName(k, xs.length))}</span><span class="n">${xs.length}</span>${k === 'fstart' ? refresh : ''}</div>` : ''}${xs.map(it).join('')}</div>`).join('')
+  swap($('#b-list'), groups.map(({ k, xs }) => `<div class="b-g" data-grp="${k}" role="group"${k ? ` aria-label="${esc(grpName(k, xs.length))}"` : ''}>${k ? `<div class="b-grp" role="presentation"><span>${esc(grpName(k, xs.length))}</span><span class="n">${xs.length}</span>${helpBtn('grp', k, grpName(k, xs.length))}${k === 'fstart' ? refresh : ''}</div>` : ''}${xs.map(it).join('')}</div>`).join('')
     || `<div class="b-empty"><p>${esc(bq ? T('b.noMatch', { q: bq }) : T('b.empty'))}</p></div>`);
   $('#b-list').setAttribute('aria-label', T('tab.' + scope));
   const q = $('#bq');
@@ -3212,6 +3234,7 @@ document.addEventListener('keydown', e => {
   if (document.querySelector('dialog[open]') || e.isComposing) return; // a dialog takes its own keys (Esc closes it)
   const a = document.activeElement, inBq = a?.id === 'bq', inList = !!a?.closest?.('#b-list'), onPage = !a || a === document.body || a.id === 'b-detail';
   if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && !inBq) return;
+  if (a?.classList?.contains('help') && (k === 'Enter' || k === ' ')) return; // the "?" shows its tip, not the selected item's action
   if (!mod && (k === 'ArrowDown' || k === 'ArrowUp') && (inBq || inList || onPage)) { e.preventDefault(); return move(k === 'ArrowDown' ? 1 : -1, inList); }
   if (mod && !e.shiftKey && !e.altKey && /^[1-6]$/.test(k)) { e.preventDefault(); return showTab(SCOPES[+k - 1]); }
   const combo = (mod ? CMD : '') + (mod && e.shiftKey ? '⇧' : '') + ({ Backspace: '⌫', Enter: '↵' }[k] || (k.length === 1 ? k.toUpperCase() : k));
@@ -3226,9 +3249,9 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ---------- the tour: a few steps, each lighting up the real element it talks about (TOUR.STEPS in tour.js). It opens
-// by itself with the steps not seen yet, and whole from Setup; Skip and Done both mark every step seen (and the
-// version's news, which the tray offers too). ----------
+// ---------- the tour: a few steps, each lighting up the real element it talks about (TOUR.STEPS in tour.js). After an
+// update it opens by itself as one bubble, the news step not seen yet (the rest is on each "?"), and whole from Setup;
+// Skip and Done both mark every step seen (and the version's news, which the tray offers too). ----------
 let tourAt = -1, tourAuto = false, tourSteps = [], tourBox = false; // tourBox: the tour opened the Start box
 function tourStart(auto, steps = TOUR.STEPS) {
   tourAuto = auto; tourSteps = steps; tourAt = 0;
@@ -3278,7 +3301,7 @@ async function tourShow() {
   if (tourSteps[tourAt] !== step) return;
   const target = tourTarget(step.at) || (step.alt && tourTarget(step.alt.at));
   const art = step.art ? `<div class="tour-art" aria-hidden="true">${['working', 'waiting', 'done', 'idle'].map(k => `<span class="st-${k}"><span class="sprite">${creature('bobix', k)}</span></span>`).join('')}</div>` : '';
-  $('#tour-pop').innerHTML = `<span class="n">${tourAt + 1} / ${n}</span><h2 id="tour-h">${esc(T(`tour.${step.key}.title`))}</h2>${art}<p>${esc(T(`tour.${step.key}.body`, { key: CMD === '⌘' ? '⌘K' : 'Ctrl+K' }))}</p>
+  $('#tour-pop').innerHTML = `${n > 1 ? `<span class="n">${tourAt + 1} / ${n}</span>` : ''}<h2 id="tour-h">${esc(T(`tour.${step.key}.title`))}</h2>${art}<p>${esc(T(`tour.${step.key}.body`, { key: CMD === '⌘' ? '⌘K' : 'Ctrl+K' }))}</p>
     <div class="acts">${last ? '' : `<button class="btn ghost skip" type="button" data-tour="skip">${T('tour.skip')}</button>`}${tourAt ? `<button class="btn" type="button" data-tour="back">${T('tour.back')}</button>` : ''}<button class="btn pri" type="button" data-tour="next">${T(last ? 'tour.done' : 'tour.next')}</button></div>`;
   target?.scrollIntoView({ block: 'center', behavior: 'instant' });
   tourPlace(target);
@@ -3308,6 +3331,75 @@ $('#tour').addEventListener('keydown', e => {
 });
 addEventListener('resize', () => tourPlace());
 addEventListener('scroll', () => tourPlace(), true);
+
+// ---------- help: the "?" by a group or a setting shows a short tip (strings help.*; which ones: TOUR.HELP). Mouse:
+// while pointed at (it stays while the pointer moves onto the tip). Keyboard: while focused. Touch or click: a tap
+// shows it, a second tap or a tap elsewhere hides it. Esc hides it. One tip, fixed above the page, so it moves nothing;
+// a redraw that replaces its "?" keeps it by the new one. ----------
+function tipShow(btn, by, again) {
+  clearTimeout(tipTimer);
+  if (tipAt === btn && !again) { tipBy = by; return; }
+  tipHide();
+  const r = btn.getBoundingClientRect(), box = btn.closest('#b-list, #b-detail')?.getBoundingClientRect() || { top: 0, bottom: innerHeight };
+  if (!btn.getClientRects().length || r.bottom < Math.max(0, box.top) || r.top > Math.min(innerHeight, box.bottom)) return; // scrolled out of sight
+  tipBy = by;
+  // A new node each time: a shown tip never moves, it is replaced (from one "?" to another, or as the page scrolls).
+  const old = $('#tip'), t = old.cloneNode(false);
+  t.className = 'tip';
+  t.textContent = T('help.' + btn.dataset.help);
+  old.replaceWith(t);
+  tipAt = btn; btn.setAttribute('aria-describedby', 'tip');
+  const p = TOUR.tip(r, innerWidth, innerHeight, t.offsetWidth, t.offsetHeight);
+  Object.assign(t.style, { left: p.left + 'px', top: p.top + 'px' });
+  t.dataset.at = [r.left, r.top].map(Math.round).join();
+  t.classList.add('on');
+}
+function tipHide() {
+  clearTimeout(tipTimer);
+  $('#tip').classList.remove('on');
+  tipAt?.removeAttribute('aria-describedby');
+  tipAt = null; tipBy = '';
+}
+const tipLater = () => { clearTimeout(tipTimer); tipTimer = setTimeout(tipHide, 200); };
+function tipSync() {
+  if (!tipAt || tipAt.isConnected) return;
+  const by = tipBy, n = document.querySelector(`[data-f="${CSS.escape(tipAt.dataset.f)}"]`);
+  if (!n) return tipHide();
+  const r = n.getBoundingClientRect();
+  if ($('#tip').dataset.at !== [r.left, r.top].map(Math.round).join() || T('help.' + n.dataset.help) !== $('#tip').textContent) return tipShow(n, by, true);
+  tipAt = n; tipBy = by; n.setAttribute('aria-describedby', 'tip');
+}
+document.addEventListener('pointerover', e => {
+  if (e.pointerType !== 'mouse') return;
+  const h = e.target.closest?.('.help');
+  if (h && !(tipAt === h && tipBy === 'click')) tipShow(h, tipAt === h ? tipBy || 'hover' : 'hover');
+  else if (e.target.closest?.('#tip')) clearTimeout(tipTimer);
+});
+document.addEventListener('pointerout', e => {
+  if (e.pointerType !== 'mouse' || tipBy !== 'hover' || !e.target.closest?.('.help, #tip')) return;
+  if (!e.relatedTarget?.closest?.('#tip') && e.relatedTarget?.closest?.('.help') !== tipAt) tipLater();
+});
+document.addEventListener('focusin', e => { const h = !refocus && e.target.closest?.('.help'); if (h) tipShow(h, tipAt === h && tipBy === 'click' ? 'click' : 'focus'); });
+// Decided once the focus has settled: a redraw takes the focused "?" out and gives the focus to the new one.
+document.addEventListener('focusout', e => {
+  const f = e.target.dataset?.f;
+  if (e.target === tipAt && tipBy !== 'hover') setTimeout(() => { if (tipAt?.dataset.f === f && tipBy !== 'hover' && document.activeElement?.dataset?.f !== f) tipHide(); });
+});
+document.addEventListener('click', e => {
+  const h = e.target.closest?.('.help');
+  if (!h) { if (!e.target.closest?.('#tip')) tipHide(); return; }
+  if (tipAt === h && tipBy === 'click') return tipHide();
+  tipShow(h, 'click');
+});
+// Esc hides the tip; with a dialog open (the command bar over a tip) it closes the dialog too.
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !tipAt) return;
+  tipHide();
+  if (!document.querySelector('dialog[open]')) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);
+// Scrolling (focus scrolls a "?" into view too) or resizing moves the "?": a new tip shows by it.
+addEventListener('scroll', () => tipAt && tipShow(tipAt, tipBy, true), true);
+addEventListener('resize', () => tipAt && tipShow(tipAt, tipBy, true));
 
 // ---------- boot ----------
 function applyLang() {

@@ -1021,11 +1021,15 @@ test('habits: days of activity, the first-days state, and each suggestion rule',
 test('tour: every step has its words in both languages, NEWS is this version, and the bubble stays on screen', () => {
   const TOUR = require('../src/ui/tour');
   const I18N = require('../src/ui/i18n');
-  assert.ok(TOUR.STEPS.length >= 6 && TOUR.STEPS.length <= 12, 'a short tour');
+  assert.ok(TOUR.STEPS.length >= 6 && TOUR.STEPS.length <= 13, 'a short tour');
   assert.equal(new Set(TOUR.STEPS.map(s => s.key)).size, TOUR.STEPS.length, 'one key per step (settings.tourSeen)');
-  assert.deepEqual(TOUR.fresh(['flat', 'stuck', 'gone']).map(s => s.key), TOUR.STEPS.map(s => s.key).filter(k => k !== 'flat' && k !== 'stuck'), 'only the steps not seen yet');
-  assert.equal(TOUR.fresh(TOUR.STEPS.map(s => s.key)).length, 0);
-  assert.equal(TOUR.fresh(undefined).length, TOUR.STEPS.length);
+  // After an update only the news opens by itself, as one bubble; the rest is on each "?" (and whole from Setup).
+  const news = TOUR.STEPS.filter(s => s.news).map(s => s.key);
+  assert.deepEqual(news, ['help'], 'one news step');
+  assert.deepEqual(TOUR.fresh(['flat', 'stuck', 'gone']).map(s => s.key), news, 'a person updating sees only the news, not the steps they missed');
+  assert.deepEqual(TOUR.fresh(TOUR.STEPS.map(s => s.key).filter(k => k !== 'help')).map(s => s.key), news);
+  assert.equal(TOUR.fresh(TOUR.STEPS.map(s => s.key)).length, 0, 'seen: nothing opens');
+  assert.equal(TOUR.fresh(undefined).length, 1);
   for (const s of TOUR.STEPS) {
     const TABS = ['overview', 'sessions', 'work', 'skills', 'settings', 'setup'];
     assert.ok(TABS.includes(s.tab) && s.at.length && (!s.alt || (TABS.includes(s.alt.tab) && s.alt.at.length)), s.key);
@@ -1045,6 +1049,37 @@ test('tour: every step has its words in both languages, NEWS is this version, an
   // narrow: across the bottom, or the top when the element is low
   assert.deepEqual(TOUR.place({ left: 10, top: 100, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 688, width: 396 });
   assert.deepEqual(TOUR.place({ left: 10, top: 700, width: 300, height: 40 }, 420, 900, 380, 200), { left: 12, top: 12, width: 396 });
+});
+
+test('help: every "?" has a short tip in both languages, and the tip stays inside the window', () => {
+  const TOUR = require('../src/ui/tour');
+  const I18N = require('../src/ui/i18n');
+  const keys = [...TOUR.HELP.grp.map(k => 'grp.' + k), ...TOUR.HELP.row.map(k => 'row.' + k), ...TOUR.HELP.sec.map(k => 'sec.' + k)];
+  assert.ok(keys.length >= 15 && keys.length <= 30, `15 to 30 places, not ${keys.length}`);
+  for (const k of keys) for (const lang of ['en', 'vi']) {
+    const s = I18N.STR[lang]['help.' + k];
+    assert.ok(s, `${lang} help.${k}`);
+    assert.ok(s.length <= 160, `${lang} help.${k} is short (${s.length})`);
+  }
+  // no help string without its "?" (a "?" removed takes its words with it)
+  const extra = Object.keys(I18N.STR.en).filter(k => /^help\.(grp|row|sec)\./.test(k) && !keys.includes(k.slice(5)));
+  assert.deepEqual(extra, []);
+  for (const lang of ['en', 'vi']) assert.match(I18N.t(lang, 'help.about', { x: 'Audit' }), /Audit/);
+  assert.equal(TOUR.helpKey('grp', 'stuckOld'), 'stuck', 'the older stuck items share its words');
+  assert.equal(TOUR.helpKey('grp', 'run'), null);
+  assert.equal(TOUR.helpKey('row', 'stuckIdle'), 'stuckIdle');
+  assert.equal(TOUR.helpKey('sec', 'how'), 'how');
+  assert.equal(TOUR.helpKey('sec', 'nope'), null);
+  // below the "?", centred on it; above when there is no room below; inside the window's edges either way
+  assert.deepEqual(TOUR.tip({ left: 200, top: 100, width: 16, height: 16 }, 1180, 780, 280, 60), { left: 68, top: 122 });
+  assert.deepEqual(TOUR.tip({ left: 200, top: 740, width: 16, height: 16 }, 1180, 780, 280, 60), { left: 68, top: 674 });
+  const in420 = (p, w, h) => p.left >= 8 && p.top >= 8 && p.left + w <= 412 && p.top + h <= 772;
+  for (const left of [0, 6, 200, 396, 404]) for (const top of [0, 380, 764]) {
+    const p = TOUR.tip({ left, top, width: 16, height: 16 }, 420, 780, 280, 80);
+    assert.ok(in420(p, 280, 80), `"?" at ${left},${top}: ${JSON.stringify(p)}`);
+  }
+  // a tip as wide as the narrow window allows (CSS: 100vw - 16px)
+  assert.ok(in420(TOUR.tip({ left: 396, top: 300, width: 16, height: 16 }, 420, 780, 404, 120), 404, 120));
 });
 
 test('usage: one line, details and warnings from the numbers the app sends', () => {
