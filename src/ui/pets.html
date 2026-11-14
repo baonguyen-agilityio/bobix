@@ -55,6 +55,8 @@ button{font:inherit;color:inherit}
 .card .row{display:flex;justify-content:space-between;align-items:center;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);padding:4px 0;border-top:1px solid var(--line)}
 .card .row .bdg{display:flex;gap:4px;flex:none}
 .card .st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink);min-width:0}
+/* one line each: the status changes with every tool (an MCP tool's name is long) and the card grows upward from the pet */
+.card .st .tx,.card .use>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .st-waiting .card .st{color:var(--accent-ink)}
 .card .meter{display:block;width:auto;margin:0 0 var(--s1)}
 .card .row.ctx{border-bottom:0;padding-bottom:4px}
@@ -213,11 +215,11 @@ function paint(p, now) {
         <h2>${esc(s.title || s.name)}</h2>
         <p class="sub">${parent ? esc(T('pet.from', { name: parent.title || parent.name })) : esc(s.cwd)}</p>
         <p class="q">${esc(st === 'done' && s.summary ? s.summary : s.quest || T('line.noQuest'))}</p>
-        <div class="row"><span class="st"><i class="dot ${st}"></i>${esc(statusText(s, st))}</span><span class="bdg">${model ? `<span class="badge">${esc(model)}</span>` : ''}<span class="badge">${T('pet.lv', { n: s.lv })}</span></span></div>
+        <div class="row"><span class="st"><i class="dot ${st}"></i><span class="tx" title="${esc(statusText(s, st))}">${esc(statusText(s, st))}</span></span><span class="bdg">${model ? `<span class="badge">${esc(model)}</span>` : ''}<span class="badge">${T('pet.lv', { n: s.lv })}</span></span></div>
         ${kids ? `<div class="row"><span class="st">${esc(kids[1])}</span></div>` : ''}
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
-        ${s.usage ? `<div class="row use"><span>${esc(USAGE.line(s.usage, T, cfg))}</span></div>${USAGE.warns(s.usage, T).slice(0, 1).map(w => `<p class="need use">⚠ ${esc(w.text)}</p>`).join('')}` : ''}
+        ${s.usage ? `<div class="row use"><span title="${esc(USAGE.line(s.usage, T, cfg))}">${esc(USAGE.line(s.usage, T, cfg))}</span></div>${USAGE.warns(s.usage, T).slice(0, 1).map(w => `<p class="need use">⚠ ${esc(w.text)}</p>`).join('')}` : ''}
         <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="btn sm ghost" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
@@ -665,7 +667,11 @@ async function habitMorning() {
 setInterval(habitMorning, 5 * 60e3);
 const moveTo = m => { mouse = m; mouseMoved = true; wake(); };
 addEventListener('mousemove', e => moveTo({ x: e.clientX, y: e.clientY }));
-addEventListener('mouseleave', () => moveTo({ x: -1, y: -1 }));
+// The cursor left the window. On XWayland the page's own events are all it knows of the cursor (overlay.rs, track_mouse),
+// so the last spot, usually the pet just left, would stay hovered while the cursor works in a Wayland window.
+// mouseleave does not bubble up to window: hear it on <html>, and mouseout with no relatedTarget says the same.
+document.documentElement.addEventListener('mouseleave', () => moveTo({ x: -1, y: -1 }));
+addEventListener('mouseout', e => { if (!e.relatedTarget) moveTo({ x: -1, y: -1 }); });
 document.addEventListener('visibilitychange', wake);
 if (bridge) {
   bridge.onMouse(moveTo);            // the window is click-through most of the time, so the app feeds us the cursor
