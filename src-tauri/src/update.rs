@@ -34,6 +34,7 @@ pub struct Ui {
     pub checked: u64,  // when the last check got an answer (ms since 1970); 0: none yet
     pub held: usize,   // confirm: permission requests held in Bobix right now
     pub flows: usize,  // confirm: ticket flows running
+    pub no_list: bool, // the last answer: GitHub has no update list for this channel (not "nothing newer")
 }
 
 // The downloaded, verified file, kept while the person decides about the restart (confirm).
@@ -93,6 +94,8 @@ fn code_of(e: &UpErr, stage: &'static str) -> &'static str {
         UpErr::Reqwest(_) | UpErr::Network(_) | UpErr::Http(_) => stage,
         UpErr::Minisign(_) | UpErr::SignatureUtf8(_) | UpErr::Base64(_) | UpErr::SignedVersionMismatch { .. } | UpErr::MissingSignedVersion => "signature",
         UpErr::AuthenticationFailed => "password",
+        // Linux: pkexec declined or missing, then sudo with no terminal to ask in: the password was not given.
+        UpErr::DebInstallFailed | UpErr::PackageInstallFailed if cfg!(target_os = "linux") => "password",
         UpErr::Io(io) if io.kind() == std::io::ErrorKind::PermissionDenied => "readonly",
         UpErr::Io(_) | UpErr::DebInstallFailed | UpErr::PackageInstallFailed | UpErr::TempDirNotOnSameMountPoint | UpErr::PreviousAppNotRestored(_) | UpErr::InvalidUpdaterFormat => "install",
         _ => "other",
@@ -108,50 +111,85 @@ fn updater(b: &Arc<Bobix>, app: &AppHandle, test: bool) -> Result<tauri_plugin_u
         .build().map_err(|_| "other")
 }
 
-// The channel's manifest said "newer": Some. Not newer, or no manifest published (GitHub answered no): None. Not reachable: Err.
-async fn find(b: &Arc<Bobix>, app: &AppHandle, test: bool) -> Result<Option<Update>, &'static str> {
+// What the channel's list said: a newer version; nothing newer; or no list published (GitHub answered no: nothing is
+// released on that channel yet, or the latest release has none). The last two are not the same thing to say to the person.
+enum Seen { Newer(Update), Newest, NoList }
+
+// Not reachable: Err.
+async fn find(b: &Arc<Bobix>, app: &AppHandle, test: bool) -> Result<Seen, &'static str> {
     match updater(b, app, test)?.check().await {
-        Ok(u) => Ok(u),
-        Err(UpErr::ReleaseNotFound) => Ok(None),
+        Ok(Some(u)) => Ok(Seen::Newer(u)),
+        Ok(None) => Ok(Seen::Newest),
+        Err(UpErr::ReleaseNotFound) => Ok(Seen::NoList),
         Err(e) => { b.log_err(format!("update check: {e}")); Err(code_of(&e, "offline")) }
     }
 }
 
-// Changes the shown state under the lock, then tells the tray and the panel.
-fn set(b: &Arc<Bobix>, f: impl FnOnce(&mut Ui)) {
-    let ui = { let mut c = b.core.lock().unwrap(); f(&mut c.update); c.update.clone() };
+// Tells the tray and the panel what is shown now.
+fn push(b: &Arc<Bobix>) {
+    let ui = b.core.lock().unwrap().update.clone();
     if let Some(app) = b.app.get() {
         panel::emit(app, panel::LABEL, "update", &serde_json::to_value(&ui).unwrap_or(Value::Null));
         tray::build(app, b);
     }
 }
 
+// Changes the shown state under the lock (what `f` decides from it and what it sets are one step), then tells the tray and the panel.
+fn set<R>(b: &Arc<Bobix>, f: impl FnOnce(&mut Ui) -> R) -> R {
+    let r = f(&mut b.core.lock().unwrap().update);
+    push(b);
+    r
+}
+
 fn busy(ui: &Ui) -> bool { ui.phase != "idle" && !ui.phase.is_empty() }
+
+// A check starts only when nothing else is going on; the test and the change of phase are one step, so two callers
+// cannot both start.
+fn begin_check(u: &mut Ui) -> bool {
+    if busy(u) { return false; }
+    u.phase = "checking".into();
+    u.error = None;
+    true
+}
+
+// What a press on Update starts. One press gets Download (or Install, at the confirmation); a second press, a click on the
+// tray at the same time, finds the work started and gets No. Again one step: test and change of phase together.
+#[derive(PartialEq, Debug)]
+enum Claim { Download, Install, No }
+fn claim(u: &mut Ui) -> Claim {
+    match u.phase.as_str() {
+        "" | "idle" => { u.phase = "downloading".into(); u.done = 0; u.total = 0; u.error = None; Claim::Download }
+        "confirm" => { u.phase = "installing".into(); Claim::Install }
+        _ => Claim::No,
+    }
+}
 
 // Looks for a newer version. `manual`: the person pressed Check now (works with "Tell me about new versions" off, shows
 // what went wrong); otherwise the start-up and daily check, silent unless something new turns up.
 pub async fn check(b: &Arc<Bobix>, manual: bool) {
     let Some(app) = b.app.get().cloned() else { return };
     let test = {
-        let c = b.core.lock().unwrap();
-        if busy(&c.update) || (!manual && c.settings["checkUpdates"] != true) { return; }
+        let mut c = b.core.lock().unwrap();
+        if (!manual && c.settings["checkUpdates"] != true) || !begin_check(&mut c.update) { return; }
         c.settings["testBuilds"] == true
     };
-    set(b, |u| { u.phase = "checking".into(); u.error = None; });
+    push(b);
     let res = find(b, &app, test).await;
     let why = why_not(&app);
-    let mut news = None;
-    set(b, |u| {
+    let news = set(b, |u| {
         u.phase = "idle".into();
-        match &res {
-            Ok(f) => {
+        match res {
+            Ok(Seen::Newer(f)) => {
                 u.checked = crate::state::now();
-                u.found = f.as_ref().map(|f| Found { version: f.version.clone(), page: page_url(&f.version), why: why.map(String::from) });
+                u.no_list = false;
+                let found = Found { version: f.version.clone(), page: page_url(&f.version), why: why.map(String::from) };
+                u.found = Some(found.clone());
+                Some(found)
             }
-            Err(code) => if manual { u.error = Some(code.to_string()) },
+            Ok(seen) => { u.checked = crate::state::now(); u.no_list = matches!(seen, Seen::NoList); u.found = None; None }
+            Err(code) => { if manual { u.error = Some(code.to_string()); } None }
         }
     });
-    if let Some(f) = b.core.lock().unwrap().update.found.clone() { news = Some(f); }
     // A notification once per version, only for the check Bobix ran on its own.
     let Some(f) = news else { return };
     let tell = { let mut c = b.core.lock().unwrap(); let t = !manual && c.update_told.as_deref() != Some(f.version.as_str()); if t { c.update_told = Some(f.version.clone()); } t };
@@ -182,20 +220,21 @@ fn announce(b: &Arc<Bobix>, app: &AppHandle, f: &Found) {
 // held requests or a ticket flow would be cut off by the restart, say so and wait for "Install and restart".
 pub async fn install(b: Arc<Bobix>) {
     let Some(app) = b.app.get().cloned() else { return };
-    let (phase, test) = { let c = b.core.lock().unwrap(); (c.update.phase.clone(), c.settings["testBuilds"] == true) };
-    if phase == "confirm" {
+    let (claimed, test) = { let mut c = b.core.lock().unwrap(); (claim(&mut c.update), c.settings["testBuilds"] == true) };
+    if claimed == Claim::No { return; }
+    push(&b);
+    if claimed == Claim::Install {
         let ready = READY.lock().unwrap().take();
-        if let Some((u, bytes)) = ready { return finish(b, app, u, bytes).await; }
-    } else if busy(&b.core.lock().unwrap().update) { return; }
-    set(&b, |u| { u.phase = "downloading".into(); u.done = 0; u.total = 0; u.error = None; });
+        return match ready { Some((u, bytes)) => finish(b, app, u, bytes).await, None => set(&b, |u| u.phase = "idle".into()) };
+    }
     let fail = |b: &Arc<Bobix>, app: &AppHandle, code: &str| {
         set(b, |u| { u.phase = "idle".into(); u.error = Some(code.into()); });
         panel::show(app, b, None, Some("update".into()), None); // the person pressed Update: show why it did not happen
     };
     if let Some(why) = why_not(&app) { return fail(&b, &app, if why == "nopw" { "password" } else { why }); }
     let u = match find(&b, &app, test).await {
-        Ok(Some(u)) => u,
-        Ok(None) => return set(&b, |u| { u.phase = "idle".into(); u.found = None; u.checked = crate::state::now(); }),
+        Ok(Seen::Newer(u)) => u,
+        Ok(seen) => return set(&b, |u| { u.phase = "idle".into(); u.found = None; u.checked = crate::state::now(); u.no_list = matches!(seen, Seen::NoList); }),
         Err(code) => return fail(&b, &app, code),
     };
     let mut last = 0;
@@ -227,11 +266,10 @@ fn running_flows(flows: &crate::tickets::Flows) -> usize {
     flows.list.values().filter(|f| !f.cleaned && ["starting", "planning", "approve", "running"].contains(&f.status.as_str())).count()
 }
 
-// "Not now" at the confirmation: the file is dropped; Update downloads it again.
+// "Not now" at the confirmation: the file is dropped; Update downloads it again. (The file goes while the phase changes, so
+// a new press cannot have stored another one that this would drop.)
 pub fn later(b: &Arc<Bobix>) {
-    if b.core.lock().unwrap().update.phase != "confirm" { return; }
-    *READY.lock().unwrap() = None;
-    set(b, |u| u.phase = "idle".into());
+    set(b, |u| if u.phase == "confirm" { u.phase = "idle".into(); *READY.lock().unwrap() = None; });
 }
 
 // Held requests go back to Claude's own prompt, then the new version goes in and Bobix starts again.
@@ -251,19 +289,24 @@ async fn finish(b: Arc<Bobix>, app: AppHandle, u: Update, bytes: Vec<u8>) {
     }
 }
 
+// What was offered or said goes (not while an update is under way).
+fn clear(u: &mut Ui) -> bool {
+    if busy(u) { return false; }
+    u.found = None;
+    u.error = None;
+    u.no_list = false;
+    true
+}
+
 // Settings → "Get test builds" changed: what was offered belongs to the other channel. Ask again when checks are on.
 pub fn channel_changed(b: &Arc<Bobix>) {
-    if busy(&b.core.lock().unwrap().update) { return; }
-    set(b, |u| { u.found = None; u.error = None; });
+    if !set(b, clear) { return; }
     let b = b.clone();
     tauri::async_runtime::spawn(async move { check(&b, false).await; });
 }
 
 // "Tell me about new versions" went off: what was announced goes.
-pub fn forget(b: &Arc<Bobix>) {
-    if busy(&b.core.lock().unwrap().update) { return; }
-    set(b, |u| { u.found = None; u.error = None; });
-}
+pub fn forget(b: &Arc<Bobix>) { set(b, clear); }
 
 pub fn page_of(b: &Arc<Bobix>) -> String {
     b.core.lock().unwrap().update.found.as_ref().map(|f| f.page.clone()).unwrap_or_else(releases_page)
@@ -301,7 +344,24 @@ mod tests {
         assert_eq!(code_of(&UpErr::AuthenticationFailed, "install"), "password");
         assert_eq!(code_of(&io(std::io::ErrorKind::PermissionDenied), "install"), "readonly");
         assert_eq!(code_of(&io(std::io::ErrorKind::NotFound), "install"), "install");
-        assert_eq!(code_of(&UpErr::DebInstallFailed, "install"), "install");
+        assert_eq!(code_of(&UpErr::DebInstallFailed, "install"), if cfg!(target_os = "linux") { "password" } else { "install" });
+    }
+
+    // Two presses (a double click, the tray and a notification together) start one download; the rest find it started.
+    #[test]
+    fn two_presses_start_one_download() {
+        let mut u = Ui::default(); // nothing yet: "" is idle
+        assert_eq!(claim(&mut u), Claim::Download);
+        assert_eq!(u.phase, "downloading");
+        assert_eq!(claim(&mut u), Claim::No);
+        assert!(!begin_check(&mut u), "no check while an update is under way");
+        u.phase = "confirm".into();
+        assert_eq!(claim(&mut u), Claim::Install, "the confirmation is answered once");
+        assert_eq!(claim(&mut u), Claim::No);
+        u.phase = "idle".into();
+        assert!(begin_check(&mut u) && !begin_check(&mut u), "two checks start one");
+        assert_eq!(claim(&mut u), Claim::No, "no download while checking");
+        assert!(!clear(&mut u), "nothing is cleared under the work's feet");
     }
 
     #[test]

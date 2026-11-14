@@ -1100,7 +1100,7 @@ function updateHTML() {
       out += note(T('update.avail', { v })) + (f.why ? note(T('update.why.' + f.why)) : '');
       out += `<div class="acts">${f.why ? '' : btn('go', T('update.go', { v }), ' pri')}${btn('page', T('update.page'))}${btn('check', T('update.check'))}</div>`;
     } else {
-      out += note(T('update.cur', { v: state.version }) + ' ' + (u.checked ? T('update.newest') + ' ' + T('update.checked', { t: when(u.checked) }) : T('update.never')));
+      out += note(T('update.cur', { v: state.version }) + ' ' + (u.checked ? T(u.noList ? 'update.nolist' : 'update.newest') + ' ' + T('update.checked', { t: when(u.checked) }) : T('update.never')));
       out += `<div class="acts">${btn('check', T('update.check'))}${u.error ? btn('page', T('update.page')) : ''}</div>`;
     }
   }

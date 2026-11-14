@@ -1155,3 +1155,20 @@ test('update manifest: a signature and a link per system, and a missing one is r
   assert.equal(Object.keys(manifest({ dir, tag: 'v0.2.0-rc.8', base, partial: true }).platforms).length, 4, 'a local test may have only some systems');
   fs.rmSync(dir, { recursive: true });
 });
+
+// The release job's checks: a real public key, the tag the app's version, and update files signed with that key.
+test('update manifest: a release the app could never update from is refused', async () => {
+  const { manifest, FILES, keyId } = await import('../.github/scripts/update-manifest.mjs');
+  const minisign = (kind, id) => Buffer.from(`untrusted comment: ${kind}\n${Buffer.concat([Buffer.from('Ed'), Buffer.from(id, 'hex'), Buffer.alloc(32, 7)]).toString('base64')}\ntrusted comment: x\n`).toString('base64');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bobix-manifest-'));
+  const sign = id => Object.values(FILES).forEach(n => { fs.writeFileSync(path.join(dir, n), 'x'); fs.writeFileSync(path.join(dir, n + '.sig'), minisign('signature', id)); });
+  const base = 'https://example.test/d', pkg = { version: '0.2.0-rc.8' };
+  const conf = id => ({ plugins: { updater: { pubkey: minisign('minisign public key', id) } } });
+  sign('0102030405060708');
+  assert.equal(keyId(minisign('x', '0102030405060708')), '0102030405060708');
+  assert.ok(manifest({ dir, tag: 'v0.2.0-rc.8', base, conf: conf('0102030405060708'), pkg }), 'a real key, the right tag, signed with that key');
+  assert.throws(() => manifest({ dir, tag: 'v0.2.0-rc.8', base, conf: { plugins: { updater: { pubkey: 'REPLACE_WITH_THE_PUBLIC_KEY' } } }, pkg }), /not a public key/);
+  assert.throws(() => manifest({ dir, tag: 'v0.2.0-rc.9', base, conf: conf('0102030405060708'), pkg }), /not package.json's version/);
+  assert.throws(() => manifest({ dir, tag: 'v0.2.0-rc.8', base, conf: conf('ffffffffffffffff'), pkg }), /not signed with the key/);
+  fs.rmSync(dir, { recursive: true });
+});

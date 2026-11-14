@@ -4,9 +4,11 @@
 # with "-" makes a pre-release). Each installed (or opened) app runs the smoke check; Windows and Linux install the last
 # Electron-based release first, so upgrading from it is checked too.
 # The app updates itself from signed update files (docs/development.md, "Update feed"): with the repository secrets
-# TAURI_SIGNING_PRIVATE_KEY (and its _PASSWORD) set, each build also signs its update file; a tag build attaches them and
+# TAURI_SIGNING_PRIVATE_KEY (and its _PASSWORD) set, a build for a `v*` tag also signs its update file, attaches it and
 # publishes the update lists (latest.json on a stable release, test.json on the "test-channel" release, for every tag).
-# Without the secrets the installers are built as before, and a tag build stops before it publishes anything.
+# The key reaches no other run: a develop push or a run by hand builds the installers as before, without update files.
+# A tag build without the secrets, with the placeholder public key, or whose tag is not package.json's version stops
+# before it publishes anything.
 name: release
 on:
   push:
@@ -79,8 +81,9 @@ jobs:
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then cfg=(--config '{"bundle":{"createUpdaterArtifacts":true}}'); else echo "no signing key: no update files"; fi
           npm run tauri -- build --ci --target ${{ matrix.target }} --bundles ${{ matrix.make || matrix.bundles }} "${cfg[@]}"
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # only a v* tag run gets the key (the other runs use whichever workflow their branch has)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
       - name: Name it
         shell: bash
         # The update file is the installer itself on Windows and Linux; on macOS it is the .app, zipped by Tauri, which it only
@@ -195,16 +198,18 @@ jobs:
           path: out
           pattern: '[Bb]obix-*' # the installers and their update files, not the smoke reports
           merge-multiple: true
-      # Fails here, before anything is published, when an update file or its signature is missing.
+      # Fails here, before anything is published, when an update file or its signature is missing, the public key in the
+      # app is the placeholder, the tag is not package.json's version, or a file was signed with another key.
       - name: Update list
         run: |
           mkdir -p lists
-          node .github/scripts/update-manifest.mjs --dir out --tag "$GITHUB_REF_NAME" --base "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" --out lists/latest.json
+          node .github/scripts/update-manifest.mjs --dir out --tag "$GITHUB_REF_NAME" --base "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" --out lists/latest.json --conf src-tauri/tauri.conf.json --package package.json
           cp lists/latest.json lists/test.json
       - uses: softprops/action-gh-release@v2
         with:
           files: out/*
           prerelease: ${{ contains(github.ref_name, '-') }} # v0.2.0-rc.1 → test build, not "latest"
+          make_latest: ${{ startsWith(github.ref_name, 'v0.1.') && 'false' || 'legacy' }} # a v0.1.x fix never takes "latest" from the 0.2 line: releases/latest/download/latest.json would stop existing
       # A stable release carries latest.json (releases/latest/download/latest.json is the stable list). Test builds read
       # test.json on the pre-release "test-channel": the newest build of any kind, so a test build also sees a release.
       - name: Publish the update lists
