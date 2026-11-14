@@ -94,6 +94,7 @@ pub struct State {
     results: HashMap<String, (CmdResult, u64)>, // by cid, kept 24 hours
     pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
     notified: HashSet<String>,
+    deferred: Vec<(String, String, u64)>, // (pid of a `revoked` message, phone id, when): the relay is told to revoke once the phone has it
 }
 
 pub fn now() -> u64 { crate::state::now() }
@@ -220,15 +221,32 @@ impl State {
         Some(p)
     }
 
-    // Disconnects a phone on the computer's side: tells it, tells the relay, and drops it from the peers.
+    // Disconnects a phone on the computer's side: the phone is told first; the relay is told to revoke it (and the peers
+    // change) once the phone acknowledged that message, or 30 seconds later, because a revoked phone is cut off at once.
     fn disconnect(&mut self, id: &str, why: &str) -> Vec<Frame> {
         let told = self.tell(id, &DesktopMsg::Revoked { why: why.into() }, None, None);
         let mut out = vec![];
-        if let Some((pid, f)) = told { out.push(f); self.revoking.get_or_insert_with(|| Revoking { pids: HashSet::new(), since: now() }).pids.insert(pid); }
-        if self.forget(id).is_some() {
-            out.push(Frame::Revoke { id: id.into() });
-            out.push(self.peers_frame());
+        let delayed = told.is_some();
+        if let Some((pid, f)) = told {
+            out.push(f);
+            self.revoking.get_or_insert_with(|| Revoking { pids: HashSet::new(), since: now() }).pids.insert(pid.clone());
+            self.deferred.push((pid, id.into(), now()));
         }
+        if self.forget(id).is_some() && !delayed { out.extend([Frame::Revoke { id: id.into() }, self.peers_frame()]); }
+        out
+    }
+    // The revocations whose phone has the message (`delivered`) or whose wait is over.
+    fn flush_revokes(&mut self, delivered: Option<&str>, t: u64) -> Vec<Frame> {
+        let mut out = vec![];
+        let mut keep = vec![];
+        for d in std::mem::take(&mut self.deferred) {
+            if delivered == Some(d.0.as_str()) || t > d.2 + 30_000 {
+                out.push(Frame::Revoke { id: d.1.clone() });
+                if let Some(r) = self.revoking.as_mut() { r.pids.remove(&d.0); }
+            } else { keep.push(d); }
+        }
+        self.deferred = keep;
+        if !out.is_empty() { out.push(self.peers_frame()); }
         out
     }
 }
@@ -338,6 +356,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         st.send_close(); // the link reconnects to the new address
     }
     st.results.retain(|_, r| t < r.1 + RESULT_KEEP_MS);
+    let mut flushed = st.flush_revokes(None, t);
     // a request held only for the phones: the first input at the computer marks it released (no more pushes; still answerable)
     if pending.values().any(|p| p.for_phones && !p.released) {
         if let Some(idle) = crate::presence::source().idle_ms() {
@@ -345,7 +364,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         }
     }
     // requests that ended: the phones that were told of them are told they are gone
-    let mut out = vec![];
+    let mut out = std::mem::take(&mut flushed);
     for (id, sid, _) in std::mem::take(&mut st.closed_events) {
         if !st.notified.remove(&id) { continue; }
         let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid, title: String::new(), body: String::new() };
@@ -407,7 +426,7 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
                 match f {
                     Frame::Delivered { pid } => {
                         if let Some(m) = st.moving.as_mut() { m.waiting.remove(&pid); }
-                        if let Some(r) = st.revoking.as_mut() { r.pids.remove(&pid); }
+                        out.extend(st.flush_revokes(Some(&pid), now()));
                     }
                     Frame::Presence { peer, state } => {
                         if state == bobix_link::relay_frames::PresenceState::Online { if st.online.insert(peer.clone()) { st.home_now.insert(peer); } } else { st.online.remove(&peer); }
