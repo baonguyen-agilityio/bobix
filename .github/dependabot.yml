@@ -7,6 +7,20 @@ updates:
     groups:
       cargo:
         patterns: ['*']
+  - package-ecosystem: cargo
+    directory: /crates/bobix-link
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ['*']
+  - package-ecosystem: cargo
+    directory: /crates/bobix-link/fuzz
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ['*']
   - package-ecosystem: npm
     directory: /
     schedule:

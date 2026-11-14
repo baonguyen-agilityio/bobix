@@ -12,3 +12,5 @@ plans/
 .claude/worktrees/
 .claude/settings.local.json
 CLAUDE.local.md
+crates/*/fuzz/corpus/
+crates/*/fuzz/artifacts/
