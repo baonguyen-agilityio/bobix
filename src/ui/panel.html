@@ -36,6 +36,10 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .lnk{border:0;background:none;padding:0;font:inherit;color:var(--accent-ink);font-weight:500;text-align:left;cursor:pointer}
 .lnk:hover{text-decoration:underline}
 .acts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:var(--s3)}
+/* a label that changes (Hide / Show, Prepare / Reading…): both laid out in one cell, one shown, so the button keeps its size */
+.two{display:inline-grid;place-items:center}
+.two>span{grid-area:1/1;pointer-events:none}
+.two>.alt{visibility:hidden}
 
 /* the window */
 .b-win{height:100vh;height:100dvh;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;background:var(--surface)}
@@ -46,19 +50,24 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .b-search input::-webkit-search-cancel-button{display:none}
 .nb{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--ink-3)}
 .nb:hover{background:var(--surface-3);color:var(--ink)}
+.nb.off{visibility:hidden}
 .conn{font-size:var(--t-xs);font-weight:600;color:var(--accent-ink);white-space:nowrap}
-.b-scope{display:flex;align-items:center;gap:2px;padding:6px 10px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+/* One height whether or not a scope has a picker (Sessions, Skills): the list below never moves on a tab switch. */
+.b-scope{display:flex;align-items:center;gap:2px;height:39px;padding:6px 10px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
 .b-scope::-webkit-scrollbar{display:none}
-.tab{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:0;border-radius:7px;background:none;color:var(--ink-2);font-weight:500;font-size:12px;white-space:nowrap}
+.tab{position:relative;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:0;border-radius:7px;background:none;color:var(--ink-2);font-weight:500;font-size:12px;white-space:nowrap}
 .tab:hover{background:var(--surface-3);color:var(--ink)}
 .tab[aria-selected="true"]{background:color-mix(in oklch,var(--ink) 10%,transparent);color:var(--ink)}
-.tab .cnt{min-width:16px;height:16px;padding:0 5px;border-radius:8px;background:var(--accent-solid);color:var(--on-accent);font-size:10px;font-weight:600;line-height:16px;text-align:center}
+/* on the tab's corner, out of the row: the tabs do not move when a request comes or goes */
+.tab .cnt{position:absolute;top:-4px;right:-7px;min-width:16px;height:16px;padding:0 5px;border-radius:8px;background:var(--accent-solid);color:var(--on-accent);font-size:10px;font-weight:600;line-height:16px;text-align:center;box-shadow:0 0 0 2px var(--surface)}
 .b-scope .sp{flex:1}
 .b-scope .ver{font-size:11px;color:var(--ink-3);white-space:nowrap;padding:0 4px}
-.sel{height:26px;padding:0 26px 0 10px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--surface);font-weight:500;font-size:12px;appearance:none;-webkit-appearance:none;max-width:200px;
+.sel{height:26px;min-height:0;padding:0 26px 0 10px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--surface);font-weight:500;font-size:12px;appearance:none;-webkit-appearance:none;max-width:200px;
   background-image:linear-gradient(45deg,transparent 50%,var(--ink-3) 50%),linear-gradient(135deg,var(--ink-3) 50%,transparent 50%);background-position:calc(100% - 13px) 11px,calc(100% - 9px) 11px;background-size:4px 4px;background-repeat:no-repeat}
 .b-split{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.25fr);min-height:0}
-.b-list{overflow:auto;padding:4px 6px 8px;border-right:1px solid var(--line)}
+/* Always a scrollbar track: content does not narrow when it starts to scroll (WebKitGTK draws classic scrollbars and
+   does not reserve space for scrollbar-gutter). */
+.b-list{overflow:auto scroll;padding:4px 6px 8px;border-right:1px solid var(--line)}
 .b-grp{display:flex;align-items:center;gap:6px;padding:12px 10px 4px;font-size:11px;font-weight:600;color:var(--ink-3)}
 .b-grp .n{font-weight:500}
 .b-grp .sp{flex:1}
@@ -94,7 +103,7 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .b-ico.lg svg.i{width:22px;height:22px}
 .b-ico.lg svg:not(.i){width:27px;height:30px}
 .b-ico.lg.pet svg{width:40px;height:40px}
-.b-detail{overflow:auto;min-width:0;overflow-wrap:anywhere}
+.b-detail{overflow:auto scroll;min-width:0;overflow-wrap:anywhere}
 .b-pane{padding:20px 22px 28px;display:flex;flex-direction:column;gap:18px;min-width:0}
 .b-dh{display:flex;align-items:center;gap:12px;min-width:0}
 .b-dh>div{min-width:0;flex:1}
@@ -179,9 +188,6 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 
 /* a session's details */
 .pane-acts{display:flex;flex-wrap:wrap;gap:6px}
-.pane-acts [data-act="pet"]{display:inline-grid;place-items:center}
-.pane-acts [data-act="pet"]>span{grid-area:1/1;pointer-events:none}
-.pane-acts .alt{visibility:hidden}
 .meta{margin:0;font-size:var(--t-xs);line-height:1.6;color:var(--ink-3);overflow-wrap:anywhere}
 .ask{padding:var(--s3) var(--s4);border-radius:var(--r-lg);background:var(--accent-bg);border:1px solid color-mix(in oklch,var(--accent) 50%,transparent);font-size:var(--t-sm)}
 .ask strong{color:var(--accent-ink)}
@@ -364,7 +370,7 @@ input[type=number]{width:104px}
 .rm-pc ul{margin:0;padding-left:16px}.rm-pc .lbl{font-size:var(--t-xs);font-weight:600;color:var(--ink-2)}
 .rm-by{font-size:var(--t-xs);color:var(--ink-3)}
 .rm-steps{display:flex;gap:6px;flex-wrap:wrap}
-.rm-chat{list-style:none;margin:0;padding:4px;display:flex;flex-direction:column;gap:6px;max-height:min(360px,46dvh);overflow:auto;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
+.rm-chat{list-style:none;margin:0;padding:4px;display:flex;flex-direction:column;gap:6px;max-height:min(360px,46dvh);overflow:auto scroll;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
 .rm-chat li{padding:6px 10px;border-radius:var(--r-md);background:var(--surface);max-width:88%;align-self:flex-start}
 .rm-chat li.me{align-self:flex-end;background:var(--accent-bg)}.rm-chat li.blank{background:none;max-width:none}
 .rm-mh{display:flex;gap:8px;align-items:baseline;font-size:var(--t-xs)}.rm-mt{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--t-sm)}
@@ -387,6 +393,9 @@ input[type=number]{width:104px}
 /* dialogs: the Start box, stand-up, report, feedback, the pet picture */
 .fb{width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:var(--s5,20px);border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);box-shadow:var(--pop)}
 .fb::backdrop{background:var(--scrim)}
+/* These two change while open (See all, feedback details): opened at a fixed top, they grow downward, never re-centred. */
+#fb-dialog{margin:12vh auto auto;max-height:calc(100dvh - 12vh - 16px)}
+#st-dialog{margin:16px auto auto}
 .fb h2{font-size:var(--t-lg);margin-bottom:var(--s2)}
 .fb p{margin:0 0 var(--s2)}
 .fb .seg{margin-top:var(--s3)}
@@ -409,7 +418,7 @@ input[type=number]{width:104px}
 .fb.stbox textarea{min-height:min(200px,32dvh)}
 .stbox .fl{display:block;margin:0 0 6px;font-size:var(--t-sm);font-weight:600}
 .stbox .sk{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-.stbox .sk.all{max-height:min(320px,40dvh);overflow:auto;padding-right:4px}
+.stbox .sk.all{max-height:min(320px,40dvh);overflow:auto scroll;padding-right:4px}
 .stbox .sk label{display:grid;grid-template-columns:18px minmax(0,1fr);gap:2px 8px;align-items:start;margin:0;padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer;font-weight:400}
 .stbox .sk label:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .stbox .sk input{width:auto;padding:0;border:0;margin:3px 0 0;accent-color:var(--accent-solid)}
@@ -473,7 +482,7 @@ input[type=number]{width:104px}
 .cmdk::backdrop{background:var(--scrim)}
 .cmdk .in{display:flex;align-items:center;gap:var(--s3);height:52px;padding:0 var(--s4);border-bottom:1px solid var(--line);color:var(--ink-3)}
 .cmdk .in input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:var(--t-lg);color:var(--ink)}
-.cmdk .res{max-height:min(420px,56vh);overflow:auto;padding:4px 8px 8px}
+.cmdk .res{height:min(420px,56vh);overflow:auto scroll;padding:4px 8px 8px}
 .cmdk .grp{padding:8px 8px 4px;font-size:11px;color:var(--ink-3);font-weight:600}
 .cmdk .it{display:flex;align-items:center;gap:var(--s3);min-height:38px;padding:0 var(--s2);border-radius:var(--r-md);cursor:pointer}
 .cmdk .it .lab{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -499,22 +508,26 @@ input[type=number]{width:104px}
 .tour-art .sprite{width:36px;height:36px;border-radius:10px}
 .tour-art .st-waiting .sprite{background:var(--accent-bg);box-shadow:inset 0 0 0 1px var(--accent)}
 
-.toasts{position:fixed;right:20px;bottom:60px;z-index:40;display:flex;flex-direction:column;gap:var(--s2);align-items:flex-end;width:min(440px,calc(100vw - 32px))}
-.toast{display:flex;align-items:center;gap:var(--s3);min-height:40px;padding:6px 6px 6px var(--s4);border-radius:10px;background:var(--ink);color:var(--bg);box-shadow:var(--pop);font-weight:500;text-align:left;animation:rise .18s var(--ease)}
+/* a box of fixed size with the toasts at its bottom: it never resizes as they come and go */
+.toasts{position:fixed;top:20px;right:20px;bottom:60px;z-index:40;display:flex;flex-direction:column;justify-content:flex-end;gap:var(--s2);align-items:flex-end;width:min(440px,calc(100vw - 32px));pointer-events:none}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:var(--s3);min-height:40px;padding:6px 6px 6px var(--s4);border-radius:10px;background:var(--ink);color:var(--bg);box-shadow:var(--pop);font-weight:500;text-align:left;animation:rise .18s var(--ease)}
 .toast .btn{background:transparent;color:inherit;border-color:color-mix(in oklch,var(--bg) 30%,transparent)}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}}
+.toast.gone{visibility:hidden}
 
 /* narrow: the list above its detail, one scroll; the action bar keeps the main action and Actions */
 @media (max-width:720px){
+  html{overflow-y:scroll} /* the page scrolls here: its scrollbar track is always there, so the width never changes */
   .b-win{height:auto;min-height:100dvh;grid-template-rows:auto auto 1fr auto}
-  .b-split{grid-template-columns:minmax(0,1fr)}
+  .b-split{grid-template-columns:minmax(0,1fr);align-content:start} /* rows as tall as their content: a short detail does not stretch the list */
   .b-list{border-right:0;border-bottom:1px solid var(--line);overflow:visible}
   .b-detail{overflow:visible}
+  .b-detail.wait{display:none} /* below the list here: it would move down when the list fills in */
   .b-pane{padding:16px 16px 24px}
   .b-search{height:56px}
   .b-search input{font-size:17px}
   .b-search .kbd,.b-scope .ver{display:none}
-  .b-scope{flex-wrap:wrap;overflow:visible}.b-scope .sp{display:none}.b-scope .sel{max-width:100%}
+  .b-scope{flex-wrap:wrap;align-content:flex-start;height:auto;min-height:67px;overflow:visible}.b-scope .sp{display:none}.b-scope .sel{max-width:100%} /* a second row for the picker, kept on every scope */
   .b-it{min-height:48px}
   .b-bar{position:sticky;bottom:0;z-index:5;height:52px;background:color-mix(in oklch,var(--surface) 92%,transparent);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
   .b-act:not(.pri):not([data-cmdk]),.b-act .kbd,.b-bar .ctx .g,.b-div{display:none}
@@ -530,7 +543,7 @@ input[type=number]{width:104px}
   .hb .two{grid-template-columns:1fr}
   .mine li{grid-template-columns:minmax(0,1fr)}
   .cmdk .it .hint,.cmdk .ft{display:none}
-  .toasts{left:16px;right:16px;bottom:64px;width:auto;align-items:stretch}
+  .toasts{top:16px;left:16px;right:16px;bottom:64px;width:auto;align-items:stretch}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
@@ -566,7 +579,7 @@ input[type=number]{width:104px}
   <symbol id="i-cpu" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.5V4M9.5 1.5V4M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5"/></symbol>
 </svg>
 <div class="b-win" id="win">
-  <div class="b-search"><svg class="i"><use href="#i-search"/></svg><input id="bq" type="search" autocomplete="off" spellcheck="false" role="combobox" aria-controls="b-list" aria-expanded="true"><button class="nb" type="button" id="bq-x" hidden><svg class="i"><use href="#i-x"/></svg></button><span class="conn" id="conn" role="status" hidden></span><span class="kbd">esc</span></div>
+  <div class="b-search"><svg class="i"><use href="#i-search"/></svg><input id="bq" type="search" autocomplete="off" spellcheck="false" role="combobox" aria-controls="b-list" aria-expanded="true"><button class="nb off" type="button" id="bq-x"><svg class="i"><use href="#i-x"/></svg></button><span class="conn" id="conn" role="status" hidden></span><span class="kbd">esc</span></div>
   <nav class="b-scope" role="tablist" id="scopes"></nav>
   <div class="b-split">
     <div class="b-list" id="b-list" role="listbox"></div>
@@ -650,14 +663,16 @@ function translate() {
   document.documentElement.style.setProperty('--close', JSON.stringify(T('group.close')));
 }
 function toast(text, action) {
-  if ([...$('#toasts').children].some(t => t.dataset.text === text)) return; // already on screen (e.g. Open session clicked twice)
+  if ([...$('#toasts').children].some(t => t.dataset.text === text && !t.classList.contains('gone'))) return; // already on screen (e.g. Open session clicked twice)
   const el = document.createElement('div');
   el.dataset.text = text;
   el.className = 'toast';
   el.innerHTML = `<span style="flex:1">${esc(text)}</span>${action ? `<button class="btn" type="button">${esc(action.label)}</button>` : ''}`;
-  if (action) el.querySelector('button').onclick = () => { el.remove(); action.run(); };
+  // A toast that goes keeps its place until the newer ones above it go too: the others never move.
+  const done = () => { el.classList.add('gone'); for (const t of [...$('#toasts').children]) { if (!t.classList.contains('gone')) break; t.remove(); } };
+  if (action) el.querySelector('button').onclick = () => { done(); action.run(); };
   $('#toasts').prepend(el);
-  setTimeout(() => el.remove(), action ? 10000 : 6000);
+  setTimeout(done, action ? 10000 : 6000);
 }
 function ago(t) {
   const m = Math.floor((Date.now() - t) / 60e3);
@@ -954,7 +969,11 @@ $('#st-skills').addEventListener('input', e => {
 });
 $('#st-skills').addEventListener('click', async e => {
   if (!starting) return;
-  if (e.target.id === 'st-all') { starting.all = true; renderSkills(); $('#st-q')?.focus(); return; }
+  if (e.target.id === 'st-all') {
+    starting.all = true; renderSkills(); $('#st-q')?.focus();
+    const f = $('#st-found'); f.style.height = f.offsetHeight + 'px'; // the height it opened with: what is below stays put while you type
+    return;
+  }
   const c = e.target.closest('[data-hint]');
   if (c) { e.preventDefault(); try { await navigator.clipboard.writeText(c.dataset.hint); toast(T('start.missing.copied')); } catch { toast(c.dataset.hint); } }
 });
@@ -1133,7 +1152,7 @@ function habitsSettingsHTML(s) {
 // ---------- the Skills tab: your role, your skills, and per project its skills, process file and folder skill ----------
 // The same settings the Start box reads: role, skillPins (name → roles), skillProcess (project → imported process),
 // habitsSkill (folder → the skill you chose there). mySkills and procs are read each time the tab opens.
-let mySkills = null, mineQ = '', procs = null;
+let mySkills = null, mineQ = '', procs = null, listsIn = false; // listsIn: both lists answered once (null or not)
 function paintMine() {
   const box = $('#mine-box');
   if (!box) return;
@@ -1308,8 +1327,9 @@ function paintFeedback() {
   document.querySelectorAll('#fb-kind button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.kind === k)));
   $('#fb-title-label').textContent = T(`fb.${k}.title`);
   $('#fb-desc').placeholder = T(`fb.${k}.hint`);
-  $('#fb-details').hidden = k !== 'bug';
-  $('#fb-public').textContent = T(`fb.${k}.public`);
+  $('#fb-details').style.visibility = k === 'bug' ? '' : 'hidden'; // keeps its place: the rest of the form stays put
+  if (k !== 'bug') $('#fb-details').open = false;
+  $('#fb-public').innerHTML = two(k === 'idea', T('fb.bug.public'), T('fb.idea.public')); // as tall as the longer one, for either
 }
 async function openFeedback() {
   const box = $('#fb-dialog');
@@ -1544,6 +1564,8 @@ const CMD = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
 const K = ks => ks.map(k => `<span class="kbd">${esc(k)}</span>`).join('');
 const ic = id => `<svg class="i"><use href="#i-${id}"/></svg>`;
 const ico = (id, cls = '') => `<span class="b-ico ${cls}">${ic(id)}</span>`;
+// Label a, or b while on, laid out together (.two) so the button never resizes between them.
+const two = (on, a, b) => `<span class="two"><span>${esc(on ? b : a)}</span><span class="alt" aria-hidden="true">${esc(on ? a : b)}</span></span>`;
 // A project's (or a ticket's) avatar: the project's own pet, resting.
 const projectPet = (p, cls = '') => `<span class="b-ico pet ${cls}">${creature(p, 'idle')}</span>`;
 const oneLine = t => String(t || '').replace(/\s+/g, ' ').trim();
@@ -1742,7 +1764,7 @@ const whoText = i => !Array.isArray(i.assignees) ? '' : i.mine ? T('work.who.min
 // `of`: the issue's repository, when g is the repository its code is in (Start's "Fix it in which project?").
 const whereHTML = (g, of) => { const o = of ? ` data-wk-of="${esc(of)}"` : '';
   return `<div class="tk-warn"><p><strong>${esc(T('work.where.t'))}</strong> ${esc(T('work.where.why', { p: g.path }))}</p>
-  <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-wk-link="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T('work.link'))}</button><button class="btn sm" type="button" data-wk-clone="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T(wkBusy.has(g.path) ? 'work.clone.busy' : 'work.clone'))}</button><button class="btn sm" type="button" data-wk-find="${esc(g.path)}"${o}${wkFinding.has(g.path) ? ' disabled aria-busy="true"' : ''}>${esc(T(wkFinding.has(g.path) ? 'work.find.busy' : MAC ? 'work.find.mac' : 'work.find'))}</button></div>
+  <div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-wk-link="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${esc(T('work.link'))}</button><button class="btn sm" type="button" data-wk-clone="${esc(g.path)}"${o}${wkBusy.has(g.path) ? ' disabled' : ''}>${two(wkBusy.has(g.path), T('work.clone'), T('work.clone.busy'))}</button><button class="btn sm" type="button" data-wk-find="${esc(g.path)}"${o}${wkFinding.has(g.path) ? ' disabled aria-busy="true"' : ''}>${two(wkFinding.has(g.path), T(MAC ? 'work.find.mac' : 'work.find'), T('work.find.busy'))}</button></div>
   <p class="note">${esc(T(MAC ? 'work.find.note.mac' : 'work.find.note'))}</p></div>`; };
 const MAC = /Mac/.test(navigator.platform);
 const wkFinding = new Set(); // projects being looked for (Find on this Mac)
@@ -1795,7 +1817,7 @@ function sessionHTML(s) {
     ${lk === 'waiting' ? `<div class="ask"><strong>${T('pane.ask')}</strong> ${esc(s.ask)}<br>${held(s) ? `${secsLeft(s) === Infinity ? T('pane.askUntil') : T('pane.askWithin', { n: secsLeft(s) })}
       <div class="acts"><button class="btn pri" type="button" ${answerAttrs(s, 'allow')} data-f="allow:${esc(s.id)}">${T('ask.allow')}</button><button class="btn" type="button" ${answerAttrs(s, 'deny')}>${T('ask.deny')}</button></div>` : T(approveWhere(s))}</div>` : ''}
     ${bridge ? `<div class="pane-acts"><button class="btn${lk === 'waiting' ? '' : ' pri'}" type="button" data-act="open">${T('pane.open')}</button>
-      <button class="btn" type="button" data-act="pet"><span>${T(offScreen(s) ? 'pane.showPet' : 'pane.hidePet')}</span><span class="alt" aria-hidden="true">${T(offScreen(s) ? 'pane.hidePet' : 'pane.showPet')}</span></button>
+      <button class="btn" type="button" data-act="pet">${two(offScreen(s), T('pane.hidePet'), T('pane.showPet'))}</button>
       ${PICTURE_PETS ? `<button class="btn" type="button" data-act="pic">${T('pane.petPick')}</button>${s.pixel ? `<button class="btn" type="button" data-act="picEdit">${T('pane.petAdjust')}</button>` : ''}${s.image ? `<button class="btn" type="button" data-act="picReset">${T('pane.petReset')}</button>` : ''}` : ''}</div>` : ''}
     ${hint?.id === s.id ? `<p class="note err">${esc(hintText(hint))}</p>` : ''}
     <div>${ctx}${dupBranch(s) ? ` · ${dupBranch(s)}` : ''}<p class="meta">${esc(s.cwd)}<br>session ${esc(s.id)}</p></div>
@@ -1888,7 +1910,7 @@ function reposItem() {
 function reposHTML() {
   if (!rp.list && !rp.busy && !rp.tried) { rp.tried = true; setTimeout(() => loadRepos(false)); } // once; Read again asks again
   if (rp.list) rpDraft();
-  const top = `${head(ico('work', 'lg'), T('work.repos.t'), rp.list ? T('work.repos.count', { n: draftCount(), all: (rp.list || []).reduce((a, h) => a + h.repos.length, 0) }) : '')}<p class="note">${esc(T('work.repos.note', { d: 90 }))}</p>${work.moreRepos ? `<div class="tk-warn"><p><strong>${esc(T('work.repos.first.t', { k: 10 }))}</strong> ${esc(T('work.repos.first', { n: work.moreRepos }))}</p></div>` : ''}`;
+  const top = `${head(ico('work', 'lg'), T('work.repos.t'), rp.list ? T('work.repos.count', { n: draftCount(), all: (rp.list || []).reduce((a, h) => a + h.repos.length, 0) }) : '…')}<p class="note">${esc(T('work.repos.note', { d: 90 }))}</p>${work.moreRepos ? `<div class="tk-warn"><p><strong>${esc(T('work.repos.first.t', { k: 10 }))}</strong> ${esc(T('work.repos.first', { n: work.moreRepos }))}</p></div>` : ''}`;
   if (!rp.list) return `${top}<p class="note">${esc(T('work.repos.loading'))}</p>`;
   if (!rp.list.length) return `${top}<p class="blank">${esc(T('work.repos.nohost'))}</p>`;
   const many = (rp.list || []).filter(h => h.forge === 'gitlab').reduce((n, h) => n + (rp.draft[h.host]?.size || 0), 0) > 20;
@@ -1972,7 +1994,7 @@ function mrHTML(f) {
     <label class="tk-ch"><span>${esc(T('tk.mr.title'))}</span><input type="text" data-tk-mr-title="${k}" data-f="tkmt:${k}" value="${esc(m.title)}"></label>
     <label class="tk-ch"><span>${esc(T('tk.mr.body', fw(f)))}</span><textarea class="tk-prompt" rows="10" spellcheck="false" data-tk-mr-body="${k}" data-f="tkmb:${k}">${esc(m.body)}</textarea></label>
     <p class="note">${esc(T('tk.mr.note', { ...fw(f), b: f.branch }))}</p>
-    <div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-mr-go="${k}"${m.busy ? ' disabled' : ''}>${esc(T(m.busy ? 'tk.mr.busy' : 'tk.mr.go', fw(f)))}</button><button class="btn" type="button" data-tk-mr-cancel="${k}">${esc(T('pd.cancel'))}</button></div></section>`;
+    <div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-mr-go="${k}"${m.busy ? ' disabled' : ''}>${two(m.busy, T('tk.mr.go', fw(f)), T('tk.mr.busy', fw(f)))}</button><button class="btn" type="button" data-tk-mr-cancel="${k}">${esc(T('pd.cancel'))}</button></div></section>`;
 }
 // Claude opened the flow's session somewhere else than the worktree Bobix made (#188): said, with what it means. In a
 // worktree Claude made, the flow works there; in the repository's main folder the flow keeps its own worktree.
@@ -2014,7 +2036,7 @@ function flowHTML(f, s) {
       <dt>${esc(T('tk.models'))}</dt><dd>${esc(modelsLine(f.models))}</dd>
       ${s ? `<dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>` : ''}</dl></section>
     ${bridge ? `<div class="acts" style="margin:0">${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `${f.status === 'done' && !f.mr && !tkMr[f.key]?.open ? `<button class="btn pri" type="button" data-tk-mr-open="${k}">${esc(T('tk.mr', fw(f)))}</button>` : ''}<button class="btn${f.status === 'done' && !f.mr ? '' : ' pri'}" type="button" data-tk-review="${k}">${esc(T('tk.review'))}</button><button class="btn" type="button" data-tk-review-cli="${k}">${esc(T('tk.review.cli'))}</button><button class="btn" type="button" data-tk-clean="${k}">${esc(T('tk.clean'))}</button>` : ''}
-      ${f.session ? `<button class="btn" type="button" data-tk-sum="${k}"${tkBusy.has(f.key) ? ' disabled' : ''}>${esc(T(tkBusy.has(f.key) ? 'tk.ask.busy' : 'tk.sum'))}</button>` : ''}
+      ${f.session ? `<button class="btn" type="button" data-tk-sum="${k}"${tkBusy.has(f.key) ? ' disabled' : ''}>${two(tkBusy.has(f.key), T('tk.sum'), T('tk.ask.busy'))}</button>` : ''}
       ${tkOpen(f) && !tkRm[f.key] ? `<button class="btn" type="button" data-tk-rm="${k}">${esc(T('tk.rm'))}</button>` : ''}
       ${f.url ? `<button class="btn" type="button" data-url="${esc(f.url)}">${esc(T('work.open'))}</button>` : ''}<button class="btn" type="button" data-tk-again="${esc(f.path + '#' + f.iid)}">${esc(T('tk.again'))}</button></div>
       ${!f.cleaned && ['done', 'blocked'].includes(f.status) ? `<p class="note">${esc(T('tk.review.note'))}</p>` : ''}
@@ -2053,7 +2075,7 @@ function startHTML(i, g, k) {
   const running = tickets.list.filter(f => !f.cleaned && (f.code || f.path) === code).length; // flows keep their worktrees
   const live = [...st.doing, ...st.verify].find(x => x[1].path === g.path && x[0].iid === i.iid && x[2].length); // a session works on it now
   const folder = dirOf && bridge ? `<p class="tk-dir"><strong>${esc(T('tk.folder'))}</strong> <code title="${esc(dirOf)}">${esc(home(dirOf))}</code>${how ? ` <span class="badge">${esc(T('set.workDirs.' + how))}</span>` : ''}
-    <button class="btn sm" type="button" data-tk-dir="${ek}" data-f="tkdir:${ek}"${wkBusy.has(code) ? ' disabled' : ''}>${esc(T('tk.folder.change'))}</button><button class="btn sm" type="button" data-tk-clone="${ek}" data-f="tkclone:${ek}"${wkBusy.has(code) ? ' disabled aria-busy="true"' : ''}>${esc(T(wkBusy.has(code) ? 'work.clone.busy' : 'work.clone'))}</button></p>
+    <button class="btn sm" type="button" data-tk-dir="${ek}" data-f="tkdir:${ek}"${wkBusy.has(code) ? ' disabled' : ''}>${esc(T('tk.folder.change'))}</button><button class="btn sm" type="button" data-tk-clone="${ek}" data-f="tkclone:${ek}"${wkBusy.has(code) ? ' disabled aria-busy="true"' : ''}>${two(wkBusy.has(code), T('work.clone'), T('work.clone.busy'))}</button></p>
     <p class="note">${esc(T('tk.folder.note', { p: code }))}${running ? ' ' + esc(T('tk.folder.flows', { n: running })) : ''}</p>` : '';
   const top = `${head(projectPet(g.path, 'lg'), `#${i.iid} ${i.title}`, [g.path, whoText(i), ...(i.labels || [])].filter(Boolean).join(' · '))}${od ? `<p class="hot">${esc(T('day.overdue'))} · ${esc(i.due)}</p>` : ''}${flowsHTML(g.path, i.iid)}${pick}${folder}`;
   if (!dirOf || p?.reason === 'where') return `${top}${whereHTML({ path: code }, other ? g.path : '')}${open ? `<div class="acts" style="margin:0">${open}</div>` : ''}`;
@@ -2066,7 +2088,7 @@ function startHTML(i, g, k) {
   if (quick) return `${top}${howHTML}<p class="note">${esc(T('tk.quick.note', { dir: home(dirOf) }))}</p>
     <div class="acts" style="margin:0"><button class="btn pri" type="button" ${quickAttrs(i, g, dirOf)} data-f="tkq:${ek}">${esc(T('tk.quick.go'))}</button>${open}</div>`;
   const full = `${top}${howHTML}<p class="note">${esc(T('tk.flow.note'))}</p>`;
-  if (!p) return `${full}<div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-prep="${ek}" data-f="tkprep:${ek}"${pr?.loading ? ' disabled' : ''}>${esc(T(pr?.loading ? 'tk.prep.busy' : 'tk.prep'))}</button>${open}</div>`;
+  if (!p) return `${full}<div class="acts" style="margin:0"><button class="btn pri" type="button" data-tk-prep="${ek}" data-f="tkprep:${ek}"${pr?.loading ? ' disabled' : ''}>${two(pr?.loading, T('tk.prep'), T('tk.prep.busy'))}</button>${open}</div>`;
   if (!p.ok) return `${full}<p class="note err">${esc(T('work.new.fail'))}</p>`;
   const disk = p.room == null ? T('tk.disk.unknown') : T(p.room > 0 ? 'tk.disk.ok' : 'tk.disk.full', { n: p.room, free: BOARD.gb(p.free), need: BOARD.gb(p.need) });
   const c = pr.cls, off = p.exists || pr.busy ? ' disabled' : '', low = p.room === 0 || pr.disk;
@@ -2078,7 +2100,7 @@ function startHTML(i, g, k) {
   return `${full}${p.exists ? `<p class="note err">${esc(T('tk.exists'))}${flow ? ` <button class="lnk" type="button" data-sel-flow="${esc(flow.key)}">${esc(T('tk.exists.go'))}</button>` : ''}</p>` : ''}${cmWarn}<p class="${low ? 'risk' : 'note'}">${esc(low ? T('tk.disk.low', { free: BOARD.gb(p.free), need: BOARD.gb(p.need) }) : disk)}</p>
     <section class="b-sec"><h3>${esc(T('tk.models'))}</h3><div class="tk-opts">${opt('small', T('tk.m.small'))}${c?.ok ? opt('haiku', T('tk.m.haiku', { x: modelsLine(c) })) + `<p class="note">${esc(c.why)}</p>` : ''}</div>
       ${c && !c.ok ? `<p class="note err">${esc(c.error || '')}</p>` : ''}
-      <div class="acts" style="margin:0"><button class="btn sm" type="button" data-tk-ask="${ek}"${pr.asking ? ' disabled' : ''}>${esc(T(pr.asking ? 'tk.ask.busy' : 'tk.ask'))}</button></div><p class="note">${esc(T('tk.ask.note'))}</p></section>
+      <div class="acts" style="margin:0"><button class="btn sm" type="button" data-tk-ask="${ek}"${pr.asking ? ' disabled' : ''}>${two(pr.asking, T('tk.ask'), T('tk.ask.busy'))}</button></div><p class="note">${esc(T('tk.ask.note'))}</p></section>
     <section class="b-sec"><h3>${esc(T('tk.prompt'))}</h3><textarea class="tk-prompt" rows="12" spellcheck="false" data-tk-prompt="${ek}" data-f="tkp:${ek}" aria-label="${esc(T('tk.prompt'))}">${esc(pr.prompt)}</textarea>
       <p class="note">${esc(T('tk.where', { dir: home(p.dir), b: p.branch }))}</p></section>
     <div class="acts" style="margin:0">${low ? `<button class="btn pri" type="button" data-tk-any="${ek}" data-f="tkany:${ek}"${off}>${esc(T('tk.start.anyway'))}</button><button class="btn" type="button" data-tk-quick="${ek}">${esc(T('tk.quick.instead'))}</button>` : `<button class="btn pri" type="button" data-tk-go="${ek}"${off}>${esc(T('tk.start'))}</button><button class="btn" type="button" data-tk-cli="${ek}"${off}>${esc(T('tk.cli'))}</button>`}</div>
@@ -2248,6 +2270,9 @@ const offItem = k => ({ id: 'off', kind: 'board', lead: ico(k), label: T('set.on
 // ---------- Skills: your role, your skills, then each project (its skills, process file, folder skill) ----------
 function skillItems() {
   if (!bridge || !state) return [offItem('skills')];
+  // One row until the first lists are in (each arrives on its own): rows filled in one by one would push the rows below.
+  if ((bridge.habitSkills && !hs.done) || (aud.busy && !aud.a) || !listsIn) return [{ id: 'sk:wait', wait: true, kind: 'board', lead: ico('skills'), label: T('sk.wait'), sub: T('sk.aud.loadingNote'),
+    detail: () => head(ico('skills', 'lg'), T('sk.wait'), T('sk.aud.loadingNote')), acts: [] }];
   const role = state.settings.role || '', pins = Object.keys(state.settings.skillPins || {}), picked = Object.entries(state.settings.habitsSkill || {});
   const it = [{ id: 'role', grp: 'you', kind: 'skills', lead: ico('user'), label: T('set.role'), sub: role ? ROLE_NAME[role] : T('set.role.none') },
     { id: 'mine', grp: 'you', kind: 'skills', lead: ico('pin'), label: T('set.skillPins'), sub: mySkills ? T('b.pinned', { n: pins.length, m: mySkills.length }) : T('work.loading') }];
@@ -2304,6 +2329,7 @@ async function loadSkillLists() {
   if (!bridge) return;
   loadAudit(); loadHabitSkills();
   [mySkills, procs] = await Promise.all([bridge.mySkills().catch(() => []), bridge.processStatus().catch(() => [])]);
+  listsIn = true;
   render();
   paintMine(); paintProcess();
 }
@@ -2507,6 +2533,7 @@ Object.assign(GRP, { habits: 'hs.grp' });
 async function loadHabitSkills() {
   if (!bridge?.habitSkills) return;
   try { hs.v = await bridge.habitSkills('view'); } catch (e) { hs.err = { id: 'hs', text: T('sk.err', { e: String(e?.message || e) }) }; }
+  hs.done = true; // answered once: the Skills list stops waiting for it
   render();
   clearTimeout(hsPoll);
   if (hs.v?.scan?.busy && scope === 'skills') hsPoll = setTimeout(loadHabitSkills, 3000); // a weekly scan runs: show it when done
@@ -2603,7 +2630,7 @@ function hsHTML() {
         <dt>${esc(T('hs.next'))}</dt><dd>${sc.next ? esc(new Date(sc.next).toLocaleDateString(lang === 'vi' ? 'vi-VN' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' })) : esc(T('hs.soon'))}</dd>
         <dt>${esc(T('hs.found'))}</dt><dd>${esc(T('hs.found.n', { n: v.suggestions.length, m: v.made.length }))}</dd></dl>
       ${sc.error ? `<p class="note err" role="alert">${esc(T('sk.err', { e: sc.error }))}</p>` : ''}
-      <div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="scan"${sc.busy || hsBusy('hs') ? ' disabled' : ''}>${ic('refresh')}${esc(T(sc.busy || hsBusy('hs') ? 'hs.scanning' : 'hs.scanNow'))}</button><button class="btn" type="button" data-hs="off">${esc(T('hs.turnOff'))}</button></div>
+      <div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="scan"${sc.busy || hsBusy('hs') ? ' disabled' : ''}>${ic('refresh')}${two(sc.busy || hsBusy('hs'), T('hs.scanNow'), T('hs.scanning'))}</button><button class="btn" type="button" data-hs="off">${esc(T('hs.turnOff'))}</button></div>
       ${!v.suggestions.length && sc.at && !sc.busy ? `<p class="blank">${esc(T('hs.none'))}</p>` : ''}`;
   return `${head(ico('bulb', 'lg'), T('hs.t'), T('hs.note'))}${hsErr('hs')}${state1}
     <section class="b-sec"><h3>${esc(T('hs.how'))}</h3><ul class="guide-more" style="margin:0">${['hs.how.1', 'hs.how.2', 'hs.how.3', 'hs.how.4'].map(k => `<li>${esc(T(k, { n: v.rules.unusedDays }))}</li>`).join('')}</ul></section>
@@ -2623,7 +2650,7 @@ function hsSuggHTML(x) {
   const simHTML = sim ? `<p class="note">${esc(T('hs.sim.' + x.action, { n: sim.name, s: T('skill.src.' + sim.source) }))}</p>${sim.description ? `<p class="note"><code>/${esc(sim.name)}</code> · ${esc(sim.description)}</p>` : ''}` : '';
   const body = x.action === 'use' ? `<div class="acts" style="margin:0"><button class="btn" type="button" data-hs="dismiss" data-id="${esc(x.id)}">${esc(T('hs.dismiss'))}</button></div>`
     : x.draft ? hsDraftHTML(x.id, x.draft, x.action === 'improve' ? T('hs.whereImprove', { p: '~/.claude/skills/' + x.draft.name }) : T('hs.whereNew', { p: '~/.claude/skills/' + x.draft.name }))
-    : `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="draft" data-id="${esc(x.id)}"${hsBusy(id) ? ' disabled' : ''}>${esc(T(hsBusy(id) ? 'hs.drafting' : x.action === 'improve' ? 'hs.draftImprove' : 'hs.draft'))}</button>
+    : `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="draft" data-id="${esc(x.id)}"${hsBusy(id) ? ' disabled' : ''}>${two(hsBusy(id), T(x.action === 'improve' ? 'hs.draftImprove' : 'hs.draft'), T('hs.drafting'))}</button>
         <button class="btn" type="button" data-hs="dismiss" data-id="${esc(x.id)}">${esc(T('hs.dismiss'))}</button></div><p class="note">${esc(T('hs.draftNote'))}</p>`;
   return `${head(ico('bulb', 'lg'), x.label, x.summary)}${hsErr(id)}
     <div class="b-stats four"><div class="b-stat"><b>${x.weeks[0]}</b><span>${esc(T('hs.wk.prev'))}</span></div><div class="b-stat"><b>${x.weeks[1]}</b><span>${esc(T('hs.wk.last'))}</span></div>
@@ -2640,7 +2667,7 @@ function hsMadeHTML(m) {
     <div class="badges">${m.onDisk ? `<span class="badge ok">${esc(T('hs.v', { v: m.cur }))}</span>` : `<span class="badge warn">${esc(T('hs.gone'))}</span>`}${m.improve ? `<span class="badge warn">${esc(T('hs.improveDue'))}</span>` : ''}${m.remove ? `<span class="badge warn">${esc(T('hs.removeDue', { n: r.unusedDays }))}</span>` : ''}</div>
     <dl class="kv"><dt>${esc(T('sk.folder'))}</dt><dd><code>${esc(home(m.path))}</code></dd><dt>${esc(T('sk.uses'))}</dt><dd>${m.uses}</dd><dt>${esc(T('sk.lastUsed'))}</dt><dd>${esc(m.lastUsed ? ago(m.lastUsed) : T('sk.never'))}</dd></dl>
     <section class="b-sec"><h3>${esc(T('hs.evidence'))}</h3>${ev}</section>
-    ${m.draft ? hsDraftHTML('m:' + m.name, m.draft, T('hs.whereImprove', { p: home(m.path) })) : m.improve ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="draft" data-id="m:${esc(m.name)}"${hsBusy(id) ? ' disabled' : ''}>${esc(T(hsBusy(id) ? 'hs.drafting' : 'hs.improve'))}</button></div>` : ''}
+    ${m.draft ? hsDraftHTML('m:' + m.name, m.draft, T('hs.whereImprove', { p: home(m.path) })) : m.improve ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" data-hs="draft" data-id="m:${esc(m.name)}"${hsBusy(id) ? ' disabled' : ''}>${two(hsBusy(id), T('hs.improve'), T('hs.drafting'))}</button></div>` : ''}
     ${m.remove ? `<p class="note">${esc(T('hs.removeNote', { n: r.unusedDays }))}</p><div class="acts" style="margin:0"><button class="btn danger" type="button" data-hs="remove" data-id="${esc(m.name)}">${esc(T('hs.remove'))}…</button></div>` : ''}
     <section class="b-sec"><h3>${esc(T('hs.history'))}</h3><ul class="rows">${vers.map(x => `<li><div class="row">${ico(x.why === 'original' ? 'user' : x.why === 'edit' ? 'file' : 'clock', x.v === m.cur ? 'ok' : '')}<span class="b-tx"><span class="lb">${esc(T('hs.v', { v: x.v }))} · ${esc(hsWhy(x.why))}</span><span class="sb">${esc(ago(x.at))}${x.evidence?.uses ? ' · ' + esc(T('hs.ev.uses', { n: x.evidence.uses })) : ''}</span></span>
       <span class="acts">${x.v === m.cur ? `<span class="badge accent">${esc(T('hs.current'))}</span>` : m.onDisk ? `<button class="btn sm" type="button" data-hs="restore" data-id="${esc(m.name)}" data-v="${x.v}">${esc(T('hs.restore'))}</button>` : ''}</span></div></li>`).join('')}</ul>
@@ -2724,7 +2751,9 @@ function roomItems() {
 Object.assign(GRP, { rmstart: 'rm.grp.start', rmhost: 'rm.grp.host', rmjoin: 'rm.grp.join' });
 function rmNewHTML() {
   const tn = rm.v?.tailnet;
-  const ts = !rm.v ? `<p class="note">${esc(T('work.loading'))}</p>` : tn?.me ? `<dl class="kv"><dt>${esc(T('rm.you.t'))}</dt><dd>${esc(rmName(tn.me))} · <code>${esc(tn.me.login)}</code></dd><dt>${esc(T('rm.port'))}</dt><dd><code>${esc(tn.ip || '')}:${tn.port}</code>${tn.serving ? ` <span class="badge ok">${esc(T('rm.serving'))}</span>` : ''}</dd></dl>`
+  const kv = (me, port) => `<dl class="kv"><dt>${esc(T('rm.you.t'))}</dt><dd>${me}</dd><dt>${esc(T('rm.port'))}</dt><dd>${port}</dd></dl>`;
+  // While the list loads, the same rows with dots in them: the form below is already where it stays.
+  const ts = !rm.v ? kv('<code>…</code>', '<code>…</code>') : tn?.me ? kv(`${esc(rmName(tn.me))} · <code>${esc(tn.me.login)}</code>`, `<code>${esc(tn.ip || '')}:${tn.port}</code>${tn.serving ? ` <span class="badge ok">${esc(T('rm.serving'))}</span>` : ''}`)
     : `<p class="note err">${esc(T('rm.noTs.long'))}</p>`;
   return `${head(ico('room', 'lg'), T('rm.new'), T('rm.new.note'))}${rmErr('rm:new')}${ts}
     <div class="rm-f"><label class="lbl" for="rm-title">${esc(T('rm.f.title'))}</label><input id="rm-title" data-rmin="title" data-f="rm-title" value="${rmVal('title')}" maxlength="120" placeholder="${esc(T('rm.f.title.ph'))}">
@@ -2790,7 +2819,7 @@ function rmRoomHTML(r, host, j) {
   const dec = r.decision, chosen = dec && (r.draft?.options || []).find(o => o.id === dec.option);
   const record = host ? r.record : j?.record;
   const draftSec = open ? `<section class="b-sec"><h3>${esc(T('rm.record.t'))}</h3>${host ? (r.draft ? rmDraftEditHTML(r, k)
-      : `<p class="note">${esc(T('rm.draft.how'))}</p><div class="acts" style="margin:0"><button class="btn pri" type="button" data-rm="draft" ${k}${rm.busy === id || !msgs.length ? ' disabled' : ''}>${esc(T(rm.busy === id ? 'rm.drafting' : 'rm.draft'))}</button></div>`)
+      : `<p class="note">${esc(T('rm.draft.how'))}</p><div class="acts" style="margin:0"><button class="btn pri" type="button" data-rm="draft" ${k}${rm.busy === id || !msgs.length ? ' disabled' : ''}>${two(rm.busy === id, T('rm.draft'), T('rm.drafting'))}</button></div>`)
       : r.draft ? `<p class="note">${esc(T('rm.draft.guest', { n: rmName(r.host) }))}</p>${rmFrameHTML(r, r.draft)}` : `<p class="blank">${esc(T('rm.draft.wait', { n: rmName(r.host) }))}</p>`}
       ${host ? `<p class="note">${esc(T('rm.draft.note'))}</p>` : ''}</section>`
     : `<section class="b-sec"><h3>${esc(T('rm.s.decision'))}</h3><div class="rm-opt chosen"><h4>${esc(chosen?.text || '')}</h4><p style="margin:0">${esc(dec?.text || '')}</p><span class="rm-by">${esc(T('rm.decidedBy', { n: rmName(dec?.by), t: ago(dec?.at) }))}</span></div></section>
@@ -2914,7 +2943,7 @@ function render(force) {
   const sel = items.find(x => x.id === bsel[scope]) || items[Math.min(Math.max(0, lastIdx[scope] ?? 0), items.length - 1)] || null;
   const key = `${scope}|${sel?.id}`, changed = force || key !== curKey;
   cur = sel; curKey = key;
-  if (sel) { bsel[scope] = sel.id; lastIdx[scope] = items.indexOf(sel); }
+  if (sel && !sel.wait) { bsel[scope] = sel.id; lastIdx[scope] = items.indexOf(sel); }
   selected = cur?.kind === 'session' ? cur.s : null;
   drawScopes(); drawList(); drawDetail(changed); drawBar();
   nextFocus = null;
@@ -2932,7 +2961,7 @@ function drawScopes() {
   const q = $('#bq');
   q.placeholder = T('b.search.' + scope);
   q.setAttribute('aria-label', T('b.search.' + scope));
-  $('#bq-x').hidden = !bq;
+  $('#bq-x').classList.toggle('off', !bq);
   $('#scopes').setAttribute('aria-label', T('b.scopes'));
 }
 function drawList() {
@@ -2948,6 +2977,7 @@ function drawList() {
 }
 function drawDetail(changed) {
   const kind = cur?.kind || 'board', dyn = $('#b-dyn');
+  $('#b-detail').classList.toggle('wait', !!cur?.wait);
   dyn.hidden = kind !== 'board' && kind !== 'session';
   for (const k of ['settings', 'skills', 'setup']) $('#' + k).hidden = kind !== k;
   if (changed) $('#b-detail').scrollTop = 0;
@@ -3227,7 +3257,10 @@ async function tourEnd() {
 async function tourShow() {
   const step = tourSteps[tourAt], n = tourSteps.length, last = tourAt === n - 1;
   tourBoxClose();
-  tourGo(step.tab, step.item);
+  // Skills shows one row until its lists are in: the element a step points at comes with them.
+  const goWait = async (tab, item) => { tourGo(tab, item); for (let k = 0; k < 50 && cur?.wait && tourSteps[tourAt] === step; k++) await new Promise(r => setTimeout(r, 200)); if (!cur?.wait) tourGo(tab, item); };
+  await goWait(step.tab, step.item);
+  if (tourSteps[tourAt] !== step) return;
   if (step.open === 'ticket') { const ts = items.filter(x => x.id.startsWith('t:')); const t = ts.find(x => x.meta.includes('dup')) || ts[0]; if (t) tourGo(step.tab, t.id); }
   const nx = step.open === 'start' && bridge && BOARD.next(st, waiting);
   if (nx) { // what a Quick start on the suggested issue opens (it reads the issue; nothing starts until its own button)
@@ -3241,7 +3274,8 @@ async function tourShow() {
       if (tourBox) tourOnTop();
     }
   }
-  if (step.alt && !tourTarget(step.at)) tourGo(step.alt.tab, step.alt.item);
+  if (step.alt && !tourTarget(step.at)) await goWait(step.alt.tab, step.alt.item);
+  if (tourSteps[tourAt] !== step) return;
   const target = tourTarget(step.at) || (step.alt && tourTarget(step.alt.at));
   const art = step.art ? `<div class="tour-art" aria-hidden="true">${['working', 'waiting', 'done', 'idle'].map(k => `<span class="st-${k}"><span class="sprite">${creature('bobix', k)}</span></span>`).join('')}</div>` : '';
   $('#tour-pop').innerHTML = `<span class="n">${tourAt + 1} / ${n}</span><h2 id="tour-h">${esc(T(`tour.${step.key}.title`))}</h2>${art}<p>${esc(T(`tour.${step.key}.body`, { key: CMD === '⌘' ? '⌘K' : 'Ctrl+K' }))}</p>
