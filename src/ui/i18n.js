@@ -641,6 +641,7 @@
       'phone.pets.title': 'Pets', 'phone.pets.empty': 'No pets yet', 'phone.pets.empty.d': 'A pet appears for each session once your computer is connected.',
       'phone.start.title': 'Start', 'phone.start.soon': 'Starting tickets from the phone comes in a later version.',
       'phone.settings.title': 'Settings', 'phone.settings.soon': 'Computers, safety and language settings come with pairing.',
+      'phone.faceid.usage': 'Bobix asks for Face ID to confirm each command you send from this phone.',
     },
     vi: {
       'app.name': 'Bobix',
@@ -1283,6 +1284,7 @@
       'phone.pets.title': 'Thú cưng', 'phone.pets.empty': 'Chưa có thú cưng', 'phone.pets.empty.d': 'Mỗi phiên sẽ có một thú cưng khi máy tính đã được kết nối.',
       'phone.start.title': 'Bắt đầu', 'phone.start.soon': 'Bắt đầu ticket từ điện thoại sẽ có ở phiên bản sau.',
       'phone.settings.title': 'Cài đặt', 'phone.settings.soon': 'Máy tính, an toàn và ngôn ngữ sẽ có cùng với việc kết nối.',
+      'phone.faceid.usage': 'Bobix dùng Face ID để xác nhận từng lệnh bạn gửi từ điện thoại này.',
     },
   };
 

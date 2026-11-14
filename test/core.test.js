@@ -1222,8 +1222,10 @@ test('phone strings: every phone.* key has EN and VI with the same {names}, and 
   const run = require('child_process').spawnSync(process.execPath, [gen, '--check'], { encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   // The generator itself refuses a key that lacks a language.
-  const { render } = await import(require('url').pathToFileURL(gen).href); // a Windows path is not a valid import specifier
+  const { render, renderInfoPlist } = await import(require('url').pathToFileURL(gen).href); // a Windows path is not a valid import specifier
   assert.throws(() => render({ en: { 'phone.a': 'A' }, vi: {} }), /phone\.a has no vi text/);
+  assert.throws(() => renderInfoPlist({ en: { 'phone.faceid.usage': 'x' }, vi: {} }, 'vi'), /no vi text/);
+  assert.ok(renderInfoPlist({ en: { 'phone.faceid.usage': 'say "hi"' } }, 'en').includes('"say \\"hi\\"";'), 'quotes are escaped');
   assert.throws(() => render({ en: { 'phone.a': 'A {n}' }, vi: { 'phone.a': 'B' } }), /different \{placeholders\}/);
   assert.ok(render({ en: { 'phone.a': "it's $5" }, vi: { 'phone.a': 'x' } }).includes("'it\\'s \\$5'"));
 });

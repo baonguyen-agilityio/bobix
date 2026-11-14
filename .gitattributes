@@ -2,3 +2,4 @@
 # autocrlf they would become CRLF and `npm test` would call them out of date.
 mobile/lib/l10n/strings.g.dart text eol=lf
 mobile/test/fixtures/creature-fixtures.json text eol=lf
+mobile/ios/Runner/*.lproj/InfoPlist.strings text eol=lf
