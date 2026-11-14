@@ -1,3 +1,4 @@
+// ignore_for_file: sort_child_properties_last (the actions follow the content here as on screen)
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -84,6 +85,23 @@ class SessionScreen extends ConsumerWidget {
           ),
         ),
       ],
+      // Stop exists only for a session that waits on a held request; sending it comes with the connection.
+      actions: detail.canStop
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: PillButton(
+                    danger: true,
+                    icon: Icons.lock_outline,
+                    label: s('phone.sv.stop'),
+                  ),
+                ),
+                FineNote(s('phone.sv.stop.d', {'c': computer})),
+              ],
+            )
+          : null,
     );
   }
 }

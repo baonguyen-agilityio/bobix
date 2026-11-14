@@ -12,7 +12,8 @@ import 'request_screen.dart';
 import 'session_screen.dart';
 
 void openSession(BuildContext context, Session x) {
-  final page = x.needsYou && !x.answerAtComputer
+  final held = x.needsYou && !x.answerAtComputer;
+  final page = held || x.answeredAtComputer
       ? RequestScreen(sessionId: x.id)
       : SessionScreen(sessionId: x.id);
   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
@@ -37,6 +38,7 @@ class HomeScreen extends ConsumerWidget {
       String subtitle, {
       String? meta,
       Color? subtitleColor,
+      bool muted = false,
     }) => Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: SessionRow(
@@ -47,6 +49,7 @@ class HomeScreen extends ConsumerWidget {
         subtitle: subtitle,
         meta: meta ?? '${x.project} #${x.issue}',
         needsYou: x.needsYou,
+        muted: muted,
         subtitleColor: subtitleColor,
         onTap: () => openSession(context, x),
       ),
@@ -85,9 +88,11 @@ class HomeScreen extends ConsumerWidget {
       ),
     };
 
+    final closed = data.sessions.where((x) => x.answeredAtComputer).toList();
+
     List<Widget> stage(Stage g) {
       final items = data.sessions
-          .where((x) => x.stage == g && !x.needsYou)
+          .where((x) => x.stage == g && !x.needsYou && !x.answeredAtComputer)
           .toList();
       if (items.isEmpty) return const [];
       return [
@@ -193,6 +198,11 @@ class HomeScreen extends ConsumerWidget {
               meta:
                   '${x.project} · ${s('phone.home.waited', {'n': minutes(x.waitingMinutes)})}',
             ),
+        ],
+        if (closed.isNotEmpty) ...[
+          SectionHeader(s('phone.home.earlier'), count: closed.length),
+          for (final x in closed)
+            row(x, s('phone.cl.pc.short'), muted: true, subtitleColor: t.warn),
         ],
         for (final g in Stage.values) ...stage(g),
         if (conn != ConnState.ok)

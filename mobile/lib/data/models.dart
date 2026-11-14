@@ -12,6 +12,7 @@ class Session {
     required this.stage,
     this.needsYou = false,
     this.answerAtComputer = false,
+    this.answeredAtComputer = false,
     this.waitingMinutes = 0,
     this.tool,
     this.pullRequest,
@@ -28,6 +29,9 @@ class Session {
 
   /// It waits, but the computer does not hold the request for phones: it can only be answered at the computer.
   final bool answerAtComputer;
+
+  /// The request was answered at the computer first (the first answer wins), so it is withdrawn here.
+  final bool answeredAtComputer;
   final int waitingMinutes;
   final String? tool;
   final int? pullRequest;
@@ -94,9 +98,13 @@ class SessionDetail {
     required this.session,
     required this.activity,
     required this.lastContact,
+    this.canStop = false,
   });
 
   final Session session;
+
+  /// Stop exists only for a session that waits on a held request; a running turn without one cannot be stopped.
+  final bool canStop;
 
   /// The last lines the computer sent, newest first.
   final List<String> activity;

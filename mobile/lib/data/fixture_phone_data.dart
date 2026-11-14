@@ -41,6 +41,17 @@ const _sessions = <Session>[
     petColor: 1,
   ),
   Session(
+    id: 's8',
+    name: 'Add the order export',
+    project: 'shop',
+    issue: 36,
+    stage: Stage.doing,
+    answeredAtComputer: true,
+    tool: 'Bash',
+    petDesign: 'tty',
+    petColor: 2,
+  ),
+  Session(
     id: 's2',
     name: 'Fix the cart total rounding',
     project: 'shop',
@@ -90,6 +101,13 @@ const _longCommand =
     '  && echo done';
 
 const _requests = <String, RequestDetail>{
+  's8': RequestDetail(
+    sessionId: 's8',
+    tool: 'Bash',
+    command: 'npm run export -- --orders',
+    folder: '~/work/shop',
+    expiresMinutes: 0,
+  ),
   's1': RequestDetail(
     sessionId: 's1',
     tool: 'Bash',
@@ -152,6 +170,11 @@ class FixturePhoneData implements PhoneData {
     final s = _sessions.where((x) => x.id == sessionId).firstOrNull;
     return s == null
         ? null
-        : SessionDetail(session: s, activity: _activity, lastContact: _contact);
+        : SessionDetail(
+            session: s,
+            activity: _activity,
+            lastContact: _contact,
+            canStop: s.needsYou && !s.answerAtComputer,
+          );
   }
 }

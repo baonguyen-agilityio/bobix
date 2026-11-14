@@ -7,6 +7,7 @@ import '../l10n/l10n.dart';
 import '../theme/tokens.dart';
 import '../widgets/command_block.dart';
 import '../widgets/detail_scaffold.dart';
+import '../widgets/status_banner.dart';
 import '../widgets/who_card.dart';
 
 /// A held permission request: who asks, what it wants to run, and the answers. Sending an answer comes with the
@@ -37,6 +38,7 @@ class _RequestScreenState extends ConsumerState<RequestScreen> {
       return DetailScaffold.loading(title: title);
     }
 
+    final done = sess.answeredAtComputer;
     final locked = r.isLong && !_open;
     final care = r.destructive || r.hiddenCharacters;
     final note = locked
@@ -48,16 +50,28 @@ class _RequestScreenState extends ConsumerState<RequestScreen> {
         WhoCard(
           session: sess,
           subtitle: '${sess.project} · ${s('phone.rq.on', {'c': computer})}',
-          badges: [
-            Pill(
-              s('phone.home.waited', {
-                'n': s('phone.min', {'n': sess.waitingMinutes}),
-              }),
-              tone: PillTone.accent,
-            ),
-            Pill(s('phone.rq.exp', {'n': r.expiresMinutes})),
-          ],
+          badges: done
+              ? [Pill(s('phone.rq.pc'), tone: PillTone.ok)]
+              : [
+                  Pill(
+                    s('phone.home.waited', {
+                      'n': s('phone.min', {'n': sess.waitingMinutes}),
+                    }),
+                    tone: PillTone.accent,
+                  ),
+                  Pill(s('phone.rq.exp', {'n': r.expiresMinutes})),
+                ],
         ),
+        if (done)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: StatusBanner(
+              kind: BannerKind.info,
+              icon: Icons.computer,
+              title: s('phone.rq.pc'),
+              body: s('phone.rq.pc.d', {'c': computer}),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(0, 14, 0, 10),
           child: Semantics(
@@ -146,52 +160,60 @@ class _RequestScreenState extends ConsumerState<RequestScreen> {
           ),
         ),
       ],
-      actions: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (care) ...[
-            // The safe answer comes first and is the filled one.
-            SizedBox(
+      actions: done
+          ? SizedBox(
               width: double.infinity,
               child: PillButton(
-                primary: true,
-                icon: Icons.lock_outline,
-                label: s('phone.ask.deny'),
+                label: s('phone.a.home'),
+                onPressed: () => Navigator.of(context).maybePop(),
               ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: PillButton(
-                danger: true,
-                icon: Icons.lock_outline,
-                label: s('phone.rq.allow.d'),
-              ),
-            ),
-          ] else
-            Row(
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  flex: 4,
-                  child: PillButton(
-                    icon: Icons.lock_outline,
-                    label: s('phone.ask.deny'),
+                if (care) ...[
+                  // The safe answer comes first and is the filled one.
+                  SizedBox(
+                    width: double.infinity,
+                    child: PillButton(
+                      primary: true,
+                      icon: Icons.lock_outline,
+                      label: s('phone.ask.deny'),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 5,
-                  child: PillButton(
-                    primary: true,
-                    icon: Icons.lock_outline,
-                    label: s('phone.ask.allow'),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: PillButton(
+                      danger: true,
+                      icon: Icons.lock_outline,
+                      label: s('phone.rq.allow.d'),
+                    ),
                   ),
-                ),
+                ] else
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 4,
+                        child: PillButton(
+                          icon: Icons.lock_outline,
+                          label: s('phone.ask.deny'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 5,
+                        child: PillButton(
+                          primary: true,
+                          icon: Icons.lock_outline,
+                          label: s('phone.ask.allow'),
+                        ),
+                      ),
+                    ],
+                  ),
+                FineNote(note),
               ],
             ),
-          FineNote(note),
-        ],
-      ),
     );
   }
 }

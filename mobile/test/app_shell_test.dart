@@ -7,6 +7,8 @@ import 'package:phone/data/models.dart';
 import 'package:phone/data/phone_data.dart';
 import 'package:phone/l10n/l10n.dart';
 import 'package:phone/l10n/strings.g.dart';
+import 'package:phone/screens/session_screen.dart';
+import 'package:phone/theme/theme.dart';
 
 class _Lang extends Lang {
   _Lang(this.value);
@@ -43,6 +45,7 @@ void main() {
   testWidgets('Home shows the made-up sessions grouped, and the tabs switch', (
     tester,
   ) async {
+    tallScreen(tester);
     await tester.pumpWidget(app());
     await tester.pump();
     expect(find.text('Needs you'), findsOneWidget);
@@ -196,6 +199,69 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'a request answered at the computer first is withdrawn: nothing to confirm',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(app());
+      await tester.pump();
+      expect(find.text('Closed without you'), findsOneWidget);
+      await tester.tap(find.text('Add the order export'));
+      await settle(tester);
+      expect(
+        find.text('Answered at the computer'),
+        findsNWidgets(2),
+      ); // the badge and the banner title
+      expect(
+        find.textContaining('answered this request first'),
+        findsOneWidget,
+      );
+      expect(find.text('Deny'), findsNothing);
+      expect(find.text('Allow'), findsNothing);
+      expect(find.text('Back to Home'), findsOneWidget);
+      await tester.tap(find.text('Back to Home'));
+      await settle(tester);
+      expect(find.text('Home'), findsOneWidget);
+    },
+  );
+
+  testWidgets('in Vietnamese the withdrawn request says so too', (
+    tester,
+  ) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app(lang: 'vi'));
+    await tester.pump();
+    await tester.tap(find.text('Add the order export'));
+    await settle(tester);
+    expect(find.text('Đã trả lời trên máy tính'), findsNWidgets(2));
+    expect(find.text('Về Trang chủ'), findsOneWidget);
+  });
+
+  Widget sessionPage(String id) => ProviderScope(
+    key: UniqueKey(),
+    overrides: [phoneDataProvider.overrideWithValue(const FixturePhoneData())],
+    child: MaterialApp(
+      theme: bobixTheme(Brightness.light),
+      home: SessionScreen(sessionId: id),
+    ),
+  );
+
+  testWidgets(
+    'Stop is offered only to a session that waits on a held request',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(sessionPage('s1')); // waits, request held
+      await settle(tester);
+      expect(find.text('Stop'), findsOneWidget);
+      for (final id in ['s2', 's7', 's8']) {
+        // running turn without a request / answered at the computer / not held for phones
+        await tester.pumpWidget(sessionPage(id));
+        await settle(tester);
+        expect(find.text('Stop'), findsNothing, reason: id);
+      }
+    },
+  );
 
   testWidgets('Pets lists every session and opens it', (tester) async {
     tallScreen(tester);
