@@ -1721,7 +1721,7 @@ function askItem(s) {
 function askHTML(s, t, text, h) {
   const left = h && secsLeft(s) !== Infinity ? T('ask.left', { n: secsLeft(s) }) : '';
   return `${head(pet(s, 'lg'), isPlan(s) ? T('ask.plan') : T('b.ask.h', { tool: toolOf(s) }), [t ? BOARD.short(t[1].path) : s.name, left].filter(Boolean).join(' · '))}
-    <pre class="b-code">${esc(text)}</pre>${s.answer?.risky ? `<p class="risk">${esc(T('day.risky'))}</p>` : ''}
+    <pre class="b-code">${esc(text)}</pre>${s.answer?.risky && !s.answer.cut ? `<p class="risk">${esc(T('day.risky'))}</p>` : ''}${s.answer?.cut ? `<p class="risk">${esc(T('ask.cut'))}</p>` : ''}${s.answer?.odd ? `<p class="risk">${esc(T('ask.odd'))}</p>` : ''}
     <dl class="kv"><dt>${esc(T('b.waited'))}</dt><dd>${waitedHTML(s)}</dd><dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>
       ${t ? `<dt>${esc(T('b.ticket'))}</dt><dd>#${t[0].iid} ${esc(t[0].title)}</dd>` : ''}</dl>
     ${h ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" ${answerAttrs(s, 'allow')} data-f="allow:${esc(s.id)}">${esc(T('ask.allow'))}</button><button class="btn" type="button" ${answerAttrs(s, 'deny')}>${esc(T('ask.deny'))}</button></div><p class="note">${esc(T('b.ask.note'))}</p>`

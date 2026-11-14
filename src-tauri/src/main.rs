@@ -55,6 +55,7 @@ fn remember_ended(ended: &mut Vec<Ended>, s: &state::Session) {
     if ended.len() > ENDED_KEEP { ended.remove(0); }
 }
 
+#[derive(Default)]
 pub struct Core {
     pub sessions: Sessions,
     pub settings: Value,
@@ -63,6 +64,7 @@ pub struct Core {
     pub last_event_at: Option<u64>,
     pub page_errors: Vec<String>,
     pub pending: std::collections::HashMap<String, answers::Pending>, // held permission requests by answer id
+    pub closed: std::collections::HashMap<String, answers::Closed>,   // how the last ones ended (memory only)
     pub node_path: Option<String>,
     pub work: work::Work,
     pub update: update::Ui,               // a newer version, and where an update stands (update.rs)
@@ -146,7 +148,7 @@ impl Bobix {
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, settings, work, waits, ended, habits: mem, tickets: flows, .. } = &mut *c;
+            let Core { sessions, pending, closed, settings, work, waits, ended, habits: mem, tickets: flows, .. } = &mut *c;
             let gitlab = work::any_on(settings);
             let remember = habits::on(settings);
             let before = if remember { habits::before(sessions, &e) } else { None };
@@ -185,7 +187,7 @@ impl Bobix {
                     }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
                     // AskUserQuestion is never held: an "Allow" from Bobix would skip the question; Claude asks in its own window
-                    let reply = if wait && ev == "PermissionRequest" && tool != "AskUserQuestion" { answers::wait(self, pending, settings, s, &e, plan) }
+                    let reply = if wait && ev == "PermissionRequest" && tool != "AskUserQuestion" { answers::wait(self, pending, closed, settings, s, &e, plan) }
                         // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
                         // way /rename names it; one that has a name keeps it. One new where a start waits is named by its
                         // first prompt, once that names the issue (Work::claim): not one you opened there yourself.
@@ -2025,7 +2027,7 @@ fn main() {
     let token = paths::ensure_token().unwrap_or_else(|e| fail(format!("token: {e}")));
     let (tx, _) = broadcast::channel(4); // the pages only need the newest state (a page that lags gets the next one whole)
     let b = Arc::new(Bobix {
-        core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
+        core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(),
             node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
         tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
     });
@@ -2205,7 +2207,7 @@ mod snapshot_tests {
         ];
         work.wait_for("/src/shop", "/src/shop", "team/shop", 32, &json!("t32"), &Value::Null);
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");
@@ -2325,7 +2327,7 @@ mod open_tests {
 
     fn bobix() -> Arc<Bobix> {
         let (tx, _) = broadcast::channel(4);
-        let core = Core { sessions: Sessions::new(), settings: json!({}), rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
+        let core = Core { sessions: Sessions::new(), settings: json!({}), rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(),
             node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null };
         Arc::new(Bobix { core: Mutex::new(core), tx, token: "t".into(), port: 0, app: Default::default(), usage: Mutex::new(usage::Store::new(std::env::temp_dir().join("bobix-open-test"))), dirty: Default::default() })
     }
