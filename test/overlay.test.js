@@ -349,6 +349,15 @@ async function oneCard(b, url) {
   await move((at.k2[0] + at.k2[1]) / 2, y); await step(10);
   await move((at.k1[0] + at.k1[1]) / 2, y);
   for (let i = 0; i < 6; i++) { await step(1); const k = await cards(); if (k.length > 1) out.push(`moved from k2 to k1, frame ${i + 1}: cards ${JSON.stringify(k)}`); }
+  // The cursor leaves the window from that pet (onto a Wayland window, where XWayland stops reporting it). The browser
+  // sends mouseout with no relatedTarget, or a mouseleave that does not bubble, both on <html>: each one alone closes the card.
+  for (const [name, init] of [['mouseout', { bubbles: true }], ['mouseleave', { bubbles: false }]]) {
+    await move((at.k1[0] + at.k1[1]) / 2, y); await step(10);
+    { const k = await cards(); if (k.length !== 1) { out.push(`${name}: no card to close before the cursor leaves: ${JSON.stringify(k)}`); continue; } }
+    await ev(`document.documentElement.dispatchEvent(new MouseEvent(${JSON.stringify(name)}, { ...${JSON.stringify(init)}, relatedTarget: null }))`);
+    await step(10); // past the 250 ms grace
+    { const k = await cards(); if (k.length) out.push(`${name} alone: cards still open after the cursor left the window ${JSON.stringify(k)}`); }
+  }
   await move(1, 1);
   return out.map(o => 'one card at a time: ' + o);
 }
@@ -394,7 +403,7 @@ async function liveCard(b, url) {
   // A long MCP status beside the badges: the status gives way (no overlap), what the tool names stays on screen, and a path
   // too wide for the row keeps its file name.
   const geo = () => ev(`(() => { const c = pets.get('w0').el.querySelector('.card'), q = x => c.querySelector(x).getBoundingClientRect();
-    const st = q('.row .st'), bdg = q('.row .bdg'), code = c.querySelector('.st code'), cr = code?.getBoundingClientRect(), stx = c.querySelector('.stx');
+    const st = q('.row .st'), bdg = q('.row .bdg'), code = c.querySelector('.st code'), cr = code?.getBoundingClientRect(), stx = c.querySelector('.tx');
     let end = null; if (code) { const t = code.querySelector('bdi').firstChild, r = document.createRange(); r.setStart(t, t.length - 1); r.setEnd(t, t.length); end = r.getBoundingClientRect(); }
     return { stRight: st.right, bdgLeft: bdg.left, stxRight: stx.getBoundingClientRect().right, codeLeft: cr?.left, codeW: cr?.width, codeRight: cr?.right,
       endLeft: end?.left, endRight: end?.right, h: Math.round(c.getBoundingClientRect().height * 10) / 10, stxCut: stx.scrollWidth > stx.clientWidth }; })()`);
