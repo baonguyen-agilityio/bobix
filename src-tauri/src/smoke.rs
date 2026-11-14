@@ -1108,8 +1108,9 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
     // The pet card: hover it, press its Open session button.
     r["card"] = ask_for(app, overlay::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); \
         for (let t = 0; t < 8000 && !pets.get({id:?}); t += 100) await w(100); const p = pets.get({id:?}); if (!p) return {{ error: 'no pet' }}; \
-        p.hoverUntil = Date.now() + 8000; let bt; for (let t = 0; t < 6000 && !(bt = p.el.querySelector('.card [data-open]')); t += 100) {{ p.hoverUntil = Date.now() + 8000; await w(100); }} \
-        const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '' }}; bt?.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); return r; }})()"), 15);
+        let bt; /* point at the pet as the mouse does (another pet under a real pointer would end its hover), and keep doing so until the card is there */ \
+        for (let t = 0; t < 8000 && !(bt = p.el.querySelector('.card [data-open]')); t += 100) {{ const b = p.el.querySelector('.spr').getBoundingClientRect(); mouse.x = b.left + b.width / 2; mouse.y = b.top + b.height / 2; mouseMoved = true; p.hoverUntil = Date.now() + 8000; wake(); await w(100); }} \
+        const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '', why: bt ? '' : [p.el.className, p.hover, p.hoverUntil, Date.now(), mouse.x, mouse.y, document.hidden, p.s.state, !!p.el.querySelector('.card')].join(' | ') }}; bt?.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); return r; }})()"), 15);
     r["cardOpened"] = json!(until(&|| hits() == 3));
     // The tray menu item of a session that needs you.
     crate::tray::on_menu(app, &format!("open:{id}"));
