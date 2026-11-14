@@ -27,6 +27,7 @@ mod settings;
 mod skill_audit;
 mod habit_skills;
 mod room;
+mod secrets;
 mod skills;
 mod smoke;
 mod state;

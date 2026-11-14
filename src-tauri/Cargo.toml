@@ -24,6 +24,7 @@ base64 = "0.22"
 tauri-plugin-dialog = "2"
 arboard = { version = "3", default-features = false }
 tauri-plugin-updater = "2"
+keyring = "4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
