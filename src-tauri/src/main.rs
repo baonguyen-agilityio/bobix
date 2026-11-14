@@ -20,6 +20,7 @@ mod overlay;
 mod panel;
 mod paths;
 mod petstore;
+mod phone_view;
 mod phones;
 mod procs;
 mod process;
@@ -91,6 +92,7 @@ pub struct Bobix {
     pub app: std::sync::OnceLock<AppHandle>,
     pub usage: Mutex<usage::Store>,        // per-session usage tallies (their own lock: reading a transcript never holds the core)
     pub dirty: std::sync::atomic::AtomicBool, // the pages' state changed since it was last sent (see send_loop)
+    pub phones_dirty: std::sync::atomic::AtomicBool, // the same for the phones' home (phones::tick)
 }
 
 // What the pages get on /events: the same JSON as snapshot() in the 0.1 (Electron) app's main.js.
@@ -128,6 +130,7 @@ impl Bobix {
     // The pages' state changed: marked here, sent by send_loop (a burst of hook events is one update, not one each).
     pub fn broadcast(self: &Arc<Self>) {
         self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.phones_dirty.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(app) = self.app.get() { overlay::wake(app, self); tray::badge(app, self, false); }
     }
     // At most every SEND_MS: when marked, the state is built once and sent to the pages, unless it is what they have.
@@ -245,7 +248,7 @@ impl Bobix {
                 }
             };
             b.broadcast();
-            if let Some(n) = notice.filter(|_| !stale) { b.notify(n.kind, &n.id); }
+            if let Some(n) = notice.filter(|_| !stale) { phones::on_notify(&b, n.kind, &n.id); b.notify(n.kind, &n.id); }
         };
         if is_stop {
             // let Claude flush the final answer to the transcript first
@@ -2061,7 +2064,7 @@ fn main() {
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), phones: Default::default(),
             node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
-        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
+        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(), phones_dirty: Default::default(),
     });
     {
         // Full starts whose session had not come when Bobix last closed wait for it again
@@ -2363,7 +2366,7 @@ mod open_tests {
         let (tx, _) = broadcast::channel(4);
         let core = Core { sessions: Sessions::new(), settings: json!({}), rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), phones: Default::default(),
             node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null };
-        Arc::new(Bobix { core: Mutex::new(core), tx, token: "t".into(), port: 0, app: Default::default(), usage: Mutex::new(usage::Store::new(std::env::temp_dir().join("bobix-open-test"))), dirty: Default::default() })
+        Arc::new(Bobix { core: Mutex::new(core), tx, token: "t".into(), port: 0, app: Default::default(), usage: Mutex::new(usage::Store::new(std::env::temp_dir().join("bobix-open-test"))), dirty: Default::default(), phones_dirty: Default::default() })
     }
     fn session(id: &str, host: Option<&str>) -> state::Session {
         let mut s = state::Session::default();

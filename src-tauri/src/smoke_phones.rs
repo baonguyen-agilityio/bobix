@@ -52,10 +52,28 @@ pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
     r["pairedSeen"] = json!(until(10, || fake.saw("paired with")));
     r["confirmWithoutPairing"] = json!(phones::pair_confirm(b, granted).is_err());
     let id = phone["id"].as_str().unwrap_or("").to_string();
+    // What a phone sees: a request held in the app reaches it as a redacted preview, a notice and, on asking, the whole thing.
+    let token = format!("ghp_{}", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4");
+    let ask = json!({ "session_id": "ph1", "cwd": "/tmp/demo-app", "hook_event_name": "PermissionRequest", "tool_name": "Bash",
+        "tool_input": { "command": format!("ls \u{202e}gpj.sh && echo {token}"), "description": "list" } }).to_string();
+    let (hook, port) = (crate::hooks::hook_target(&crate::paths::home()), b.port);
+    let held = thread::spawn(move || crate::smoke::run_hook_out(&hook, port, &ask));
+    let rid = { let mut got = None; until(10, || { got = b.core.lock().unwrap().pending.iter().find(|(_, p)| p.sid == "ph1").map(|(k, _)| k.clone()); got.is_some() }); got.unwrap_or_default() };
+    r["homeSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains(&rid))));
+    r["noticeSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"notice\"") && l.contains("\"what\":\"waiting\"") && l.contains(&rid))));
+    fake.say(&format!("detail {rid}"));
+    r["detailSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"detail\"") && l.contains("\\u{202e}") && l.contains("\"odd\":true"))));
+    // nothing secret or hidden reaches the phone in a preview or a notice, and no forbidden field anywhere
+    let all = fake.lines.lock().unwrap().join("\n");
+    let previews: String = fake.lines.lock().unwrap().iter().filter(|l| l.contains("\"kind\":\"home\"") || l.contains("\"kind\":\"notice\"")).cloned().collect();
+    r["redacted"] = json!(!previews.contains(&token) && !previews.contains('\u{202e}') && !all.contains("transcript") && !all.contains("/tmp/demo-app"));
+    crate::answers::answer(b, &rid, "allow");
+    r["closedSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"what\":\"closed\""))));
+    r["hookAnswered"] = json!(held.join().unwrap_or_default().contains("\"behavior\":\"allow\""));
     r["disconnected"] = json!(phones::disconnect(b, &id).is_ok() && v()["phones"].as_array().is_some_and(|a| a.is_empty()));
     r["told"] = json!(until(10, || fake.saw("revoked") || fake.saw("Revoked")));
     fake.stop();
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false));
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "closedSeen", "hookAnswered", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }

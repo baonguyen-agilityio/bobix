@@ -1108,7 +1108,7 @@ fn hover(app: &AppHandle) -> Value {
 }
 
 // The hook's stdout: what Claude Code would read.
-fn run_hook_out(hook: &PathBuf, port: u16, input: &str) -> String {
+pub fn run_hook_out(hook: &PathBuf, port: u16, input: &str) -> String {
     let Ok(mut child) = Command::new("node").arg(hook).arg(port.to_string()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else { return String::new() };
     if let Some(mut i) = child.stdin.take() { let _ = i.write_all(input.as_bytes()); }
     child.wait_with_output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()

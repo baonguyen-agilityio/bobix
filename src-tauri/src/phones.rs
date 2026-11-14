@@ -23,6 +23,7 @@ const IDENTITY: &str = "identity"; // auth seed + box secret, 64 bytes
 const SEAL_KEY: &str = "phones-seal";
 const MOVE_WAIT_MS: u64 = 10 * 60 * 1000;
 const LOG_KEEP: usize = 300;
+const RESULT_KEEP_MS: u64 = 24 * 3600 * 1000;
 pub const MAX_PHONE_NAME: usize = 40;
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
@@ -86,6 +87,13 @@ pub struct State {
     pub log: VecDeque<LogLine>,
     pub storage: Option<crate::secrets::Storage>,
     computer: String,
+    online: HashSet<String>,                    // phones the relay says are connected
+    last_home: HashMap<String, String>,         // what each phone was last sent, to send only a change
+    last_home_at: u64,
+    home_now: HashSet<String>,                  // phones that get a home at the next tick (just paired, just online)
+    results: HashMap<String, (CmdResult, u64)>, // by cid, kept 24 hours
+    pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
+    notified: HashSet<String>,
 }
 
 pub fn now() -> u64 { crate::state::now() }
@@ -288,17 +296,18 @@ pub fn link_lost(b: &Arc<Bobix>) {
     if let Some(p) = c.phones.pairing.as_mut() { p.opened = false; }
 }
 
-// Called once a second by the link: timers (a pairing that ran out, a relay move or a revocation that waited long enough).
+// Called once a second by the link: timers (a pairing that ran out, a relay move or a revocation that waited long enough),
+// the homes the phones need, and the notices of requests that ended.
 pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
+    let dirty = b.phones_dirty.swap(false, std::sync::atomic::Ordering::SeqCst);
     let mut c = b.core.lock().unwrap();
-    let st = &mut c.phones;
     let t = now();
+    let crate::Core { phones: st, pending, sessions, .. } = &mut *c;
     if st.pairing.as_ref().is_some_and(|p| matches!(p.session.status(t), PairStatus::Expired | PairStatus::Done)) { st.pairing = None; }
     if st.revoking.as_ref().is_some_and(|r| r.pids.is_empty() || t > r.since + MOVE_WAIT_MS) {
         st.revoking = None;
         if !st.cfg.on { st.send_close(); }
     }
-    let mut out = vec![];
     if st.moving.as_ref().is_some_and(|m| m.waiting.is_empty() || t > m.since + MOVE_WAIT_MS) {
         let m = st.moving.take().unwrap();
         for id in m.waiting.values() { if let Some(p) = st.store.phones.iter_mut().find(|p| &p.id == id) { p.needs_pairing = true; } }
@@ -307,7 +316,33 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         st.save_store();
         st.send_close(); // the link reconnects to the new address
     }
-    out.shrink_to_fit();
+    st.results.retain(|_, r| t < r.1 + RESULT_KEEP_MS);
+    // requests that ended: the phones that were told of them are told they are gone
+    let mut out = vec![];
+    for (id, sid, _) in std::mem::take(&mut st.closed_events) {
+        if !st.notified.remove(&id) { continue; }
+        let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid, title: String::new(), body: String::new() };
+        let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
+        for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), Some(Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, replaces: Some(id.clone()) }), None) { out.push(f); } }
+    }
+    // homes: when something changed, once a minute, and for a phone that just came online or paired
+    if st.cfg.on && !st.store.phones.is_empty() {
+        let minute = t >= st.last_home_at + 60_000;
+        let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).filter(|id| st.online.contains(id) || st.home_now.contains(id)).collect();
+        if !ids.is_empty() && (dirty || minute || !st.home_now.is_empty()) {
+            let name = st.computer_name();
+            let home = crate::phone_view::home(sessions, pending, &name, t);
+            let mut key = home.clone();
+            key.sent_at = 0;
+            let key = serde_json::to_string(&key).unwrap_or_default();
+            for id in ids {
+                if !(minute || st.home_now.contains(&id) || st.last_home.get(&id) != Some(&key)) { continue; }
+                if let Some((_, f)) = st.tell(&id, &DesktopMsg::Home(home.clone()), None, Some("home".into())) { out.push(f); st.last_home.insert(id, key.clone()); }
+            }
+            if minute { st.last_home_at = t; }
+            st.home_now.clear();
+        }
+    }
     out
 }
 impl State { fn send_close(&self) { if let Some(tx) = &self.tx { let _ = tx.send(Out::Close); } } }
@@ -315,21 +350,24 @@ impl State { fn send_close(&self) { if let Some(tx) = &self.tx { let _ = tx.send
 // ---------- frames from the relay ----------
 pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
     let mut out = vec![];
-    let mut notify_change = false;
+    let mut changed = false;
     {
         let mut c = b.core.lock().unwrap();
-        let st = &mut c.phones;
+        let crate::Core { phones: st, pending, .. } = &mut *c;
         match f {
             Frame::Msg { pid, from, body } => {
                 out.push(Frame::Ack { pid });
                 if let Some(packet) = b64_decode(&body) {
-                    if st.store.phones.iter().any(|p| p.id == from) { out.extend(on_packet(st, &from, &packet)); }
-                    else { notify_change = on_hello(st, &from, &packet); }
+                    if st.store.phones.iter().any(|p| p.id == from) { out.extend(on_packet(st, pending, &from, &packet)); }
+                    else { changed = on_hello(st, &from, &packet); }
                 }
             }
             Frame::Delivered { pid } => {
                 if let Some(m) = st.moving.as_mut() { m.waiting.remove(&pid); }
                 if let Some(r) = st.revoking.as_mut() { r.pids.remove(&pid); }
+            }
+            Frame::Presence { peer, state } => {
+                if state == bobix_link::relay_frames::PresenceState::Online { if st.online.insert(peer.clone()) { st.home_now.insert(peer); } } else { st.online.remove(&peer); }
             }
             Frame::Error { code, .. } => match code {
                 ErrorCode::Invite => st.status = "invite".into(),
@@ -341,7 +379,7 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
             _ => {}
         }
     }
-    if notify_change { b.broadcast(); }
+    if changed { b.broadcast(); }
     out
 }
 
@@ -359,16 +397,18 @@ fn on_hello(st: &mut State, from: &str, body: &[u8]) -> bool {
     }
 }
 
-fn on_packet(st: &mut State, from: &str, packet: &[u8]) -> Vec<Frame> {
+fn on_packet(st: &mut State, pending: &HashMap<String, crate::answers::Pending>, from: &str, packet: &[u8]) -> Vec<Frame> {
     let Some(link) = st.link_of(from) else { return vec![] };
     let opened = match link.open(packet) { Ok(o) => o, Err(_) => return vec![] };
     st.remember_recv(from);
     let Ok(msg) = PhoneMsg::from_json(&opened.plaintext) else { return vec![] };
     if msg.validate().is_err() { return vec![]; }
+    let rights = st.store.phones.iter().find(|p| p.id == from).map(|p| p.rights).unwrap_or_default();
+    let mut out = vec![];
     match msg {
         PhoneMsg::PairedAck => {
             if let Some(p) = st.pairing.as_mut() { if p.session.ack(now()) { st.pairing = None; } }
-            vec![]
+            st.home_now.insert(from.into());
         }
         PhoneMsg::Bye { sig } => {
             let (Some(cid), Some(p)) = (st.computer_id(), st.store.phones.iter().find(|p| p.id == from)) else { return vec![] };
@@ -376,11 +416,23 @@ fn on_packet(st: &mut State, from: &str, packet: &[u8]) -> Vec<Frame> {
             let bytes = command::bye_bytes(CURRENT_VERSION, from, &cid, opened.counter);
             if keys.is_some_and(|k| b64_decode(&sig).is_some_and(|s| bobix_link::keys::verify_auth(&k, &bytes, &s))) {
                 st.forget(from);
-                vec![Frame::Revoke { id: from.into() }, st.peers_frame()]
-            } else { vec![] }
+                out.extend([Frame::Revoke { id: from.into() }, st.peers_frame()]);
+            }
         }
-        _ => vec![],
+        PhoneMsg::Detail { id } => {
+            let m = match crate::phone_view::detail(pending, &id, rights) {
+                Ok(d) => DesktopMsg::Detail(d),
+                Err(code) => DesktopMsg::Error { code: code.into(), who: Some(Who::Desktop) },
+            };
+            if let Some((_, f)) = st.tell(from, &m, None, None) { out.push(f); }
+        }
+        PhoneMsg::Sync { waiting, .. } => {
+            let results = command::sync_results(&waiting, |cid| st.results.get(cid).map(|r| r.0.clone()));
+            for r in results { if let Some((_, f)) = st.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); } }
+        }
+        _ => {}
     }
+    out
 }
 
 // ---------- what the pages ask ----------
@@ -561,6 +613,30 @@ pub fn set_hold(b: &Arc<Bobix>, hold: &str) -> Value {
 }
 
 pub fn log(b: &Arc<Bobix>) -> Value { json!(b.core.lock().unwrap().phones.log.iter().rev().collect::<Vec<_>>()) }
+
+// A notice to every paired phone: a held request waits, or a session finished. They follow notifyWaiting, notifyDone and
+// Do Not Disturb, and ignore "paused". `waiting` only when a request is held.
+pub fn on_notify(b: &Arc<Bobix>, kind: &str, sid: &str) {
+    let mut c = b.core.lock().unwrap();
+    let crate::Core { phones: st, pending, sessions, settings, .. } = &mut *c;
+    if !st.cfg.on || st.store.phones.is_empty() { return; }
+    let dnd = settings["dndUntil"].as_f64().unwrap_or(0.0) > now() as f64;
+    if dnd || (kind == "waiting" && settings["notifyWaiting"] != true) || (kind == "done" && settings["notifyDone"] != true) { return; }
+    let Some(s) = sessions.get(sid) else { return };
+    let title = if s.title.is_empty() { &s.name } else { &s.title };
+    let (n, id) = match kind {
+        "waiting" => {
+            let Some((id, p)) = pending.iter().find(|(_, p)| p.sid == sid && !p.released) else { return };
+            if !st.notified.insert(id.clone()) { return; }
+            (crate::phone_view::waiting_notice(p, id, title), id.clone())
+        }
+        "done" => (Notice { what: NoticeKind::Done, reference: sid.into(), session: sid.into(), title: crate::phone_view::preview(title, 80), body: crate::phone_view::preview(&s.summary, 200) }, sid.to_string()),
+        _ => return,
+    };
+    let push = Push { kind: bobix_link::relay_frames::PushKind::Alert, priority: 10, replaces: Some(id) };
+    let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
+    for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), Some(push.clone()), None) { st.send(f); } }
+}
 
 // A desktop notification says when the list of phones changes.
 fn phones_changed_note(b: &Arc<Bobix>, name: &str, added: bool) {

@@ -7,7 +7,16 @@ use std::{collections::HashMap, sync::{Arc, LazyLock}, time::Duration};
 use tokio::sync::oneshot;
 
 // plan: a ticket flow's plan (ExitPlanMode), held until answered; approving it puts that one session in auto mode.
-pub struct Pending { pub sid: String, pub plan: bool, tx: oneshot::Sender<Option<Value>> }
+// raw: the request's text as it arrives (what a phone is shown, escaped by phone_view); until: when it stops waiting, if it does.
+// released: someone is at the computer, so the phones get no more pushes for it; it can still be answered.
+pub struct Pending { pub sid: String, pub plan: bool, tx: oneshot::Sender<Option<Value>>, pub raw: String, pub cut: bool, pub risky: bool, pub until: Option<u64>, pub released: bool }
+
+impl Pending {
+    #[cfg(test)]
+    pub fn for_test(sid: &str, plan: bool, tx: oneshot::Sender<Option<Value>>, raw: &str, cut: bool) -> Pending {
+        Pending { sid: sid.into(), plan, tx, raw: raw.into(), cut, risky: false, until: None, released: false }
+    }
+}
 
 // Who answered: the computer (a page, a pet, a notification) or a phone.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -94,14 +103,15 @@ fn escaped(s: &str) -> String {
 
 // The request's text, whole: the main part (the command, file, address…) first, then every other key as "key: value".
 // A string of a different kind (an object, a number) is written as JSON.
-fn full_text(e: &Value) -> String {
+fn full_text(e: &Value) -> String { escaped(&raw_text(e)) }
+pub fn raw_text(e: &Value) -> String {
     let i = &e["tool_input"];
     let Some(m) = i.as_object() else { return String::new() };
     let text = |v: &Value| v.as_str().map(String::from).unwrap_or_else(|| v.to_string());
     let main = ["command", "file_path", "url", "pattern", "query", "plan"].into_iter().find(|k| m.get(*k).and_then(Value::as_str).is_some_and(|s| !s.is_empty()));
     let rest: Vec<String> = m.iter().filter(|(k, _)| Some(k.as_str()) != main).map(|(k, v)| format!("{k}: {}", text(v))).collect();
     let all = match main { Some(k) => std::iter::once(text(&m[k])).chain((!rest.is_empty()).then(|| rest.join("\n"))).collect::<Vec<_>>().join("\n\n"), None => rest.join("\n") };
-    escaped(&all)
+    all
 }
 
 fn new_id() -> String {
@@ -131,7 +141,7 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
     // (shown as escapes). full: the request's text, whole.
     s.answer = Some(json!({ "id": id, "until": if forever { Value::Null } else { json!(now + (secs * 1000.0) as u64) },
         "risky": risky, "cut": cut, "odd": odd(&e["tool_input"]), "full": full_text(e), "plan": plan }));
-    pending.insert(id.clone(), Pending { sid: s.id.clone(), plan, tx });
+    pending.insert(id.clone(), Pending { sid: s.id.clone(), plan, tx, raw: raw_text(e), cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false });
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
     let (b1, id1) = (b.clone(), id.clone());
     tauri::async_runtime::spawn(async move {
@@ -155,6 +165,7 @@ fn close(c: &mut crate::Core, id: &str, decision: Option<Value>, end: End, now: 
     let _ = p.tx.send(decision.map(output));
     c.closed.retain(|_, k| now.saturating_sub(k.at) < CLOSED_KEEP_MS);
     c.closed.insert(id.to_string(), Closed { plan: p.plan, end, at: now });
+    c.phones.closed_events.push((id.to_string(), p.sid.clone(), p.plan)); // the phones told of it are told it is gone
     true
 }
 
@@ -269,7 +280,7 @@ mod tests {
 
     fn pending(c: &mut crate::Core, id: &str, plan: bool) -> oneshot::Receiver<Option<Value>> {
         let (tx, rx) = oneshot::channel();
-        c.pending.insert(id.into(), Pending { sid: "s1".into(), plan, tx });
+        c.pending.insert(id.into(), Pending { sid: "s1".into(), plan, tx, raw: String::new(), cut: false, risky: false, until: None, released: false });
         rx
     }
 
