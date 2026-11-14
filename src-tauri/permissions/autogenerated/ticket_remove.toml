@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ticket-remove"
+description = "Enables the ticket_remove command without any pre-configured scope."
+commands.allow = ["ticket_remove"]
+
+[[permission]]
+identifier = "deny-ticket-remove"
+description = "Denies the ticket_remove command without any pre-configured scope."
+commands.deny = ["ticket_remove"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-habit-skills"
+description = "Enables the habit_skills command without any pre-configured scope."
+commands.allow = ["habit_skills"]
+
+[[permission]]
+identifier = "deny-habit-skills"
+description = "Denies the habit_skills command without any pre-configured scope."
+commands.deny = ["habit_skills"]

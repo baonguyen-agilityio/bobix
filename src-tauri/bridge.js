@@ -39,7 +39,7 @@
     setPet: (id, mode) => invoke('pet_set', { id, mode }), // mode: auto | hidden | shown; id '*' = every pet
     refreshWork: () => invoke('work_refresh'), // GitLab issues, read again now (only while GitLab is on)
     openIssue: url => invoke('work_open', { url }), // in the browser; only links to the configured GitLab
-    cancelNew: dir => invoke('work_cancel', { dir }), // stop waiting for a new session in that folder
+    cancelNew: (dir, iid) => invoke('work_cancel', { dir, iid: iid ?? null }), // stop waiting for a new session in that folder (for one issue)
     newReview: (project, branch) => invoke('work_new_review', { project, branch }), // the forge's new PR / MR page for that branch
     // prompt: prefilled in the new session's prompt box (claude://code/new?q=…)
     // dir: a folder the habit log names, for a project no session has open here now (Bobix checks its git remote)
@@ -66,16 +66,33 @@
     processStatus: () => invoke('process_status'), // per project: the repository's .bobix/skills.json and the imported process
     // a process for a project, from a file's text or an https URL; { remove: true } forgets the imported one
     importProcess: (project, v) => (typeof project === 'string' ? invoke('process_import', { project, text: v?.text ?? null, url: v?.url ?? null, remove: v?.remove ?? null }) : Promise.resolve(null)),
+    // A project not seen on this computer (#163): link the folder you cloned it to (its remote is checked), or clone it
+    // with your own glab / gh into a folder you choose. dir / parent: given by the smoke run; the app asks with a dialog.
+    // `of`: the issue's project when `path` is the repository its code is in (it may have no issue listed itself)
+    linkFolder: (path, dir, of) => invoke('work_link', { path: String(path), dir: typeof dir === 'string' ? dir : null, of: typeof of === 'string' ? of : null }),
+    findClone: (path, of) => invoke('work_find', { path: String(path), of: typeof of === 'string' ? of : null }),
+    cloneProject: (path, parent, of) => invoke('work_clone', { path: String(path), parent: typeof parent === 'string' ? parent : null, of: typeof of === 'string' ? of : null }),
+    workRepos: fresh => invoke('work_repos', { fresh: !!fresh }), // the repo picker: every repository glab / gh can reach, and the ticked ones
+    workPage: page => invoke('work_page', { page: Math.max(1, Math.floor(Number(page)) || 1) }), // the Work list's page, read again
     issueBrief: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('work_brief', { path, iid }) : Promise.resolve(null)), // title, description (read now), link
     // The ticket flow (#112): where a ticket would run, Start (a worktree, then Claude desktop or a terminal line),
     // Haiku's split (only on click), the plan's one approval, the log's assumptions seen, a Haiku summary, cleanup.
-    ticketPrep: (path, iid) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_prep', { path, iid }) : Promise.resolve(null)),
-    ticketStart: (path, iid, prompt, models, how) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_start', { path, iid, prompt: String(prompt || ''), models: models || null, how: how === 'cli' ? 'cli' : 'desktop' }) : Promise.resolve(null)),
+    // `code`: the repository the code is in, when not the issue's own
+    ticketPrep: (path, iid, code) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_prep', { path, iid, code: typeof code === 'string' ? code : null }) : Promise.resolve(null)),
+    ticketStart: (path, iid, prompt, models, how, code, anyway) => (typeof path === 'string' && Number.isInteger(iid) ? invoke('ticket_start', { path, iid, code: typeof code === 'string' ? code : null, prompt: String(prompt || ''), models: models || null, how: how === 'cli' ? 'cli' : 'desktop' , anyway: anyway === true }) : Promise.resolve(null)),
     ticketClassify: (title, body) => invoke('ticket_classify', { title: String(title || ''), body: String(body || '') }),
     ticketAnswer: (key, approve, change) => invoke('ticket_answer', { key: String(key), approve: !!approve, change: typeof change === 'string' ? change : null }),
     ticketSeen: key => invoke('ticket_seen', { key: String(key) }),
     ticketSummary: key => invoke('ticket_summary', { key: String(key) }),
-    ticketClean: key => invoke('ticket_clean', { key: String(key) }),
+    usageEffects: () => invoke('usage_effects'),
+    ticketDetail: key => invoke('ticket_detail', { key: String(key) }),
+    ticketRemove: (key, act) => invoke('ticket_remove', { key: String(key), act: ['check', 'keep', 'delete'].includes(act) ? act : 'check' }),
+    ticketClean: (key, force) => invoke('ticket_clean', { key: String(key), force: force === true }), // force: also with commits not pushed
+    ticketCi: key => invoke('ticket_ci', { key: String(key) }), // the MR's pipeline, read now (glab api, a GET)
+    // the project's CLAUDE.md: does it name a test command? With cmd: add the one-line Tests entry (backed up, undoable)
+    claudeTests: (dir, cmd) => invoke('claude_tests', { dir: String(dir), cmd: typeof cmd === 'string' ? cmd : null }),
+    ticketMr: (key, title, description) => invoke('ticket_mr', { key: String(key), title: String(title || ''), description: String(description || '') }), // push + glab mr create, on your click
+    ticketReview: (key, how) => invoke('ticket_review', { key: String(key), how: how === 'cli' ? 'cli' : 'desktop' }), // a second session reviews a done flow
     onSettings: on('settings'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),
     // overlay only
     petClick: id => invoke('pet_click', { id }),

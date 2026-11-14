@@ -45,7 +45,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 ### See what each session uses
 - For every live session: tokens, the share spent **re-reading context**, the models it used (subagents too) and its active time, read from the transcripts Claude Code writes on your machine.
 - Measured **against your normal**: "3.7× your usual session", learned from your own past sessions. A dollar figure is only an API-equivalent estimate, labelled as such, and can be turned off; your real limits stay in Claude's `/usage`.
-- **Warnings with the reason and the fix**: a session that is too long (run `/compact` or start fresh), a heavy model on light work (`/model sonnet`), or a long run of read-only exploration (ask for a Haiku subagent).
+- **Warnings with the reason and the fix**: a session that is too long (start a new session from a short summary, or `/clear` if the task changed), a heavy model on light work (`/model sonnet`), or a long run of read-only exploration (ask for the built-in Explore subagent, on Haiku).
 
 ### Keep your skills lean, and route models
 - **Skills audit per project**: every skill Claude loads there, what its descriptions cost in every turn, those unused for 30 days and duplicate sets (`acme:build` and `team:build`).
@@ -54,11 +54,11 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 
 ### Run your tickets
 - **Your GitHub and GitLab issues** (opt-in, through your own `gh` and `glab`): to do, in progress with their sessions, waiting for review, done today. Bobix suggests the next one, warns when two sessions work on one issue, and flags stuck work with its next step.
-- **Start** a session on an issue with a prompt you can edit, and a skill suggested for that repository; the session is named `[CODE-27] …`.
+- **Start** an issue under **Work**, one of two ways: **Full** runs the ticket flow (its own worktree and branch, a plan you approve, checks, review, MR / PR and CI); **Quick** opens a plain Claude session in the project folder with a prompt you can edit and a skill suggested for that repository. Either session is named `[CODE-27] …`. **Change folder…** in the Start box points a project at another clone.
 - **Stand-up and today's report** as plain text to copy. Bobix sends nothing.
 
 ### The panel
-- One window with a search field and screens: **Overview** (what needs you, warnings, today's usage), **Sessions** (sessions and issues), **Skills** and **Settings**. **Work** and **Room** are coming.
+- One window with a search field and screens: **Overview** (what needs you, warnings, today's usage), **Sessions** (Claude sessions, grouped by issue), **Work** (issues to start, and the ticket flow), **Skills** and **Settings**. **Room** is coming.
 - Every action has a key, and ⌘K / Ctrl+K finds any action, session or screen.
 
 ### And

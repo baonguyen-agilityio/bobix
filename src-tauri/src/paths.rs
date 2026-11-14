@@ -43,6 +43,15 @@ pub fn ensure_token_in(home: &std::path::Path) -> std::io::Result<String> {
     Ok(token)
 }
 
+// A folder as text for comparing: one separator, no trailing one, and case folded where the file system usually
+// ignores case (Windows, macOS). Git prints "C:/x/app", Claude "C:\x\app", a worktree path mixes both: one folder.
+pub fn dir_key(p: &str) -> String {
+    let mut s = p.replace('\\', "/");
+    while s.len() > 1 && s.ends_with('/') && !s.ends_with(":/") { s.pop(); }
+    if cfg!(any(windows, target_os = "macos")) { s.to_lowercase() } else { s }
+}
+pub fn same_dir(a: &str, b: &str) -> bool { dir_key(a) == dir_key(b) }
+
 // A file only this user can read (0600 on Unix).
 pub fn write_private(file: &std::path::Path, text: &str) -> std::io::Result<()> {
     #[cfg(unix)]
@@ -57,6 +66,20 @@ pub fn write_private(file: &std::path::Path, text: &str) -> std::io::Result<()> 
 
 #[cfg(test)]
 mod tests {
+    // Windows: git's top folder ("C:/Users/x/code/app"), a worktree joined onto it with "\" and Claude's folder (all
+    // "\") are one folder; a trailing separator or another case (Windows, macOS) too.
+    #[test]
+    fn folders_compare_as_folders() {
+        use super::same_dir;
+        let wt = std::path::Path::new("C:/Users/x/code/app").join(".claude").join("worktrees").join("bobix-7");
+        let wt = if cfg!(windows) { wt.to_string_lossy().into_owned() } else { "C:/Users/x/code/app\\.claude\\worktrees\\bobix-7".into() };
+        assert!(same_dir(&wt, "C:\\Users\\x\\code\\app\\.claude\\worktrees\\bobix-7"));
+        assert!(same_dir("C:\\Users\\x\\code\\app\\", "C:/Users/x/code/app"));
+        assert!(same_dir("/src/app/", "/src/app") && !same_dir("/src/app", "/src/app2"));
+        assert_eq!(same_dir("C:/Users/X/Code/App", "c:\\users\\x\\code\\app"), cfg!(any(windows, target_os = "macos")));
+        assert_eq!(super::dir_key("C:/"), super::dir_key("C:\\"));
+    }
+
     #[test]
     fn token_is_kept_and_header_written() {
         let home = std::env::temp_dir().join(format!("bobix-token-{}", std::process::id()));
