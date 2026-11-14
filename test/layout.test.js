@@ -265,7 +265,10 @@ async function panel(b, url, { width, height, lang, dark }) {
         if (!s.inside) fail(`help ${how} ${sel}: the tip is out of the window: ${s.rect}`);
         if (!s.near) fail(`help ${how} ${sel}: the tip is not by its "?": ${s.rect}`);
       };
-      const hides = async how => { for (let k = 0; k < 10 && !(await off()); k++) await sleep(100); if (!(await off())) fail(`help: ${how} does not hide the tip`); };
+      // A hide is a 200 ms timer after the pointer leaves, and a slow runner delivers the pointer's events late: up to 3 s.
+      // A tip that is still there says what it holds (tipBy, tipLeaving, the "?" it is by, the focus) in the failure.
+      const hides = async how => { for (let k = 0; k < 30 && !(await off()); k++) await sleep(100);
+        if (!(await off())) fail(`help: ${how} does not hide the tip ${await b.ev(`JSON.stringify({ by: tipBy, leaving: tipLeaving, at: tipAt && tipAt.dataset.help, on: $('#tip').className, focus: document.activeElement && (document.activeElement.dataset.help || document.activeElement.tagName) })`)}`); };
       const still = async (what, f0) => { for (const m of moved(f0, await b.ev(BOXES))) fail(`help ${what}: ${m}`); };
       const noShift = async from => { for (const s of await b.ev(`__shifts.slice(${from})`)) fail(`help: layout shift ${s.v.toFixed(4)}: ${s.src}`); };
       // a key as a keyboard sends it, with its text: ↵ and Space press a focused button
