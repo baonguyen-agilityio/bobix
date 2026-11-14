@@ -1,0 +1,4 @@
+# Files that a script writes and a test compares byte for byte stay LF in every checkout; with Windows' default
+# autocrlf they would become CRLF and `npm test` would call them out of date.
+mobile/lib/l10n/strings.g.dart text eol=lf
+mobile/test/fixtures/creature-fixtures.json text eol=lf
