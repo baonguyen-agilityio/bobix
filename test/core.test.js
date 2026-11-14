@@ -1207,3 +1207,23 @@ test('update manifest: a release the app could never update from is refused', as
   assert.throws(() => manifest({ dir, tag: 'v0.2.0-rc.8', base, conf: conf('ffffffffffffffff'), pkg }), /signed with key 0807060504030201, not the key FFFFFFFFFFFFFFFF/);
   fs.rmSync(dir, { recursive: true });
 });
+
+test('phone strings: every phone.* key has EN and VI with the same {names}, and the generated Dart table is current', async () => {
+  const I18N = require('../src/ui/i18n');
+  const vars = s => [...s.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort().join();
+  const keys = new Set(['en', 'vi'].flatMap(l => Object.keys(I18N.STR[l]).filter(k => k.startsWith('phone.'))));
+  assert.ok(keys.size > 0);
+  for (const k of keys) {
+    assert.ok(I18N.STR.en[k], `en ${k}`);
+    assert.ok(I18N.STR.vi[k], `vi ${k}`);
+    assert.equal(vars(I18N.STR.vi[k]), vars(I18N.STR.en[k]), `{names} of ${k}`);
+  }
+  const gen = path.join(__dirname, '../mobile/tool/strings.mjs');
+  const run = require('child_process').spawnSync(process.execPath, [gen, '--check'], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  // The generator itself refuses a key that lacks a language.
+  const { render } = await import(gen);
+  assert.throws(() => render({ en: { 'phone.a': 'A' }, vi: {} }), /phone\.a has no vi text/);
+  assert.throws(() => render({ en: { 'phone.a': 'A {n}' }, vi: { 'phone.a': 'B' } }), /different \{placeholders\}/);
+  assert.ok(render({ en: { 'phone.a': "it's $5" }, vi: { 'phone.a': 'x' } }).includes("'it\\'s \\$5'"));
+});
