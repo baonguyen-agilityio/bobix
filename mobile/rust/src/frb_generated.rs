@@ -40,7 +40,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1867232079;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 529164969;
 
 // Section: executor
 
@@ -780,6 +780,46 @@ fn wire__crate__api__core__seal_packet_impl(
         },
     )
 }
+fn wire__crate__api__core__shown_hash_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "shown_hash",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_text = <String>::sse_decode(&mut deserializer);
+            let api_cut = <bool>::sse_decode(&mut deserializer);
+            let api_questions =
+                <Vec<crate::api::core::ShownQuestion>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>(crate::api::core::shown_hash(
+                        api_text,
+                        api_cut,
+                        api_questions,
+                    ))?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__core__sign_with_auth_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1026,6 +1066,18 @@ impl SseDecode for crate::api::core::LinkStream {
     }
 }
 
+impl SseDecode for Vec<String> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<String>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1033,6 +1085,18 @@ impl SseDecode for Vec<u8> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<u8>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::core::ShownQuestion> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::core::ShownQuestion>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -1107,6 +1171,20 @@ impl SseDecode for crate::api::core::PairingInfo {
     }
 }
 
+impl SseDecode for crate::api::core::ShownQuestion {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_text = <String>::sse_decode(deserializer);
+        let mut var_options = <Vec<String>>::sse_decode(deserializer);
+        let mut var_multiSelect = <bool>::sse_decode(deserializer);
+        return crate::api::core::ShownQuestion {
+            text: var_text,
+            options: var_options,
+            multi_select: var_multiSelect,
+        };
+    }
+}
+
 impl SseDecode for u64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1160,9 +1238,10 @@ fn pde_ffi_dispatcher_primary_impl(
         18 => wire__crate__api__core__recv_state_new_impl(port, ptr, rust_vec_len, data_len),
         19 => wire__crate__api__core__relay_url_ok_impl(port, ptr, rust_vec_len, data_len),
         20 => wire__crate__api__core__seal_packet_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__core__sign_with_auth_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__core__verify_auth_signature_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__core__verify_p256_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__core__shown_hash_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__core__sign_with_auth_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__core__verify_auth_signature_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__core__verify_p256_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1354,6 +1433,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::core::PairingInfo>
         self
     }
 }
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::core::ShownQuestion {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.text.into_into_dart().into_dart(),
+            self.options.into_into_dart().into_dart(),
+            self.multi_select.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::core::ShownQuestion
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::core::ShownQuestion>
+    for crate::api::core::ShownQuestion
+{
+    fn into_into_dart(self) -> crate::api::core::ShownQuestion {
+        self
+    }
+}
 
 impl SseEncode for SendCounter {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1473,12 +1574,32 @@ impl SseEncode for crate::api::core::LinkStream {
     }
 }
 
+impl SseEncode for Vec<String> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <String>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <u8>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::core::ShownQuestion> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::core::ShownQuestion>::sse_encode(item, serializer);
         }
     }
 }
@@ -1532,6 +1653,15 @@ impl SseEncode for crate::api::core::PairingInfo {
         <String>::sse_encode(self.desktop_device_id, serializer);
         <Vec<u8>>::sse_encode(self.relay_token, serializer);
         <Vec<u8>>::sse_encode(self.mac_key, serializer);
+    }
+}
+
+impl SseEncode for crate::api::core::ShownQuestion {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.text, serializer);
+        <Vec<String>>::sse_encode(self.options, serializer);
+        <bool>::sse_encode(self.multi_select, serializer);
     }
 }
 

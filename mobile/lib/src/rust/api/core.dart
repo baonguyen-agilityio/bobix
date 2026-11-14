@@ -198,6 +198,18 @@ Future<Uint8List?> authBytes({
 Future<String> newCommandId() =>
     RustLib.instance.api.crateApiCoreNewCommandId();
 
+/// The hash an `answer` carries as `shown`: of exactly what this phone displayed (the text, whether it was cut, and the
+/// questions with their options). The computer compares it with what it holds now, and refuses a stale answer.
+Future<String> shownHash({
+  required String text,
+  required bool cut,
+  required List<ShownQuestion> questions,
+}) => RustLib.instance.api.crateApiCoreShownHash(
+  text: text,
+  cut: cut,
+  questions: questions,
+);
+
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<SendCounter>>
 abstract class SendCounter implements RustOpaqueInterface {
   /// After a restart: `stored_reservation` is the last value `take` asked to store, `now_unix_ms` the clock.
@@ -383,4 +395,29 @@ class PairingInfo {
           desktopDeviceId == other.desktopDeviceId &&
           relayToken == other.relayToken &&
           macKey == other.macKey;
+}
+
+/// One question of a request, as shown.
+class ShownQuestion {
+  final String text;
+  final List<String> options;
+  final bool multiSelect;
+
+  const ShownQuestion({
+    required this.text,
+    required this.options,
+    required this.multiSelect,
+  });
+
+  @override
+  int get hashCode => text.hashCode ^ options.hashCode ^ multiSelect.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ShownQuestion &&
+          runtimeType == other.runtimeType &&
+          text == other.text &&
+          options == other.options &&
+          multiSelect == other.multiSelect;
 }

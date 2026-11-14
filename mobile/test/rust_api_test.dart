@@ -27,6 +27,7 @@ const exposed = {
   'byeBytes',
   'authBytes',
   'newCommandId',
+  'shownHash',
 };
 
 void main() {

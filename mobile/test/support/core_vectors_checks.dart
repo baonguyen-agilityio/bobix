@@ -303,6 +303,31 @@ Future<void> checkVectors(Map<String, dynamic> v) async {
     reason: 'ws:// to a relay that is not on localhost',
   );
 
+  // What the person was shown hashes to the committed value, and any change to it changes the hash.
+  for (final c in (protocol['shown'] as List).cast<Map<String, dynamic>>()) {
+    final questions = [
+      for (final q in (c['questions'] as List).cast<Map<String, dynamic>>())
+        ShownQuestion(
+          text: q['text'],
+          options: (q['options'] as List).cast<String>(),
+          multiSelect: q['multiSelect'],
+        ),
+    ];
+    expect(
+      await shownHash(text: c['text'], cut: c['cut'], questions: questions),
+      c['shown'],
+      reason: '${c['what']} ${c['text']}',
+    );
+    expect(
+      await shownHash(
+        text: '${c['text']} ',
+        cut: c['cut'],
+        questions: questions,
+      ),
+      isNot(c['shown']),
+    );
+  }
+
   // New keys: 32 bytes each, never the same twice, and the id follows the public key.
   final a = await generateIdentity(), b = await generateIdentity();
   expect(

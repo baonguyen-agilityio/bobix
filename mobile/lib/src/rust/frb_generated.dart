@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1867232079;
+  int get rustContentHash => 529164969;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -170,6 +170,12 @@ abstract class RustLibApi extends BaseApi {
     required List<int> senderBoxSecret,
     required List<int> recipientBoxPublic,
     required List<int> plaintext,
+  });
+
+  Future<String> crateApiCoreShownHash({
+    required String text,
+    required bool cut,
+    required List<ShownQuestion> questions,
   });
 
   Future<Uint8List> crateApiCoreSignWithAuth({
@@ -904,6 +910,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<String> crateApiCoreShownHash({
+    required String text,
+    required bool cut,
+    required List<ShownQuestion> questions,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(text, serializer);
+          sse_encode_bool(cut, serializer);
+          sse_encode_list_shown_question(questions, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 21,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiCoreShownHashConstMeta,
+        argValues: [text, cut, questions],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCoreShownHashConstMeta => const TaskConstMeta(
+    debugName: "shown_hash",
+    argNames: ["text", "cut", "questions"],
+  );
+
+  @override
   Future<Uint8List> crateApiCoreSignWithAuth({
     required List<int> authSeed,
     required List<int> boxSecret,
@@ -919,7 +961,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 22,
             port: port_,
           );
         },
@@ -955,7 +997,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 23,
             port: port_,
           );
         },
@@ -992,7 +1034,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -1117,6 +1159,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<String> dco_decode_list_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_String).toList();
+  }
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as List<int>;
@@ -1126,6 +1174,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  List<ShownQuestion> dco_decode_list_shown_question(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_shown_question).toList();
   }
 
   @protected
@@ -1173,6 +1227,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       desktopDeviceId: dco_decode_String(arr[3]),
       relayToken: dco_decode_list_prim_u_8_strict(arr[4]),
       macKey: dco_decode_list_prim_u_8_strict(arr[5]),
+    );
+  }
+
+  @protected
+  ShownQuestion dco_decode_shown_question(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return ShownQuestion(
+      text: dco_decode_String(arr[0]),
+      options: dco_decode_list_String(arr[1]),
+      multiSelect: dco_decode_bool(arr[2]),
     );
   }
 
@@ -1308,6 +1375,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <String>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_String(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -1319,6 +1398,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  List<ShownQuestion> sse_decode_list_shown_question(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ShownQuestion>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_shown_question(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -1385,6 +1478,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       desktopDeviceId: var_desktopDeviceId,
       relayToken: var_relayToken,
       macKey: var_macKey,
+    );
+  }
+
+  @protected
+  ShownQuestion sse_decode_shown_question(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_text = sse_decode_String(deserializer);
+    var var_options = sse_decode_list_String(deserializer);
+    var var_multiSelect = sse_decode_bool(deserializer);
+    return ShownQuestion(
+      text: var_text,
+      options: var_options,
+      multiSelect: var_multiSelect,
     );
   }
 
@@ -1513,6 +1619,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_String(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_loose(
     List<int> self,
     SseSerializer serializer,
@@ -1532,6 +1647,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_list_shown_question(
+    List<ShownQuestion> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_shown_question(item, serializer);
+    }
   }
 
   @protected
@@ -1585,6 +1712,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.desktopDeviceId, serializer);
     sse_encode_list_prim_u_8_strict(self.relayToken, serializer);
     sse_encode_list_prim_u_8_strict(self.macKey, serializer);
+  }
+
+  @protected
+  void sse_encode_shown_question(ShownQuestion self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.text, serializer);
+    sse_encode_list_String(self.options, serializer);
+    sse_encode_bool(self.multiSelect, serializer);
   }
 
   @protected

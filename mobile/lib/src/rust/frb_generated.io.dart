@@ -71,10 +71,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   LinkStream dco_decode_link_stream(dynamic raw);
 
   @protected
+  List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<ShownQuestion> dco_decode_list_shown_question(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -90,6 +96,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PairingInfo dco_decode_pairing_info(dynamic raw);
+
+  @protected
+  ShownQuestion dco_decode_shown_question(dynamic raw);
 
   @protected
   BigInt dco_decode_u_64(dynamic raw);
@@ -149,10 +158,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   LinkStream sse_decode_link_stream(SseDeserializer deserializer);
 
   @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<ShownQuestion> sse_decode_list_shown_question(
+    SseDeserializer deserializer,
+  );
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -168,6 +185,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PairingInfo sse_decode_pairing_info(SseDeserializer deserializer);
+
+  @protected
+  ShownQuestion sse_decode_shown_question(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_u_64(SseDeserializer deserializer);
@@ -233,11 +253,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_link_stream(LinkStream self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_shown_question(
+    List<ShownQuestion> self,
     SseSerializer serializer,
   );
 
@@ -258,6 +287,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_pairing_info(PairingInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_shown_question(ShownQuestion self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_64(BigInt self, SseSerializer serializer);

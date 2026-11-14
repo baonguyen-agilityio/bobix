@@ -333,3 +333,22 @@ pub fn auth_bytes(relay_url: String, challenge: String) -> Option<Vec<u8>> {
 pub fn new_command_id() -> String {
     command::new_cid()
 }
+
+// ---- what the person was shown ----
+
+/// One question of a request, as shown.
+pub struct ShownQuestion {
+    pub text: String,
+    pub options: Vec<String>,
+    pub multi_select: bool,
+}
+
+/// The hash an `answer` carries as `shown`: of exactly what this phone displayed (the text, whether it was cut, and the
+/// questions with their options). The computer compares it with what it holds now, and refuses a stale answer.
+pub fn shown_hash(text: String, cut: bool, questions: Vec<ShownQuestion>) -> String {
+    let qs: Vec<bobix_link::messages::Question> = questions
+        .into_iter()
+        .map(|q| bobix_link::messages::Question { text: q.text, options: q.options, multi_select: q.multi_select })
+        .collect();
+    bobix_link::messages::shown_hash(&text, cut, &qs)
+}
