@@ -81,7 +81,7 @@ Release steps are in [development.md](development.md) (a version bump is a pull 
 | Claude desktop app on Linux (beta, Ubuntu / Debian) | Not tested | Whether a click on a pet opens its session there (the `claude://` link and the session id the hook reads), and where it keeps session metadata (needed for parent and side sessions) |
 | Choosing a pet picture (hidden in the app for now) | Rendering, serving and states with a picture placed by a script (macOS) | The file dialog, the pixel-art dialog, scaling and saving themselves; GIF; WebP; Windows and Linux |
 | Start in Work: Quick (New / Resume), session names | macOS, Claude desktop app, app run from source; New and the hook checked with simulated sessions, Resume with real ones | Windows and Linux: folders are compared as text (the project's folder against the session's `cwd` and Claude's session list); the old worktree test failed on Windows because git wrote `C:/Users/runneradmin/...` and Node `C:\Users\RUNNER~1\...`. Whether the Claude app shows the new name at once or only after a reload. Claude Code in a terminal (`New` opens only the desktop app). |
-| New version notice | Unit tests and the real GitHub API from a script | Seeing the notification and tray item in a packaged app (possible now: v0.1.2 installed, v0.1.3 out) |
+| Update from inside the app | macOS, debug build, throwaway key, local update source | The real key and a GitHub release; Windows; Linux; the notification and tray item on screen (see the entry in section 1) |
 
 ## 4. Planned features
 
