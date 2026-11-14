@@ -4,6 +4,8 @@ build/
 *.log
 .DS_Store
 src-tauri/target/
+crates/*/target/
+crates/*/fuzz/target/
 src-tauri/gen/
 plans/
 # Claude Code: only .claude/settings.json is shared; worktrees and personal overrides stay local

@@ -1,0 +1,71 @@
+{
+  "authSignature": {
+    "message": "626f6269782074657374206368616c6c656e6765",
+    "signature": "68d6a2e0f6b16e14ff51bd8f611b8d1331c88b3b553a32d0fde0d71dec6ca9a27b0fdf7ad166537b28ff153a30f0e85ef3003c27f68813336eb037200c4c7b0d",
+    "signer": "desktop"
+  },
+  "base64Example": {
+    "bytes": "fbfffe",
+    "text": "-__-"
+  },
+  "desktop": {
+    "authPublic": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+    "authSeed": "0101010101010101010101010101010101010101010101010101010101010101",
+    "boxPublic": "ce8d3ad1ccb633ec7b70c17814a5c76ecd029685050d344745ba05870e587d59",
+    "boxSecret": "0202020202020202020202020202020202020202020202020202020202020202",
+    "deviceId": "34750f98bd59fcfc946da45aaabe933b"
+  },
+  "envelopes": [
+    {
+      "counter": 1800000000001,
+      "dir": "ToPhone",
+      "packet": "0100000001a3185c5001a1a1a1a1a1a1a1a1a1a1a1a1a1a106734f6dfda4f686fdb8c6c73a27ed6ae879def86eb1eca6cfde8f73720b0d",
+      "plaintext": "{\"kind\":\"home\"}",
+      "stream": "State",
+      "tail": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "version": 1
+    },
+    {
+      "counter": 42,
+      "dir": "ToPhone",
+      "packet": "0101000000000000002aa2a2a2a2a2a2a2a2a2a2a2a2a2a2300d055ef0e83f683d64448d5f05a72b38370bba8af7209cd9a4ccf78ecb5364d5",
+      "plaintext": "{\"kind\":\"paired\"}",
+      "stream": "Event",
+      "tail": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+      "version": 1
+    },
+    {
+      "counter": 7,
+      "dir": "ToDesktop",
+      "packet": "01810000000000000007a3a3a3a3a3a3a3a3a3a3a3a3a3a39466fb7a6ce0abe640e714cc8a53bd0be7c06db52a23b2fdb7d195a18bbda3c17a8fa433f7c595ec82bd68df",
+      "plaintext": "{\"kind\":\"sync\",\"waiting\":[]}",
+      "stream": "Event",
+      "tail": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+      "version": 1
+    },
+    {
+      "counter": 9,
+      "dir": "ToPhone",
+      "packet": "01020000000000000009a4a4a4a4a4a4a4a4a4a4a4a4a4a41a4101820e03150091bb186b8cc2fb4372d1ba0ad8ebdf9fa250d2189bc21e7064",
+      "plaintext": "{\"kind\":\"notice\"}",
+      "stream": "Activity",
+      "tail": "a4a4a4a4a4a4a4a4a4a4a4a4a4a4",
+      "version": 1
+    }
+  ],
+  "note": "hex unless a name ends in B64 (URL-safe, no padding). Secrets are 32 bytes of one repeated value.",
+  "p256": {
+    "message": "626f626978207465737420766563746f72206d657373616765",
+    "note": "verify-only; the signature changes with the nonce",
+    "signatureDer": "3046022100f5a9294fd705a22d036ca11c16b59ad280e67767fb5a6fb085d3aabb8048c713022100b9e9764740210eb4f4701f30d3be3199d4fd9b5974ccb89b8c95bd07deeddd4a"
+  },
+  "phone": {
+    "authPublic": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+    "authSeed": "0303030303030303030303030303030303030303030303030303030303030303",
+    "boxPublic": "ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10b",
+    "boxSecret": "0404040404040404040404040404040404040404040404040404040404040404",
+    "deviceId": "b62e867fa2f33afe62d5d6b1642e1621",
+    "signPublicSec1": "0307810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a9311",
+    "signSecret": "0505050505050505050505050505050505050505050505050505050505050505"
+  }
+}
