@@ -189,7 +189,7 @@ impl State {
     // Seals a message to a phone and returns the frame. The counter reservation is stored before the frame leaves.
     pub fn tell(&mut self, id: &str, m: &DesktopMsg, push: Option<Push>, collapse: Option<String>) -> Option<(String, Frame)> {
         let stream = if matches!(m, DesktopMsg::Home(_)) { bobix_link::envelope::Stream::State } else { bobix_link::envelope::Stream::Event };
-        let sealed = self.link_of(id)?.seal(stream, &m.to_json());
+        let sealed = self.link_of(id)?.seal(stream, &m.to_json()).ok()?; // a low-order peer key: nothing is sent
         if let Some((s, v)) = sealed.reserve { self.saved.entry(id.into()).or_default().res[s as usize] = v; self.save_counters(); }
         let pid = command::new_cid()[..16].to_string();
         Some((pid.clone(), Frame::Send { pid, to: id.into(), ttl: 600, collapse, push, body: b64(&sealed.packet) }))
