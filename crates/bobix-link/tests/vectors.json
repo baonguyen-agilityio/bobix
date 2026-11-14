@@ -147,6 +147,10 @@
     "macKey": "8ac6e9e57944f88b4a27ed0b02689c7e7408f942571c390855bff2e9d0fd96a7",
     "pairingSecret": "0606060606060606060606060606060606060606060606060606060606060606",
     "pairingUri": "bobix://pair?r=wss%3A%2F%2Frelay.example%2Fws&a=iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w&b=zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk&t=BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY",
+    "promptHash": {
+      "hash": "65dac2d554b6b69c5342f8a82f0aa797a77edfe4b01db1a1eab494bd92a56f34",
+      "prompt": "Implement ticket 12."
+    },
     "relayToken": "a91bfc95e0c8e56ece7088e72b966fd75df4b6b32de725186b73d2ab5707b10b",
     "relayTokenHash": "3212b82fb75b67524b32686b21f5d34b66451bf5f62f5c16a9c1b8e3bbe83a5e",
     "relayUrlNormalisation": [
@@ -192,8 +196,86 @@
       "http://relay.example",
       "wss://a@b",
       "wss://relay.example:99999",
-      "wss://"
+      "wss://",
+      "wss://relay.example:+443",
+      "wss://2001:db8::1",
+      "wss://a:b:443",
+      "wss://relay.exa\tmple",
+      "wss://RÉLAY.example"
     ],
-    "rightsMask": 51
+    "rightsMask": 51,
+    "shown": [
+      {
+        "cut": false,
+        "questions": [],
+        "shown": "191483d15fd3096a885d3a4ed6657bc0e12b619e788c01d25e68c3cac1843dd9",
+        "text": "ls -la",
+        "what": "toolInput"
+      },
+      {
+        "cut": true,
+        "questions": [],
+        "shown": "9c9e6456820b12128cccd92c23f203f4b4a84136b6b3099e96335eab810b307b",
+        "text": "ls -la",
+        "what": "toolInput"
+      },
+      {
+        "cut": false,
+        "questions": [
+          {
+            "multiSelect": false,
+            "options": [
+              "SQLite",
+              "Postgres"
+            ],
+            "text": "Which database?"
+          }
+        ],
+        "shown": "23356404101f3aa5f2dabecf69b7c210afe62cae62fb815ed1e3c835439663b8",
+        "text": "Which database?",
+        "what": "question"
+      },
+      {
+        "cut": false,
+        "questions": [
+          {
+            "multiSelect": false,
+            "options": [
+              "Postgres",
+              "SQLite"
+            ],
+            "text": "Which database?"
+          }
+        ],
+        "shown": "ae5cda7a834dabe2655e49a6f182360934a65c0af4778cae68d4951ef108e37c",
+        "text": "Which database?",
+        "what": "question"
+      },
+      {
+        "cut": false,
+        "questions": [
+          {
+            "multiSelect": true,
+            "options": [
+              "SQLite",
+              "Postgres"
+            ],
+            "text": "Which database?"
+          }
+        ],
+        "shown": "69c8ccf604eadd9676ad200a66af592f3f337346c496c18f73012d1ddb61b2b5",
+        "text": "Which database?",
+        "what": "question"
+      },
+      {
+        "cut": false,
+        "note": "the text is the displayed form: hidden characters are already visible escapes",
+        "questions": [],
+        "shown": "daab9183148fa4a101c8308df76ea5059a474f2425feff4056cdab60abcc6d21",
+        "text": "# Plan\nstep \\u{202e}",
+        "what": "plan"
+      }
+    ],
+    "shownNote": "shown = hex SHA-256 of Fields(\"bobix-shown-v1\", text, cut as u64, number of questions, then per question: text, multiSelect as u64, number of options, each option); numbers are u64 big endian as 8-byte fields; every field has a u32 big endian length prefix"
   }
 }

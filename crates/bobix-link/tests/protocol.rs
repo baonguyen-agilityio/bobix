@@ -372,7 +372,7 @@ fn hello_travels_sealed_to_the_desktop_with_the_phone_box_key_in_front() {
     let v = VersionRange::current();
     let mut phone = Link::new(Direction::ToDesktop, *w.phone.box_secret(), c.desktop.boxk, CURRENT_VERSION, v, [0; 3], NOW, RecvState::default());
     let h = hello(&w, &c, "Pixel", rights());
-    let body = hello_body(&w.phone.public().boxk, &phone.seal(Stream::Event, &serde_json::to_vec(&PhoneMsg::Hello(h.clone())).unwrap()).packet);
+    let body = hello_body(&w.phone.public().boxk, &phone.seal(Stream::Event, &serde_json::to_vec(&PhoneMsg::Hello(h.clone())).unwrap()).unwrap().packet);
     // desktop side
     let (phone_box, packet) = split_hello_body(&body).unwrap();
     let mut desktop = Link::new(Direction::ToPhone, *w.desktop.box_secret(), phone_box, CURRENT_VERSION, v, [0; 3], NOW, RecvState::default());
@@ -595,6 +595,14 @@ fn relay_urls_normalise_to_one_form() {
     for (given, want) in table {
         assert_eq!(normalize_relay_url(given).as_deref(), Some(want), "{given}");
         assert_eq!(normalize_relay_url(want).as_deref(), Some(want), "idempotent: {want}");
+    }
+    for bad in [
+        "wss://relay.example:+443", "wss://relay.example:-1", "wss://relay.example:4 3", "wss://2001:db8::1", "wss://a:b:443", "wss://2001:db8::1:443",
+        "wss://[relay.example]", "wss://[::1", "wss://[::g]", "wss://relay.exa\tmple", "wss://relay.example/a\nb", "wss://rel\u{0}ay.example",
+        "wss://RÉLAY.example", "wss://relay.exämple:443", "ws://localhost\t", "wss://relay.example\u{7f}",
+    ] {
+        assert_eq!(normalize_relay_url(bad), None, "{bad:?}");
+        assert!(!relay_url_ok(bad), "{bad:?}");
     }
     for bad in ["ws://relay.example", "http://relay.example", "wss://", "wss://a@b", "wss://relay.example:99999", "wss://relay.example:x", "relay.example", "wss://rel ay"] {
         assert_eq!(normalize_relay_url(bad), None, "{bad}");
