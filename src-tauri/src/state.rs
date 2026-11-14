@@ -267,7 +267,8 @@ pub fn apply(sessions: &mut Sessions, e: &Value, now: u64) -> Option<Applied> {
             log(s, now, "tool", short(&arg_of(e.get("tool_input")), 300), t); // the panel shows it whole on hover
             // Claude asking you a question waits for you whether or not a permission request follows
             if s.tool == "AskUserQuestion" {
-                if let Some(q) = question_of(e.get("tool_input")) { notice = ask_for(s, now, "AskUserQuestion".into(), &q); }
+                let q = question_of(e.get("tool_input")).unwrap_or_else(|| "AskUserQuestion".into());
+                notice = ask_for(s, now, "AskUserQuestion".into(), &q);
             } else { set(s, now, "working"); }
         }
         "PostToolUse" => {
@@ -505,6 +506,8 @@ mod tests {
         assert_eq!(notice(ap(&mut m, base("Notification", json!({ "message": "Claude needs your permission to use Bash" })))), None);
         // Claude asks a question (AskUserQuestion): waiting, one notice, the question is the ask text
         let q = json!({ "questions": [{ "question": "[scope] Negative results? (ticket: \"any numbers\")", "options": [] }] });
+        let mut m4 = Sessions::new(); // no question text came through: still asking
+        assert_eq!(notice(ap(&mut m4, base("PreToolUse", json!({ "tool_name": "AskUserQuestion", "tool_input": {} })))), Some("waiting"));
         let mut m3 = Sessions::new(); // seen first as a PreToolUse: waiting; the permission request after it does not notify again
         assert_eq!(notice(ap(&mut m3, base("PreToolUse", json!({ "tool_name": "AskUserQuestion", "tool_input": q.clone() })))), Some("waiting"));
         assert_eq!(notice(ap(&mut m3, base("PermissionRequest", json!({ "tool_name": "AskUserQuestion", "tool_input": q.clone() })))), None);

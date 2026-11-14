@@ -270,14 +270,14 @@ pub fn rules(branch: &str, dir: &str, lang: &str) -> String {
     let base = rules_en(branch, dir);
     let Some(name) = lang_name(lang) else { return base };
     format!("{base}\n\
-6. Language: write the work log in {name}: the ticket summary, your questions and the choices offered, the plan and its mapping, the assumptions, the steps, your notes under Checks, what blocks you and the result. Keep code, file names, commands, command output and identifiers exactly as they are. Keep the template's headings, `Status:` with its English values (planning, running, done, blocked) and the `- Review: ` / `- None: ` prefixes in English, as written.\n\
+6. Language: restate the ticket and ask every question in {name}: the question, its choices and the \"Out of scope for this ticket\" choice (translate that one), keeping the tags `[scope]`, `[approach]`, `[edge case]`, `[done criteria]` in English. Then write the work log in {name}: the ticket summary, your questions and the choices offered, the plan and its mapping, the assumptions, the steps, your notes under Checks, what blocks you and the result. Keep code, file names, commands, command output and identifiers exactly as they are. Keep the template's headings, `Status:` with its English values (planning, running, done, blocked) and the `- Review: ` / `- None: ` prefixes in English, as written.\n\
 7. What the team reads stays English: write commit messages in English, and fill `## MR (English)` in the work log with the merge request's description for the team, in English: what changed and why, the assumptions, the checks you ran. Write it for that reader; do not translate the log line by line.")
 }
 fn rules_en(branch: &str, dir: &str) -> String {
     format!("How to work on this ticket (Bobix ticket flow):\n\
 1. Call the EnterPlanMode tool now, before changing anything. Read the ticket and the code first, then interview me before you plan. Facts are your job: never ask what the ticket or the code already answers. Decisions are mine.\n\
-   a. Restate the ticket in one screen: the goal, what to do, what not to do, what \"done\" means. Show it and wait for me to confirm or correct it. Ask nothing before I confirm. Every later question must serve this summary. (Plan mode lets you edit only the plan file: write the summary, the questions and the mapping into the work log in one go once the plan is approved.)\n\
-   b. If nothing is left to decide, say \"No questions, because ...\" in one line and go straight to the plan. Do not ask for the sake of asking.\n\
+   a. Restate the ticket in one screen: the goal, what to do, what not to do, what \"done\" means. Show it, then ask me to confirm it with the AskUserQuestion tool (choices: Confirm, or Correct it; no tag, source or \"Out of scope\" choice, and it does not count toward the ~8 questions) and wait for my answer. Ask nothing else before I confirm. Every later question must serve this summary. (Plan mode lets you edit only the plan file: once the plan is approved, write `## Ticket`, `## Questions`, `## Later` and `## Mapping` into the work log in one go.)\n\
+   b. If nothing is left to decide, say \"No questions, because ...\" in one line, ask me to confirm that with AskUserQuestion too (so I see you are asking), and go to the plan. Do not ask for the sake of asking.\n\
    c. Otherwise ask with the AskUserQuestion tool, in rounds. A round holds only questions whose answer does not depend on another open question; ask the dependent ones in the next round. Give each question choices, your recommended choice first (say why, with the evidence), and as the last choice \"Out of scope for this ticket\". Start each question with its tag in brackets: [scope], [approach], [edge case] or [done criteria]. Name its source in the question: a quote from the ticket, or a file and line in the code. No source, no question. If I pick \"Out of scope for this ticket\", drop it, add it under `## Later` and keep it out of the plan. If I answer \"up to you\", write it under Assumptions and do not ask it again.\n\
    d. Stop when nothing is left silently assumed, or after about 8 questions in all. Keep each question for `## Questions`, one `- ` line: `[tag] the question (source) -> my answer`.\n\
    e. Then write the plan. It must end with a section \"Mapping\" (a table: each requirement of the ticket -> the plan step that does it; each answer of mine -> the step that uses it; a requirement with no step, or a step with no source, must show) and a section \"Assumptions\": what you assume without asking. Put the summary under `## Ticket` and the Mapping under `## Mapping` in the work log after approval. Then call ExitPlanMode. Approving that plan is the only approval.\n\
@@ -318,6 +318,12 @@ pub fn cli_in_mode(dir: &str, model: &str, mode: &str, prompt: &str) -> String {
     format!("cd {} && claude --model {} --permission-mode {mode}{p}", q(dir), q(model))
 }
 
+// The text of a list line: `- x`, `* x` or `1. x` / `1) x`; None for a line that is not a list item.
+fn listed(t: &str) -> Option<&str> {
+    if let Some(i) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) { return Some(i); }
+    let d = t.trim_start_matches(|c: char| c.is_ascii_digit());
+    if d.len() < t.len() { d.strip_prefix(". ").or_else(|| d.strip_prefix(") ")) } else { None }
+}
 // What the log says, section by section. Assumptions are the `- ` / `* ` lines under "## Assumptions".
 pub fn parse_log(text: &str) -> Value {
     let (mut status, mut sec) = (String::new(), String::new());
@@ -330,7 +336,11 @@ pub fn parse_log(text: &str) -> Value {
         // command output pasted under Checks, in code blocks: not items
         if sec.starts_with("check") && t.starts_with("```") { fence = !fence; continue; }
         if fence { continue; }
-        if let Some(h) = t.strip_prefix("## ") { sec = h.trim().to_lowercase(); continue; }
+        if let Some(h) = t.strip_prefix("## ") {
+            sec = h.trim().to_lowercase();
+            if sec.starts_with("map") { mapping.clear(); } // one Mapping: the last one wins (a plan may carry its own)
+            continue;
+        }
         if sec.starts_with("mr") { mr.push(l); continue; } // the merge request's own text, kept as written (blank lines too)
         if sec.starts_with("map") { mapping.push(l); continue; } // a table: kept as written
         if t.starts_with('#') { continue; }
@@ -339,8 +349,8 @@ pub fn parse_log(text: &str) -> Value {
         let item = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).unwrap_or(t);
         match sec.as_str() {
             s if s.starts_with("ticket") => ticket.push(t),
-            s if s.starts_with("question") => if t != item { questions.push(item) },
-            s if s.starts_with("later") => if t != item { later.push(item) },
+            s if s.starts_with("question") => if let Some(i) = listed(t) { questions.push(i) },
+            s if s.starts_with("later") => if let Some(i) = listed(t) { later.push(i) },
             s if s.starts_with("plan") => plan.push(t),
             s if s.starts_with("step") => steps.push(item),
             s if s.starts_with("assum") => if t != item { assume.push(item) },
@@ -739,16 +749,26 @@ mod tests {
         assert_eq!(p["questions"], json!(["[scope] Negative results? (ticket: \"any numbers\") -> yes"]));
         assert_eq!(p["later"], json!(["[approach] Rename add (math.js:3)"]));
         assert_eq!(p["mapping"], "| Requirement | Step |\n|---|---|\n| subtract | 1 |");
+        // numbered questions are kept; a Mapping given twice shows once (the last)
+        let q = parse_log("## Questions\n1. [scope] a (x) -> y\n2) [edge case] b (z) -> w\nfree\n## Mapping\n| old |\n## Mapping\n| new |\n");
+        assert_eq!((&q["questions"], &q["mapping"]), (&json!(["[scope] a (x) -> y", "[edge case] b (z) -> w"]), &json!("| new |")));
     }
 
     #[test]
     fn the_full_start_interviews_before_the_plan() {
         let r = rules("7-add-subtract", "/d", "en");
-        for must in ["Restate the ticket", "wait for me to confirm", "AskUserQuestion", "[scope], [approach], [edge case] or [done criteria]", "Out of scope for this ticket", "No source, no question", "about 8 questions", "\"No questions, because ...\"", "up to you", "`## Questions`", "`## Later`", "\"Mapping\"", "`## Mapping`"] {
+        for must in ["Restate the ticket", "wait for my answer", "AskUserQuestion", "[scope], [approach], [edge case] or [done criteria]", "Out of scope for this ticket", "No source, no question", "about 8 questions", "\"No questions, because ...\"", "up to you", "`## Questions`", "`## Later`", "\"Mapping\"", "`## Mapping`"] {
             assert!(r.contains(must), "{must}");
         }
         assert!(!r.contains("because nobody can answer now"));
-        assert!(rules("7-add-subtract", "/d", "vi").contains("your questions and the choices offered"));
+        // order: restate, then confirm, then the questions, then the plan with its mapping
+        let at = |k: &str| r.find(k).unwrap_or_else(|| panic!("{k}"));
+        assert!(at("Restate the ticket") < at("confirm it with the AskUserQuestion") && at("confirm it with the AskUserQuestion") < at("ask with the AskUserQuestion tool, in rounds") && at("ask with the AskUserQuestion tool, in rounds") < at("\"Mapping\"") && at("\"Mapping\"") < at("Approving that plan"));
+        assert!(r.contains("`## Ticket`, `## Questions`, `## Later` and `## Mapping` into the work log in one go"));
+        // Bobix's language: the interview is in it too, the tags stay English
+        let vi = rules("7-add-subtract", "/d", "vi");
+        assert!(vi.contains("restate the ticket and ask every question in Vietnamese") && vi.contains("translate that one") && vi.contains("tags `[scope]`"));
+        assert!(!r.contains("ask every question in"), "English has no language rule");
     }
 
     #[test]
