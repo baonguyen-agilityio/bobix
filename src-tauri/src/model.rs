@@ -76,12 +76,14 @@ pub fn closes_in(text: &str) -> Vec<i64> {
     C.captures_iter(text).flatten().filter_map(|m| m[1].parse().ok()).collect()
 }
 
-// The issue a session works on, and why: the session's own start (New on that issue), else the newest of its branches
-// that names one, else its parent's (a side session on a branch Claude names). `path`: its repository's project.
-pub fn issue_of_session(path: Option<&str>, started: Option<&Value>, branches: &[String], parent: Option<i64>) -> Option<(i64, Why)> {
+// The issue a session works on (its project and number), and why: the session's own start in Work, else the newest of
+// its branches that names one, else its parent's (a side session on a branch Claude names). `path`: its repository's
+// project. A start names its issue's project, which is another one when the issue's code is in this repository: the
+// session is listed under the issue it was started for.
+pub fn issue_of_session(path: Option<&str>, started: Option<&Value>, branches: &[String], parent: Option<(String, i64)>) -> Option<(String, i64, Why)> {
     let path = path?;
-    if let Some(s) = started.filter(|s| s["path"] == path) { return s["iid"].as_i64().map(|i| (i, Why::Started)); }
-    branches.iter().rev().find_map(|b| issue_of_branch(b)).map(|i| (i, Why::Branch)).or(parent.map(|i| (i, Why::Parent)))
+    if let Some((p, i)) = started.and_then(|s| Some((s["path"].as_str()?, s["iid"].as_i64()?))) { return Some((p.to_string(), i, Why::Started)); }
+    branches.iter().rev().find_map(|b| issue_of_branch(b)).map(|i| (path.to_string(), i, Why::Branch)).or(parent.map(|(p, i)| (p, i, Why::Parent)))
 }
 
 // ---------- pull requests (GitHub) and merge requests (GitLab) ----------
@@ -198,17 +200,17 @@ impl Model {
         for s in sessions.values() {
             let git = s.git.as_ref();
             let path = path_of(s);
-            let parent_iid = s.parent_host.as_deref().and_then(|h| by_host_git.get(h))
+            let parent_issue = s.parent_host.as_deref().and_then(|h| by_host_git.get(h))
                 .filter(|p| path.is_some() && path_of(p) == path)
-                .and_then(|p| issue_of_session(path.as_deref(), p.started.as_ref(), &branches_of(p), None)).map(|x| x.0);
-            let issue = git.and_then(|_| issue_of_session(path.as_deref(), s.started.as_ref(), &branches_of(s), parent_iid));
+                .and_then(|p| issue_of_session(path.as_deref(), p.started.as_ref(), &branches_of(p), None)).map(|x| (x.0, x.1));
+            let issue = git.and_then(|_| issue_of_session(path.as_deref(), s.started.as_ref(), &branches_of(s), parent_issue));
             let dir = git.map(|g| s.project.clone().filter(|p| !p.is_empty()).unwrap_or_else(|| g["top"].as_str().unwrap_or("").to_string()));
             m.sessions.push(SessionLinks {
                 id: s.id.clone(), status: s.state.clone(), since: s.since, last_activity: s.updated, pet: s.pet.clone(),
                 approvals: if s.state == "waiting" { vec![Approval { tool: s.ask_tool.clone(), ask: s.ask.clone(), since: s.since, held: s.answer.is_some() }] } else { vec![] },
                 dir: dir.map(|d| Via { to: Path { path: d }, why: Why::Folder }),
                 repo: path.clone().map(|p| Via { to: Path { path: p }, why: Why::Remote }),
-                issue: path.zip(issue).map(|(p, (iid, why))| Via { to: IssueRef { project: p, iid }, why }),
+                issue: issue.map(|(p, iid, why)| Via { to: IssueRef { project: p, iid }, why }),
                 parent: s.parent_host.as_deref().and_then(|h| by_host.get(h)).map(|p| Via { to: Id { id: p.id.clone() }, why: Why::Parent }),
             });
         }
@@ -317,14 +319,17 @@ mod tests {
         for b in ["release/2026-11", "hotfix/2026-11-09", "2026-11-09-notes", "v1/2-3"] { assert_eq!(issue_of_branch(b), None, "{b}: a date or a version"); }
         assert_eq!(issue_of_branch("feat/7-2fa-login"), Some(7), "a title that starts with a digit (2FA)");
         let b = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        let s = |br: &[&str], parent: Option<i64>, path: Option<&str>| issue_of_session(path, None, &b(br), parent);
-        assert_eq!(s(&["29-old", "main", "feat/31-new", "main"], None, Some("g/a")), Some((31, Why::Branch)), "the newest branch that names one");
+        let s = |br: &[&str], parent: Option<i64>, path: Option<&str>| issue_of_session(path, None, &b(br), parent.map(|i| ("g/a".to_string(), i)));
+        let a = |iid: i64, why: Why| Some(("g/a".to_string(), iid, why));
+        assert_eq!(s(&["29-old", "main", "feat/31-new", "main"], None, Some("g/a")), a(31, Why::Branch), "the newest branch that names one");
         assert_eq!(s(&["main", "HEAD"], None, Some("g/a")), None);
-        assert_eq!(s(&["claude/brave-otter"], Some(26), Some("g/a")), Some((26, Why::Parent)));
-        assert_eq!(s(&["29-x"], Some(26), Some("g/a")), Some((29, Why::Branch)), "its own branch first");
+        assert_eq!(s(&["claude/brave-otter"], Some(26), Some("g/a")), a(26, Why::Parent));
+        assert_eq!(s(&["29-x"], Some(26), Some("g/a")), a(29, Why::Branch), "its own branch first");
         assert_eq!(s(&["29-x"], None, None), None, "no project: no issue");
-        assert_eq!(issue_of_session(Some("g/a"), Some(&json!({ "path": "g/a", "iid": 7 })), &b(&["29-x"]), None), Some((7, Why::Started)), "started from an issue");
-        assert_eq!(issue_of_session(Some("g/a"), Some(&json!({ "path": "g/b", "iid": 7 })), &b(&["29-x"]), None), Some((29, Why::Branch)), "started in another project");
+        assert_eq!(issue_of_session(Some("g/a"), Some(&json!({ "path": "g/a", "iid": 7 })), &b(&["29-x"]), None), a(7, Why::Started), "started from an issue");
+        // started for an issue of another project, whose code is in this repository: that issue, in its own project
+        assert_eq!(issue_of_session(Some("g/a"), Some(&json!({ "path": "g/b", "iid": 7 })), &b(&["tracker-7-x"]), None), Some(("g/b".to_string(), 7, Why::Started)));
+        assert_eq!(issue_of_session(None, Some(&json!({ "path": "g/b", "iid": 7 })), &[], None), None, "a session in no project Bobix knows");
     }
 
     #[test]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-work-link"
+description = "Enables the work_link command without any pre-configured scope."
+commands.allow = ["work_link"]
+
+[[permission]]
+identifier = "deny-work-link"
+description = "Denies the work_link command without any pre-configured scope."
+commands.deny = ["work_link"]

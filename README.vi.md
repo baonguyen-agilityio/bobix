@@ -45,7 +45,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 ### Xem mỗi session dùng bao nhiêu
 - Với mỗi session đang chạy: token, phần dành để **đọc lại ngữ cảnh**, các model đã dùng (cả subagent) và thời gian làm việc, đọc từ transcript mà Claude Code ghi trên máy bạn.
 - So **với mức thường ngày của bạn**: "3,7× phiên thường ngày", học từ chính các session trước của bạn. Số đô chỉ là ước tính theo giá API, có ghi rõ, và tắt được; hạn mức thật vẫn xem bằng `/usage` trong Claude.
-- **Cảnh báo kèm lý do và cách xử lý**: session quá dài (chạy `/compact` hoặc mở session mới), model nặng cho việc nhẹ (`/model sonnet`), hay đọc khám phá liên tục (nhờ một subagent Haiku).
+- **Cảnh báo kèm lý do và cách xử lý**: session quá dài (mở session mới từ một bản tóm tắt ngắn, hoặc `/clear` nếu đổi việc), model nặng cho việc nhẹ (`/model sonnet`), hay đọc khám phá liên tục (nhờ subagent Explore có sẵn, chạy Haiku).
 
 ### Giữ bộ skill gọn gàng, chọn đúng model
 - **Rà soát skill theo project**: mọi skill Claude nạp ở đó, phần mô tả của chúng tốn bao nhiêu token mỗi lượt, skill không dùng trong 30 ngày và các bộ trùng nhau (`acme:build` và `team:build`).
@@ -54,11 +54,11 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 
 ### Chạy ticket của bạn
 - **Issue GitHub và GitLab của bạn** (tự bật, qua chính `gh` và `glab` của bạn): cần làm, đang làm cùng các session của nó, chờ review, xong hôm nay. Bobix gợi ý việc làm tiếp, cảnh báo khi hai session cùng làm một issue, và chỉ ra việc bị kẹt kèm bước tiếp theo.
-- **Bắt đầu** một session trên issue với prompt bạn sửa được, kèm skill gợi ý cho repo đó; session được đặt tên `[CODE-27] …`.
+- **Bắt đầu** một issue trong **Công việc**, theo một trong hai cách: **Đầy đủ** chạy luồng ticket (worktree và nhánh riêng, kế hoạch bạn duyệt, kiểm tra, review, MR / PR và CI); **Nhanh** mở một session Claude thường trong thư mục dự án với prompt bạn sửa được, kèm skill gợi ý cho repo đó. Session nào cũng được đặt tên `[CODE-27] …`. **Đổi thư mục…** trong hộp Bắt đầu trỏ dự án sang một bản clone khác.
 - **Stand-up và báo cáo hôm nay** dạng văn bản để chép. Bobix không gửi gì đi.
 
 ### Bảng điều khiển
-- Một cửa sổ có ô tìm kiếm và các màn hình: **Tổng quan** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session và issue), **Skill** và **Cài đặt**. **Công việc** và **Phòng** sắp có.
+- Một cửa sổ có ô tìm kiếm và các màn hình: **Tổng quan** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session Claude, nhóm theo issue), **Công việc** (issue cần bắt đầu, và luồng ticket), **Skill** và **Cài đặt**. **Phòng** sắp có.
 - Mọi thao tác đều có phím tắt, và ⌘K / Ctrl+K tìm bất kỳ thao tác, session hay màn hình nào.
 
 ### Và

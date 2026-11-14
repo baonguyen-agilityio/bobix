@@ -13,22 +13,25 @@
 // Never touches Claude's login, credentials or settings files.
 use crate::{skills::{self, Skill}, usage::iso_ms};
 use serde_json::{json, Value};
-use std::{collections::{BTreeMap, HashMap, HashSet}, fs, io::{BufRead, BufReader}, path::{Path, PathBuf}, sync::Mutex, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{collections::{BTreeMap, HashMap, HashSet}, fs, io::{BufRead, BufReader}, path::{Path, PathBuf}, sync::{LazyLock, Mutex}, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 const DAY_MS: u64 = 86_400_000;
 const DAYS: u64 = 30;
 
 pub const RULES: &str = "## When to split, which model
-- Read-only exploration (search, read, map code): a Haiku subagent.
+- Read-only exploration (search, read, map code): the built-in
+  Explore subagent (Haiku).
 - Edits and tests: Sonnet.
 - A risky change to review, or a design choice: Opus.
 - Small task (one area, under ~30 min): one Sonnet session, no split.
-- Keep the lead session thin: hand out work, collect results,
-  /compact when context passes 60%.
-- One session per ticket. Past 2× your usual length, start fresh
-  with a summary.";
+- Keep the lead session thin: hand out work, collect results.
+- One session per ticket; /clear between unrelated tasks. Past 2×
+  your usual length, start a new session from a short summary.";
 const OPEN: &str = "<!-- bobix:routing (added by Bobix; take it out from Bobix's Skills screen) -->";
 const CLOSE: &str = "<!-- /bobix:routing -->";
+// The one-line Tests entry Bobix can add to CLAUDE.md (the command Claude runs to check its work), between its own markers.
+const TOPEN: &str = "<!-- bobix:tests (added by Bobix; take it out from Bobix's Skills screen) -->";
+const TCLOSE: &str = "<!-- /bobix:tests -->";
 
 pub fn now_ms() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }
 
@@ -277,7 +280,7 @@ pub fn undo(data: &Path, id: &str) -> Value {
     let _w = WRITE.lock().unwrap();
     let Some((p, e)) = entry(data, id) else { return err("no such backup") };
     let Some(path) = e["path"].as_str().map(PathBuf::from) else { return err("bad backup") };
-    let r = if e["kind"] == "rules" { undo_rules(&p, &path) } else {
+    let r = if e["kind"] == "rules" { undo_block(&p, &path, OPEN, CLOSE) } else if e["kind"] == "tests" { undo_block(&p, &path, TOPEN, TCLOSE) } else {
         if fs::symlink_metadata(&path).is_ok() { return err("a skill is already there; move it away first"); }
         fs::create_dir_all(path.parent().unwrap_or(Path::new("/"))).and_then(|_| move_tree(&p.join("skill"), &path)).map(|_| json!({ "ok": true }))
     };
@@ -304,19 +307,23 @@ pub fn rules_status(dir: &Path, data: &Path) -> Value {
 }
 
 // Adds the block at the end of the project's CLAUDE.md (made when there is none), after a backup.
-pub fn rules_add(dir: &Path, data: &Path) -> Value {
+pub fn rules_add(dir: &Path, data: &Path) -> Value { add_block(dir, data, "rules", OPEN, &block()) }
+
+// The block `text` (starting with its `open` marker) at the end of the project's CLAUDE.md, after a backup kept as a
+// change of `kind` you can undo.
+fn add_block(dir: &Path, data: &Path, kind: &str, open: &str, text: &str) -> Value {
     let _w = WRITE.lock().unwrap();
     let file = claude_md(dir);
     let before = match fs::read(&file) { Ok(b) => Some(b), Err(e) if e.kind() == std::io::ErrorKind::NotFound => None, Err(e) => return err(e) };
-    if before.as_ref().is_some_and(|b| String::from_utf8_lossy(b).contains(OPEN)) { return err("the block is already there"); }
+    if before.as_ref().is_some_and(|b| String::from_utf8_lossy(b).contains(open)) { return err("the block is already there"); }
     let mut after = before.clone().unwrap_or_default();
     if !after.is_empty() { if !after.ends_with(b"\n") { after.push(b'\n'); } after.push(b'\n'); }
-    after.extend_from_slice(block().as_bytes());
+    after.extend_from_slice(text.as_bytes());
     let r = (|| -> std::io::Result<String> {
         let (id, p) = new_entry(data)?;
         if let Some(b) = &before { fs::write(p.join("before"), b)?; }
         fs::write(p.join("after"), &after)?;
-        fs::write(p.join("entry.json"), serde_json::to_vec_pretty(&json!({ "id": id, "kind": "rules", "name": "CLAUDE.md", "path": file, "existed": before.is_some(), "at": now_ms() }))?)?;
+        fs::write(p.join("entry.json"), serde_json::to_vec_pretty(&json!({ "id": id, "kind": kind, "name": "CLAUDE.md", "path": file, "existed": before.is_some(), "at": now_ms() }))?)?;
         if let Err(e) = fs::write(&file, &after) { let _ = fs::remove_dir_all(&p); return Err(e); }
         Ok(id)
     })();
@@ -324,7 +331,7 @@ pub fn rules_add(dir: &Path, data: &Path) -> Value {
 }
 
 // As it was when the file is as Bobix left it; edited since: only the block comes out, the edits stay.
-fn undo_rules(p: &Path, file: &Path) -> std::io::Result<Value> {
+fn undo_block(p: &Path, file: &Path, open: &str, close: &str) -> std::io::Result<Value> {
     let now = match fs::read(file) { Ok(b) => Some(b), Err(e) if e.kind() == std::io::ErrorKind::NotFound => None, Err(e) => return Err(e) };
     if now.as_deref() == Some(fs::read(p.join("after"))?.as_slice()) {
         match fs::read(p.join("before")) {
@@ -335,14 +342,65 @@ fn undo_rules(p: &Path, file: &Path) -> std::io::Result<Value> {
     }
     let Some(now) = now else { return Ok(json!({ "ok": true, "exact": false })) }; // already gone
     let t = String::from_utf8_lossy(&now).into_owned();
-    let (Some(a), Some(b)) = (t.find(OPEN), t.find(CLOSE)) else { return Ok(json!({ "ok": true, "exact": false })) };
+    let (Some(a), Some(b)) = (t.find(open), t.find(close)) else { return Ok(json!({ "ok": true, "exact": false })) };
     if b < a { return Ok(json!({ "ok": false, "error": "the block's markers are out of order; edit CLAUDE.md by hand" })); }
-    let mut end = b + CLOSE.len();
+    let mut end = b + close.len();
     if t[end..].starts_with('\n') { end += 1; }
     let mut start = a;
     if t[..start].ends_with("\n\n") { start -= 1; } // the blank line Bobix put before it
     fs::write(file, format!("{}{}", &t[..start], &t[end..]))?;
     Ok(json!({ "ok": true, "exact": false }))
+}
+
+// ---------- does CLAUDE.md say how to check the work? ----------
+
+// A test command in CLAUDE.md: a "Tests:" entry, or a line naming one (npm test, cargo test, pytest…).
+static TEST_CMD: LazyLock<fancy_regex::Regex> = LazyLock::new(|| fancy_regex::Regex::new(concat!(
+    r"(?im)^\s*(?:[-*]\s*)?(?:\*\*)?(?:tests?|testing)(?:\*\*)?\s*:|\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\bcargo\s+(?:test|nextest)\b|\bpytest\b",
+    r"|\bgo\s+test\b|\bmake\s+(?:test|check)\b|\b(?:mvn|gradlew?|\./gradlew)\s+test\b|\bdotnet\s+test\b|\bnode\s+--test\b|\bdeno\s+test\b|\b(?:rspec|phpunit|vitest|jest|tox)\b")).unwrap());
+pub fn has_test_command(text: &str) -> bool { TEST_CMD.is_match(text).unwrap_or(false) }
+
+// The test command the repository itself suggests: its package.json test script (with the package manager its lock
+// file names), Cargo, Go, pytest, or make test. None when nothing says.
+pub fn suggest_tests(root: &Path) -> Option<String> {
+    let has = |f: &str| root.join(f).is_file();
+    if let Some(p) = fs::read_to_string(root.join("package.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+        let t = p["scripts"]["test"].as_str().unwrap_or("");
+        if !t.is_empty() && !t.contains("no test specified") {
+            let pm = if has("pnpm-lock.yaml") { "pnpm" } else if has("yarn.lock") { "yarn" } else if has("bun.lockb") || has("bun.lock") { "bun" } else { "npm" };
+            return Some(format!("{pm} test"));
+        }
+    }
+    if has("Cargo.toml") { return Some("cargo test".into()); }
+    if has("go.mod") { return Some("go test ./...".into()); }
+    if has("pytest.ini") || fs::read_to_string(root.join("pyproject.toml")).is_ok_and(|t| t.contains("pytest")) { return Some("pytest".into()); }
+    if fs::read_to_string(root.join("Makefile")).is_ok_and(|t| t.lines().any(|l| l.starts_with("test:"))) { return Some("make test".into()); }
+    None
+}
+
+// The project's CLAUDE.md: whether there is one, whether it names a test command, the command to suggest, and the
+// backup that undoes the Tests entry Bobix added. { file, exists, test, suggest, undo }
+pub fn claude_check(dir: &Path, data: &Path) -> Value {
+    let file = claude_md(dir);
+    let text = fs::read_to_string(&file).ok();
+    let undo = backups(data).as_array().into_iter().flatten().find(|e| e["kind"] == "tests" && e["path"] == json!(file)).map(|e| e["id"].clone());
+    json!({ "file": file, "exists": text.is_some(), "test": text.as_deref().is_some_and(has_test_command), "suggest": suggest_tests(&skills::repo_root(dir)), "undo": undo })
+}
+
+// Adds "Tests: `<cmd>`" to the project's CLAUDE.md (made when there is none), between Bobix's markers, after a backup.
+pub fn tests_add(dir: &Path, data: &Path, cmd: &str) -> Value {
+    let c = cmd.trim();
+    if c.is_empty() || c.len() > 200 || c.contains('\n') || c.contains('`') || c.contains("-->") { return err("one command on one line, without backticks"); }
+    add_block(dir, data, "tests", TOPEN, &format!("{TOPEN}\nTests: `{c}`\n{TCLOSE}\n"))
+}
+
+// The Tests line Bobix added to a main folder's CLAUDE.md (`from`; not committed, so a worktree cut from the remote
+// lacks it) put into the worktree's CLAUDE.md (`to`) when that names no test command: the session there reads it.
+pub fn carry_tests(from: &Path, to: &Path, data: &Path) -> bool {
+    let Ok(t) = fs::read_to_string(claude_md(from)) else { return false };
+    let Some(cmd) = t.find(TOPEN).and_then(|i| t[i..].lines().find_map(|l| l.strip_prefix("Tests: `")?.strip_suffix('`'))) else { return false };
+    if fs::read_to_string(claude_md(to)).is_ok_and(|x| has_test_command(&x)) { return false; }
+    tests_add(to, data, cmd)["ok"] == true
 }
 
 #[cfg(test)]
@@ -489,6 +547,39 @@ mod tests {
         fs::write(&file, &t2).unwrap();
         assert_eq!(undo(&data, r["id"].as_str().unwrap())["exact"], false);
         assert_eq!(fs::read_to_string(&file).unwrap(), "# Project\n\nMy note.\n");
+        let _ = fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn claude_md_check_and_the_tests_line() {
+        let t = scratch("tests-line");
+        let (repo, data) = (t.join("repo"), t.join("data"));
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        let file = repo.join("CLAUDE.md");
+        let c = claude_check(&repo, &data);
+        assert_eq!((&c["exists"], &c["test"], &c["suggest"]), (&json!(false), &json!(false), &Value::Null), "no CLAUDE.md, nothing to suggest");
+        write(&repo.join("package.json"), r#"{ "scripts": { "test": "node --test" } }"#);
+        write(&repo.join("pnpm-lock.yaml"), "");
+        assert_eq!(claude_check(&repo, &data)["suggest"], "pnpm test");
+        write(&file, "# Shop\n\nUse 2 spaces.\n");
+        assert_eq!(claude_check(&repo, &data)["test"], false);
+        assert_eq!(tests_add(&repo, &data, "pnpm test`; rm -rf /")["ok"], false, "one plain command");
+        let r = tests_add(&repo, &data, " pnpm test ");
+        assert_eq!(r["ok"], true, "{r}");
+        assert!(fs::read_to_string(&file).unwrap().ends_with("Use 2 spaces.\n\n<!-- bobix:tests (added by Bobix; take it out from Bobix's Skills screen) -->\nTests: `pnpm test`\n<!-- /bobix:tests -->\n"));
+        let c = claude_check(&repo, &data);
+        assert_eq!((&c["test"], &c["undo"]), (&json!(true), &r["id"]));
+        assert_eq!(tests_add(&repo, &data, "pnpm test")["ok"], false, "once");
+        assert_eq!(undo(&data, r["id"].as_str().unwrap())["exact"], true);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "# Shop\n\nUse 2 spaces.\n");
+        for (text, yes) in [("Run `cargo test` before a PR.", true), ("- **Tests:** see below", true), ("make check", true), ("npx vitest run", true), ("We test by hand.", false), ("contest results", false)] {
+            assert_eq!(has_test_command(text), yes, "{text}");
+        }
+        for (f, body, want) in [("Cargo.toml", "", "cargo test"), ("go.mod", "", "go test ./..."), ("pytest.ini", "", "pytest"), ("Makefile", "build:\n\ntest:\n\tgo vet\n", "make test")] {
+            let r2 = t.join(format!("r-{f}"));
+            write(&r2.join(f), body);
+            assert_eq!(suggest_tests(&r2).as_deref(), Some(want), "{f}");
+        }
         let _ = fs::remove_dir_all(&t);
     }
 

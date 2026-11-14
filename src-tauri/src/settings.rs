@@ -12,7 +12,7 @@ pub fn defaults() -> Value {
         "size": 56, "opacity": 1, "fadeNearCursor": true, "showIdle": true, "approveWait": -1, "longWait": 10, "sleepHide": 30, "stuckOn": true, "stuckNoPr": 2, "stuckNoReview": 24, "stuckBranch": 4, "stuckIdle": 4, "stuckMaxAge": 14, "stuckSkipped": {},
         "onlyAttention": false, "label": "title", "clickAction": "focus", "notifyWaiting": true, "notifyDone": true, "badge": true,
         "sound": true, "paused": false, "petsVisible": true, "autostart": false, "checkUpdates": true, "guideSeen": false, "tourSeen": [],
-        "seenVersion": "", "gitlab": false, "github": false, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "petImages": {},
+        "seenVersion": "", "gitlab": true, "github": true, "role": "", "skillPins": {}, "skillProcess": {}, "workProjects": [], "workKeys": {}, "workDirs": {}, "workDirsOff": [], "workRepos": {}, "workCode": {}, "workFilter": "all", "petImages": {},
         "habitsOn": false, "habitsNo": {}, "habitsHidden": {}, "habitsSkill": {}, "habitsPetDay": "",
         "habitScan": false, // habits become skills (habit_skills.rs): the weekly scan, also needs usageContent
         // usage per session (usage.rs): the API-equivalent estimate shown, prompt kinds read (opt-in), the warnings and when.
@@ -34,6 +34,7 @@ fn enum_of(k: &str) -> Option<&'static [&'static str]> {
         "label" => &["title", "folder", "both"],
         "clickAction" => &["focus", "panel"],
         "role" => &["", "ba", "qa", "dev"], // what you do, to suggest a skill when you start an issue
+        "workFilter" => &["all", "mine", "unassigned"], // the Work list: every open issue, the ones assigned to you, or to no one
         _ => return None,
     })
 }
@@ -192,7 +193,36 @@ pub fn sanitize(input: &Value, base: &Value) -> Value {
                     .filter_map(|(p, x)| Some((p.to_lowercase(), crate::process::parse(&x.to_string()).ok()?))).take(50).collect();
                 out.insert(k.into(), Value::Object(m));
             }
-        } else if k == "workProjects" {
+        } else if k == "workDirs" { // project path → { dir (absolute), how: found | chosen | cloned }: local clones (clones.rs)
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter().filter(|(p, _)| project_path(p)).filter_map(|(p, e)| {
+                    let d = e["dir"].as_str().filter(|d| std::path::Path::new(d).is_absolute() && d.encode_utf16().count() < 1024)?;
+                    let how = e["how"].as_str().filter(|h| ["found", "chosen", "cloned"].contains(h)).unwrap_or("chosen");
+                    Some((p.to_lowercase(), json!({ "dir": d, "how": how })))
+                }).take(300).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "workRepos" { // host → the repositories ticked in the repo picker (project paths)
+            if let Some(o) = v.as_object() {
+                let host = |h: &str| (1..=255).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_alphanumeric() || b".-:".contains(&b));
+                let m: Map<String, Value> = o.iter().filter(|(h, _)| host(h)).filter_map(|(h, a)| {
+                    let mut seen: Vec<String> = Vec::new();
+                    for p in a.as_array()?.iter().filter_map(|p| p.as_str()).filter(|p| project_path(p)) {
+                        let p = p.to_lowercase();
+                        if !seen.contains(&p) { seen.push(p); }
+                    }
+                    seen.truncate(1000);
+                    Some((h.to_lowercase(), json!(seen)))
+                }).take(20).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "workCode" { // issue repository → the repository its issues' code is in (the Start box's suggestion)
+            if let Some(o) = v.as_object() {
+                let m: Map<String, Value> = o.iter().filter(|(p, c)| project_path(p) && c.as_str().is_some_and(project_path))
+                    .take(300).map(|(p, c)| (p.to_lowercase(), json!(c.as_str().unwrap_or("").to_lowercase()))).collect();
+                out.insert(k.into(), Value::Object(m));
+            }
+        } else if k == "workDirsOff" || k == "workProjects" {
             if let Some(a) = v.as_array() {
                 let mut seen: Vec<String> = Vec::new();
                 for p in a.iter().filter_map(|p| p.as_str()).filter(|p| project_path(p)) {
@@ -231,7 +261,13 @@ pub fn hold_secs(settings: &Value, pet: &str) -> f64 {
 pub fn load(file: &Path) -> Value {
     let d = defaults();
     fs::read_to_string(file).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .map(|v| sanitize(&v, &d)).unwrap_or(d)
+        .map(|v| upgrade(sanitize(&v, &d), &v)).unwrap_or(d)
+}
+// Settings from before the repo picker (no workRepos yet) kept GitLab and GitHub off, the old default, written to the
+// file with the rest: both go on once, as on a new install (each still reads only where its CLI is signed in).
+fn upgrade(mut s: Value, raw: &Value) -> Value {
+    if raw.get("workRepos").is_none() { s["gitlab"] = json!(true); s["github"] = json!(true); }
+    s
 }
 
 // Written whole to a temporary file, then renamed over the old one: a crash never leaves half a file.
@@ -458,11 +494,24 @@ mod tests {
 
     #[test]
     fn work_settings() {
-        assert_eq!(defaults()["gitlab"], false);
-        assert_eq!(defaults()["github"], false);
+        assert_eq!((&defaults()["gitlab"], &defaults()["github"]), (&json!(true), &json!(true)), "on where the CLI is signed in");
+        let old = json!({ "gitlab": false, "github": false, "port": 4800 });
+        assert_eq!((upgrade(s(old.clone()), &old)["github"].clone(), upgrade(s(old.clone()), &old)["port"].clone()), (json!(true), json!(4800)), "the old default goes on once");
+        let now = json!({ "gitlab": false, "github": false, "workRepos": {} });
+        assert_eq!(upgrade(s(now.clone()), &now)["github"], false, "turned off since: stays off");
+        assert_eq!(s(json!({ "workFilter": "mine" }))["workFilter"], "mine");
+        assert_eq!(s(json!({ "workCode": { "Group/Space-v2": "group/Space-Agent", "a/b": "nope", "x": "a/b" } }))["workCode"], json!({ "group/space-v2": "group/space-agent" }));
+        assert_eq!(s(json!({ "workFilter": "others" }))["workFilter"], "all");
+        assert_eq!(s(json!({ "workRepos": { "GitHub.com": ["Acme/Shop", "acme/shop", "nope"], "ghe.example.com:8443": ["a/b"], "bad host": ["a/b"], "x": "a/b" } }))["workRepos"],
+            json!({ "github.com": ["acme/shop"], "ghe.example.com:8443": ["a/b"] }));
         assert!(s(json!({ "gitlabUrl": "https://x" })).get("gitlabUrl").is_none());
         assert_eq!(s(json!({ "workProjects": ["Team/Shop-App", "team/shop-app", "g/sub/p", "nopath", "../x", 3, "a/b c"] }))["workProjects"], json!(["team/shop-app", "g/sub/p"]));
         assert_eq!(s(json!({ "workProjects": "team/x" }))["workProjects"], json!([]));
+        let abs = |p: &str| if cfg!(windows) { format!("C:{p}") } else { p.to_string() }; // absolute on this system
+        let (shop, cd) = (abs("/Users/me/code/web-shop"), abs("/c/d"));
+        assert_eq!(s(json!({ "workDirs": { "Acme/Web-Shop": { "dir": shop, "how": "found" }, "a/b": { "dir": "relative/x" }, "x": { "dir": abs("/x") }, "c/d": { "dir": cd, "how": "evil" } } }))["workDirs"],
+            json!({ "acme/web-shop": { "dir": shop, "how": "found" }, "c/d": { "dir": cd, "how": "chosen" } }), "absolute folders of project paths only");
+        assert_eq!(s(json!({ "workDirsOff": ["Acme/Web-Shop", "nope"] }))["workDirsOff"], json!(["acme/web-shop"]));
         assert_eq!(s(json!({ "workKeys": { "Team/App": "BAK", "x": "BAK", "a/b": "bad" } }))["workKeys"], json!({ "team/app": "BAK" }));
     }
 

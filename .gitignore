@@ -6,3 +6,7 @@ build/
 src-tauri/target/
 src-tauri/gen/
 plans/
+# Claude Code: only .claude/settings.json is shared; worktrees and personal overrides stay local
+.claude/worktrees/
+.claude/settings.local.json
+CLAUDE.local.md

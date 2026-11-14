@@ -74,7 +74,7 @@ pub fn claude_sessions(root: &Path) -> Vec<ClaudeSession> {
 
 // The newest of those sessions in folder `dir` whose name `named` accepts (an issue's, see model::names_issue).
 pub fn issue_session(list: &[ClaudeSession], dir: &str, named: impl Fn(&str) -> bool) -> Option<String> {
-    list.iter().filter(|s| s.cwd == dir && named(&s.title)).max_by(|a, b| a.at.total_cmp(&b.at)).map(|s| s.id.clone())
+    list.iter().filter(|s| crate::paths::same_dir(&s.cwd, dir) && named(&s.title)).max_by(|a, b| a.at.total_cmp(&b.at)).map(|s| s.id.clone())
 }
 
 #[cfg(test)]
