@@ -233,10 +233,10 @@ fn p256_high_s_signature_verifies() {
     use p256::ecdsa::Signature;
     let s = SoftSigner::generate();
     let any = Signature::from_der(&s.sign(b"msg")).unwrap();
-    let low = any.normalize_s().unwrap_or(any);
+    let low = any.normalize_s();
     // Flip S to n - S: the hardware signers do not normalise, so both forms must verify.
     let (r, sv) = low.split_scalars();
     let high = Signature::from_scalars(r, -*sv).unwrap();
-    assert!(high.normalize_s().is_some(), "built a high-S signature");
+    assert_ne!(high, high.normalize_s(), "built a high-S signature");
     assert_eq!(s.public().verify(b"msg", high.to_der().as_bytes()), Ok(()));
 }

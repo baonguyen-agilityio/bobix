@@ -91,14 +91,14 @@ impl SignPublic {
     }
 
     pub fn to_sec1(&self) -> [u8; 33] {
-        self.0.to_encoded_point(true).as_bytes().try_into().expect("a compressed P-256 point is 33 bytes")
+        self.0.to_sec1_point(true).as_bytes().try_into().expect("a compressed P-256 point is 33 bytes")
     }
 
     /// `der` is an ECDSA signature over SHA-256(`msg`) in DER. A high-S signature verifies too: the secure hardware
     /// does not normalise S.
     pub fn verify(&self, msg: &[u8], der: &[u8]) -> Result<(), SignError> {
         let sig = Signature::from_der(der).map_err(|_| SignError::Encoding)?;
-        let sig = sig.normalize_s().unwrap_or(sig);
+        let sig = sig.normalize_s();
         self.0.verify(msg, &sig).map_err(|_| SignError::Invalid)
     }
 }
