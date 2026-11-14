@@ -70,6 +70,7 @@ jobs:
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           claude_args: |
             --model claude-opus-5-5
+            --effort high
             --max-turns 25
             --allowedTools "mcp__github_inline_comment__create_inline_comment"
       # The docs check reads the diff and the comments already on the pull request from files, so it needs no shell.
@@ -136,6 +137,7 @@ jobs:
               how many you skipped as already raised.
           claude_args: |
             --model claude-opus-5-5
+            --effort high
             --max-turns 25
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Grep,Glob"
             --disallowedTools "Bash,Edit,Write,MultiEdit,NotebookEdit"
