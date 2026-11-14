@@ -258,7 +258,7 @@ pub fn room(free: Option<u64>) -> Option<u64> { free.map(|f| f / WORKTREE_BYTES)
 // section, the merge request's description in English.
 pub fn template(iid: i64, title: &str, lang: &str) -> String {
     let mr = if lang_name(lang).is_some() { "\n## MR (English)\n" } else { "" };
-    format!("# Work log: #{iid} {title}\n\nStatus: planning\n\n## Plan\n\n## Steps\n\n## Assumptions\n\n## Checks\n\n## Result\n{mr}")
+    format!("# Work log: #{iid} {title}\n\nStatus: planning\n\n## Ticket\n\n## Questions\n\n## Later\n\n## Plan\n\n## Mapping\n\n## Steps\n\n## Assumptions\n\n## Checks\n\n## Result\n{mr}")
 }
 // The languages a work log can be in other than English (Bobix's own languages).
 pub fn lang_name(lang: &str) -> Option<&'static str> { match lang { "vi" => Some("Vietnamese"), _ => None } }
@@ -270,14 +270,19 @@ pub fn rules(branch: &str, dir: &str, lang: &str) -> String {
     let base = rules_en(branch, dir);
     let Some(name) = lang_name(lang) else { return base };
     format!("{base}\n\
-6. Language: write the work log in {name}: the plan, your questions, the assumptions, the steps, your notes under Checks, what blocks you and the result. Keep code, file names, commands, command output and identifiers exactly as they are. Keep the template's headings, `Status:` with its English values (planning, running, done, blocked) and the `- Review: ` / `- None: ` prefixes in English, as written.\n\
+6. Language: write the work log in {name}: the ticket summary, your questions and the choices offered, the plan and its mapping, the assumptions, the steps, your notes under Checks, what blocks you and the result. Keep code, file names, commands, command output and identifiers exactly as they are. Keep the template's headings, `Status:` with its English values (planning, running, done, blocked) and the `- Review: ` / `- None: ` prefixes in English, as written.\n\
 7. What the team reads stays English: write commit messages in English, and fill `## MR (English)` in the work log with the merge request's description for the team, in English: what changed and why, the assumptions, the checks you ran. Write it for that reader; do not translate the log line by line.")
 }
 fn rules_en(branch: &str, dir: &str) -> String {
     format!("How to work on this ticket (Bobix ticket flow):\n\
-1. Call the EnterPlanMode tool now, before changing anything. Read what you need, then write the plan. It must end with a section \"Assumptions\": what you assume because nobody can answer now. Then call ExitPlanMode. Approving that plan is the only approval.\n\
+1. Call the EnterPlanMode tool now, before changing anything. Read the ticket and the code first, then interview me before you plan. Facts are your job: never ask what the ticket or the code already answers. Decisions are mine.\n\
+   a. Restate the ticket in one screen: the goal, what to do, what not to do, what \"done\" means. Write it under `## Ticket` in the work log, show it, and wait for me to confirm or correct it. Ask nothing before I confirm. Every later question must serve this summary.\n\
+   b. If nothing is left to decide, say \"No questions, because ...\" in one line and go straight to the plan. Do not ask for the sake of asking.\n\
+   c. Otherwise ask with the AskUserQuestion tool, in rounds. A round holds only questions whose answer does not depend on another open question; ask the dependent ones in the next round. Give each question choices, your recommended choice first (say why, with the evidence), and as the last choice \"Out of scope for this ticket\". Start each question with its tag in brackets: [scope], [approach], [edge case] or [done criteria]. Name its source in the question: a quote from the ticket, or a file and line in the code. No source, no question. If I pick \"Out of scope for this ticket\", drop it, add it under `## Later` and keep it out of the plan. If I answer \"up to you\", write it under Assumptions and do not ask it again.\n\
+   d. Stop when nothing is left silently assumed, or after about 8 questions in all. Record each question under `## Questions` as one `- ` line: `[tag] the question (source) -> my answer`.\n\
+   e. Then write the plan. It must end with a section \"Mapping\" (a table: each requirement of the ticket -> the plan step that does it; each answer of mine -> the step that uses it; a requirement with no step, or a step with no source, must show) and a section \"Assumptions\": what you assume without asking. Copy the Mapping under `## Mapping` in the work log. Then call ExitPlanMode. Approving that plan is the only approval.\n\
 2. This ticket has its own git worktree: `{dir}`, on branch `{branch}`. Work there to the end. If this session did not start in that folder: when it started in a worktree Claude made for it (a folder under `.claude/worktrees`), stay in that worktree and on its branch; when it started anywhere else (the repository's main folder), run `cd` into `{dir}` before anything else and read, change and commit only there. Files that were already changed before you started are not this ticket's: leave them as they are. After approval, do not stop to ask, except for these: pushing to the main branch, deleting data, calling hosts this project does not already use, and touching secrets. Commit on the branch of the folder you work in; do not push to the main branch.\n\
-3. Keep the work log in `{dir}/{LOG_DIR}/{LOG_FILE}`, or in `{LOG_DIR}/{LOG_FILE}` of the worktree Claude made for you when you stay there (Bobix puts it there; git ignores it; it is for me only, never commit or share it). Never start a work log in the repository's main folder. Fill in its template: `Status:` (planning, running, done or blocked), `## Plan` (the approved plan in short), `## Steps` (one line per step as you go), `## Assumptions` (one `- ` line for each assumption you make along the way, also after approval), `## Checks` (steps 4 and 5), `## Result` (what you did, or what blocks you). Update it as you work.\n\
+3. Keep the work log in `{dir}/{LOG_DIR}/{LOG_FILE}`, or in `{LOG_DIR}/{LOG_FILE}` of the worktree Claude made for you when you stay there (Bobix puts it there; git ignores it; it is for me only, never commit or share it). Never start a work log in the repository's main folder. Fill in its template: `Status:` (planning, running, done or blocked), `## Ticket`, `## Questions` and `## Later` (rule 1), `## Plan` (the approved plan in short), `## Mapping` (rule 1), `## Steps` (one line per step as you go), `## Assumptions` (one `- ` line for each assumption you make along the way, also after approval), `## Checks` (steps 4 and 5), `## Result` (what you did, or what blocks you). Update it as you work.\n\
 4. Before you set `Status: done`, run the project's tests, build and lint: the commands in CLAUDE.md, else the ones the project clearly uses. Under `## Checks`, add one `- ` line per command with the command in backticks, then the last lines of its output in a code block. If the project has none, write `- None: ` and why.\n\
 5. Then review your change against the approved plan and the Assumptions: run `/code-review`, or ask a read-only reviewer subagent. Fix what affects correctness, run the checks again, and add a `- Review: ` line under `## Checks` with what it found and what you fixed. Then set the status.")
 }
@@ -317,6 +322,7 @@ pub fn cli_in_mode(dir: &str, model: &str, mode: &str, prompt: &str) -> String {
 pub fn parse_log(text: &str) -> Value {
     let (mut status, mut sec) = (String::new(), String::new());
     let (mut plan, mut steps, mut assume, mut result, mut checks, mut raw, mut mr) = (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
+    let (mut ticket, mut questions, mut later, mut mapping) = (vec![], vec![], vec![], vec![]);
     let mut fence = false;
     for l in text.lines() {
         let t = l.trim();
@@ -326,11 +332,15 @@ pub fn parse_log(text: &str) -> Value {
         if fence { continue; }
         if let Some(h) = t.strip_prefix("## ") { sec = h.trim().to_lowercase(); continue; }
         if sec.starts_with("mr") { mr.push(l); continue; } // the merge request's own text, kept as written (blank lines too)
+        if sec.starts_with("map") { mapping.push(l); continue; } // a table: kept as written
         if t.starts_with('#') { continue; }
         if sec.is_empty() { if let Some(s) = t.strip_prefix("Status:") { status = s.trim().to_lowercase(); } continue; }
         if t.is_empty() { continue; }
         let item = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).unwrap_or(t);
         match sec.as_str() {
+            s if s.starts_with("ticket") => ticket.push(t),
+            s if s.starts_with("question") => if t != item { questions.push(item) },
+            s if s.starts_with("later") => if t != item { later.push(item) },
             s if s.starts_with("plan") => plan.push(t),
             s if s.starts_with("step") => steps.push(item),
             s if s.starts_with("assum") => if t != item { assume.push(item) },
@@ -347,7 +357,7 @@ pub fn parse_log(text: &str) -> Value {
     let low = |c: &&str| c.to_lowercase();
     let ran = checks.iter().filter(|c| { let c = low(c); !c.starts_with("none") && !c.starts_with("review") }).count();
     let reviewed = checks.iter().any(|c| low(&c).starts_with("review"));
-    json!({ "status": status, "plan": plan.join("\n"), "steps": steps, "assumptions": assume, "result": result.join("\n"),
+    json!({ "status": status, "ticket": ticket.join("\n"), "questions": questions, "later": later, "mapping": mapping.join("\n").trim().to_string(), "plan": plan.join("\n"), "steps": steps, "assumptions": assume, "result": result.join("\n"),
         "checks": checks, "ran": ran, "reviewed": reviewed, "checksText": raw.join("\n").trim().to_string(), "mr": mr.join("\n").trim().to_string() })
 }
 
@@ -691,7 +701,7 @@ mod tests {
     #[test]
     fn the_log_reads_back_section_by_section() {
         let t = template(7, "Add subtract", "en");
-        assert_eq!(parse_log(&t), json!({ "status": "planning", "plan": "", "steps": [], "assumptions": [], "result": "", "checks": [], "ran": 0, "reviewed": false, "checksText": "", "mr": "" }));
+        assert_eq!(parse_log(&t), json!({ "status": "planning", "ticket": "", "questions": [], "later": [], "mapping": "", "plan": "", "steps": [], "assumptions": [], "result": "", "checks": [], "ran": 0, "reviewed": false, "checksText": "", "mr": "" }));
         let filled = t.replace("Status: planning", "Status: done (all tests pass)")
             .replace("## Plan\n", "## Plan\nAdd `subtract` next to `add`.\n")
             .replace("## Steps\n", "## Steps\n- Read math.js\n- Added subtract\n")
@@ -715,6 +725,30 @@ mod tests {
         assert_eq!((&none["ran"], &none["checks"]), (&json!(0), &json!(["None: no tests in this repo"])));
         let plan = parse_log("## Plan\n```\ncode\n```\n## Steps\n- a\n");
         assert_eq!((&plan["plan"], &plan["steps"]), (&json!("```\ncode\n```"), &json!(["a"])), "code in the plan stays");
+    }
+
+    #[test]
+    fn the_interview_is_kept_in_the_log() {
+        let log = template(7, "Add subtract", "en")
+            .replace("## Ticket\n", "## Ticket\nGoal: subtract. Not: divide. Done: tests pass.\n")
+            .replace("## Questions\n", "## Questions\n- [scope] Negative results? (ticket: \"any numbers\") -> yes\nfree text is not a question\n")
+            .replace("## Later\n", "## Later\n- [approach] Rename add (math.js:3)\n")
+            .replace("## Mapping\n", "## Mapping\n| Requirement | Step |\n|---|---|\n| subtract | 1 |\n\n## x\n");
+        let p = parse_log(&log);
+        assert_eq!(p["ticket"], "Goal: subtract. Not: divide. Done: tests pass.");
+        assert_eq!(p["questions"], json!(["[scope] Negative results? (ticket: \"any numbers\") -> yes"]));
+        assert_eq!(p["later"], json!(["[approach] Rename add (math.js:3)"]));
+        assert_eq!(p["mapping"], "| Requirement | Step |\n|---|---|\n| subtract | 1 |");
+    }
+
+    #[test]
+    fn the_full_start_interviews_before_the_plan() {
+        let r = rules("7-add-subtract", "/d", "en");
+        for must in ["Restate the ticket", "wait for me to confirm", "AskUserQuestion", "[scope], [approach], [edge case] or [done criteria]", "Out of scope for this ticket", "No source, no question", "about 8 questions", "\"No questions, because ...\"", "up to you", "`## Questions`", "`## Later`", "\"Mapping\"", "`## Mapping`"] {
+            assert!(r.contains(must), "{must}");
+        }
+        assert!(!r.contains("because nobody can answer now"));
+        assert!(rules("7-add-subtract", "/d", "vi").contains("your questions and the choices offered"));
     }
 
     #[test]
