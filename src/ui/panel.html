@@ -80,6 +80,7 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .help:hover,.help[aria-describedby]{color:var(--ink)}
 .help svg.i{width:14px;height:14px}
 .lbl-h{display:flex;align-items:center;gap:6px}
+.b-sec h3 .help{margin:-2px 0 -2px 6px;vertical-align:middle}
 /* its tip: fixed above everything, so showing it moves nothing; placed by TOUR.tip, inside the window */
 .tip{position:fixed;left:0;top:0;z-index:45;box-sizing:border-box;width:max-content;max-width:min(280px,calc(100vw - 16px));padding:7px 10px;border-radius:8px;
   background:var(--ink);color:var(--surface);font-size:12px;font-weight:400;line-height:1.45;text-align:left;box-shadow:var(--pop);opacity:0;visibility:hidden;pointer-events:none}
@@ -1996,13 +1997,13 @@ function mrHTML(f) {
   const k = esc(f.key), m = tkMr[f.key];
   if (f.mr) {
     const ci = f.ci?.status || 'unknown', red = ci === 'failed';
-    return `<section class="b-sec"><h3>${esc(T('tk.mr.h', fw(f)))} ${ciBadge(f)}</h3><p><button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(mrRef(f.mr))} ${esc(f.title)}</button></p>
+    return `<section class="b-sec"><h3>${esc(T('tk.mr.h', fw(f)))}${helpBtn('sec', 'mr', T('tk.mr.h', fw(f)))} ${ciBadge(f)}</h3><p><button class="lnk" type="button" data-url="${esc(f.mr)}">${esc(mrRef(f.mr))} ${esc(f.title)}</button></p>
       <p class="note">${esc(T('tk.ci.' + ci + (red && fresh(f.ci.since) ? 'Now' : ''), { ...fw(f), x: f.ci?.since ? ago(f.ci.since) : '' }))}${f.ci?.at ? ` · ${esc(fresh(f.ci.at) ? T('tk.ci.readNow') : T('tk.ci.read', { x: ago(f.ci.at) }))}` : ''}</p>
       ${red ? `<div class="tk-warn"><p><strong>${esc(T('tk.ci.redT'))}</strong> ${esc(T('tk.ci.redWhy'))}</p><div class="cmd"><code>${esc(fixCiPrompt(f))}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(fixCiPrompt(f))}">${esc(T('tk.ci.fix'))}</button>` : ''}</div></div>` : ''}
       ${bridge ? `<div class="acts" style="margin:8px 0 0"><button class="btn sm" type="button" data-tk-ci="${k}"${tkBusy.has('ci:' + f.key) ? ' disabled' : ''}>${esc(T('tk.ci.check'))}</button>${f.ci?.url ? `<button class="btn sm" type="button" data-url="${esc(f.ci.url)}">${esc(T('tk.ci.open'))}</button>` : ''}</div>` : ''}</section>`;
   }
   if (!bridge || f.cleaned || f.status !== 'done' || !m?.open) return '';
-  return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h', fw(f)))}</h3>
+  return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h', fw(f)))}${helpBtn('sec', 'mr', T('tk.mr.h', fw(f)))}</h3>
     ${unchecked(f) ? `<p class="risk">⚠ ${esc(T('tk.mr.nochecks', fw(f)))}</p>` : ''}
     ${f.carried ? `<p class="risk">⚠ ${esc(T(f.carried === 1 ? 'tk.place.carried.1' : 'tk.place.carried', { ...fw(f), n: f.carried, b: f.branch }))}</p>` : ''}
     ${tkDet[f.key]?.mrReady === false ? `<div class="tk-warn tk-mr-en"><p><strong>${esc(T('tk.mr.noen.t', fw(f)))}</strong> ${esc(T('tk.mr.noen', fw(f)))}</p><div class="cmd"><code>${esc(MR_ASK)}</code><button class="btn sm" type="button" data-copy="${esc(MR_ASK)}">${esc(T('work.copy'))}</button></div></div>`
@@ -2098,7 +2099,7 @@ function startHTML(i, g, k) {
   if (wait) return `${top}<p class="note">${esc(T('work.wait.desc'))}</p><div class="acts" style="margin:0"><span class="badge">${esc(T('work.wait'))}</span><button class="btn" type="button" data-cancel="${esc(wait.dir)}" data-cancel-iid="${i.iid}">${esc(T('work.wait.cancel'))}</button>${open}</div>`;
   const resume = i.resume && bridge ? `<div class="tk-warn"><p><strong>${esc(T('work.resume'))}</strong> ${esc(T('tk.resume.note'))}</p><div class="acts" style="margin:8px 0 0"><button class="btn sm pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}">${esc(T('work.resume'))}</button></div></div>` : '';
   const radio = (v, d) => `<label><input type="radio" name="tkh-${ek}" data-tk-how="${ek}" data-f="tkh:${ek}:${v}" value="${v}"${(quick ? 'quick' : 'full') === v ? ' checked' : ''}> <span><strong>${esc(T('tk.how.' + v))}</strong> · ${esc(d)}</span></label>`;
-  const howHTML = `${resume}<section class="b-sec"><h3>${esc(T('tk.how'))}</h3><div class="tk-opts">${radio('full', T('tk.how.full.d'))}${radio('quick', T('tk.how.quick.d'))}</div></section>`;
+  const howHTML = `${resume}<section class="b-sec"><h3>${esc(T('tk.how'))}${helpBtn('sec', 'how', `${T('tk.how.full')} / ${T('tk.how.quick')}`)}</h3><div class="tk-opts">${radio('full', T('tk.how.full.d'))}${radio('quick', T('tk.how.quick.d'))}</div></section>`;
   if (quick && live) return `${top}${howHTML}<p class="note">${esc(T('tk.quick.live'))}</p>
     <div class="acts" style="margin:0"><button class="btn pri" type="button" data-start="${i.iid}" data-path="${esc(g.path)}" data-f="tkq:${ek}">${esc(T('work.resume'))}</button>${open}</div>`;
   if (quick) return `${top}${howHTML}<p class="note">${esc(T('tk.quick.note', { dir: home(dirOf) }))}</p>

@@ -290,9 +290,9 @@ async function panel(b, url, { width, height, lang, dark }) {
       const press = async (k, code, vk, text) => { await b.acted(); await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code, windowsVirtualKeyCode: vk, text }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk }); };
       const hover = async sel => { const [x, y] = await at(sel); await sleep(150); const f0 = await b.ev(BOXES);
         await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }); await shows('hover', sel); await still('hover ' + sel, f0); return f0; };
-      await tab('sessions'); await sleep(400);
+      await tab('work'); await sleep(400);
       const n0 = await b.ev('__shifts.length');
-      const g = '#b-list [data-help="grp.todo"]';
+      const g = '#b-list [data-help="grp.fstart"]';
       // mouse: shows while pointed at, goes when the pointer leaves
       const f0 = await hover(g);
       await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 }); await hides('the pointer leaving');
@@ -304,7 +304,7 @@ async function panel(b, url, { width, height, lang, dark }) {
       if (!(await b.ev(`document.activeElement === document.querySelector(${JSON.stringify(g)})`))) fail('help: Tab does not reach the "?"');
       await shows('focus', g);
       await b.key('Escape', 'Escape', 27); await hides('Esc');
-      if (!(await b.ev(`document.activeElement?.dataset.help === 'grp.todo' && document.querySelector('#bq').value === ''`))) fail('help: Esc moved the focus or touched the search');
+      if (!(await b.ev(`document.activeElement?.dataset.help === 'grp.fstart' && document.querySelector('#bq').value === ''`))) fail('help: Esc moved the focus or touched the search');
       await press('Enter', 'Enter', 13, '\r'); await shows('↵', g);
       // a redraw under it (the list's refresh time changes): the tip stays by the new "?", nothing moves
       const f1 = await b.ev(BOXES);
@@ -325,7 +325,7 @@ async function panel(b, url, { width, height, lang, dark }) {
         await tap(g); await shows('tap', g); await still('tap', f2);
         await tap(g); await hides('a second tap');
         await tap(g); await shows('tap again', g);
-        await tap('#b-list [data-grp="doing"] .b-grp > span'); await hides('a tap elsewhere');
+        await tap('#b-list [data-grp="fstart"] .b-grp > span'); await hides('a tap elsewhere');
       } finally { await b.send('Emulation.setTouchEmulationEnabled', { enabled: false }); }
       await noShift(n0);
       // a settings row's "?" (the tab switch and the pick before it may move things on a narrow window, as asked)

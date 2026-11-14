@@ -24,11 +24,13 @@
     { key: 'help', tab: 'overview', at: ['#b-list .help'], alt: { tab: 'settings', item: 'set:stuck', at: ['#settings .help'] }, news: true },
   ];
 
-  // Where the panel has a "?": a list group's heading (grp: its key in drawList) or a settings row (row: its data-row),
+  // Where the panel has a "?": a list group's heading (grp: its key in drawList), a settings row (row: its data-row) or a
+  // section heading in a ticket's detail (sec: how, mr),
   // each with its words help.<grp|row>.<key>. stuckOld shares stuck's.
   const HELP = {
-    grp: ['aq', 'stuck', 'warn', 'hab', 'doing', 'verify', 'todo', 'done', 'loose', 'fstart', 'fapprove', 'fdone', 'you', 'projects', 'audit', 'dups', 'off', 'unused'],
+    grp: ['aq', 'stuck', 'warn', 'hab', 'doing', 'verify', 'done', 'loose', 'fstart', 'fquick', 'frun', 'fapprove', 'fdone', 'frepos', 'eff', 'you', 'projects', 'audit', 'dups', 'off', 'unused'],
     row: ['stuckNoPr', 'stuckNoReview', 'stuckBranch', 'stuckIdle'],
+    sec: ['how', 'mr'],
   };
   const helpKey = (kind, k) => (kind === 'grp' && k === 'stuckOld' ? 'stuck' : HELP[kind].includes(k) ? k : null);
 

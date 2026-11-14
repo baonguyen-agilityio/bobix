@@ -1054,20 +1054,22 @@ test('tour: every step has its words in both languages, NEWS is this version, an
 test('help: every "?" has a short tip in both languages, and the tip stays inside the window', () => {
   const TOUR = require('../src/ui/tour');
   const I18N = require('../src/ui/i18n');
-  const keys = [...TOUR.HELP.grp.map(k => 'grp.' + k), ...TOUR.HELP.row.map(k => 'row.' + k)];
-  assert.ok(keys.length >= 15 && keys.length <= 25, `15 to 25 places, not ${keys.length}`);
+  const keys = [...TOUR.HELP.grp.map(k => 'grp.' + k), ...TOUR.HELP.row.map(k => 'row.' + k), ...TOUR.HELP.sec.map(k => 'sec.' + k)];
+  assert.ok(keys.length >= 15 && keys.length <= 30, `15 to 30 places, not ${keys.length}`);
   for (const k of keys) for (const lang of ['en', 'vi']) {
     const s = I18N.STR[lang]['help.' + k];
     assert.ok(s, `${lang} help.${k}`);
     assert.ok(s.length <= 160, `${lang} help.${k} is short (${s.length})`);
   }
   // no help string without its "?" (a "?" removed takes its words with it)
-  const extra = Object.keys(I18N.STR.en).filter(k => /^help\.(grp|row)\./.test(k) && !keys.includes(k.slice(5)));
+  const extra = Object.keys(I18N.STR.en).filter(k => /^help\.(grp|row|sec)\./.test(k) && !keys.includes(k.slice(5)));
   assert.deepEqual(extra, []);
   for (const lang of ['en', 'vi']) assert.match(I18N.t(lang, 'help.about', { x: 'Audit' }), /Audit/);
   assert.equal(TOUR.helpKey('grp', 'stuckOld'), 'stuck', 'the older stuck items share its words');
   assert.equal(TOUR.helpKey('grp', 'run'), null);
   assert.equal(TOUR.helpKey('row', 'stuckIdle'), 'stuckIdle');
+  assert.equal(TOUR.helpKey('sec', 'how'), 'how');
+  assert.equal(TOUR.helpKey('sec', 'nope'), null);
   // below the "?", centred on it; above when there is no room below; inside the window's edges either way
   assert.deepEqual(TOUR.tip({ left: 200, top: 100, width: 16, height: 16 }, 1180, 780, 280, 60), { left: 68, top: 122 });
   assert.deepEqual(TOUR.tip({ left: 200, top: 740, width: 16, height: 16 }, 1180, 780, 280, 60), { left: 68, top: 674 });
