@@ -8,7 +8,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `develop`, not released yet (after rc.9)
 
-Nothing yet: `develop` is v0.2.0-rc.9.
+- **A key press on a button survives a redraw** ([#226](https://github.com/baonguyen-agilityio/bobix/issues/226)): a redraw that came while a key was down on a button (Space on a "?") replaced the button and lost the press; the redraw now waits for the key to come up. `test/layout.test.js` checks it on every run. The smoke run's Skills step now waits for each button (the cause of its one Windows failure was not seen in the log, so it now names where the page was when a button never comes).
 
 ## 2. In the test builds (v0.2.0-rc.1 to rc.9), no stable release yet
 

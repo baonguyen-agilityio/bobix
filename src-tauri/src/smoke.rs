@@ -1013,23 +1013,30 @@ fn skills_audit(app: &AppHandle, cwd: &str) -> Value {
 // that shows its lines) then removed. Each Undo puts the files back as they were (skill_audit.rs tests that bytewise).
 fn skills_panel(app: &AppHandle, sid: &str) -> Value {
     if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    // Every button is waited for (a Skills panel draws its buttons when the audit, the rules and the backups have arrived, which on a
+    // slow runner is after the click's turn), and a button that never comes says where the page was instead of "null.click".
     ask_for(app, panel::LABEL, &format!("(async () => {{ const r = {{}}, w = ms => new Promise(o => setTimeout(o, ms)); \
         const until = async f => {{ for (let t = 0; t < 8000; t += 100) {{ if (f()) return true; await w(100); }} return false; }}; \
-        const bar = q => document.querySelector('#b-bar ' + q), yes = async () => {{ await until(() => $('#sk-dialog').open); $('#sk-dialog [data-sk-yes]').click(); }}; \
-        const undo = t => [...document.querySelectorAll('.toast')].find(x => x.textContent.includes(t))?.querySelector('button').click(); \
-        showTab('skills'); audDir = list.find(s => s.id === {sid:?})?.cwd; await loadAudit(); \
-        r.audit = await until(() => aud.a && items.some(x => x.label === 'smoke-skill')); \
+        const bar = q => document.querySelector('#b-bar ' + q); \
+        const lost = what => new Error(what + ' never came (scope ' + scope + ', item ' + cur?.id + ', audit ' + (aud.fail || (aud.busy ? 'busy' : 'loaded')) + ', rules ' + !!aud.rules + ')'); \
+        const need = async (k, f) => {{ r[k] = await until(f); if (!r[k]) throw lost(k); }}; \
+        const press = async q => {{ if (!await until(() => bar(q))) throw lost('button ' + q); bar(q).click(); }}; \
+        const yes = async () => {{ if (!await until(() => $('#sk-dialog').open && $('#sk-dialog [data-sk-yes]'))) throw lost('the confirm dialog'); $('#sk-dialog [data-sk-yes]').click(); }}; \
+        const undo = async t => {{ if (!await until(() => [...document.querySelectorAll('.toast')].find(x => x.textContent.includes(t))?.querySelector('button'))) throw lost('the Undo of ' + t); \
+          [...document.querySelectorAll('.toast')].find(x => x.textContent.includes(t)).querySelector('button').click(); }}; \
+        try {{ showTab('skills'); audDir = list.find(s => s.id === {sid:?})?.cwd; await loadAudit(); \
+        await need('audit', () => aud.a && items.some(x => x.label === 'smoke-skill')); \
         const id = items.find(x => x.label === 'smoke-skill')?.id, back = () => !skBackups.length && items.some(x => x.id === id); \
-        bsel.skills = id; render(); bar('[data-sk=disable]').click(); \
-        r.disable = await until(() => skBackups[0]?.kind === 'disable' && !items.some(x => x.id === id)); undo('smoke-skill'); r.undoDisable = await until(back); \
-        bsel.skills = id; render(); bar('[data-sk=remove]').click(); await yes(); \
-        r.remove = await until(() => skBackups[0]?.kind === 'remove' && !items.some(x => x.id === id)); undo('smoke-skill'); r.undoRemove = await until(back); \
-        bsel.skills = 'aud:rules'; render(); bar('[data-sk=rulesAdd]').click(); await until(() => $('#sk-dialog').open); \
+        bsel.skills = id; render(); await press('[data-sk=disable]'); \
+        await need('disable', () => skBackups[0]?.kind === 'disable' && !items.some(x => x.id === id)); await undo('smoke-skill'); await need('undoDisable', back); \
+        bsel.skills = id; render(); await press('[data-sk=remove]'); await yes(); \
+        await need('remove', () => skBackups[0]?.kind === 'remove' && !items.some(x => x.id === id)); await undo('smoke-skill'); await need('undoRemove', back); \
+        bsel.skills = 'aud:rules'; render(); await press('[data-sk=rulesAdd]'); await until(() => $('#sk-dialog').open); \
         r.lines = $('#sk-dialog .b-code').textContent.includes('When to split, which model'); await yes(); \
-        r.rulesAdd = await until(() => aud.rules?.present && !!aud.rules.undo); \
-        bsel.skills = 'aud:rules'; render(); bar('[data-sk=rulesRm]').click(); await yes(); \
-        r.rulesRemove = await until(() => aud.rules && !aud.rules.present && !skBackups.length); \
-        r.err = aud.err?.text || aud.fail || null; return r; }})()"), 40)
+        await need('rulesAdd', () => aud.rules?.present && !!aud.rules.undo); \
+        bsel.skills = 'aud:rules'; render(); await press('[data-sk=rulesRm]'); await yes(); \
+        await need('rulesRemove', () => aud.rules && !aud.rules.present && !skBackups.length); }} catch (e) {{ r.error = String(e); }} \
+        r.err = aud.err?.text || aud.fail || null; return r; }})()"), 60)
 }
 
 // The value of a page expression (awaited), through the bridge like the pets' own calls.
