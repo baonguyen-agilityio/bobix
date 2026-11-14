@@ -7,7 +7,7 @@ Node.js is recommended but not required (see [Without Node.js](#without-nodejs))
 
 ## 1. Get the installer
 
-Download the installer for your computer (the links always give the newest version), or use the file someone sent you. Install from these files: the repository's source is for contributors.
+Download the installer for your computer (the links give the newest stable release, still 0.1.3 while 0.2 is in test builds; for a 0.2 test build pick one from [all releases](https://github.com/baonguyen-agilityio/bobix/releases)), or use the file someone sent you. Install from these files: the repository's source is for contributors.
 
 | Your computer | Download |
 |---|---|

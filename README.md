@@ -53,23 +53,27 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - **Model rules for `CLAUDE.md`**: a short "when to split, which model" block, shown before it is added, and undone byte for byte.
 
 ### Run your tickets
-- **Your GitHub and GitLab issues** (opt-in, through your own `gh` and `glab`): to do, in progress with their sessions, waiting for review, done today. Bobix suggests the next one, warns when two sessions work on one issue, and flags stuck work with its next step.
+- **Your GitHub and GitLab issues**, read through your own `gh` and `glab` (on by default wherever you are signed in; one switch each turns it off): to do, in progress with their sessions, waiting for review, done today. Bobix suggests the next one, warns when two sessions work on one issue, and flags stuck work with its next step.
 - **Start** an issue under **Work**, one of two ways: **Full** runs the ticket flow (its own worktree and branch, a plan you approve, checks, review, MR / PR and CI); **Quick** opens a plain Claude session in the project folder with a prompt you can edit and a skill suggested for that repository. Either session is named `[CODE-27] …`. **Change folder…** in the Start box points a project at another clone.
 - **Stand-up and today's report** as plain text to copy. Bobix sends nothing.
 
 ### The panel
-- One window with a search field and screens: **Overview** (what needs you, warnings, today's usage), **Sessions** (Claude sessions, grouped by issue), **Work** (issues to start, and the ticket flow), **Skills** and **Settings**. **Room** is coming.
+- One window with a search field and screens: **Overview** (what needs you, warnings, today's usage), **Sessions** (Claude sessions, grouped by issue), **Work** (issues to start, and the ticket flow), **Skills**, **Room** and **Settings**.
 - Every action has a key, and ⌘K / Ctrl+K finds any action, session or screen.
+
+### Habits and rooms (only if you use them)
+- **Habits become skills** (off by default: needs "Read my prompts to count them by kind" and the weekly scan, both in Settings → Usage). Once a week Bobix gives the prompts you typed in the last 14 days to Haiku through your own `claude -p`, finds the requests you make every week and drafts a skill you can edit. Only **Approve and install** writes it to `~/.claude/skills`, and every version can be undone. This sends text to Anthropic, through your own Claude.
+- **Room**: a war room for one problem, over your Tailscale network. The host's computer hosts it on its Tailscale address only; people the host invites chat; the host's own Claude arranges the chat into problem, options, pros and cons, and the host decides. It needs Tailscale, on a tailnet where the laptops can reach each other, and has not been tried between two real machines yet.
 
 ### And
 - **Notifications** when a session needs approval or finishes, the number of sessions waiting for you on the menu bar or tray icon, **Do not disturb** for 30 or 60 minutes, an optional local log of your habits with Claude (opt-in, 30 days, never what you write), and a notification when a new version is out, which you can install from the app (it asks first).
 - **Stays out of your way**: pick the screen, edge, area, size and visibility; pets fade near the cursor and let clicks through.
-- **macOS, Windows and Linux**, in English and Vietnamese.
-- **Private by design**: runs locally, no account, nothing about you or your sessions sent anywhere. The only request it makes on its own is a daily read of GitHub's update list for a new version, which you can turn off; it downloads a new version only when you press Update. See [Privacy](docs/privacy.md).
+- **macOS, Windows and Linux**, in English and Vietnamese. macOS is what a release is tested on by hand; Windows and Linux are tried by a person on a real machine and by CI (see Status and limitations).
+- **Private by design**: runs on your computer, no account, nothing goes to Bobix's author. By default it only reads your issues through your own `glab` / `gh`, and reads GitHub's update list once a day to see whether a new version is out (you can turn either off); it downloads a new version only when you press Update. Text goes to Anthropic only for the features you switch on or press, through your own Claude. See [Privacy](docs/privacy.md).
 
 ## Install
 
-Download the installer for your computer. The links always give the newest version ([all releases](https://github.com/baonguyen-agilityio/bobix/releases)):
+Download the installer for your computer. The links give the newest stable release, which is still 0.1.3 while 0.2 is in test builds (GitHub does not count pre-releases as latest); for a 0.2 test build pick one from [all releases](https://github.com/baonguyen-agilityio/bobix/releases):
 
 | Your computer | Download |
 |---|---|
@@ -144,6 +148,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 - The forwarder sends what the pets show (tool name, file path or command, your prompt), never file contents or tool output.
 - An Esc or a denied permission ends a turn without a hook; Bobix notices it in the transcript and puts the pet to rest.
 - Bobix changes Claude's skill folders or a project's `CLAUDE.md` only when you click, always with a backup and an undo. It never reads your Claude login.
+- It finds `glab`, `gh` and `claude` by asking your login shell (`command -v <name>`, 5 seconds at most), because an app started from the Dock does not see your shell's `PATH`. **Copy terminal command** puts a command on your clipboard for you to paste; Bobix never runs it.
 
 ## FAQ
 
@@ -157,17 +162,18 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **It shows nothing on my work laptop.** Your organization may allow only managed hooks (`allowManagedHooksOnly`). Bobix respects that and cannot receive events there.
 
-**Is my code sent anywhere?** No. See [Privacy](docs/privacy.md).
+**Is my code sent anywhere?** Not by Bobix, and nothing goes to its author. By default Bobix makes two kinds of request: the daily check for a new version, and reading your issues through your own `glab` / `gh`. Text goes to Anthropic only for features you switch on or press, through your own `claude -p`: the weekly habits scan (the prompts you typed), the habits draft (examples of those prompts and the skill file it improves; Claude may also read files with its Read tool), the ticket helper (an issue's title and description, or a work log, commit subjects and changed file names) and the room draft (the room's chat). Bobix does not send your project's source files; the one file it puts in a prompt is the skill you ask it to improve. A Full Start also runs `git fetch` on your project's remote, and Push and open MR / PR pushes your branch, both only when you click. See [Privacy](docs/privacy.md).
 
 ## Status and limitations
 
-- Version 0.2 (test builds). The app is built with Tauri (Rust and the system web view; about 10 MB instead of 250 MB). Version 0.1 was tested on macOS (Apple chip) with the Claude desktop app and the CLI, and on Ubuntu (Wayland) with the CLI. Windows is smoke-tested on CI only, and the Claude desktop app on Linux (beta) isn't tested yet.
+- Version 0.2 is in test builds (see [releases](https://github.com/baonguyen-agilityio/bobix/releases)); the last stable release is 0.1.3. The app is built with Tauri (Rust and the system web view): the installers are about 4 MB (0.1.3 was 92 to 120 MB) and the installed app about 9 MB on macOS.
+- macOS decides a release: it is tried by hand with the Claude desktop app and the CLI. Windows and Linux run the CI smoke test and are then tried by a person on a real machine; what still fails there is listed under known limits in the [roadmap](docs/roadmap.md). Not tried yet: Windows with real Claude Code sessions, the Claude desktop app on Linux (beta), and Room between two machines.
 - On Linux Wayland, Bobix runs through XWayland so pets can stay on top; bringing a terminal forward needs X11 and `xdotool`.
 - Opening a session in the Claude desktop app uses a link that app registers (`claude://code/continue`), not a documented API, so it may change.
 - "Context left" is estimated from token usage.
 - Linux installers are for Ubuntu 22.04+ and Debian 12+ (they need WebKitGTK 4.1, which `apt` installs with them); other distributions aren't packaged yet.
 - Windows needs the WebView2 runtime: built into Windows 11 and current Windows 10; the installer adds it when it is missing.
-- Installing 0.2 over 0.1 keeps your settings, hooks and pet pictures, removes the old app, and keeps "start when I log in" on if it was.
+- Installing 0.2 over 0.1 keeps your settings, hooks and saved pet pictures (picture pets are hidden for now), removes the old app, and keeps "start when I log in" on if it was.
 
 ## License and credits
 
