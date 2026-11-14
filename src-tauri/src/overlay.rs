@@ -145,6 +145,16 @@ pub fn wake(app: &AppHandle, b: &Arc<Bobix>) {
     thread::spawn(move || { thread::sleep(Duration::from_millis(1500)); show_or_hide(&app, &b); });
 }
 
+// Whether the poll sends the cursor to the page this tick. The page reads a mouseout with no relatedTarget as "the
+// cursor left" (pets.html), and the webview sends one when the window turns click-through or interactive under a
+// resting cursor: so the position also goes out when that flips, and once more on the next tick, or the card would close
+// under a cursor that has not moved.
+fn feed(moved: bool, flipped: bool, again: &mut bool) -> bool {
+    let send = moved || flipped || *again;
+    *again = flipped;
+    send
+}
+
 // The overlay ignores the mouse except over a pet: poll the cursor every 33 ms, compare with the pets' rects from the
 // page (CSS px relative to the window), and feed the cursor to the page, which gets no mouse events while ignored.
 // Linux X11: the input shape lets the mouse in, the poll only feeds the cursor; XWayland: no poll (see shaped).
@@ -153,6 +163,7 @@ pub fn track_mouse(app: AppHandle, b: Arc<Bobix>) {
     let shaped = shaped();
     thread::spawn(move || {
         let mut last = (f64::NAN, f64::NAN);
+        let mut again = false;
         loop {
             thread::sleep(Duration::from_millis(33));
             let Some(win) = app.get_webview_window(LABEL) else { continue };
@@ -167,10 +178,25 @@ pub fn track_mouse(app: AppHandle, b: Arc<Bobix>) {
                 flip.then_some(over)
             };
             if let Some(over) = flip.filter(|_| !shaped) { let _ = win.set_ignore_cursor_events(!over); }
-            if (x, y) != last {
+            if feed((x, y) != last, flip.is_some(), &mut again) {
                 last = (x, y);
                 let _ = win.eval(format!("window.__bobixEmit && __bobixEmit('mouse', {{ x: {x}, y: {y} }})"));
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::feed;
+
+    #[test]
+    fn the_cursor_is_sent_again_when_click_through_flips_under_a_resting_cursor() {
+        let mut again = false;
+        assert!(feed(true, false, &mut again), "a move is sent");
+        assert!(!feed(false, false, &mut again), "a resting cursor is not");
+        assert!(feed(false, true, &mut again), "a flip is sent although the cursor rests");
+        assert!(feed(false, false, &mut again), "and once more on the next tick, for the mouseout that follows the flip");
+        assert!(!feed(false, false, &mut again), "then quiet again");
+    }
 }

@@ -16,6 +16,7 @@ The latest release, and `develop` for the next one. The v1 line (0.1.x) ends wit
 
 ## What Bobix stores
 
-Bobix runs on your computer. Its local server listens on `127.0.0.1` only, and nothing about you or your sessions leaves
-the machine (what it reads, writes and sends is in [docs/privacy.md](docs/privacy.md)). A report about that boundary, the
+Bobix runs on your computer. Its local server listens on `127.0.0.1` only (a war room you host adds a second port, on your
+Tailscale address only), and nothing goes to Bobix's author. Text goes to Anthropic only for the features you switch on or
+press, through your own Claude. What it reads, writes and sends is in [docs/privacy.md](docs/privacy.md). A report about that boundary, the
 local server, the hooks Bobix installs in `~/.claude/settings.json`, or a file Bobix writes is in scope.
