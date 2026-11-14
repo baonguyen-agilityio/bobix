@@ -34,23 +34,70 @@ pub struct PairingCode {
     pub secret: [u8; 32],
 }
 
-/// The part between the scheme and the first `/`, `?` or `#`; None when it could hide another host (userinfo,
-/// backslashes, spaces).
-fn authority(rest: &str) -> Option<&str> {
-    let a = rest.split(['/', '?', '#']).next()?;
-    (!a.is_empty() && !a.contains(['@', '\\', ' '])).then_some(a)
+struct RelayUrl {
+    scheme: &'static str,
+    host: String,
+    port: Option<u16>,
+    /// Path and query, without fragment, as given.
+    tail: String,
+    local: bool,
 }
 
-fn is_local(url: &str) -> bool {
-    let Some(host) = url.strip_prefix("ws://").and_then(authority) else { return false };
-    let host = if let Some(rest) = host.strip_prefix('[') { rest.split(']').next().unwrap_or("") } else { host.rsplit_once(':').map_or(host, |h| h.0) };
-    matches!(host, "localhost" | "127.0.0.1" | "::1")
+/// Splits a relay address; None when it could hide another host (userinfo, backslashes, spaces) or is not `ws(s)://`.
+fn parse_relay(url: &str) -> Option<RelayUrl> {
+    let (scheme, rest) = url.split_once("://")?;
+    let scheme = match scheme.to_ascii_lowercase().as_str() {
+        "ws" => "ws",
+        "wss" => "wss",
+        _ => return None,
+    };
+    let rest = rest.split('#').next()?;
+    let end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
+    if authority.is_empty() || authority.contains(['@', '\\', ' ']) || tail.contains(['\\', ' ']) {
+        return None;
+    }
+    let (host, port) = if let Some(r) = authority.strip_prefix('[') {
+        let (h, after) = r.split_once(']')?;
+        (h, after.strip_prefix(':').or(Some(after).filter(|a| a.is_empty()))?)
+    } else {
+        authority.rsplit_once(':').unwrap_or((authority, ""))
+    };
+    let port = if port.is_empty() { None } else { Some(port.parse::<u16>().ok()?) };
+    if host.is_empty() || host.contains(['[', ']', '/']) {
+        return None;
+    }
+    let host = host.to_ascii_lowercase();
+    let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
+    Some(RelayUrl { scheme, host, port, tail: tail.to_string(), local })
 }
 
 /// Whether a relay address may appear in a pairing code or in `relayMoved`: `wss://`, or plain `ws://` for a relay on
 /// localhost only. An address with userinfo (`ws://localhost@evil.example`) is refused.
 pub fn relay_url_ok(url: &str) -> bool {
-    url.strip_prefix("wss://").and_then(authority).is_some() || is_local(url)
+    parse_relay(url).is_some_and(|u| u.scheme == "wss" || u.local)
+}
+
+/// The one form of a relay address that both sides sign and compare (see `command::auth_bytes`), so that they agree
+/// byte for byte. None when `relay_url_ok` refuses it. Rules:
+/// - the scheme and the host are lowercase;
+/// - the default port (80 for `ws`, 443 for `wss`) is dropped, any other port is written without leading zeros;
+/// - the fragment is dropped; the path keeps its case, and trailing `/` characters are dropped (`/ws/` is `/ws`);
+///   a query is kept as given;
+/// - a plain `ws://` loopback host (`localhost`, `127.0.0.1`, `[::1]`) is written `localhost`, so a development
+///   relay that derives its address from its bind address matches a client that typed `localhost`;
+/// - an IPv6 host keeps its brackets. Nothing else is rewritten (no percent-decoding, no punycode).
+pub fn normalize_relay_url(url: &str) -> Option<String> {
+    let u = parse_relay(url).filter(|u| u.scheme == "wss" || u.local)?;
+    let host = if u.scheme == "ws" && u.local { "localhost".to_string() } else if u.host.contains(':') { format!("[{}]", u.host) } else { u.host };
+    let port = match (u.scheme, u.port) {
+        ("ws", Some(80)) | ("wss", Some(443)) | (_, None) => String::new(),
+        (_, Some(p)) => format!(":{p}"),
+    };
+    let (path, query) = u.tail.split_once('?').map_or((u.tail.as_str(), ""), |(p, q)| (p, q));
+    let path = path.trim_end_matches('/');
+    let query = if query.is_empty() { String::new() } else { format!("?{query}") };
+    Some(format!("{}://{host}{port}{path}{query}", u.scheme))
 }
 
 fn encode_component(s: &str) -> String {

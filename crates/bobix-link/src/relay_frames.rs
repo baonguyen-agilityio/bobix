@@ -72,6 +72,9 @@ pub enum ErrorCode {
     Auth,
     Malformed,
     PairExpired,
+    /// The `auth` signature is valid but made for another relay address ("signed for another relay URL"): the
+    /// relay's configured public URL does not match what the device connected to.
+    RelayUrl,
     NoPeer,
     #[serde(other)]
     Other,
@@ -82,8 +85,9 @@ pub enum ErrorCode {
 pub enum Frame {
     /// relay → device, first frame of a connection.
     Challenge { nonce: String },
-    /// device → relay. `sig` is Ed25519 over `command::auth_bytes(nonce)`; `id` must be the id of `key`.
-    Auth { id: String, key: String, sig: String, versions: VersionRange },
+    /// device → relay. `relay` is the address the device is connected to; `sig` is Ed25519 over
+    /// `command::auth_bytes(relay, nonce)`. The relay calls `command::verify_auth_frame`.
+    Auth { id: String, key: String, relay: String, sig: String, versions: VersionRange },
     /// The devices allowed to send to this one.
     Peers { allow: Vec<String> },
     Revoke { id: String },

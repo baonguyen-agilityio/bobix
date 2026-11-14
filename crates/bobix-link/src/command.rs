@@ -84,9 +84,77 @@ pub fn bye_bytes(version: u8, phone_id: &str, computer_id: &str, counter: u64) -
     Fields::new("bobix-bye-v1").num(version as u64).field(phone_id.as_bytes()).field(computer_id.as_bytes()).num(counter).done()
 }
 
-/// What the relay's `auth` frame signs: the relay's challenge.
-pub fn auth_bytes(challenge: &str) -> Vec<u8> {
-    Fields::new("bobix-auth-v1").field(challenge.as_bytes()).done()
+/// What the relay's `auth` frame signs: `"bobix-auth-v2" | normalised relay URL | challenge`, so a signature made
+/// for one relay is useless at another (a hostile relay cannot pass its challenge on to log in elsewhere as the
+/// device). `relay_url` is the address the device is connected to (`pairing::normalize_relay_url` is applied here);
+/// the relay passes its own configured public URL. None when the URL is not an acceptable relay address.
+pub fn auth_bytes(relay_url: &str, challenge: &str) -> Option<Vec<u8>> {
+    let url = crate::pairing::normalize_relay_url(relay_url)?;
+    Some(Fields::new("bobix-auth-v2").field(url.as_bytes()).field(challenge.as_bytes()).done())
+}
+
+/// Why a relay refuses an `auth` frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthRefusal {
+    /// The key or signature is malformed, the id is not the hash of the key, or the signature does not verify.
+    Invalid,
+    /// The signature is valid, but for another relay's address: the relay's configured public URL is wrong, or the
+    /// device is talking to a relay it was not meant to.
+    OtherRelay,
+}
+
+impl AuthRefusal {
+    pub fn code(self) -> crate::relay_frames::ErrorCode {
+        match self {
+            AuthRefusal::Invalid => crate::relay_frames::ErrorCode::Auth,
+            AuthRefusal::OtherRelay => crate::relay_frames::ErrorCode::RelayUrl,
+        }
+    }
+}
+
+/// What a relay calls on an `auth` frame: `own_public_url` is its configured public address, `challenge` the nonce it
+/// sent, the rest are the frame's fields. Returns the device's `auth` public key.
+pub fn verify_auth_frame(
+    own_public_url: &str,
+    challenge: &str,
+    id: &str,
+    key: &str,
+    claimed_relay: &str,
+    sig: &str,
+) -> Result<[u8; 32], AuthRefusal> {
+    let key: [u8; 32] = b64_decode(key).and_then(|k| k.try_into().ok()).ok_or(AuthRefusal::Invalid)?;
+    let sig = b64_decode(sig).ok_or(AuthRefusal::Invalid)?;
+    if crate::keys::device_id(&key) != id {
+        return Err(AuthRefusal::Invalid);
+    }
+    // The signature must hold for the address the device says it signed; only then is that address believed.
+    let bytes = auth_bytes(claimed_relay, challenge).ok_or(AuthRefusal::Invalid)?;
+    if !crate::keys::verify_auth(&key, &bytes, &sig) {
+        return Err(AuthRefusal::Invalid);
+    }
+    let own = crate::pairing::normalize_relay_url(own_public_url);
+    if own != crate::pairing::normalize_relay_url(claimed_relay) {
+        return Err(AuthRefusal::OtherRelay);
+    }
+    Ok(key)
+}
+
+/// A device's `auth` frame for the relay it is connected to at `relay_url` (the address from its settings or from the
+/// pairing code). None when the URL is not an acceptable relay address.
+pub fn auth_frame(
+    id: &crate::keys::Identity,
+    relay_url: &str,
+    challenge: &str,
+    versions: crate::envelope::VersionRange,
+) -> Option<crate::relay_frames::Frame> {
+    let sig = id.sign_auth(&auth_bytes(relay_url, challenge)?);
+    Some(crate::relay_frames::Frame::Auth {
+        id: id.device_id(),
+        key: b64(&id.public().auth),
+        relay: relay_url.into(),
+        sig: b64(&sig),
+        versions,
+    })
 }
 
 /// Builds a command. `counter` is the packet counter the command will travel with (take it from

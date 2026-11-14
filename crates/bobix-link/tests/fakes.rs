@@ -456,3 +456,38 @@ async fn an_answer_built_from_changed_options_is_stale() {
     assert_eq!(r.result_of(&cid).await.outcome, Outcome::Stale);
     r.finish().await;
 }
+
+async fn first_frame_after_login(relay: &str, signing_for: &str) -> Frame {
+    let id = bobix_link::keys::Identity::generate();
+    let mut conn = common::Conn::connect(relay).await.unwrap();
+    conn.login_signing_for(&id, signing_for).await.unwrap();
+    match conn.recv(Duration::from_millis(400)).await {
+        common::Recv::Frame(f) => f,
+        common::Recv::Timeout => Frame::Challenge { nonce: "accepted: no frame followed".into() },
+        common::Recv::Closed => Frame::Challenge { nonce: "closed".into() },
+    }
+}
+
+#[tokio::test]
+async fn a_device_that_signed_for_relay_a_is_refused_by_relay_b_with_a_distinct_error() {
+    let (a, b) = (stub::spawn().await, stub::spawn().await);
+    // honest login at B: no error
+    assert!(matches!(first_frame_after_login(&b, &b).await, Frame::Challenge { .. }));
+    // signed for A, shown to B
+    assert!(matches!(first_frame_after_login(&b, &a).await, Frame::Error { code: ErrorCode::RelayUrl, .. }));
+    // a relay whose configured public URL is wrong refuses even honest clients, and says why
+    let wrong = stub::spawn_with_public_url(Some("wss://somewhere-else.example")).await;
+    assert!(matches!(first_frame_after_login(&wrong, &wrong).await, Frame::Error { code: ErrorCode::RelayUrl, .. }));
+    // the same address written another way is the same address
+    let loopback = b.replace("127.0.0.1", "localhost");
+    assert!(matches!(first_frame_after_login(&b, &loopback).await, Frame::Challenge { .. }));
+}
+
+#[tokio::test]
+async fn a_phone_refuses_a_code_for_another_relay() {
+    let (a, b) = (stub::spawn().await, stub::spawn().await);
+    let (qr, _d) = desktop_on(&a, Scenario::Normal).await;
+    let mut phone = Phone::connect(&b, "Test phone (demo)").await.unwrap();
+    let e = phone.pair(&qr, all_rights()).await.unwrap_err();
+    assert!(e.contains("another relay"), "{e}");
+}

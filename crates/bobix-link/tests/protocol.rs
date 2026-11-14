@@ -157,7 +157,7 @@ fn sync_gives_unknown_for_a_command_never_received() {
 #[test]
 fn bye_and_auth_bytes_are_domain_separated() {
     assert_ne!(command::bye_bytes(1, "a", "b", 1), command::bye_bytes(1, "a", "b", 2));
-    assert_ne!(command::auth_bytes("x"), command::bye_bytes(1, "x", "", 0));
+    assert_ne!(command::auth_bytes("wss://r.example", "x").unwrap(), command::bye_bytes(1, "x", "", 0));
 }
 
 // ---- messages -------------------------------------------------------------------------------------------------
@@ -454,7 +454,7 @@ fn every_frame_round_trips_with_documented_names() {
     let versions = VersionRange::current();
     let frames: Vec<(Frame, Value)> = vec![
         (Frame::Challenge { nonce: "n".into() }, json!({"type":"challenge","nonce":"n"})),
-        (Frame::Auth { id: "i".into(), key: "k".into(), sig: "s".into(), versions }, json!({"type":"auth","id":"i","key":"k","sig":"s","versions":{"min":1,"max":1}})),
+        (Frame::Auth { id: "i".into(), key: "k".into(), relay: "wss://r.example".into(), sig: "s".into(), versions }, json!({"type":"auth","id":"i","key":"k","relay":"wss://r.example","sig":"s","versions":{"min":1,"max":1}})),
         (Frame::Peers { allow: vec!["a".into()] }, json!({"type":"peers","allow":["a"]})),
         (Frame::Revoke { id: "a".into() }, json!({"type":"revoke","id":"a"})),
         (
@@ -487,7 +487,7 @@ fn every_frame_round_trips_with_documented_names() {
         assert_eq!(serde_json::to_value(&f).unwrap(), expected);
         assert_eq!(Frame::parse(&f.to_text().unwrap()).unwrap(), f);
     }
-    for (c, name) in [(ErrorCode::Revoked, "revoked"), (ErrorCode::Oversize, "oversize"), (ErrorCode::Invite, "invite"), (ErrorCode::Update, "update")] {
+    for (c, name) in [(ErrorCode::Revoked, "revoked"), (ErrorCode::Oversize, "oversize"), (ErrorCode::Invite, "invite"), (ErrorCode::Update, "update"), (ErrorCode::RelayUrl, "relayUrl")] {
         assert_eq!(serde_json::to_value(&c).unwrap(), name);
     }
     // an error code a newer relay invents still parses
@@ -574,4 +574,65 @@ fn stop_needs_both_the_stop_and_the_answer_right() {
     assert!(!r(true, false).allows(&stop));
     assert!(r(true, false).allows(&answer("x")) && !r(false, true).allows(&answer("x")));
     assert!(!Rights::default().allows(&CommandBody::Start { project: "p".into(), iid: "1".into(), mode: Mode::Full, prompt_hash: "h".into() }));
+}
+
+#[test]
+fn relay_urls_normalise_to_one_form() {
+    let table = [
+        ("wss://Relay.Example", "wss://relay.example"),
+        ("WSS://relay.example:443/", "wss://relay.example"),
+        ("wss://relay.example:8443/ws/", "wss://relay.example:8443/ws"),
+        ("wss://relay.example:0443/ws//", "wss://relay.example/ws"),
+        ("wss://relay.example/Ws?Token=A#frag", "wss://relay.example/Ws?Token=A"),
+        ("wss://relay.example/?", "wss://relay.example"),
+        ("wss://relay.example:", "wss://relay.example"),
+        ("ws://LOCALHOST:8787", "ws://localhost:8787"),
+        ("ws://127.0.0.1:8787/", "ws://localhost:8787"),
+        ("ws://[::1]:8787", "ws://localhost:8787"),
+        ("ws://localhost:80", "ws://localhost"),
+        ("wss://[2001:DB8::1]:9000/x", "wss://[2001:db8::1]:9000/x"),
+    ];
+    for (given, want) in table {
+        assert_eq!(normalize_relay_url(given).as_deref(), Some(want), "{given}");
+        assert_eq!(normalize_relay_url(want).as_deref(), Some(want), "idempotent: {want}");
+    }
+    for bad in ["ws://relay.example", "http://relay.example", "wss://", "wss://a@b", "wss://relay.example:99999", "wss://relay.example:x", "relay.example", "wss://rel ay"] {
+        assert_eq!(normalize_relay_url(bad), None, "{bad}");
+    }
+}
+
+#[test]
+fn auth_bytes_bind_the_relay_address_and_the_challenge() {
+    let a = command::auth_bytes("wss://a.example", "n1").unwrap();
+    assert_eq!(a, command::auth_bytes("WSS://A.example:443/", "n1").unwrap(), "same address, same bytes");
+    assert_ne!(a, command::auth_bytes("wss://b.example", "n1").unwrap());
+    assert_ne!(a, command::auth_bytes("wss://a.example", "n2").unwrap());
+    assert_eq!(command::auth_bytes("ws://relay.example", "n1"), None);
+}
+
+#[test]
+fn a_signature_made_for_relay_a_is_refused_by_relay_b() {
+    use command::AuthRefusal;
+    let id = Identity::generate();
+    let ch = "challenge-from-relay-b";
+    let frame = |url: &str| match command::auth_frame(&id, url, ch, VersionRange::current()).unwrap() {
+        Frame::Auth { id, key, relay, sig, .. } => (id, key, relay, sig),
+        _ => unreachable!(),
+    };
+    let check = |own: &str, (i, k, r, s): (String, String, String, String)| command::verify_auth_frame(own, ch, &i, &k, &r, &s);
+    // honest: signed for the address the relay has
+    assert_eq!(check("wss://b.example", frame("wss://b.example")), Ok(id.public().auth));
+    assert_eq!(check("wss://B.example:443/", frame("wss://b.example")), Ok(id.public().auth), "normalised on both sides");
+    // signed for relay A, shown to relay B: a clear, distinct refusal
+    assert_eq!(check("wss://b.example", frame("wss://a.example")), Err(AuthRefusal::OtherRelay));
+    assert_eq!(AuthRefusal::OtherRelay.code(), ErrorCode::RelayUrl);
+    // a signature for A with the claimed address rewritten to B is simply invalid
+    let (i, k, _, s) = frame("wss://a.example");
+    assert_eq!(command::verify_auth_frame("wss://b.example", ch, &i, &k, "wss://b.example", &s), Err(AuthRefusal::Invalid));
+    // wrong id, wrong challenge, garbage
+    let (i, k, r, s) = frame("wss://b.example");
+    assert_eq!(command::verify_auth_frame("wss://b.example", ch, "00".repeat(16).as_str(), &k, &r, &s), Err(AuthRefusal::Invalid));
+    assert_eq!(command::verify_auth_frame("wss://b.example", "another", &i, &k, &r, &s), Err(AuthRefusal::Invalid));
+    assert_eq!(command::verify_auth_frame("wss://b.example", ch, &i, "!!", &r, &s), Err(AuthRefusal::Invalid));
+    assert_eq!(AuthRefusal::Invalid.code(), ErrorCode::Auth);
 }

@@ -34,12 +34,14 @@ pub enum Recv {
 /// A WebSocket that speaks relay frames.
 pub struct Conn {
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    /// The relay address this connection was opened to: what a device signs in its `auth` frame.
+    url: String,
 }
 
 impl Conn {
     pub async fn connect(url: &str) -> Result<Conn, String> {
         let (ws, _) = tokio_tungstenite::connect_async(url).await.map_err(|e| format!("cannot reach the relay at {url}: {e}"))?;
-        Ok(Conn { ws })
+        Ok(Conn { ws, url: url.into() })
     }
 
     pub async fn send(&mut self, f: &Frame) -> Result<(), String> {
@@ -64,19 +66,20 @@ impl Conn {
         }
     }
 
-    /// Answers the relay's challenge.
+    /// Answers the relay's challenge, signing the address this connection was opened to.
     pub async fn login(&mut self, id: &Identity) -> Result<(), String> {
+        let url = self.url.clone();
+        self.login_signing_for(id, &url).await
+    }
+
+    /// Answers the challenge with a signature for `relay_url` (for tests of a signature meant for another relay).
+    pub async fn login_signing_for(&mut self, id: &Identity, relay_url: &str) -> Result<(), String> {
         let Recv::Frame(Frame::Challenge { nonce }) = self.recv(Duration::from_secs(5)).await else {
             return Err("the relay sent no challenge".into());
         };
-        let sig = id.sign_auth(&bobix_link::command::auth_bytes(&nonce));
-        self.send(&Frame::Auth {
-            id: id.device_id(),
-            key: bobix_link::b64(&id.public().auth),
-            sig: bobix_link::b64(&sig),
-            versions: VersionRange::current(),
-        })
-        .await
+        let frame = bobix_link::command::auth_frame(id, relay_url, &nonce, VersionRange::current())
+            .ok_or_else(|| format!("{relay_url} is not an acceptable relay address"))?;
+        self.send(&frame).await
     }
 }
 

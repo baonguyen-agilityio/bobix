@@ -100,7 +100,10 @@
     "signSecret": "0505050505050505050505050505050505050505050505050505050505050505"
   },
   "protocol": {
-    "authBytes": "0000000d626f6269782d617574682d76310000000b6368616c6c656e67652d31",
+    "authBytes": "0000000d626f6269782d617574682d7632000000137773733a2f2f72656c61792e6578616d706c650000000b6368616c6c656e67652d31",
+    "authBytesRelayUrl": "wss://relay.example",
+    "authChallenge": "challenge-1",
+    "authSignature": "27086a8b367e76ec0699689e7750728458f224b3a503fc4447e947c9380664a976d853a146b7b21568f38c3400c43853d97d682fa84ab038d1678271fc1ae50e",
     "byeBytes": "0000000c626f6269782d6279652d7631000000080000000000000001000000206236326538363766613266333361666536326435643662313634326531363231000000203334373530663938626435396663666339343664613435616161626539333362000000080000000000000009",
     "cid": "07070707070707070707070707070707",
     "command": {
@@ -146,6 +149,51 @@
     "pairingUri": "bobix://pair?r=wss%3A%2F%2Frelay.example%2Fws&a=iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w&b=zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk&t=BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY",
     "relayToken": "a91bfc95e0c8e56ece7088e72b966fd75df4b6b32de725186b73d2ab5707b10b",
     "relayTokenHash": "3212b82fb75b67524b32686b21f5d34b66451bf5f62f5c16a9c1b8e3bbe83a5e",
+    "relayUrlNormalisation": [
+      [
+        "wss://Relay.Example",
+        "wss://relay.example"
+      ],
+      [
+        "WSS://relay.example:443/",
+        "wss://relay.example"
+      ],
+      [
+        "wss://relay.example:8443/ws/",
+        "wss://relay.example:8443/ws"
+      ],
+      [
+        "wss://relay.example:0443/ws//",
+        "wss://relay.example/ws"
+      ],
+      [
+        "wss://relay.example/Ws?Token=A#frag",
+        "wss://relay.example/Ws?Token=A"
+      ],
+      [
+        "ws://127.0.0.1:8787/",
+        "ws://localhost:8787"
+      ],
+      [
+        "ws://[::1]:8787",
+        "ws://localhost:8787"
+      ],
+      [
+        "ws://localhost:80",
+        "ws://localhost"
+      ],
+      [
+        "wss://[2001:DB8::1]:9000/x",
+        "wss://[2001:db8::1]:9000/x"
+      ]
+    ],
+    "relayUrlRefused": [
+      "ws://relay.example",
+      "http://relay.example",
+      "wss://a@b",
+      "wss://relay.example:99999",
+      "wss://"
+    ],
     "rightsMask": 51
   }
 }

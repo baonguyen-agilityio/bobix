@@ -2,7 +2,6 @@
 //! presence, pairing. It is not the real relay: no TLS, no limits, no push, nothing kept after it exits.
 
 use bobix_link::relay_frames::*;
-use bobix_link::keys::device_id;
 use bobix_link::{b64, b64_decode, sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -35,17 +34,24 @@ fn presence(st: &State, id: &str, state: PresenceState) {
     }
 }
 
-/// Starts the stub on a free local port and returns its `ws://` address.
+/// Starts the stub on a free local port and returns its `ws://` address, which is also its public URL.
 pub async fn spawn() -> String {
+    spawn_with_public_url(None).await
+}
+
+/// `public_url` is what the stub believes its own address is (a real relay has it in its settings; `relay --dev`
+/// derives it from the bind address). A device that signed another address is refused with `relayUrl`.
+pub async fn spawn_with_public_url(public_url: Option<&str>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let url = format!("ws://{}", listener.local_addr().expect("addr"));
+    let public = std::sync::Arc::new(public_url.map_or_else(|| url.clone(), str::to_string));
     let st: Shared = Shared::default();
     tokio::spawn(async move {
         while let Ok((sock, _)) = listener.accept().await {
-            let st = st.clone();
+            let (st, public) = (st.clone(), public.clone());
             tokio::spawn(async move {
                 if let Ok(ws) = tokio_tungstenite::accept_async(sock).await {
-                    let _ = serve(ws, st).await;
+                    let _ = serve(ws, st, &public).await;
                 }
             });
         }
@@ -53,7 +59,7 @@ pub async fn spawn() -> String {
     url
 }
 
-async fn serve(ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, st: Shared) -> Result<(), String> {
+async fn serve(ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, st: Shared, public: &str) -> Result<(), String> {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
     let (mut sink, mut stream) = ws.split();
@@ -69,12 +75,11 @@ async fn serve(ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, st
     let _ = tx.send(Frame::Challenge { nonce: nonce.clone() });
     let first = tokio::time::timeout(Duration::from_secs(5), stream.next()).await.map_err(|_| "no auth")?;
     let Some(Ok(Message::Text(t))) = first else { return Err("no auth".into()) };
-    let Ok(Frame::Auth { id, key, sig, .. }) = Frame::parse(t.as_str()) else { return Err("no auth".into()) };
-    let key: [u8; 32] = b64_decode(&key).and_then(|k| k.try_into().ok()).ok_or("bad key")?;
-    let sig = b64_decode(&sig).unwrap_or_default();
-    if device_id(&key) != id || !bobix_link::keys::verify_auth(&key, &bobix_link::command::auth_bytes(&nonce), &sig) {
-        let _ = tx.send(Frame::Error { code: ErrorCode::Auth, who: None });
-        return Err("auth failed".into());
+    let Ok(Frame::Auth { id, key, relay, sig, .. }) = Frame::parse(t.as_str()) else { return Err("no auth".into()) };
+    if let Err(refusal) = bobix_link::command::verify_auth_frame(public, &nonce, &id, &key, &relay, &sig) {
+        let _ = tx.send(Frame::Error { code: refusal.code(), who: None });
+        tokio::time::sleep(Duration::from_millis(50)).await; // let the writer task send the error before the socket closes
+        return Err(format!("auth refused: {refusal:?}"));
     }
     let conn_id = {
         let mut s = st.lock().unwrap();

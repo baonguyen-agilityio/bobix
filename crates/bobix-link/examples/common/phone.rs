@@ -15,6 +15,8 @@ use std::time::Duration;
 
 pub struct Phone {
     pub name: String,
+    /// The relay address this phone is connected to (and signs in its `auth` frame).
+    pub relay: String,
     pub id: Identity,
     pub signer: SoftSigner,
     conn: Conn,
@@ -35,7 +37,7 @@ impl Phone {
         let mut conn = Conn::connect(relay).await?;
         let id = Identity::generate();
         conn.login(&id).await?;
-        Ok(Phone { name: name.into(), id, signer: SoftSigner::generate(), conn, links: HashMap::new(), log: vec![], frames: vec![], drops: vec![], print: false, lines: vec![] })
+        Ok(Phone { name: name.into(), relay: relay.into(), id, signer: SoftSigner::generate(), conn, links: HashMap::new(), log: vec![], frames: vec![], drops: vec![], print: false, lines: vec![] })
     }
 
     fn say(&mut self, line: String) {
@@ -101,6 +103,9 @@ impl Phone {
     /// Pairs from a QR string. Returns the computer's device id.
     pub async fn pair(&mut self, qr: &str, rights: Rights) -> Result<String, String> {
         let code = PairingCode::parse(qr).map_err(|e| format!("this QR code cannot be used: {e:?}"))?;
+        if bobix_link::pairing::normalize_relay_url(&code.relay) != bobix_link::pairing::normalize_relay_url(&self.relay) {
+            return Err(format!("this code is for another relay ({}), this phone is connected to {}", code.relay, self.relay));
+        }
         let computer = code.desktop.device_id();
         let mut link = new_link(Direction::ToDesktop, &self.id, code.desktop.boxk);
         let hello = Hello::new(&code, &self.id.public(), &self.signer.public(), &self.name, rights, VersionRange::current());
