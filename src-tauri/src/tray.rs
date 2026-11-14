@@ -188,9 +188,10 @@ fn menu(app: &AppHandle, b: &Bobix) -> tauri::Result<Menu<tauri::Wry>> {
     m.append(&CheckMenuItem::with_id(app, "pause", tr("tray.pause"), true, st["paused"] == true, None::<&str>)?)?;
     m.append(&item("feedback", tr("tray.feedback"))?)?;
     if let Some(v) = settings::news_for(&st, &version, &crate::i18n::NEWS) { m.append(&item("news", t(&l, "tray.news", &[("v", &v)]))?)?; }
-    if let Some((v, _)) = &update {
+    if let Some(f) = &update.found {
         m.append(&sep()?)?;
-        m.append(&item("update", t(&l, "tray.update", &[("v", v)]))?)?;
+        if update.phase == "downloading" || update.phase == "installing" { m.append(&MenuItem::with_id(app, "update", tr("tray.updating"), false, None::<&str>)?)?; }
+        else { m.append(&item("update", t(&l, if f.why.is_none() { "tray.updateNow" } else { "tray.update" }, &[("v", &f.version)]))?)?; }
     }
     m.append(&sep()?)?;
     m.append(&item("quit", tr("tray.quit"))?)?;
@@ -211,7 +212,12 @@ fn on_menu(app: &AppHandle, id: &str) {
         "pause" => { crate::update_settings(&b, json!({ "paused": st["paused"] != true })); }
         "feedback" => panel::show(app, &b, None, Some("feedback".into()), None),
         "news" => panel::show(app, &b, None, Some("sessions".into()), None),
-        "update" => { if let Some((_, url)) = b.core.lock().unwrap().update.clone() { let _ = tauri_plugin_opener::open_url(url, None::<&str>); } }
+        // In-app: Update pressed. Otherwise (no key, no password prompt, a read-only place) the release page.
+        "update" => {
+            let f = b.core.lock().unwrap().update.found.clone();
+            match f { Some(f) if f.why.is_none() => { tauri::async_runtime::spawn(crate::update::install(b.clone())); }
+                      Some(f) => { let _ = tauri_plugin_opener::open_url(f.page, None::<&str>); } None => {} }
+        }
         "quit" => app.exit(0),
         _ => {}
     }

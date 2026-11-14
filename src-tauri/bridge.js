@@ -28,6 +28,7 @@
     setSettings: patch => invoke('settings_set', { patch }),
     resetSettings: () => invoke('settings_reset'),
     revealSettings: () => invoke('reveal_settings'),
+    update: act => invoke('update_act', { act: String(act) }), // check | install | later | page: updating Bobix itself (src-tauri/src/update.rs)
     copyDiagnostics: () => invoke('diagnostics_copy'),
     feedbackInfo: () => invoke('feedback_info'),
     sendFeedback: v => invoke('feedback_send', { v: v || {} }), // opens GitHub's form; the person submits it there
@@ -93,7 +94,7 @@
     claudeTests: (dir, cmd) => invoke('claude_tests', { dir: String(dir), cmd: typeof cmd === 'string' ? cmd : null }),
     ticketMr: (key, title, description) => invoke('ticket_mr', { key: String(key), title: String(title || ''), description: String(description || '') }), // push + glab mr create, on your click
     ticketReview: (key, how) => invoke('ticket_review', { key: String(key), how: how === 'cli' ? 'cli' : 'desktop' }), // a second session reviews a done flow
-    onSettings: on('settings'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),
+    onSettings: on('settings'), onUpdate: on('update'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),
     // overlay only
     petClick: id => invoke('pet_click', { id }),
     setRects: r => invoke('rects', { r }),

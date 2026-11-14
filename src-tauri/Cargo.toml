@@ -23,6 +23,7 @@ sha2 = "0.10"
 base64 = "0.22"
 tauri-plugin-dialog = "2"
 arboard = { version = "3", default-features = false }
+tauri-plugin-updater = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -46,3 +47,6 @@ strip = true
 lto = true
 codegen-units = 1
 opt-level = "s"
+
+[dev-dependencies]
+semver = "1"
