@@ -1309,7 +1309,7 @@ async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> 
 }
 
 // Why a start from a picked branch stopped, as the page reads it: { ok: false, reason: base-<kind>, detail, branch }.
-fn base_failed(e: tickets::BaseErr, branch: &str) -> Value { json!({ "ok": false, "reason": format!("base-{}", e.kind), "detail": e.detail, "branch": branch }) }
+fn base_failed(e: tickets::BaseErr, branch: &str) -> Value { json!({ "ok": false, "reason": if e.kind == "nobase" { "nobase".into() } else { format!("base-{}", e.kind) }, "detail": e.detail, "branch": branch }) }
 
 // Start: a worktree on a new branch from the remote branch you picked (`base`; fetched now, checked after; offline or gone,
 // it stops and says so), remembered for the repository, the log's template in it, then a new Claude desktop session there with the prompt (how: desktop),
@@ -1328,13 +1328,11 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) && anyway != Some(true) { return json!({ "ok": false, "reason": "disk", "free": free }); }
         let title = i["title"].as_str().unwrap_or("").to_string();
         let flang = lang(&b.core.lock().unwrap().settings); // the flow keeps the language it started in
-        // a worktree kept from before in the old place (a link there opens the main folder): moved here first
-        if let Err(e) = tickets::move_kept(&repo, iid, &path, &code, &branch, &wt) { return json!({ "ok": false, "reason": "git", "detail": e }); }
-        // the branch is asked once per repository and never guessed: nothing picked, nothing started
-        let Some(pick) = base.map(|x| x.trim().to_string()).filter(|x| settings::branch_name(x)) else { return json!({ "ok": false, "reason": "nobase" }) };
-        let from = match tickets::base_of(&repo, &pick) { Ok(x) => x, Err(e) => return base_failed(e, &pick) };
+        // the branch is asked once per repository and never guessed; the checks come before anything on disk moves
+        let pick = base.as_deref().map(str::trim).unwrap_or("").to_string();
         let prior = b.core.lock().unwrap().tickets.list.get(&key).map(|f| f.base_branch.clone()).filter(|x| !x.is_empty());
-        if let Err(e) = tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title, &flang), &from, prior.as_deref(), keep == Some(true)) { return base_failed(e, &pick); }
+        // a worktree kept from before in the old place (a link there opens the main folder) is moved there first, once the start is allowed
+        let from = match tickets::prepare_start(&repo, &wt, &branch, &tickets::template(iid, &title, &flang), iid, &path, &code, base.as_deref(), prior.as_deref(), keep == Some(true)) { Ok(x) => x, Err(e) => return base_failed(e, &pick) };
         let fetch = json!({ "from": from.name });
         let tests = skill_audit::carry_tests(std::path::Path::new(&repo), &wt, &paths::data_dir()); // your uncommitted Tests line, there too
         let (base, base_branch, dir) = (from.commit, from.branch, wt.to_string_lossy().to_string());

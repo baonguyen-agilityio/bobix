@@ -1324,6 +1324,8 @@ $('#settings').addEventListener('input', e => {
   $(`[data-val="${k}"]`).textContent = r.fmt(v);
   save({ [k]: v }, { rerender: false });
 });
+// A branch name the backend keeps (settings.rs branch_name): printable, no space, not an option ("-x"), no "..", none of ~ ^ : ? * [ \\.
+const branchName = v => v.length >= 1 && v.length <= 200 && !v.startsWith('-') && !v.includes('..') && !/[\s\x00-\x1f\x7f~^:?*[\\]/.test(v);
 $('#settings').addEventListener('change', e => {
   const of = e.target.dataset.keyOf;
   if (of) {
@@ -1335,7 +1337,7 @@ $('#settings').addEventListener('change', e => {
   const bo = e.target.dataset.baseOf;
   if (bo) { // change the remembered branch (a name the remote does not have is caught at the next Start); empty: asked again
     const v = e.target.value.trim(), bases = { ...(state.settings.workBase || {}) };
-    if (v && !/^[^\s~^:?*[\\-][^\s~^:?*[\\]{0,199}$/.test(v)) { e.target.value = bases[bo] || ''; return toast(T('set.workBase.bad')); }
+    if (v && !branchName(v)) { e.target.value = bases[bo] || ''; return toast(T('set.workBase.bad')); }
     if (v) bases[bo] = v; else delete bases[bo];
     return save({ workBase: bases }).then(() => toast(T(v ? 'set.workBase.saved' : 'set.workBase.cleared', { p: bo, b: v })));
   }

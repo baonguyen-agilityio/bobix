@@ -528,7 +528,7 @@ fn base_step(app: &AppHandle, key: &str) -> Value {
     let dir = r["dir"].as_str().unwrap_or("").to_string();
     if !dir.is_empty() {
         let head = tickets::head_commit(&dir);
-        let tip = tickets::head_commit_of(&dir, "origin/develop");
+        let tip = tickets::head_commit_of(&dir, "refs/remotes/origin/develop");
         r["headIsOriginDevelop"] = json!(!head.is_empty() && head == tip);
     }
     let ok = ["listed", "box", "nothingPicked", "startOff", "footerOff", "noStartWithoutBranch", "noRemembered", "noFlowYet", "startOn", "fromShown", "started", "headIsOriginDevelop", "goneShown", "goneNothingPicked", "goneStartOff"].iter().all(|k| r[*k] == true)

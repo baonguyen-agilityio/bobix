@@ -512,7 +512,7 @@ mod tests {
         assert_eq!(upgrade(s(now.clone()), &now)["github"], false, "turned off since: stays off");
         assert_eq!(s(json!({ "workFilter": "mine" }))["workFilter"], "mine");
         assert_eq!(s(json!({ "workCode": { "Group/Space-v2": "group/Space-Agent", "a/b": "nope", "x": "a/b" } }))["workCode"], json!({ "group/space-v2": "group/space-agent" }));
-        assert_eq!(s(json!({ "workBase": { "Group/App": "release/0.2", "a/b": "-x", "c/d": "a b", "e": "main", "f/g": 7 } }))["workBase"], json!({ "group/app": "release/0.2" }), "a branch per repository, no option-like or odd names");
+        assert_eq!(s(json!({ "workBase": { "Group/App": "release/0.2", "a/b": "-x", "c/d": "a b", "e": "main", "f/g": 7, "h/i": "a..b", "j/k": "a:b", "l/m": "a\\b", "n/o": "" } }))["workBase"], json!({ "group/app": "release/0.2" }), "a branch per repository, no option-like or odd names");
         assert_eq!(s(json!({ "workFilter": "others" }))["workFilter"], "all");
         assert_eq!(s(json!({ "workRepos": { "GitHub.com": ["Acme/Shop", "acme/shop", "nope"], "ghe.example.com:8443": ["a/b"], "bad host": ["a/b"], "x": "a/b" } }))["workRepos"],
             json!({ "github.com": ["acme/shop"], "ghe.example.com:8443": ["a/b"] }));
