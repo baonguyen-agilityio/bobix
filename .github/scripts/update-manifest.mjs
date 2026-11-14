@@ -16,11 +16,12 @@ export const FILES = {
   'linux-aarch64-deb': 'bobix-linux-arm64.deb',
 };
 
-// minisign's key id: the files hold base64 of text whose second line is base64 of 2 bytes of algorithm, 8 of key id, then the key or signature.
+// minisign's key id as minisign prints it ("minisign public key: 6C8C…"): the files hold base64 of text whose second line is
+// base64 of 2 bytes of algorithm, 8 of key id (stored the other way round), then the key or signature.
 export function keyId(b64) {
   const line = Buffer.from(b64.trim(), 'base64').toString('utf8').split('\n')[1] || '';
   const bytes = Buffer.from(line.trim(), 'base64');
-  return bytes.length >= 10 ? bytes.subarray(2, 10).toString('hex') : '';
+  return bytes.length >= 10 ? Buffer.from(bytes.subarray(2, 10)).reverse().toString('hex').toUpperCase() : '';
 }
 
 // What a release must be before it is published, or no copy can ever update from it: a real public key in the app (not the
@@ -33,7 +34,7 @@ export function checkRelease({ conf, pkg, tag, signatures }) {
   }
   if (tag !== `v${pkg.version}`) throw new Error(`the tag ${tag} is not package.json's version v${pkg.version}: the app would report one version and the update list another`);
   for (const [name, sig] of Object.entries(signatures)) {
-    if (keyId(sig) !== id) throw new Error(`${name}.sig was not signed with the key of the public key in tauri.conf.json`);
+    if (keyId(sig) !== id) throw new Error(`${name}.sig was signed with key ${keyId(sig) || '?'}, not the key ${id} of the public key in tauri.conf.json`);
   }
 }
 
