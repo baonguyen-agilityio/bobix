@@ -24,6 +24,7 @@ stable branch. How to run it and how it is built: `docs/development.md`. What is
 - Screenshots, GIFs and demos use made-up data only: no real skills, sessions, repositories or paths. Keep them out of the repository unless the docs need them.
 - A new screen, a large layout change or a new area starts as a prototype outside the repository, approved by the owner before the issue is written.
 - Update `docs/roadmap.md` when an item lands, ships or turns out unverified.
+- Every pull request also gets an automatic docs check (`.github/workflows/claude-review.yml`) that comments where a README, doc, roadmap line or app string no longer matches the change. Answer its comments like the code review's. That workflow file must be identical on `main` and `develop`, or the action skips and the job warns.
 - Delete what a task leaves behind when it ends: test copies, scratch folders, build output, merged worktrees.
 - The repository is public: no secrets, tokens, `.env` files, local paths or personal details in code, docs, issues or pull requests.
 
