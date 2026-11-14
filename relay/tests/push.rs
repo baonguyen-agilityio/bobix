@@ -283,6 +283,7 @@ async fn a_relay_without_credentials_pushes_through_a_gateway() {
     let client = GatewayClient::new(&format!("http://{}", gw.addr), Some("shared-key".into()), "self-hosted");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    c.public_url = format!("ws://{addr}");
     let app = App::new(c, Arc::new(client), None);
     tokio::spawn(bobix_relay::run(app.clone(), listener));
     let own = Server { addr, app };

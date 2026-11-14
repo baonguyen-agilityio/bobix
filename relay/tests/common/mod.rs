@@ -34,9 +34,10 @@ pub fn cfg() -> Config {
     c
 }
 
-pub async fn start(cfg: Config) -> Server {
+pub async fn start(mut cfg: Config) -> Server {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    cfg.public_url = format!("ws://{addr}");
     let app = App::with_fake(cfg);
     tokio::spawn(run(app.clone(), listener));
     Server { addr, app }
@@ -50,9 +51,9 @@ pub fn scratch(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("bobix-relay-test-{name}-{}", bobix_link::hex(&bobix_link::random::<6>())))
 }
 
-pub fn auth_frame(id: &Identity, nonce: &str) -> Frame {
-    let sig = id.sign_auth(&bobix_link::command::auth_bytes(nonce));
-    Frame::Auth { id: id.device_id(), key: b64(&id.public().auth), sig: b64(&sig), versions: VersionRange::current() }
+/// The `auth` frame of a device that is connected to the relay at `url`.
+pub fn auth_frame(id: &Identity, url: &str, nonce: &str) -> Frame {
+    bobix_link::command::auth_frame(id, url, nonce, VersionRange::current()).expect("an acceptable relay address")
 }
 
 pub fn send(to: &str, pid: &str, ttl: u32, collapse: Option<&str>, body: &str) -> Frame {
@@ -78,6 +79,7 @@ pub fn now_ms() -> u64 {
 pub struct Dev {
     pub ident: Arc<Identity>,
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    pub url: String,
     pending: VecDeque<Frame>,
 }
 
@@ -85,7 +87,7 @@ impl Dev {
     /// Connected, with no `auth` sent.
     pub async fn raw(s: &Server) -> Dev {
         let (ws, _) = tokio_tungstenite::connect_async(format!("ws://{}/v1/ws", s.addr)).await.unwrap();
-        Dev { ident: ident(), ws, pending: VecDeque::new() }
+        Dev { ident: ident(), ws, url: format!("ws://{}", s.addr), pending: VecDeque::new() }
     }
 
     /// Connected and authenticated; returns once the relay has processed a frame of this device.
@@ -93,7 +95,8 @@ impl Dev {
         let mut d = Dev::raw(s).await;
         d.ident = id;
         let Frame::Challenge { nonce } = d.next(2000).await else { panic!("no challenge") };
-        d.send(&auth_frame(&d.ident.clone(), &nonce)).await;
+        let frame = auth_frame(&d.ident, &d.url, &nonce);
+        d.send(&frame).await;
         d.sync().await;
         d
     }

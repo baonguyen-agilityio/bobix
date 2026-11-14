@@ -7,6 +7,9 @@ use std::time::Duration;
 pub struct Config {
     pub dev: bool,
     pub addr: String,
+    /// This relay's own address as devices know it (`RELAY_PUBLIC_URL`, e.g. `wss://relay.example`): an `auth`
+    /// signature must be made for it. `--dev` derives it from the bind address.
+    pub public_url: String,
     /// The id a phone's push grant must name (`RELAY_ID`).
     pub relay_id: String,
     pub invite_file: Option<PathBuf>,
@@ -59,6 +62,7 @@ impl Config {
         Config {
             dev,
             addr: "127.0.0.1:8787".into(),
+            public_url: "ws://127.0.0.1:8787".into(),
             relay_id: "dev".into(),
             invite_file: None,
             gateway_keys_file: None,
@@ -95,6 +99,14 @@ impl Config {
             c.addr = a;
         } else if !dev {
             c.addr = "0.0.0.0:8787".into();
+        }
+        c.public_url = match var("RELAY_PUBLIC_URL") {
+            Some(u) => u,
+            None if dev => format!("ws://{}", c.addr),
+            None => return Err("RELAY_PUBLIC_URL is required: the address devices connect to, such as wss://relay.example (a device signs it when it logs in)".into()),
+        };
+        if bobix_link::pairing::normalize_relay_url(&c.public_url).is_none() {
+            return Err(format!("RELAY_PUBLIC_URL {} is not an acceptable relay address (wss://host, or ws:// on localhost)", c.public_url));
         }
         c.relay_id = if dev { var("RELAY_ID").unwrap_or(c.relay_id) } else { need("RELAY_ID")? };
         c.revoked_dir = if dev { var("REVOKED_DIR").map(Into::into) } else { Some(need("REVOKED_DIR")?.into()) };

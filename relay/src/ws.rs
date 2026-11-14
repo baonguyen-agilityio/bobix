@@ -8,10 +8,9 @@ use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, State};
 use axum::response::Response;
-use bobix_link::command::auth_bytes;
-use bobix_link::keys::{device_id, verify_auth};
+use bobix_link::command::{verify_auth_frame, AuthRefusal};
 use bobix_link::relay_frames::{ErrorCode, Frame, FrameError};
-use bobix_link::{b64, b64_decode, random};
+use bobix_link::{b64, random};
 use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
@@ -72,12 +71,16 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Unbou
     if first.len() > PRE_AUTH_MAX {
         return error(tx, ErrorCode::Oversize);
     }
-    let Ok(Frame::Auth { id, key, sig, .. }) = Frame::parse(first.as_str()) else { return error(tx, ErrorCode::Auth) };
-    let key: Option<[u8; 32]> = b64_decode(&key).and_then(|k| k.try_into().ok());
-    let proven = key.is_some_and(|k| device_id(&k) == id && verify_auth(&k, &auth_bytes(&nonce), &b64_decode(&sig).unwrap_or_default()));
-    if !proven {
-        app.log.line("auth refused");
-        return error(tx, ErrorCode::Auth);
+    let Ok(Frame::Auth { id, key, relay, sig, .. }) = Frame::parse(first.as_str()) else { return error(tx, ErrorCode::Auth) };
+    if let Err(refusal) = verify_auth_frame(&app.cfg.public_url, &nonce, &id, &key, &relay, &sig) {
+        match refusal {
+            AuthRefusal::OtherRelay => app.log.line(&format!(
+                "auth refused: {id} signed for {relay}, but this relay's RELAY_PUBLIC_URL is {} (a wrong RELAY_PUBLIC_URL looks like this)",
+                app.cfg.public_url
+            )),
+            AuthRefusal::Invalid => app.log.line("auth refused: bad key or signature"),
+        }
+        return error(tx, refusal.code());
     }
 
     let revoked = app.hub.lock().unwrap().revoked.is_revoked(&id, now_ms());
