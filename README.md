@@ -159,7 +159,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Which Claude Code setups work?** The CLI in any terminal, the IDE extensions and the Claude desktop app. Click-to-open goes straight to the session in the desktop app; elsewhere it brings the app forward, not a specific tab.
 
-**What if I don't have Node.js?** Hooks fall back to `curl` or PowerShell. Everything works except click-to-open, which then shows the session's details.
+**What if I don't have Node.js?** Hooks fall back to `curl` or PowerShell. Everything works except opening a session (a pet click, **Open session** in the panel, on the pet's card or in the tray, ⌘K ↵), which then shows its details or says why instead of bringing its window forward.
 
 **It shows nothing on my work laptop.** Your organization may allow only managed hooks (`allowManagedHooksOnly`). Bobix respects that and cannot receive events there.
 
