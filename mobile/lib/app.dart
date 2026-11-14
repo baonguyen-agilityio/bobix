@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'fixtures/fixtures.dart';
+import 'data/phone_data.dart';
 import 'l10n/l10n.dart';
 import 'screens/home_screen.dart';
+import 'screens/pets_screen.dart';
 import 'screens/placeholder_screen.dart';
 import 'theme/theme.dart';
 import 'theme/tokens.dart';
@@ -41,7 +42,14 @@ class _AppShellState extends ConsumerState<AppShell> {
   Widget build(BuildContext context) {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
-    final need = fixtureSessions.where((x) => x.needsYou).length;
+    final need =
+        ref
+            .watch(homeProvider)
+            .value
+            ?.sessions
+            .where((x) => x.needsYou)
+            .length ??
+        0;
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
@@ -53,11 +61,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 index: _index,
                 children: const [
                   HomeScreen(),
-                  PlaceholderScreen(
-                    titleKey: 'phone.pets.title',
-                    bodyKey: 'phone.pets.empty',
-                    detailKey: 'phone.pets.empty.d',
-                  ),
+                  PetsScreen(),
                   PlaceholderScreen(
                     titleKey: 'phone.start.title',
                     bodyKey: 'phone.start.soon',

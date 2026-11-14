@@ -1,61 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../fixtures/fixtures.dart';
+import '../data/models.dart';
+import '../data/phone_data.dart';
 import '../l10n/l10n.dart';
 import '../theme/tokens.dart';
 import '../widgets/glass.dart';
 import '../widgets/session_row.dart';
 import '../widgets/status_banner.dart';
+import 'request_screen.dart';
+import 'session_screen.dart';
 
-/// What the connection looks like to the person; the real connection replaces this provider.
-class Conn extends Notifier<ConnState> {
-  @override
-  ConnState build() => ConnState.values.firstWhere(
-    (c) => c.name == const String.fromEnvironment('BOBIX_FIXTURE_CONN'),
-    orElse: () => ConnState.ok,
-  );
+void openSession(BuildContext context, Session x) {
+  final page = x.needsYou && !x.answerAtComputer
+      ? RequestScreen(sessionId: x.id)
+      : SessionScreen(sessionId: x.id);
+  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
 }
-
-final connProvider = NotifierProvider<Conn, ConnState>(Conn.new);
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final data = ref.watch(homeProvider).value;
+    if (data == null) return const Center(child: CircularProgressIndicator());
     final s = ref.watch(stringsProvider);
-    final conn = ref.watch(connProvider);
     final t = context.tokens;
-    const clock = '21:02';
+    final conn = data.conn, clock = data.lastContact, computer = data.computer;
 
-    final need = fixtureSessions.where((x) => x.needsYou).toList();
+    final need = data.sessions.where((x) => x.needsYou).toList();
     String minutes(int n) => s('phone.min', {'n': n});
 
     Widget row(
       Session x,
       String subtitle, {
       String? meta,
-      bool needsYou = false,
       Color? subtitleColor,
     }) => Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: SessionRow(
         petDesign: x.petDesign,
         petColor: x.petColor,
-        petState: needsYou
-            ? 'waiting'
-            : switch (x.stage) {
-                Stage.doing => 'working',
-                Stage.verify => 'idle',
-                Stage.stuck => 'failed',
-                _ => 'done',
-              },
+        petState: x.petState,
         title: x.name,
         subtitle: subtitle,
         meta: meta ?? '${x.project} #${x.issue}',
-        needsYou: needsYou,
+        needsYou: x.needsYou,
         subtitleColor: subtitleColor,
+        onTap: () => openSession(context, x),
       ),
     );
 
@@ -81,33 +74,32 @@ class HomeScreen extends ConsumerWidget {
       ConnState.asleep => StatusBanner(
         kind: BannerKind.warn,
         icon: Icons.bedtime_outlined,
-        title: s('phone.bn.asleep', {'c': fixtureComputer}),
+        title: s('phone.bn.asleep', {'c': computer}),
         body: s('phone.bn.asleep.d', {'tm': clock}),
       ),
       ConnState.offline => StatusBanner(
         kind: BannerKind.warn,
         icon: Icons.computer,
-        title: s('phone.bn.offline', {'c': fixtureComputer}),
+        title: s('phone.bn.offline', {'c': computer}),
         body: s('phone.bn.offline.d', {'tm': clock}),
       ),
     };
 
-    String stageName(Stage g) => s('phone.stage.${g.name}');
     List<Widget> stage(Stage g) {
-      final items = fixtureSessions
+      final items = data.sessions
           .where((x) => x.stage == g && !x.needsYou)
           .toList();
       if (items.isEmpty) return const [];
       return [
-        SectionHeader(stageName(g), count: items.length),
+        SectionHeader(s('phone.stage.${g.name}'), count: items.length),
         for (final x in items)
           row(x, switch (g) {
             Stage.doing =>
               x.tool == null
                   ? s('phone.st.working0')
                   : s('phone.st.working', {'tool': x.tool!}),
-            Stage.verify => s('phone.st.pr', {'n': x.pullRequest!}),
-            Stage.stuck => s('phone.stage.stuck'),
+            Stage.verify => s('phone.st.pr', {'n': x.pullRequest ?? 0}),
+            Stage.stuck => s('phone.st.stuck'),
             _ => s('phone.st.closed'),
           }, subtitleColor: g == Stage.stuck ? t.err : null),
       ];
@@ -153,7 +145,7 @@ class HomeScreen extends ConsumerWidget {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        fixtureComputer,
+                        computer,
                         style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w600,
@@ -195,10 +187,11 @@ class HomeScreen extends ConsumerWidget {
           for (final x in need)
             row(
               x,
-              s('phone.ask.h', {'tool': x.tool!}),
+              x.answerAtComputer
+                  ? s('phone.home.atpc')
+                  : s('phone.ask.h', {'tool': x.tool ?? ''}),
               meta:
                   '${x.project} · ${s('phone.home.waited', {'n': minutes(x.waitingMinutes)})}',
-              needsYou: true,
             ),
         ],
         for (final g in Stage.values) ...stage(g),
