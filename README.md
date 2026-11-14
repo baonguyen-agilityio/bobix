@@ -39,7 +39,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - **Small signals**: a level-up when a session finishes a task, a low battery when its context runs low. With reduced motion they stay off; the badge and the coral ring still say what needs you.
 
 ### Answer approvals without switching windows
-- When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked.
+- When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked. A question Claude asks you (`AskUserQuestion`) shows on the pet with its text; you answer it in Claude.
 - Claude still asks in the terminal at the same time, so you can answer in either place. Bobix sets no standing rules; for that, use Claude's own auto mode.
 
 ### See what each session uses

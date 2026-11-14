@@ -39,7 +39,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - **Tín hiệu nhỏ**: lên cấp khi session xong một việc, pin yếu khi context sắp hết. Khi bật giảm chuyển động thì không có hiệu ứng; huy hiệu và vòng cam vẫn cho biết việc gì cần bạn.
 
 ### Duyệt yêu cầu mà không chuyển cửa sổ
-- Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu.
+- Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu. Câu hỏi Claude đặt cho bạn (`AskUserQuestion`) hiện trên chú thú kèm nội dung; bạn trả lời trong Claude.
 - Claude vẫn hỏi trong terminal cùng lúc nên bạn trả lời ở đâu cũng được. Bobix không đặt quy tắc cho phép lâu dài; muốn vậy hãy dùng chế độ auto của chính Claude.
 
 ### Xem mỗi session dùng bao nhiêu
