@@ -1301,17 +1301,23 @@ async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> 
         let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
         let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
-        json!({ "ok": true, "code": code, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+        // where new work starts from: the branches the remote has right now, and the one remembered for this repository
+        let remembered = b.core.lock().unwrap().settings["workBase"][&code].as_str().map(String::from);
+        let from = match tickets::branches(&repo) { Ok(l) => json!({ "ok": true, "branches": l }), Err(e) => json!({ "ok": false, "kind": e.kind, "detail": e.detail }) };
+        json!({ "ok": true, "code": code, "from": from, "remembered": remembered, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
     }).await.map_err(|_| ())
 }
 
-// Start: a worktree on a new branch from the remote's default branch (fetched first; offline, the last copy, and the
-// answer says so), the log's template in it, then a new Claude desktop session there with the prompt (how: desktop),
+// Why a start from a picked branch stopped, as the page reads it: { ok: false, reason: base-<kind>, detail, branch }.
+fn base_failed(e: tickets::BaseErr, branch: &str) -> Value { json!({ "ok": false, "reason": format!("base-{}", e.kind), "detail": e.detail, "branch": branch }) }
+
+// Start: a worktree on a new branch from the remote branch you picked (`base`; fetched now, checked after; offline or gone,
+// it stops and says so), remembered for the repository, the log's template in it, then a new Claude desktop session there with the prompt (how: desktop),
 // or the line to paste in a terminal with the model and plan mode preset (how: cli). The first session created in that
 // folder takes the issue (its name, as New does) and the flow. Under WORKTREE_BYTES free it answers { reason: disk }
 // unless `anyway` (Start anyway: a small repository needs far less).
 #[tauri::command]
-async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, b: B<'_>) -> Result<Value, ()> {
+async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, base: Option<String>, keep: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let code = code_of(&path, code);
@@ -1324,10 +1330,14 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         let flang = lang(&b.core.lock().unwrap().settings); // the flow keeps the language it started in
         // a worktree kept from before in the old place (a link there opens the main folder): moved here first
         if let Err(e) = tickets::move_kept(&repo, iid, &path, &code, &branch, &wt) { return json!({ "ok": false, "reason": "git", "detail": e }); }
-        let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title, &flang)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
-        let fetch = json!({ "ok": base.fetched, "from": base.name, "at": base.at });
+        // the branch is asked once per repository and never guessed: nothing picked, nothing started
+        let Some(pick) = base.map(|x| x.trim().to_string()).filter(|x| settings::branch_name(x)) else { return json!({ "ok": false, "reason": "nobase" }) };
+        let from = match tickets::base_of(&repo, &pick) { Ok(x) => x, Err(e) => return base_failed(e, &pick) };
+        let prior = b.core.lock().unwrap().tickets.list.get(&key).map(|f| f.base_branch.clone()).filter(|x| !x.is_empty());
+        if let Err(e) = tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title, &flang), &from, prior.as_deref(), keep == Some(true)) { return base_failed(e, &pick); }
+        let fetch = json!({ "from": from.name });
         let tests = skill_audit::carry_tests(std::path::Path::new(&repo), &wt, &paths::data_dir()); // your uncommitted Tests line, there too
-        let (base, dir) = (base.commit, wt.to_string_lossy().to_string());
+        let (base, base_branch, dir) = (from.commit, from.branch, wt.to_string_lossy().to_string());
         let models = if models.is_object() { models } else { json!({ "size": "small" }) };
         let cmd = tickets::cli_command(&dir, &tickets::main_model(&models), &prompt);
         {
@@ -1335,7 +1345,7 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
             c.tickets.list.shift_remove(&key);
             let forge = c.work.source_of(&c.settings, &path, iid).map(|x| x.0.key()).unwrap_or("gitlab").to_string();
             c.tickets.list.insert(key.clone(), tickets::Flow { key: key.clone(), path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
-                dir: dir.clone(), branch, base, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
+                dir: dir.clone(), branch, base, base_branch, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
             c.tickets.save();
             let main = c.tickets.list.get(&key).map(|f| f.repo.clone()).unwrap_or_default();
             c.work.wait_for(&dir, &main, &path, iid, &json!(title), &i["url"]);
@@ -1345,7 +1355,10 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         let mut all = b.core.lock().unwrap().settings["workCode"].clone();
         if !all.is_object() { all = json!({}); }
         if code == path { all.as_object_mut().map(|o| o.remove(&path)); } else { all[&path] = json!(code); }
-        update_settings(&b, json!({ "workCode": all }));
+        let mut remembered = b.core.lock().unwrap().settings["workBase"].clone();
+        if !remembered.is_object() { remembered = json!({}); }
+        remembered[&code] = json!(pick);
+        update_settings(&b, json!({ "workCode": all, "workBase": remembered }));
         b.broadcast();
         if how == "cli" { return json!({ "ok": true, "mode": "cli", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }); }
         match open_claude(&work::new_session_link(&dir, &prompt)) {

@@ -3,7 +3,7 @@
 // on screen, open the panel and use its bridge (state, a settings change that is saved, feedback), check the tray, the
 // session's git status and a second start, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke()
 // in the 0.1 (Electron) app's main.js. The panel also imports a picture it draws (decode, pixel art in the worker, save, served, reset).
-use crate::{answers, hooks, overlay, panel, paths, Bobix};
+use crate::{answers, hooks, overlay, panel, paths, tickets, Bobix};
 use serde_json::{json, Value};
 use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
 use tauri::{AppHandle, Manager};
@@ -26,7 +26,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_FOLLOW").is_some() { 400 } else { 0 };
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_FOLLOW").is_some() { 400 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_BASE").is_some() { 240 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -169,6 +169,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_REPOS") { report["repos"] = repos_step(&app, &spec); }
         if let Ok(key) = std::env::var("BOBIX_SMOKE_TICKET") { report["ticket"] = ticket(&app, &b, &dir, &key); }
+        if let Ok(key) = std::env::var("BOBIX_SMOKE_BASE") { report["base"] = base_step(&app, &key); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_AGAIN") { report["again"] = again_step(&app, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_CLONES") { report["clones"] = clones_step(&app, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_START") { report["start"] = start_step(&app, b.port, &dir, &spec); }
@@ -423,7 +424,7 @@ fn name_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> V
         const issue = n => st.todo.map(x => x[0]).find(i => i.iid === n && i.url.includes('/' + A + '/')); \
         const prompt = n => BOARD.brief(issue(n), 'Made-up description.'); \
         const quick = (n, d) => bridge.startIssue(A, n, prompt(n), d); \
-        const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); return bridge.ticketStart(A, n, prompt(n), p.models ? {{ size: 'small' }} : null, how, code, true); }}; \
+        const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); return bridge.ticketStart(A, n, prompt(n), p.models ? {{ size: 'small' }} : null, how, code, true, p.from?.branches?.[0]); }}; \
         const waits = (d, n) => waiting.some(x => x.dir === d && x.iid === n);",
         json!(a), json!(b), json!(bdir), json!(c), json!(cdir));
     let js = |body: &str| format!("(async () => {{ {pre} {body} return r; }})()");
@@ -480,6 +481,54 @@ fn name_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> V
     r
 }
 
+// BOBIX_SMOKE_BASE=<project>#<number> (with BOBIX_HOME set; not in CI): #214, Start asks which branch new work starts from.
+// The project's clone sits where Bobix finds it (~/code), its origin has main and develop (and more), against a stand-in
+// glab. First Start: the question, nothing preselected, Start off, a start with no branch or a gone one refused; then
+// develop picked: the worktree's HEAD is origin/develop, the choice is remembered ("From: develop" and the Settings row).
+fn base_step(app: &AppHandle, key: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let k = json!(key);
+    thread::sleep(Duration::from_secs(8)); // an answer the step before gave late must not be taken for this one's
+    let r = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, [A, n] = k.split('#'), iid = +n, w = ms => new Promise(o => setTimeout(o, ms)), r = {{}}; \
+        const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
+        const sc = q => document.querySelector(q)?.scrollIntoView({{ block: 'center' }}); navigator.clipboard.writeText = async () => {{}}; await bridge.refreshWork(); showTab('work'); \
+        r.listed = await until(() => items.some(x => x.id === 'n:' + k), 40000); if (!r.listed) return r; \
+        bsel.work = 'n:' + k; render(); await w(300); document.querySelector('#b-dyn [data-tk-prep]').click(); \
+        r.box = await until(() => document.querySelector('#b-dyn .tk-prompt'), 30000); if (!r.box) return r; await w(300); \
+        const radios = [...document.querySelectorAll('#b-dyn [data-tk-from]')]; \
+        r.branches = radios.map(x => x.value); r.nothingPicked = radios.length > 0 && radios.every(x => !x.checked); \
+        r.startOff = document.querySelector('#b-dyn [data-tk-go]').disabled === true; r.noRemembered = !tkPrep[k].prep.remembered; sc('#b-dyn [data-tk-from]'); await w({hold}); \
+        r.refusedNone = (await bridge.ticketStart(A, iid, 'p', {{ size: 'small' }}, 'cli', A, true))?.reason; \
+        r.refusedGone = (await bridge.ticketStart(A, iid, 'p', {{ size: 'small' }}, 'cli', A, true, 'no-such-branch'))?.reason; \
+        r.noFlowYet = !tickets.list.some(f => f.key === k); \
+        radios.find(x => x.value === 'develop').click(); await w(300); \
+        r.startOn = document.querySelector('#b-dyn [data-tk-go]').disabled === false; r.fromShown = [...document.querySelectorAll('#b-dyn .note')].some(x => x.textContent.includes('cut from develop')); sc('#b-dyn [data-tk-from]'); await w({hold}); \
+        const x = await bridge.ticketStart(A, iid, tkPrep[k].prompt, {{ size: 'small' }}, 'cli', A, true, tkPrep[k].base); \
+        r.started = x?.ok === true; r.reason = x?.reason; r.fetch = x?.fetch; r.dir = x?.dir; \
+        r.remembered = state.settings.workBase?.[A] ?? (await until(() => state.settings.workBase?.[A], 5000), state.settings.workBase?.[A]); \
+        await until(() => tickets.list.some(f => f.key === k), 5000); r.flowBase = tickets.list.find(f => f.key === k)?.baseBranch; \
+        delete tkPrep[k]; render(); await w(300); const p2 = await bridge.ticketPrep(A, iid, A); r.rememberedAgain = p2.remembered; r.fromAfter = tkFrom(p2); \
+        const k2 = A + '#' + (iid + 1); \
+        if (items.some(x => x.id === 'n:' + k2)) {{ bsel.work = 'n:' + k2; render(); await w(300); document.querySelector('#b-dyn [data-tk-prep]').click(); \
+          r.box2 = await until(() => document.querySelector('#b-dyn .tk-prompt'), 30000); await w(300); \
+          r.fromNow = document.querySelector('#b-dyn [data-tk-from-change]')?.closest('p')?.textContent.replace(/\\s+/g, ' ').trim(); r.goOn2 = document.querySelector('#b-dyn [data-tk-go]').disabled === false; sc('#b-dyn [data-tk-from-change]'); await w({hold}); }} \
+        showTab('settings'); bsel.settings = 'set:work'; render(); await w(400); r.settingsRow = document.querySelector('#settings [data-base-of]')?.value; sc('#settings [data-base-of]'); await w({hold}); showTab('work'); \
+        return r; }})()"), 150);
+    let mut r = if r.is_object() { r } else { return json!({ "error": r }) };
+    // the worktree is cut from the remote branch's commit
+    let dir = r["dir"].as_str().unwrap_or("").to_string();
+    if !dir.is_empty() {
+        let head = tickets::head_commit(&dir);
+        let tip = tickets::head_commit_of(&dir, "origin/develop");
+        r["headIsOriginDevelop"] = json!(!head.is_empty() && head == tip);
+    }
+    let ok = ["listed", "box", "nothingPicked", "startOff", "noRemembered", "noFlowYet", "startOn", "fromShown", "started", "headIsOriginDevelop"].iter().all(|k| r[*k] == true)
+        && r["refusedNone"] == "nobase" && r["refusedGone"] == "base-gone" && r["remembered"] == "develop" && r["flowBase"] == "develop" && r["rememberedAgain"] == "develop" && r["fromAfter"] == "develop";
+    r["pass"] = json!(ok);
+    r
+}
+
 // BOBIX_SMOKE_FOLLOW=<issue project>|<its folder>|<another code project>|<its folder>|<phase: 1 or 2> (with BOBIX_HOME
 // set; not in CI): #188, a Full start opened in Claude desktop is followed wherever Claude opens its session. Against a
 // stand-in glab (issues 501 to 510 of the issue project, `mr create`) and two made-up clones whose `origin` is a local
@@ -504,7 +553,7 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
         const show = async k => {{ showTab('work'); bsel.work = 'f:' + k; render(); await w(400); }}; \
         const note = () => document.querySelector('#b-dyn .tk-place')?.textContent.trim() || ''; \
         const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); const pr = BOARD.flowPrompt(issue(n), 'Made-up description.', p.models, p.rules); \
-          const x = await bridge.ticketStart(A, n, pr, {{ size: 'small' }}, how, code, true); return {{ ok: x?.ok === true, key: x?.key, dir: x?.dir, prompt: pr }}; }};",
+          const x = await bridge.ticketStart(A, n, pr, {{ size: 'small' }}, how, code, true, p.from?.branches?.[0]); return {{ ok: x?.ok === true, key: x?.key, dir: x?.dir, prompt: pr }}; }};",
         json!(a), json!(adir), json!(bp), json!(bdir));
     let js = |body: &str| format!("(async () => {{ {pre} {body} return r; }})()");
     let hook = hooks::hook_target(&paths::home());
@@ -833,6 +882,7 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         let land = null; if (claudeWarn) {{ document.querySelector('#b-dyn [data-tk-claude]').click(); await until(() => scope === 'skills' && !aud.busy && aud.dir === claudeDir); await w(300); \
           land = {{ scope, item: bsel.skills, dir: aud.dir === claudeDir, picker: document.querySelector('#scopes [data-skdir]')?.value === claudeDir, add: !!document.querySelector('#b-bar [data-sk=testsAdd]') }}; await w({hold}); \
           showTab('work'); bsel.work = 'n:' + ik; render(); await w(300); }} \
+        const pick = document.querySelector('#b-dyn [data-tk-from]'); if (pick) {{ pick.click(); await w(300); await w({hold}); }} \
         document.querySelector('#b-dyn [data-tk-cli]').click(); \
         if (!await until(() => tickets.list.some(f => f.key === k))) return {{ error: 'not started', keys: tickets.list.map(f => f.key) }}; \
         return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir, land, code: tkCode(ik) }}; }})()"), 40 + 2 * hold / 1000);
