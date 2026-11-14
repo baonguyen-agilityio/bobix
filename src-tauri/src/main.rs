@@ -46,6 +46,15 @@ pub const BRIDGE: &str = include_str!("../bridge.js");
 const STALE_MS: u64 = 12 * 3600 * 1000;
 const SEND_MS: u64 = 250; // the pages get the state at most 4 times a second
 
+// What Open needs of a session that has ended: its id, the Claude desktop session it ran in, and its folder.
+pub struct Ended { pub id: String, pub host: Option<String>, pub cwd: String }
+const ENDED_KEEP: usize = 50;
+fn remember_ended(ended: &mut Vec<Ended>, s: &state::Session) {
+    ended.retain(|e| e.id != s.id);
+    ended.push(Ended { id: s.id.clone(), host: s.host_session.clone(), cwd: s.cwd.clone() });
+    if ended.len() > ENDED_KEEP { ended.remove(0); }
+}
+
 pub struct Core {
     pub sessions: Sessions,
     pub settings: Value,
@@ -62,6 +71,7 @@ pub struct Core {
     pub save_gen: u64,                     // settings saves are debounced: only the newest one writes
     pub habits: habits::Mem,               // the permission requests waiting, for the habit log (memory only)
     pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
+    pub ended: Vec<Ended>,                 // the last sessions that ended, so a click on a stale Open can still reopen them (memory only)
     pub tickets: tickets::Flows,           // the ticket flow (#112): kept in the data folder, this machine only
     pub usage: Value,                      // usage::Store::meta: the price table's date, how many past sessions make the normal
 }
@@ -136,7 +146,7 @@ impl Bobix {
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, settings, work, waits, habits: mem, tickets: flows, .. } = &mut *c;
+            let Core { sessions, pending, settings, work, waits, ended, habits: mem, tickets: flows, .. } = &mut *c;
             let gitlab = work::any_on(settings);
             let remember = habits::on(settings);
             let before = if remember { habits::before(sessions, &e) } else { None };
@@ -144,6 +154,7 @@ impl Bobix {
                 None => return None,
                 Some(Applied::Removed(mut s)) => {
                     state::keep_waits(waits, &mut s, now);
+                    remember_ended(ended, &s);
                     work.fresh.remove(&s.id);
                     if remember { habit_lines = habits::events(mem, before.as_ref(), &e, None, now); }
                     (None, None, 0, None, None, gitlab)
@@ -283,25 +294,38 @@ impl Bobix {
     }
 
     // Open the session itself: in Claude desktop jump straight to it, else bring its terminal / IDE forward. Falls back
-    // to its details in the panel. { ok } or { ok: false, reason: nopid | wayland | xdotool | notfound, app, folder } so
-    // the panel can say why. tell: show the reason in the panel (pet clicks); the panel's own Open button shows it itself.
+    // to its details in the panel. { ok } or { ok: false, reason: nopid | wayland | xdotool | notfound | ended, app, folder,
+    // cmd } so the panel can say why. tell: show the reason in the panel (pet clicks); the panel's own Open button shows
+    // it itself. A session that has ended reopens in Claude desktop; a terminal one gives the command that resumes it.
     pub fn open_session(self: &Arc<Self>, id: &str, prefer_focus: bool, tell: bool) -> Value {
         let (host, pid, cwd) = {
             let c = self.core.lock().unwrap();
-            let Some(s) = c.sessions.get(id) else { return json!({ "ok": false, "reason": "notfound" }) };
+            let Some(s) = c.sessions.get(id) else {
+                let mut link = None; // opened after the lock is released, like the live path
+                let mut out = match c.ended.iter().find(|e| e.id == id) {
+                    Some(Ended { host: Some(h), .. }) => { link = Some(format!("claude://code/continue?session={h}")); json!({ "ok": true }) } // [A-Za-z0-9_-] only (links::is_host_id)
+                    Some(e) if !e.id.is_empty() && e.id.len() <= 64 && e.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') => // a terminal session id (a UUID): safe in a command
+                         json!({ "ok": false, "reason": "ended", "folder": e.cwd, "cmd": format!("claude --resume {}", e.id) }),
+                    _ => json!({ "ok": false, "reason": "notfound" }),
+                };
+                drop(c);
+                if let Some(url) = link { if open_claude(&url).is_err() { out = json!({ "ok": false, "reason": "notfound" }); } }
+                if tell && out["ok"] != true { if let Some(a) = self.app.get() { panel::show(a, self, None, None, Some(out.clone())); } }
+                return out;
+            };
             (s.host_session.clone(), s.claude_pid, s.cwd.clone())
         };
         let (mut reason, mut app) = ("notfound", String::new());
         if prefer_focus {
             if let Some(h) = host {
                 let url = format!("claude://code/continue?session={}", h); // the id is [A-Za-z0-9_-] only (links::is_host_id)
-                if tauri_plugin_opener::open_url(url, None::<&str>).is_ok() { return json!({ "ok": true }); }
+                if open_claude(&url).is_ok() { return json!({ "ok": true }); }
             } else if let Some(pid) = pid {
                 let chain = procs::ancestors(pid);
                 if procs::focus_pids(&chain) { return json!({ "ok": true }); }
                 app = procs::host_app(&procs::process_names(&chain)).unwrap_or_default();
                 // A CLI in the Claude app's own terminal: the app's link brings its window forward, also on Wayland.
-                if app == "Claude" && tauri_plugin_opener::open_url("claude://", None::<&str>).is_ok() { return json!({ "ok": true }); }
+                if app == "Claude" && open_claude("claude://").is_ok() { return json!({ "ok": true }); }
                 if cfg!(target_os = "linux") { reason = if wayland() { "wayland" } else if procs::has_xdotool() { "notfound" } else { "xdotool" }; }
             } else {
                 reason = "nopid"; // hooks run without Node.js (curl / PowerShell): no process to start from
@@ -403,12 +427,12 @@ fn tick(b: &Arc<Bobix>) {
     let mut lines = vec![];
     {
         let mut c = b.core.lock().unwrap();
-        let Core { sessions, settings, waits, habits: mem, tickets, .. } = &mut *c;
+        let Core { sessions, settings, waits, ended, habits: mem, tickets, .. } = &mut *c;
         let remember = habits::on(settings);
         let gone = state::gone(sessions, procs::is_alive);
         sessions.retain(|id, s| {
             let keep = !gone.contains(id) && now.saturating_sub(s.updated) <= STALE_MS;
-            if !keep { state::leave_wait(s, now); state::keep_waits(waits, s, now); changed = true; if remember { lines.extend(habits::ended(mem, s, now)); } }
+            if !keep { state::leave_wait(s, now); state::keep_waits(waits, s, now); remember_ended(ended, s); changed = true; if remember { lines.extend(habits::ended(mem, s, now)); } }
             keep
         });
         for s in sessions.values_mut() {
@@ -1302,17 +1326,23 @@ async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> 
         let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
         let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
-        json!({ "ok": true, "code": code, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+        // where new work starts from: the branches the remote has right now, and the one remembered for this repository
+        let remembered = b.core.lock().unwrap().settings["workBase"][&code].as_str().map(String::from);
+        let from = match tickets::branches(&repo) { Ok(l) => json!({ "ok": true, "branches": l }), Err(e) => json!({ "ok": false, "kind": e.kind, "detail": e.detail }) };
+        json!({ "ok": true, "code": code, "from": from, "remembered": remembered, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
     }).await.map_err(|_| ())
 }
 
-// Start: a worktree on a new branch from the remote's default branch (fetched first; offline, the last copy, and the
-// answer says so), the log's template in it, then a new Claude desktop session there with the prompt (how: desktop),
+// Why a start from a picked branch stopped, as the page reads it: { ok: false, reason: base-<kind>, detail, branch }.
+fn base_failed(e: tickets::BaseErr, branch: &str) -> Value { json!({ "ok": false, "reason": if e.kind == "nobase" { "nobase".into() } else { format!("base-{}", e.kind) }, "detail": e.detail, "branch": branch }) }
+
+// Start: a worktree on a new branch from the remote branch you picked (`base`; fetched now, checked after; offline or gone,
+// it stops and says so), remembered for the repository, the log's template in it, then a new Claude desktop session there with the prompt (how: desktop),
 // or the line to paste in a terminal with the model and plan mode preset (how: cli). The first session created in that
 // folder takes the issue (its name, as New does) and the flow. Under WORKTREE_BYTES free it answers { reason: disk }
 // unless `anyway` (Start anyway: a small repository needs far less).
 #[tauri::command]
-async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, b: B<'_>) -> Result<Value, ()> {
+async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, base: Option<String>, keep: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let code = code_of(&path, code);
@@ -1323,12 +1353,14 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         if free.is_some_and(|f| f < tickets::WORKTREE_BYTES) && anyway != Some(true) { return json!({ "ok": false, "reason": "disk", "free": free }); }
         let title = i["title"].as_str().unwrap_or("").to_string();
         let flang = lang(&b.core.lock().unwrap().settings); // the flow keeps the language it started in
-        // a worktree kept from before in the old place (a link there opens the main folder): moved here first
-        if let Err(e) = tickets::move_kept(&repo, iid, &path, &code, &branch, &wt) { return json!({ "ok": false, "reason": "git", "detail": e }); }
-        let base = match tickets::create_worktree(&repo, &wt, &branch, &tickets::template(iid, &title, &flang)) { Ok(x) => x, Err(e) => return json!({ "ok": false, "reason": "git", "detail": e }) };
-        let fetch = json!({ "ok": base.fetched, "from": base.name, "at": base.at });
+        // the branch is asked once per repository and never guessed; the checks come before anything on disk moves
+        let pick = base.as_deref().map(str::trim).unwrap_or("").to_string();
+        let prior = b.core.lock().unwrap().tickets.list.get(&key).map(|f| f.base_branch.clone()).filter(|x| !x.is_empty());
+        // a worktree kept from before in the old place (a link there opens the main folder) is moved there first, once the start is allowed
+        let from = match tickets::prepare_start(&repo, &wt, &branch, &tickets::template(iid, &title, &flang), iid, &path, &code, base.as_deref(), prior.as_deref(), keep == Some(true)) { Ok(x) => x, Err(e) => return base_failed(e, &pick) };
+        let fetch = json!({ "from": from.name });
         let tests = skill_audit::carry_tests(std::path::Path::new(&repo), &wt, &paths::data_dir()); // your uncommitted Tests line, there too
-        let (base, dir) = (base.commit, wt.to_string_lossy().to_string());
+        let (base, base_branch, dir) = (from.commit, from.branch, wt.to_string_lossy().to_string());
         let models = if models.is_object() { models } else { json!({ "size": "small" }) };
         let cmd = tickets::cli_command(&dir, &tickets::main_model(&models), &prompt);
         {
@@ -1336,7 +1368,7 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
             c.tickets.list.shift_remove(&key);
             let forge = c.work.source_of(&c.settings, &path, iid).map(|x| x.0.key()).unwrap_or("gitlab").to_string();
             c.tickets.list.insert(key.clone(), tickets::Flow { key: key.clone(), path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
-                dir: dir.clone(), branch, base, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
+                dir: dir.clone(), branch, base, base_branch, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
             c.tickets.save();
             let main = c.tickets.list.get(&key).map(|f| f.repo.clone()).unwrap_or_default();
             c.work.wait_for(&dir, &main, &path, iid, &json!(title), &i["url"]);
@@ -1346,7 +1378,10 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         let mut all = b.core.lock().unwrap().settings["workCode"].clone();
         if !all.is_object() { all = json!({}); }
         if code == path { all.as_object_mut().map(|o| o.remove(&path)); } else { all[&path] = json!(code); }
-        update_settings(&b, json!({ "workCode": all }));
+        let mut remembered = b.core.lock().unwrap().settings["workBase"].clone();
+        if !remembered.is_object() { remembered = json!({}); }
+        remembered[&code] = json!(pick);
+        update_settings(&b, json!({ "workCode": all, "workBase": remembered }));
         b.broadcast();
         if how == "cli" { return json!({ "ok": true, "mode": "cli", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }); }
         match open_claude(&work::new_session_link(&dir, &prompt)) {
@@ -1766,8 +1801,8 @@ fn rects(r: Vec<Vec<f64>>, b: B, app: AppHandle) {
 
 // A click on a pet: bring its session forward (Settings → click action "focus"). The panel comes with the panel work.
 #[tauri::command]
-fn pet_click(id: String, b: B) {
-    let focus = b.core.lock().unwrap().settings["clickAction"] == "focus";
+fn pet_click(id: String, force: Option<bool>, b: B) { // force: the card's Open session button, whatever the click action is
+    let focus = force == Some(true) || b.core.lock().unwrap().settings["clickAction"] == "focus";
     let b = b.inner().clone();
     thread::spawn(move || { b.open_session(&id, focus, true); });
 }
@@ -1991,7 +2026,7 @@ fn main() {
     let (tx, _) = broadcast::channel(4); // the pages only need the newest state (a page that lags gets the next one whole)
     let b = Arc::new(Bobix {
         core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
-            node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
+            node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
         tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
     });
     {
@@ -2170,7 +2205,7 @@ mod snapshot_tests {
         ];
         work.wait_for("/src/shop", "/src/shop", "team/shop", 32, &json!("t32"), &Value::Null);
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");
@@ -2281,5 +2316,45 @@ mod snapshot_tests {
         let off = model::Model::build(&json!({}), &c.sessions, &c.work);
         assert!(off.issues.is_empty() && off.repos.is_empty() && off.reviews.is_empty() && off.sessions.iter().all(|x| x.issue.is_none() && x.repo.is_none()));
         assert_eq!(off.session("c3").unwrap().parent.as_ref().map(|p| p.to.id.as_str()), Some("p4"));
+    }
+}
+
+#[cfg(test)]
+mod open_tests {
+    use super::*;
+
+    fn bobix() -> Arc<Bobix> {
+        let (tx, _) = broadcast::channel(4);
+        let core = Core { sessions: Sessions::new(), settings: json!({}), rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
+            node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null };
+        Arc::new(Bobix { core: Mutex::new(core), tx, token: "t".into(), port: 0, app: Default::default(), usage: Mutex::new(usage::Store::new(std::env::temp_dir().join("bobix-open-test"))), dirty: Default::default() })
+    }
+    fn session(id: &str, host: Option<&str>) -> state::Session {
+        let mut s = state::Session::default();
+        s.id = id.into(); s.cwd = "/work/app".into(); s.host_session = host.map(String::from);
+        s
+    }
+
+    #[test]
+    fn a_session_that_is_gone_says_why_never_nothing() {
+        let b = bobix();
+        assert_eq!(b.open_session("never-seen", true, false), json!({ "ok": false, "reason": "notfound" }), "unknown: a reason, not a silent no-op");
+        let mut ended = vec![];
+        remember_ended(&mut ended, &session("abc-123", None));
+        b.core.lock().unwrap().ended = ended;
+        assert_eq!(b.open_session("abc-123", true, false), json!({ "ok": false, "reason": "ended", "folder": "/work/app", "cmd": "claude --resume abc-123" }),
+            "an ended terminal session: the command that resumes it");
+        remember_ended(&mut b.core.lock().unwrap().ended, &session("bad id; rm -rf /", None));
+        assert_eq!(b.open_session("bad id; rm -rf /", true, false)["reason"], "notfound", "an id that is no safe word is never put in a command");
+    }
+
+    #[test]
+    fn only_the_latest_ended_sessions_are_kept() {
+        let mut ended = vec![];
+        for i in 0..ENDED_KEEP + 5 { remember_ended(&mut ended, &session(&format!("s{i}"), Some("local_x"))); }
+        assert_eq!(ended.len(), ENDED_KEEP);
+        assert_eq!(ended[0].id, "s5", "the oldest go first");
+        remember_ended(&mut ended, &session("s10", None));
+        assert_eq!((ended.len(), ended.last().map(|e| e.id.as_str()), ended.last().and_then(|e| e.host.as_deref())), (ENDED_KEEP, Some("s10"), None), "ending again replaces, not repeats");
     }
 }
