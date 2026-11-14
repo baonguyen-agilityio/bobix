@@ -21,6 +21,19 @@ base64 = "0.22"
 zeroize = "1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "io-std", "signal"] }
 tokio-tungstenite = "0.26"
 futures-util = "0.3"
+
+# The fake tools share their code through examples/common and are exercised in-process by tests/fakes.rs.
+[[example]]
+name = "fake-phone"
+path = "examples/fake-phone.rs"
+
+[[example]]
+name = "fake-desktop"
+path = "examples/fake-desktop.rs"
+
+[[example]]
+name = "relay-stub"
+path = "examples/relay-stub.rs"
