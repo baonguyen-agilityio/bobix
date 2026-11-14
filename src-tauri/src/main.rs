@@ -300,14 +300,15 @@ impl Bobix {
         let (host, pid, cwd) = {
             let c = self.core.lock().unwrap();
             let Some(s) = c.sessions.get(id) else {
-                let out = match c.ended.iter().find(|e| e.id == id) {
-                    Some(Ended { host: Some(h), .. }) => { let url = format!("claude://code/continue?session={h}"); // [A-Za-z0-9_-] only (links::is_host_id)
-                        if open_claude(&url).is_ok() { json!({ "ok": true }) } else { json!({ "ok": false, "reason": "notfound" }) } }
+                let mut link = None; // opened after the lock is released, like the live path
+                let mut out = match c.ended.iter().find(|e| e.id == id) {
+                    Some(Ended { host: Some(h), .. }) => { link = Some(format!("claude://code/continue?session={h}")); json!({ "ok": true }) } // [A-Za-z0-9_-] only (links::is_host_id)
                     Some(e) if !e.id.is_empty() && e.id.len() <= 64 && e.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') => // a terminal session id (a UUID): safe in a command
                          json!({ "ok": false, "reason": "ended", "folder": e.cwd, "cmd": format!("claude --resume {}", e.id) }),
                     _ => json!({ "ok": false, "reason": "notfound" }),
                 };
                 drop(c);
+                if let Some(url) = link { if open_claude(&url).is_err() { out = json!({ "ok": false, "reason": "notfound" }); } }
                 if tell && out["ok"] != true { if let Some(a) = self.app.get() { panel::show(a, self, None, None, Some(out.clone())); } }
                 return out;
             };

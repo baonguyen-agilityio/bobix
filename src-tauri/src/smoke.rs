@@ -1078,12 +1078,23 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
     };
     send("SessionStart", json!({ "source": "startup" }));
     send("UserPromptSubmit", json!({ "prompt": "Open me from everywhere" }));
+    // A second Claude desktop session that waits for an approval (Overview shows Approve, the tray lists it), and a third that has ended.
+    let more = |sid: &str, host: &str, names: &[(&str, Value)]| for (n, extra) in names {
+        let mut e = json!({ "session_id": sid, "cwd": "/smoke/wait-app", "hook_event_name": n, "bobix_host_session": host });
+        for (k, v) in extra.as_object().unwrap() { e[k] = v.clone(); }
+        b.on_event(e, false);
+    };
+    more("smoke-wait", "local_smoke-wait", &[("SessionStart", json!({ "source": "startup" })), ("UserPromptSubmit", json!({ "prompt": "Wait for me" })),
+        ("Notification", json!({ "message": "Claude needs your permission to use Bash" }))]);
+    more("smoke-endhost", "local_smoke-endhost", &[("SessionStart", json!({ "source": "startup" })), ("SessionEnd", json!({}))]);
     // A new Claude desktop session is held back from the lists until its parent link is known (up to state::LINK_HOLD_MS).
-    let held = || b.core.lock().unwrap().sessions.get(id).is_some_and(|s| crate::state::linking(s, crate::state::now()));
+    let held = || { let c = b.core.lock().unwrap(); [id, "smoke-wait"].iter().filter_map(|i| c.sessions.get(*i)).any(|s| crate::state::linking(s, crate::state::now())) };
     let t = Instant::now();
     while held() && t.elapsed() < Duration::from_secs(20) { thread::sleep(Duration::from_millis(200)); }
     thread::sleep(Duration::from_millis(1500)); // the lists get it
-    let hits = || OPENED.lock().unwrap().iter().filter(|u| *u == link).count();
+    let hits_of = |l: &str| OPENED.lock().unwrap().iter().filter(|u| *u == l).count();
+    let hits = || hits_of(link);
+    let wait_link = "claude://code/continue?session=local_smoke-wait";
     let mut r = json!({});
     let until = |f: &dyn Fn() -> bool| { let t = Instant::now(); while !f() && t.elapsed() < Duration::from_secs(8) { thread::sleep(Duration::from_millis(100)); } f() };
     // The Overview: the session's row has an Open button; one click opens it.
@@ -1112,9 +1123,22 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
         for (let t = 0; t < 8000 && !(bt = p.el.querySelector('.card [data-open]')); t += 100) {{ const b = p.el.querySelector('.spr').getBoundingClientRect(); mouse.x = b.left + b.width / 2; mouse.y = b.top + b.height / 2; mouseMoved = true; p.hoverUntil = Date.now() + 8000; wake(); await w(100); }} \
         const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '', why: bt ? '' : [p.el.className, p.hover, p.hoverUntil, Date.now(), mouse.x, mouse.y, document.hidden, p.s.state, !!p.el.querySelector('.card')].join(' | ') }}; bt?.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); return r; }})()"), 15);
     r["cardOpened"] = json!(until(&|| hits() == 3));
-    // The tray menu item of a session that needs you.
-    crate::tray::on_menu(app, &format!("open:{id}"));
-    r["trayOpened"] = json!(until(&|| hits() == 4));
+    // The Overview's Approve on a session that waits for you: Enter on it keeps its own action, a click opens that session.
+    r["approve"] = ask_for(app, panel::LABEL, "(async () => { const w = ms => new Promise(o => setTimeout(o, ms)); showTab('overview'); \
+        for (let t = 0; t < 8000 && !document.querySelector('#b-list [data-open-id=\"smoke-wait\"]'); t += 100) await w(100); \
+        const bt = document.querySelector('#b-list [data-open-id=\"smoke-wait\"]'); const r = { button: !!bt, text: bt?.textContent || '', label: bt?.getAttribute('aria-label') || '' }; \
+        if (bt) { const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }); bt.focus(); bt.dispatchEvent(ev); r.enterKept = !ev.defaultPrevented; } \
+        bt?.click(); return r; })()", 15);
+    r["approveOpened"] = json!(until(&|| hits_of(wait_link) == 1));
+    // The tray menu lists the sessions that are really waiting (what its items are built from); its item opens that session.
+    r["trayListed"] = json!(crate::tray::needs(&b.core.lock().unwrap().sessions).iter().any(|(sid, _)| sid == "smoke-wait"));
+    crate::tray::on_menu(app, "open:smoke-wait");
+    r["trayOpened"] = json!(until(&|| hits_of(wait_link) == 2));
+    // The ended-session message: a second one replaces the first, so Copy command copies the latest, and the folder is named.
+    r["endedToast"] = ask_for(app, panel::LABEL, "(async () => { let copied = null; Object.defineProperty(navigator, 'clipboard', { value: { writeText: async v => { copied = v; } }, configurable: true }); \
+        openFail({ reason: 'ended', cmd: 'claude --resume A', folder: '/smoke/x' }); openFail({ reason: 'ended', cmd: 'claude --resume B', folder: '/smoke/x' }); \
+        const ts = [...document.querySelectorAll('.toast')].filter(t => t.textContent.includes('has ended')); ts[0]?.querySelector('button')?.click(); \
+        return { n: ts.length, folder: !!ts[0]?.textContent.includes('/smoke/x'), copied, live: document.getElementById('toasts').getAttribute('aria-live') }; })()", 15);
     // Ended: a terminal session reopens as the command that resumes it.
     let ended = "smoke-ended-terminal";
     for (n, extra) in [("SessionStart", json!({ "source": "startup" })), ("SessionEnd", json!({}))] {
@@ -1124,8 +1148,14 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
     }
     let gone = b.open_session(ended, true, false);
     r["ended"] = json!(gone["ok"] == false && gone["reason"] == "ended" && gone["cmd"] == format!("claude --resume {ended}"));
+    // An ended Claude desktop session reopens through its link.
+    let again = b.open_session("smoke-endhost", true, false);
+    r["endedDesktop"] = json!(again["ok"] == true && until(&|| hits_of("claude://code/continue?session=local_smoke-endhost") == 1));
     send("SessionEnd", json!({}));
-    let mut pass = ["overviewOpened", "searchOpened", "searchDetailsOpenedNothing", "cardOpened", "trayOpened", "ended"].iter().all(|k| r[k] == true);
+    more("smoke-wait", "local_smoke-wait", &[("SessionEnd", json!({}))]);
+    let mut pass = ["overviewOpened", "searchOpened", "searchDetailsOpenedNothing", "cardOpened", "approveOpened", "trayListed", "trayOpened", "ended", "endedDesktop"].iter().all(|k| r[k] == true);
+    pass = pass && r["approve"]["button"] == true && r["approve"]["text"] == "Approve" && r["approve"]["enterKept"] == true
+        && r["endedToast"]["n"] == 1 && r["endedToast"]["folder"] == true && r["endedToast"]["copied"] == "claude --resume B" && r["endedToast"]["live"] == "polite";
     pass = pass && r["overview"]["button"] == true && r["overview"]["enterKept"] == true && r["search"]["found"] == true && r["search"]["closed"] == true && r["searchDetails"] == true && r["card"]["button"] == true
         && ["overview", "card"].iter().all(|k| r[k]["label"].as_str().is_some_and(|l| l.contains("Open me from everywhere") || l.contains("open-app")));
     r["pass"] = json!(pass);

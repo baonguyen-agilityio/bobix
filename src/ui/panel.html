@@ -635,7 +635,7 @@ input[type=number]{width:104px}
   <div class="acts"><button class="btn" value="close" data-t="pane.close"></button><button class="btn pri" type="button" id="rp-copy" data-t="report.copy"></button></div>
 </form></dialog>
 <dialog id="sk-dialog" class="fb" aria-labelledby="sk-heading"></dialog>
-<div class="toasts" id="toasts"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 <div class="tip" id="tip" role="tooltip"></div>
 <dialog class="tour" id="tour" aria-labelledby="tour-h"><div class="tour-hole" id="tour-hole"></div><div class="tour-pop" id="tour-pop"></div></dialog>
 
@@ -681,7 +681,9 @@ function translate() {
   document.documentElement.style.setProperty('--close', JSON.stringify(T('group.close')));
 }
 function toast(text, action) {
-  if ([...$('#toasts').children].some(t => t.dataset.text === text && !t.classList.contains('gone'))) return; // already on screen (e.g. Open session clicked twice)
+  const same = [...$('#toasts').children].find(t => t.dataset.text === text && !t.classList.contains('gone'));
+  if (same && !action) return; // already on screen (e.g. Open session clicked twice)
+  same?.remove(); // one with a button is replaced: its button must act for the latest, not an older one with the same words
   const el = document.createElement('div');
   el.dataset.text = text;
   el.className = 'toast';
@@ -888,7 +890,7 @@ const hintText = r => [r.app || r.folder ? T(r.app ? 'pane.hint.where' : 'pane.h
 function openFail(r) {
   if (r?.reason === 'ended') { // a terminal session that has ended: the command that resumes it
     const cmd = r.cmd;
-    return toast(T('pane.openFail.ended'), cmd && { label: T('pane.copyResume'), run: async () => { try { await navigator.clipboard.writeText(cmd); toast(T('pane.resumeCopied')); } catch { toast(cmd); } } });
+    return toast(T(r.folder ? 'pane.openFail.endedIn' : 'pane.openFail.ended', { folder: r.folder }), cmd && { label: T('pane.copyResume'), run: async () => { try { await navigator.clipboard.writeText(cmd); toast(T('pane.resumeCopied')); } catch { toast(cmd); } } });
   }
   const where = r?.app || r?.folder ? ' ' + T(r.app ? 'pane.openFail.where' : 'pane.openFail.whereFolder', { app: r.app, folder: r.folder }) : '';
   toast(T('pane.openFail.' + (r?.reason || 'notfound')) + where);
@@ -3041,7 +3043,7 @@ function drawList() {
   const groups = [];
   for (const x of items) { const g = groups.at(-1), k = x.grp || ''; if (g && g.k === k) g.xs.push(x); else groups.push({ k, xs: [x] }); }
   const it0 = x => `<button type="button" class="b-it ${x.cls || ''}" role="option" id="bi-${items.indexOf(x)}" data-bsel="${esc(x.id)}" data-f="it:${esc(x.id)}" aria-selected="${x === cur}">${x.lead}<span class="b-tx"><span class="lb${x.mono ? ' mono' : ''}">${esc(x.label)}</span>${x.sub ? `<span class="sb">${esc(x.sub)}</span>` : ''}</span><span class="mt">${x.meta || ''}</span></button>`;
-  const it = x => { const sid = x.kind === 'session' ? x.s : x.id.startsWith('ask:') ? x.id.slice(4) : null, s = scope === 'overview' && sid && list.find(y => y.id === sid); return s && bridge ? `<div class="b-itw">${it0(x)}${openBtn(s)}</div>` : it0(x); }; // Overview: each session row has its Open button
+  const it = x => { const sid = x.kind === 'session' ? x.s : x.id.startsWith('ask:') ? x.id.slice(4) : null, s = scope === 'overview' && sid && list.find(y => y.id === sid); return s && bridge ? `<div class="b-itw" role="none">${it0(x)}${openBtn(s)}</div>` : it0(x); }; // Overview: each session row has its Open button
   const refresh = bridge && work.status !== 'off' ? `<span class="sp"></span>${work.at ? `<span>${esc(ago(work.at))}</span>` : ''}<button class="ib" type="button" data-act="refresh" aria-label="${esc(T('work.refresh'))}" title="${esc(T('work.refresh'))}"${work.status === 'loading' || reading() ? ' disabled aria-busy="true"' : ''}>${ic('refresh')}</button>` : '';
   swap($('#b-list'), groups.map(({ k, xs }) => `<div class="b-g" data-grp="${k}" role="group"${k ? ` aria-label="${esc(grpName(k, xs.length))}"` : ''}>${k ? `<div class="b-grp" role="presentation"><span>${esc(grpName(k, xs.length))}</span><span class="n">${xs.length}</span>${helpBtn('grp', k, grpName(k, xs.length))}${k === 'fstart' ? refresh : ''}</div>` : ''}${xs.map(it).join('')}</div>`).join('')
     || `<div class="b-empty"><p>${esc(bq ? T('b.noMatch', { q: bq }) : T('b.empty'))}</p></div>`);

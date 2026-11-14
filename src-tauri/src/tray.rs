@@ -143,7 +143,8 @@ pub fn needs(sessions: &crate::state::Sessions) -> Vec<(String, String)> {
 // A name that fits a menu line.
 fn short(name: &str) -> String {
     let n: Vec<char> = name.chars().collect();
-    if n.len() > 40 { n[..39].iter().collect::<String>() + "…" } else { name.to_string() }
+    let s = if n.len() > 40 { n[..39].iter().collect::<String>() + "…" } else { name.to_string() };
+    if cfg!(target_os = "windows") { s.replace('&', "&&") } else { s } // a Windows menu reads "&" as a shortcut mark
 }
 
 // What the tray and the panel window show now: (count, language, the menu's list). None: not set yet (a new tray or panel window).
@@ -317,6 +318,7 @@ mod tests {
         sessions.get_mut("s2").unwrap().state = "done".into();
         assert!(super::needs(&sessions).iter().all(|(id, _)| id != "s2"), "it leaves the list when it stops waiting");
         assert_eq!(super::short(&"x".repeat(60)).chars().count(), 40, "long names are cut");
+        assert_eq!(super::short("a & b"), if cfg!(target_os = "windows") { "a && b" } else { "a & b" }, "Windows reads & in a menu as a shortcut mark");
     }
 
     #[test]
