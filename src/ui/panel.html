@@ -3407,6 +3407,9 @@ document.addEventListener('pointerover', e => {
   const h = e.target.closest?.('.help');
   if (h && !(tipAt === h && tipBy === 'click')) tipShow(h, tipAt === h ? tipBy || 'hover' : 'hover');
   else if (e.target.closest?.('#tip')) clearTimeout(tipTimer);
+  // A tip replaced under the pointer (a scroll or a redraw re-places it) loses its "out": the pointer's next "over" on
+  // anything else is what tells that it left.
+  else if (tipAt && tipBy === 'hover') tipLater();
 });
 document.addEventListener('pointerout', e => {
   if (e.pointerType !== 'mouse' || tipBy !== 'hover' || !e.target.closest?.('.help, #tip')) return;

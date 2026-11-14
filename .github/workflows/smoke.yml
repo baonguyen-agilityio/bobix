@@ -59,7 +59,7 @@ jobs:
       - name: Node tests
         run: npm test
       - name: Pets overlay in Chrome (no effect over another pet, no pets overlapping)
-        timeout-minutes: 5
+        timeout-minutes: 6
         run: node --test --test-timeout=270000 test/overlay.test.js
         env:
           OVERLAY_ONLY: ' 56 '
@@ -71,6 +71,7 @@ jobs:
           path: overlay-dump/
           if-no-files-found: ignore
       - name: Panel and pets card in Chrome (no layout shift)
+        timeout-minutes: 7
         run: node --test test/layout.test.js
       - name: Rust tests
         working-directory: src-tauri
