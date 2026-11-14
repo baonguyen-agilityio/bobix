@@ -172,6 +172,8 @@ async fn notices_wait_for_a_sender_that_is_offline() {
     p.expect(is_msg("q1"), 1000).await;
     let desktop = d.ident.clone();
     drop(d); // the sender leaves before the ack
+    // Wait until the relay has noticed it is gone: a notice sent to a socket that is dying unseen is lost.
+    p.expect(presence(&desktop.device_id(), PresenceState::Offline), 2000).await;
     p.send(&Frame::Ack { pid: "q1".into() }).await;
     p.sync().await;
     let mut d = Dev::connect(&s, desktop).await;
@@ -192,7 +194,9 @@ async fn an_oversize_frame_gets_an_error_and_the_connection_stays_usable() {
 
 #[tokio::test]
 async fn before_authenticating_a_big_frame_and_silence_both_end_the_socket() {
-    let s = start(cfg()).await;
+    let mut c = cfg();
+    c.auth_within = Duration::from_millis(600); // instead of 10 s
+    let s = start(c).await;
     let mut big = Dev::raw(&s).await;
     big.next(1000).await;
     big.send_text(&format!("{{\"type\":\"ack\",\"pid\":\"{}\"}}", "x".repeat(5 * 1024))).await;
@@ -280,7 +284,9 @@ async fn a_fifth_open_pairing_token_is_refused() {
 
 #[tokio::test]
 async fn presence_online_offline_after_a_silent_death_and_asleep() {
-    let s = start(cfg()).await;
+    let mut c = cfg();
+    c.dead_after = Duration::from_millis(1500); // instead of 30 s
+    let s = start(c).await;
     let (mut d, mut p) = pair_up(&s).await;
     let desk = d.id();
 

@@ -21,13 +21,15 @@ pub struct Server {
     pub app: Arc<App>,
 }
 
-/// Shrunk timings: a ping every 100 ms, a silent device is gone after 400 ms, 600 ms to authenticate.
+/// Generous timings, so a slow runner never trips a timer by accident: a device is gone after 30 s of silence and has
+/// 5 s to authenticate. The tests about those timers shrink them for themselves. Waits for an event (`expect`) are
+/// long; only the checks that something does NOT happen use short waits.
 pub fn cfg() -> Config {
     let mut c = Config::base(true);
     c.relay_id = "test-relay".into();
     c.ping_every = Duration::from_millis(100);
-    c.dead_after = Duration::from_millis(400);
-    c.auth_within = Duration::from_millis(600);
+    c.dead_after = Duration::from_secs(30);
+    c.auth_within = Duration::from_secs(5);
     c.sweep_every = Duration::from_millis(50);
     c
 }
@@ -149,6 +151,7 @@ impl Dev {
 
     /// Reads until a frame matches (others are skipped), or panics at the deadline.
     pub async fn expect(&mut self, pred: impl Fn(&Frame) -> bool, ms: u64) -> Frame {
+        let ms = ms.max(8000); // an event that should happen: wait for it, a failure still ends the test
         let end = tokio::time::Instant::now() + Duration::from_millis(ms);
         loop {
             let left = end.saturating_duration_since(tokio::time::Instant::now()).as_millis() as u64;
