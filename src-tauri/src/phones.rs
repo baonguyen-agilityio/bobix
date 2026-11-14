@@ -103,6 +103,7 @@ fn cfg_file(d: &Path) -> PathBuf { d.join("phones.json") }
 fn store_file(d: &Path) -> PathBuf { d.join("phones.sealed") }
 fn counters_file(d: &Path) -> PathBuf { d.join("phone-counters.json") }
 fn log_file(d: &Path) -> PathBuf { d.join("phone-log.json") }
+fn results_file(d: &Path) -> PathBuf { d.join("phone-results.json") }
 
 fn cipher(secrets: &Secrets) -> Result<XChaCha20Poly1305, String> {
     let key = match secrets.get(SEAL_KEY).map_err(|e| e.to_string())? {
@@ -136,6 +137,12 @@ impl State {
     }
     fn save_counters(&self) { write(&counters_file(&self.dir), &serde_json::to_vec(&self.saved).unwrap_or_default()); }
     fn save_log(&self) { write(&log_file(&self.dir), &serde_json::to_vec(&self.log).unwrap_or_default()); }
+    // The results of commands (24 hours) and the record of closed requests, so a repeated command or a late answer is
+    // answered the same after a restart.
+    pub fn save_results(&self, closed: &HashMap<String, crate::answers::Closed>) {
+        let r: Vec<Value> = self.results.iter().map(|(k, (r, at))| json!({ "key": k, "result": r, "at": at })).collect();
+        write(&results_file(&self.dir), &serde_json::to_vec(&json!({ "results": r, "closed": crate::answers::closed_json(closed) })).unwrap_or_default());
+    }
     pub fn push_log(&mut self, phone: &str, what: &str, result: &str) {
         self.log.push_back(LogLine { at: now(), phone: phone.into(), what: what.into(), result: result.into() });
         while self.log.len() > LOG_KEEP { self.log.pop_front(); }
@@ -231,6 +238,14 @@ impl State {
 pub fn valid_name(s: &str) -> bool { !s.is_empty() && s.chars().count() <= MAX_PHONE_NAME && !s.chars().any(is_odd_char) }
 
 // ---------- startup ----------
+// Bobix is closing: held requests go back to Claude's own prompt and are recorded as released ("restart").
+pub fn save_on_exit(b: &Bobix) {
+    let mut c = b.core.lock().unwrap();
+    if !c.phones.cfg.on && c.phones.store.phones.is_empty() { return; }
+    crate::answers::release_all(&mut c, "restart", now());
+    c.phones.save_results(&c.closed);
+}
+
 pub fn init(b: &Arc<Bobix>) {
     let dir = crate::paths::data_dir();
     let read = |f: PathBuf| std::fs::read(f).ok();
@@ -250,6 +265,12 @@ pub fn init(b: &Arc<Bobix>) {
         }
         st.saved = read(counters_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     }
+    if let Some(v) = read(results_file(&dir)).and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
+        st.results = v["results"].as_array().into_iter().flatten().filter_map(|x| Some((x["key"].as_str()?.to_string(), (serde_json::from_value(x["result"].clone()).ok()?, x["at"].as_u64()?)))).collect();
+        let closed = crate::answers::closed_from_json(&v["closed"]);
+        c.closed = closed;
+    }
+    let st = &mut c.phones;
     st.status = if st.cfg.on { "connecting".into() } else { "off".into() };
     let want = st.cfg.on;
     drop(c);
@@ -331,18 +352,20 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
         for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), Some(Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, replaces: Some(id.clone()) }), None) { out.push(f); } }
     }
-    // homes: when something changed, once a minute, and for a phone that just came online or paired
+    // homes: to every paired phone when something changed (the relay keeps only the latest for an offline one), a forced
+    // one each minute to a phone that is online, and one at once for a phone that just paired or came online
     if st.cfg.on && !st.store.phones.is_empty() {
         let minute = t >= st.last_home_at + 60_000;
-        let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).filter(|id| st.online.contains(id) || st.home_now.contains(id)).collect();
-        if !ids.is_empty() && (dirty || minute || !st.home_now.is_empty()) {
+        if dirty || minute || !st.home_now.is_empty() {
             let name = st.computer_name();
             let home = crate::phone_view::home(sessions, pending, &name, t);
             let mut key = home.clone();
             key.sent_at = 0;
             let key = serde_json::to_string(&key).unwrap_or_default();
+            let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
             for id in ids {
-                if !(minute || st.home_now.contains(&id) || st.last_home.get(&id) != Some(&key)) { continue; }
+                let due = st.home_now.contains(&id) || st.last_home.get(&id) != Some(&key) || (minute && st.online.contains(&id));
+                if !due { continue; }
                 if let Some((_, f)) = st.tell(&id, &DesktopMsg::Home(home.clone()), None, Some("home".into())) { out.push(f); st.last_home.insert(id, key.clone()); }
             }
             if minute { st.last_home_at = t; }
@@ -352,6 +375,10 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     out
 }
 impl State {
+    // The request was announced to the phones (so a settings change does not hand it back).
+    pub fn was_sent(&self, id: &str) -> bool { self.notified.contains(id) }
+    #[cfg(test)]
+    pub fn mark_sent(&mut self, id: &str) { self.notified.insert(id.into()); }
     // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone is
     // paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the input time
     // cannot be read, the choice in Settings decides.
@@ -447,7 +474,7 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
         }
         PhoneMsg::Sync { waiting, .. } => {
             let st = &mut c.phones;
-            let results = command::sync_results(&waiting, |cid| st.results.get(cid).map(|r| r.0.clone()));
+            let results = command::sync_results(&waiting, |cid| st.results.get(&format!("{from}:{cid}")).map(|r| r.0.clone()));
             for r in results { if let Some((_, f)) = st.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); } }
         }
         PhoneMsg::Cmd(cmd) => {
@@ -464,7 +491,8 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
 // hash against what is held, and the request still open. Every result is stored per `cid` for 24 hours and logged.
 fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Command, changed: &mut bool) -> CmdResult {
     use crate::answers::By;
-    if let Some(stored) = c.phones.results.get(&cmd.cid) { return stored.0.clone(); }
+    let key = format!("{from}:{}", cmd.cid);
+    if let Some(stored) = c.phones.results.get(&key) { return stored.0.clone(); }
     let t = now();
     let Some(phone) = c.phones.store.phones.iter().find(|p| p.id == from).cloned() else { return CmdResult::refused(&cmd.cid, "unknown") };
     let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return CmdResult::refused(&cmd.cid, "encoding") };
@@ -476,7 +504,9 @@ fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Comm
             let shown_of = target.as_deref().and_then(|id| c.pending.get(id)).map(|p| crate::phone_view::preview(p.raw.lines().next().unwrap_or(""), 60)).unwrap_or_default();
             let what = format!("{} {}", body.kind(), shown_of).trim().to_string();
             let refuse = |why: &str| CmdResult::refused(&cmd.cid, why);
-            let r = if !phone.rights.allows(&body) { refuse("right") } else { match &body {
+            // a note or a free-text answer goes into Claude's reply: plain text, newlines allowed
+            let plain = plain_body(&body);
+            let r = if !phone.rights.allows(&body) { refuse("right") } else if !plain { refuse("text") } else { match &body {
                 CommandBody::Answer { id, choice, shown } => {
                     let allow = *choice == Choice::Allow;
                     apply(c, &cmd.cid, id, shown, if allow { "allow" } else { "deny" }, "", false, By::Phone, changed, &phone.rights)
@@ -493,8 +523,14 @@ fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Comm
     let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
     let shown = if let Some(w) = &result.why { format!("{word} ({w})") } else { word };
     c.phones.push_log(&phone.name, &what, &shown);
-    c.phones.results.insert(cmd.cid.clone(), (result.clone(), t));
+    c.phones.results.insert(key, (result.clone(), t));
+    c.phones.save_results(&c.closed);
     result
+}
+
+// A note or a free-text answer goes into Claude's reply: plain text, newlines allowed, no other control character.
+fn plain_body(body: &CommandBody) -> bool {
+    match body { CommandBody::Plan { note: Some(n), .. } => is_plain_text(n, MAX_NOTE), CommandBody::Question { answers, .. } => answers.iter().all(|a| is_plain_text(a, MAX_NOTE)), _ => true }
 }
 
 // An `answer` (plan: false) or `plan` (plan: true) command that passed the signature and the right.
@@ -825,9 +861,10 @@ mod tests {
     }
 
     #[test]
-    fn a_held_for_phones_request_is_not_handed_back_by_a_settings_change() {
-        // release_unseen skips it: the filter reads for_phones from the pending entry
-        let src = include_str!("answers.rs");
-        assert!(src.contains("!c.pending.get(id).is_some_and(|p| p.for_phones)"));
+    fn a_plan_note_or_answer_is_plain_text() {
+        let plan = |n: &str| CommandBody::Plan { id: "p".into(), decision: Decision::Back, note: Some(n.into()), shown: String::new() };
+        assert!(plain_body(&plan("use ints\nand a second line")));
+        for bad in ["esc \u{1b}[2J", "bidi \u{202e}x", "zero\u{200b}width", "bell \u{7}"] { assert!(!plain_body(&plan(bad)), "{bad:?}"); }
+        assert!(!plain_body(&CommandBody::Question { id: "q".into(), answers: vec!["ok".into(), "bad \u{1b}".into()], shown: String::new() }));
     }
 }

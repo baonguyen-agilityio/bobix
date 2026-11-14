@@ -24,12 +24,39 @@ impl Pending {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum By { Pc, Phone }
 // How a request ended. Answered(by, allowed); Expired: nobody answered in time, or Claude moved on; Released(why):
-// handed back to Claude's own prompt ("settings": the pets were hidden or paused, "restart": Bobix is restarting).
+// handed back to Claude's own prompt ("settings": the pets were hidden or paused, "restart": Bobix is restarting);
+// Computer: it was released because someone was at the computer, and then its hook closed (answered in Claude's own prompt).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum End { Answered(By, bool), Expired, Released(&'static str) }
+pub enum End { Answered(By, bool), Expired, Released(&'static str), Computer }
 // A closed request, kept CLOSED_KEEP_MS so a late answer is told why it is late, not just "no".
 pub struct Closed { pub plan: bool, pub end: End, pub at: u64 }
 const CLOSED_KEEP_MS: u64 = 30 * 60_000; // the contract is 20 minutes at least
+// The record of closed requests as JSON, for the file that survives a restart (phones.rs).
+pub fn closed_json(m: &HashMap<String, Closed>) -> Value {
+    json!(m.iter().map(|(id, k)| {
+        let (kind, by, allowed, why) = match k.end {
+            End::Answered(by, a) => ("answered", Some(by == By::Phone), a, ""), End::Expired => ("expired", None, false, ""),
+            End::Released(w) => ("released", None, false, w), End::Computer => ("computer", None, false, ""),
+        };
+        json!({ "id": id, "plan": k.plan, "kind": kind, "phone": by, "allowed": allowed, "why": why, "at": k.at })
+    }).collect::<Vec<_>>())
+}
+pub fn closed_from_json(v: &Value) -> HashMap<String, Closed> {
+    v.as_array().into_iter().flatten().filter_map(|x| {
+        let end = match x["kind"].as_str()? {
+            "answered" => End::Answered(if x["phone"] == true { By::Phone } else { By::Pc }, x["allowed"] == true),
+            "expired" => End::Expired, "computer" => End::Computer,
+            _ => End::Released(match x["why"].as_str() { Some("settings") => "settings", _ => "restart" }),
+        };
+        Some((x["id"].as_str()?.to_string(), Closed { plan: x["plan"] == true, end, at: x["at"].as_u64()? }))
+    }).collect()
+}
+// Bobix is closing: what is still held goes back to Claude's own prompt, and a phone that asks later is told why.
+pub fn release_all(c: &mut crate::Core, why: &'static str, now: u64) {
+    let ids: Vec<String> = c.pending.keys().cloned().collect();
+    for id in ids { close(c, &id, None, End::Released(why), now); }
+}
+
 // What an answer gets back.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Answered { Ok, LatePc, LatePhone, Expired, Released(&'static str), WrongKind, Unknown, Invalid }
@@ -94,6 +121,7 @@ pub fn odd(v: &Value) -> bool {
     }
 }
 // The same text with each such character as a visible escape (\u202E), so the text shown is the text that runs.
+pub fn escape_hidden(s: &str) -> String { escaped(s) }
 fn escaped(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut it = s.chars().peekable();
@@ -150,10 +178,13 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
     let (b1, id1) = (b.clone(), id.clone());
     tauri::async_runtime::spawn(async move {
-        if forever { let _ = gone_rx.await; } else {
-            tokio::select! { _ = gone_rx => {}, _ = tokio::time::sleep(Duration::from_secs_f64(secs)) => {} }
-        }
-        done(&b1, &id1, None, End::Expired);
+        // gone: the hook's request closed (Claude moved on, or it was answered in Claude's own prompt)
+        let gone = if forever { let _ = gone_rx.await; true } else {
+            tokio::select! { _ = gone_rx => true, _ = tokio::time::sleep(Duration::from_secs_f64(secs)) => false }
+        };
+        // a request released because someone is at the computer, whose hook closes, was answered there
+        let at_computer = gone && b1.core.lock().unwrap().pending.get(&id1).is_some_and(|p| p.released);
+        done(&b1, &id1, None, if at_computer { End::Computer } else { End::Expired });
     });
     Some(Reply::Answer { secs: if forever { "forever".into() } else { (secs as u64).to_string() }, rx, gone: gone_tx })
 }
@@ -186,7 +217,7 @@ fn late(c: &crate::Core, id: &str, expect: Option<bool>) -> Answered {
         None => Answered::Unknown,
         Some(k) if expect.is_some_and(|plan| plan != k.plan) => Answered::WrongKind,
         Some(k) => match k.end { End::Answered(By::Pc, _) => Answered::LatePc, End::Answered(By::Phone, _) => Answered::LatePhone,
-            End::Expired => Answered::Expired, End::Released(why) => Answered::Released(why) },
+            End::Computer => Answered::LatePc, End::Expired => Answered::Expired, End::Released(why) => Answered::Released(why) },
     }
 }
 
@@ -217,12 +248,14 @@ pub fn answer_with(b: &Arc<Bobix>, id: &str, choice: &str, change: &str) -> bool
 
 // A held request whose pet is now hidden (or the pets paused / off) goes back to Claude, so it asks in its own UI.
 pub fn release_unseen(b: &Arc<Bobix>) {
-    let ids: Vec<String> = {
-        let c = b.core.lock().unwrap();
-        c.sessions.values().filter(|s| s.answer.as_ref().is_some_and(|a| a["plan"] != true) && settings::hold_secs(&c.settings, &s.pet) == 0.0)
-            .filter_map(|s| s.answer.as_ref()?["id"].as_str().map(String::from)).filter(|id| !c.pending.get(id).is_some_and(|p| p.for_phones)).collect()
-    };
+    let ids = unseen_ids(&b.core.lock().unwrap());
     for id in ids { done(b, &id, None, End::Released("settings")); }
+}
+// The held requests a settings change hands back: those whose pet is no longer shown, except a plan, one held only for
+// the phones, and one already sent to a phone.
+fn unseen_ids(c: &crate::Core) -> Vec<String> {
+    c.sessions.values().filter(|s| s.answer.as_ref().is_some_and(|a| a["plan"] != true) && settings::hold_secs(&c.settings, &s.pet) == 0.0)
+        .filter_map(|s| s.answer.as_ref()?["id"].as_str().map(String::from)).filter(|id| !c.pending.get(id).is_some_and(|p| p.for_phones) && !c.phones.was_sent(id)).collect()
 }
 
 #[cfg(test)]
@@ -347,5 +380,40 @@ mod tests {
         let wins: usize = (0..8).map(|i| { let c = c.clone(); std::thread::spawn(move || close(&mut c.lock().unwrap(), "a", decision("allow"),
             End::Answered(if i % 2 == 0 { By::Pc } else { By::Phone }, true), 5)) }).collect::<Vec<_>>().into_iter().map(|t| t.join().unwrap() as usize).sum();
         assert_eq!(wins, 1, "exactly one is told it closed the request");
+    }
+
+    #[test]
+    fn answered_in_claudes_own_prompt_after_release_is_late_for_a_phone_and_the_record_survives_a_restart() {
+        let mut c = crate::Core::default();
+        let _ = pending(&mut c, "a", false);
+        let _ = pending(&mut c, "b", false);
+        let _ = pending(&mut c, "c", true);
+        close(&mut c, "a", None, End::Computer, 10);
+        assert_eq!(late(&c, "a", None), Answered::LatePc);
+        close(&mut c, "b", decision("allow"), End::Answered(By::Phone, true), 11);
+        release_all(&mut c, "restart", 12);
+        assert!(c.pending.is_empty());
+        let back = closed_from_json(&closed_json(&c.closed));
+        assert_eq!(back.len(), 3);
+        assert_eq!(back["a"].end, End::Computer);
+        assert_eq!(back["b"].end, End::Answered(By::Phone, true));
+        assert!(back["c"].plan && back["c"].end == End::Released("restart"), "a plan held at the restart is released with the reason");
+        c.closed = back;
+        assert_eq!(late(&c, "c", None), Answered::Released("restart"), "after a restart a phone is told released, not unknown");
+    }
+
+    #[test]
+    fn a_settings_change_hands_back_only_what_no_phone_was_told_of() {
+        let mut c = crate::Core::default();
+        c.settings = json!({ "approveWait": -1, "petsVisible": false, "paused": false });
+        for (sid, id) in [("s1", "plain"), ("s2", "sent"), ("s3", "phonesonly")] {
+            let _ = pending(&mut c, id, false);
+            let mut s = crate::state::Session::default();
+            s.id = sid.into(); s.answer = Some(json!({ "id": id, "plan": false }));
+            c.sessions.insert(sid.into(), s);
+        }
+        c.phones.mark_sent("sent");
+        c.pending.get_mut("phonesonly").unwrap().for_phones = true;
+        assert_eq!(unseen_ids(&c), vec!["plain".to_string()]);
     }
 }

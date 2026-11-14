@@ -2161,7 +2161,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             RunEvent::Reopen { .. } => panel::show(app, &rb, None, None, None),
             RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(), // keep running in the tray
-            RunEvent::Exit => save_now(&rb),
+            RunEvent::Exit => { phones::save_on_exit(&rb); save_now(&rb) }
             _ => { let _ = app; }
         });
 }

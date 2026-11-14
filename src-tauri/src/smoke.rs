@@ -176,7 +176,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         if let Ok(sdir) = std::env::var("BOBIX_SMOKE_READS") { report["reads"] = reads_step(&app, &sdir); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_NAME") { report["name"] = name_step(&app, b.port, &dir, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_FOLLOW") { report["follow"] = follow_step(&app, &b, &dir, &spec); }
-        if let Ok(spec) = std::env::var("BOBIX_SMOKE_PHONES") { report["phones"] = crate::smoke_phones::run(&b, &spec); }
+        if let Ok(spec) = std::env::var("BOBIX_SMOKE_PHONES") { report["phones"] = crate::smoke_phones::run(&app, &b, &spec); }
         report["open"] = open_step(&app, &b);
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
@@ -1037,7 +1037,7 @@ fn skills_panel(app: &AppHandle, sid: &str) -> Value {
 // The value of a page expression (awaited), through the bridge like the pets' own calls.
 fn ask(app: &AppHandle, label: &str, expr: &str) -> Value { ask_for(app, label, expr, 5) }
 
-fn ask_for(app: &AppHandle, label: &str, expr: &str, secs: u64) -> Value {
+pub fn ask_for(app: &AppHandle, label: &str, expr: &str, secs: u64) -> Value {
     let Some(w) = app.get_webview_window(label) else { return json!("no window") };
     *PAGE.lock().unwrap() = None;
     let _ = w.eval(format!("(async () => {{ let v; try {{ v = await ({expr}); }} catch (e) {{ v = {{ error: String(e) }}; }} \

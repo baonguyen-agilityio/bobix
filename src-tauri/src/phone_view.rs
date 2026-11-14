@@ -43,7 +43,9 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
     let unfinished = sessions.values().filter(|s| matches!(s.state.as_str(), "working" | "waiting")).count() as u32;
     let infos = list.iter().take(SESSIONS_MAX).map(|s| {
         let project = s.project.as_deref().map(folder).unwrap_or_else(|| folder(&s.cwd));
-        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state: s.state.clone(), pet: pet_of(&project, &s.id) }
+        // waiting with nothing held: it is answered at the computer
+        let state = if s.state == "waiting" && !pending.values().any(|p| p.sid == s.id) { "atComputer".to_string() } else { s.state.clone() };
+        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id) }
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
         id: id.clone(), session: p.sid.clone(), what: if p.plan { WaitingKind::Plan } else { WaitingKind::Request },
@@ -70,7 +72,9 @@ pub fn detail(pending: &HashMap<String, Pending>, id: &str, rights: Rights) -> R
     let (what, limit) = if p.plan { (DetailKind::Plan, MAX_PLAN) } else { (DetailKind::ToolInput, MAX_TOOL_INPUT) };
     let (mut raw, mut cut) = (p.raw.clone(), p.cut);
     loop {
-        let d = Detail::build(id, what, &raw, cut, vec![]);
+        // the desktop's own escaper first (it knows more hidden characters than the crate's), so the phone shows what the panel shows
+        let mut d = Detail::build(id, what, &crate::answers::escape_hidden(&raw), cut, vec![]);
+        d.odd |= crate::answers::odd(&serde_json::Value::String(raw.clone()));
         if d.text.len() <= limit { return Ok(d); }
         raw = cut_bytes(&raw, raw.len() * 3 / 4); // escapes made it longer than the limit: shorter, and cut says so
         cut = true;
@@ -115,7 +119,7 @@ mod tests {
     fn detail_is_whole_for_a_phone_with_the_right_and_marks_hidden_characters() {
         let all = Rights { answer: true, plan: true, ..Default::default() };
         let d = detail(&held("ls \u{202e}gpj.sh\nrm x", false, false), "r1", all).unwrap();
-        assert!(d.odd && d.text.contains("\\u{202e}") && !d.text.contains('\u{202e}') && d.text.contains("rm x") && !d.cut);
+        assert!(d.odd && d.text.contains("\\u202E") && !d.text.contains('\u{202e}') && d.text.contains("rm x") && !d.cut);
         assert_eq!(d.shown, d.shown_now(), "the hash is of what is held");
         assert_eq!(detail(&held("ls", false, false), "r1", Rights { plan: true, ..Default::default() }), Err("right"), "no answer right");
         assert_eq!(detail(&held("plan", true, false), "r1", Rights { answer: true, ..Default::default() }), Err("right"), "no plan right");

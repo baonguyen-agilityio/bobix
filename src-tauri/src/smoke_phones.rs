@@ -38,9 +38,19 @@ fn hold(b: &Arc<Bobix>, sid: &str, command: &str) -> (thread::JoinHandle<String>
     until(10, || { got = b.core.lock().unwrap().pending.iter().find(|(_, p)| p.sid == sid).map(|(k, _)| k.clone()); got.is_some() });
     (h, got.unwrap_or_default())
 }
+// The same with the hook's process in hand, so a test can end it the way Claude's own prompt being answered does.
+fn hold_child(b: &Arc<Bobix>, sid: &str, command: &str) -> (Child, String) {
+    let ask = json!({ "session_id": sid, "cwd": "/tmp/demo-app", "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": { "command": command } }).to_string();
+    let hook = crate::hooks::hook_target(&crate::paths::home());
+    let mut child = Command::new("node").arg(hook).arg(b.port.to_string()).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("node");
+    child.stdin.take().unwrap().write_all(ask.as_bytes()).ok();
+    let mut got = None;
+    until(10, || { got = b.core.lock().unwrap().pending.iter().find(|(_, p)| p.sid == sid).map(|(k, _)| k.clone()); got.is_some() });
+    (child, got.unwrap_or_default())
+}
 fn outcomes(f: &Fake, what: &str) -> usize { f.lines.lock().unwrap().iter().filter(|l| l.contains("\"kind\":\"result\"") && l.contains(what)).count() }
 
-pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
+pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     let mut r = json!({});
     let Some((relay, bin)) = spec.split_once('|') else { return json!({ "pass": false, "error": "spec" }) };
     let v = || phones::view(b);
@@ -52,14 +62,20 @@ pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
     r["deviceId"] = json!(v()["deviceId"].as_str().is_some_and(|d| d.len() == 32));
     let uri = phones::pair_start(b).ok().and_then(|x| x["pairing"]["uri"].as_str().map(String::from)).unwrap_or_default();
     r["qr"] = json!(uri.starts_with("bobix://") && v()["pairing"]["qr"].as_str().is_some_and(|s| s.contains("<svg")));
-    let Some(mut fake) = Fake::spawn(bin, relay, &uri, "Demo phone") else { r["pass"] = json!(false); r["error"] = json!("fake-phone"); return r };
-    r["offered"] = json!(until(15, || v()["pairing"]["state"] == "offered") && v()["pairing"]["name"] == "Demo phone");
+    let Some(mut fake) = Fake::spawn(bin, relay, &uri, "Demo <b>phone</b>") else { r["pass"] = json!(false); r["error"] = json!("fake-phone"); return r };
+    r["offered"] = json!(until(15, || v()["pairing"]["state"] == "offered") && v()["pairing"]["name"] == "Demo <b>phone</b>");
     // nothing works before the owner confirms; start and stop stay unticked
     r["notBeforeConfirm"] = json!(v()["phones"].as_array().is_some_and(|a| a.is_empty()));
     let granted = phones::rights_of(&json!({ "answer": true, "plan": true, "question": true, "start": false, "stop": false, "activity": false }));
     r["confirmed"] = json!(phones::pair_confirm(b, granted).is_ok() && until(10, || v()["phones"].as_array().is_some_and(|a| a.len() == 1)));
     let phone = v()["phones"][0].clone();
     r["rights"] = json!(phone["rights"]["answer"] == true && phone["rights"]["stop"] == false && phone["rights"]["start"] == false && phone["rights"]["activity"] == false);
+    // Settings → Phones through the real panel and IPC: the section draws, the commands are granted to the page, and a name
+    // with markup is shown as text.
+    r["panel"] = crate::smoke::ask_for(app, crate::panel::LABEL, "(async () => { bsel.settings = 'set:phones'; showTab('settings'); \
+        await new Promise(r => setTimeout(r, 2500)); const st = await bridge.phonesState(); const n = document.querySelector('[data-ph-name]'); \
+        return { section: !!document.querySelector('#sec-phones'), ipc: st.on === true && st.phones.length === 1, name: n ? n.textContent : null, noMarkup: n ? n.children.length === 0 : false }; })()", 12);
+    r["panelOk"] = json!(r["panel"]["section"] == true && r["panel"]["ipc"] == true && r["panel"]["name"] == "Demo <b>phone</b>" && r["panel"]["noMarkup"] == true);
     r["pairedSeen"] = json!(until(10, || fake.saw("paired with")));
     r["confirmWithoutPairing"] = json!(phones::pair_confirm(b, granted).is_err());
     // What a phone sees: a request held in the app reaches it as a redacted preview, a notice and, on asking, the whole thing.
@@ -72,7 +88,7 @@ pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
     r["homeSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains(&rid))));
     r["noticeSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"notice\"") && l.contains("\"what\":\"waiting\"") && l.contains(&rid))));
     fake.say(&format!("detail {rid}"));
-    r["detailSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"detail\"") && l.contains("\\u{202e}") && l.contains("\"odd\":true"))));
+    r["detailSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"detail\"") && l.contains("\\\\u202E") && l.contains("\"odd\":true"))));
     // nothing secret or hidden reaches the phone in a preview or a notice, and no forbidden field anywhere
     let all = fake.lines.lock().unwrap().join("\n");
     let previews: String = fake.lines.lock().unwrap().iter().filter(|l| l.contains("\"kind\":\"home\"") || l.contains("\"kind\":\"notice\"")).cloned().collect();
@@ -97,6 +113,18 @@ pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
     crate::answers::answer(b, &r3, "allow");
     fake.say(&format!("answer {r3} allow"));
     r["latePc"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 1) && h3.join().unwrap_or_default().contains("allow"));
+    // answered in Claude's own prompt while a phone could still answer: the hook closes, the phone is told it was late
+    let (mut child, r5) = hold_child(b, "ph6", "echo terminal first");
+    fake.say(&format!("detail {r5}"));
+    until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"detail\"") && l.contains("terminal first")));
+    if let Some(p) = b.core.lock().unwrap().pending.get_mut(&r5) { p.released = true; } // someone is at the computer (the input time is fixed here)
+    b.broadcast();
+    r["atComputerSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains(&r5) && l.contains("\"atComputer\":true"))));
+    let _ = child.kill();
+    let _ = child.wait();
+    until(10, || !b.core.lock().unwrap().pending.contains_key(&r5));
+    fake.say(&format!("answer {r5} allow"));
+    r["latePcTerminal"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 2));
     r["logged"] = json!(phones::log(b).as_array().is_some_and(|a| a.len() >= 3 && a.iter().all(|l| !l["what"].as_str().unwrap_or("").contains("ghp_"))));
     // a disconnected phone's next command is refused: the request stays held
     let (h4, r4) = hold(b, "ph5", "echo after disconnect");
@@ -110,8 +138,9 @@ pub fn run(b: &Arc<Bobix>, spec: &str) -> Value {
     crate::update_settings(b, json!({ "petsVisible": true }));
     r["disconnected"] = json!(v()["phones"].as_array().is_some_and(|a| a.is_empty()));
     r["told"] = json!(until(10, || fake.saw("revoked") || fake.saw("Revoked")));
+    if std::env::var_os("BOBIX_SMOKE_DEBUG").is_some() { r["lines"] = json!(fake.lines.lock().unwrap().iter().map(|l| l.chars().take(260).collect::<String>()).collect::<Vec<_>>()); }
     fake.stop();
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false));
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "closedSeen", "hookAnswered", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }
