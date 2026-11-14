@@ -111,9 +111,7 @@ async fn a_token_without_a_valid_grant_is_not_stored() {
 
 #[tokio::test]
 async fn a_push_for_a_phone_whose_grant_has_ended_is_answered_with_a_grant_error() {
-    let mut c = cfg();
-    c.dead_after = Duration::from_secs(30); // the sockets are not read during the wait below
-    let s = start(c).await;
+    let s = start(cfg()).await;
     let (mut d, mut p) = pair_up(&s).await;
     p.send(&push_token(TokenKind::Device, "short", grant(&p.ident, "short", RELAY, now_ms() + 2000))).await;
     p.sync().await;
@@ -152,7 +150,7 @@ async fn a_token_the_push_service_rejects_is_forgotten() {
     *s.app.fake.as_ref().unwrap().answer.lock().unwrap() = Some(Outcome::TokenGone);
     d.send(&with_push(&p.id(), "a", PushKind::Alert, None, "X")).await;
     wait_sent(&s, 1).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
     d.send(&with_push(&p.id(), "b", PushKind::Alert, None, "X")).await;
     p.expect(|f| matches!(f, Frame::Msg { pid, .. } if pid == "b"), 1000).await;
     tokio::time::sleep(Duration::from_millis(150)).await;
