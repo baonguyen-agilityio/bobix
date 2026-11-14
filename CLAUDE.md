@@ -24,13 +24,15 @@ stable branch. How to run it and how it is built: `docs/development.md`. What is
 - Screenshots, GIFs and demos use made-up data only: no real skills, sessions, repositories or paths. Keep them out of the repository unless the docs need them.
 - A new screen, a large layout change or a new area starts as a prototype outside the repository, approved by the owner before the issue is written.
 - Update `docs/roadmap.md` when an item lands, ships or turns out unverified.
+- Every pull request also gets an automatic docs check (`.github/workflows/claude-review.yml`) that comments where a README, doc, roadmap line or app string no longer matches the change. Answer its comments like the code review's. That workflow file must be identical on `main` and `develop`, or the action skips and the job warns.
 - Delete what a task leaves behind when it ends: test copies, scratch folders, build output, merged worktrees.
 - The repository is public: no secrets, tokens, `.env` files, local paths or personal details in code, docs, issues or pull requests.
 
 ## Which model for which step
 
-- Read-only exploration, running checks and watching CI: a Haiku subagent.
-- Writing code, config, docs and prototypes: Sonnet.
-- A hard diagnosis, a design fork or a security design: Opus.
-- The independent review before a merge: Opus, by a session that did not write the code.
+- Read-only exploration, running checks and watching CI: a Haiku subagent at low effort.
+- Writing code, config, docs and prototypes, merging, fixing review findings: Sonnet at medium.
+- A risky feature (update, signing, anything security): Sonnet at high.
+- A hard diagnosis, a design fork, or the independent review before a merge (by a session that did not write the code): Opus at high; xhigh only for a security design.
+- The automatic review and docs check (`claude-review.yml`): Opus at high.
 - The coordinating session stays thin and hands work out. One session per task; start a new one when the task changes.

@@ -36,7 +36,7 @@ async function browser(exe) {
   await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = no; });
   ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id) { const c = calls.get(d.id); calls.delete(d.id); d.error ? c[1](new Error(d.error.message)) : c[0](d.result); } else on.get(d.method)?.(d.params); };
   // A busy machine is slow, never silent: a call or an event that does not come fails the run instead of hanging it.
-  const late = (what, ms = 30e3) => new Promise((_, no) => setTimeout(() => no(new Error('no answer in time: ' + what)), ms).unref());
+  const late = (what, ms = 60e3) => new Promise((_, no) => setTimeout(() => no(new Error('no answer in time: ' + what)), ms).unref());
   const send = (method, params = {}) => Promise.race([new Promise((ok, no) => { calls.set(++id, [ok, no]); ws.send(JSON.stringify({ id, method, params })); }), late(method)]);
   const once = method => Promise.race([new Promise(ok => on.set(method, p => { on.delete(method); ok(p); })), late(method)]);
   const errors = []; on.set('Runtime.exceptionThrown', p => errors.push(p.exceptionDetails.exception?.description || p.exceptionDetails.text));
@@ -267,6 +267,93 @@ async function panel(b, url, { width, height, lang, dark }) {
       await b.ev('__shifts.length = 0');
       const s0 = await b.ev(BOXES);
       for (const t of ['no', 'zz']) { await b.type(t); await sleep(100); for (const m of moved(s0, await b.ev(BOXES), ['#st-text'])) fail(`Start box, searched ${t}: ${m}`); }
+    });
+    // The "?" tips: by mouse, keyboard and touch, each shows by its "?", inside the window, as a tooltip of it (role,
+    // aria-describedby), with its own words; showing, hiding or a redraw under it moves nothing, not even on a narrow
+    // window (no layout shift at all here, asked or not). The pointer leaving, Esc, a second tap or a tap elsewhere hide it;
+    // ↵ and Space on a "?" never run the selected item's action.
+    await part('help tips', async () => {
+      const at = sel => b.until(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e || !e.getClientRects().length) return null;
+        const r = e.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2, hit = document.elementFromPoint(x, y);
+        if (hit && (hit === e || e.contains(hit))) return [x, y];
+        e.scrollIntoView({ block: 'center' }); return null; })()`, sel);
+      const tipOf = sel => b.ev(`(() => { const t = document.querySelector('#tip'), h = document.querySelector(${JSON.stringify(sel)}), r = t.getBoundingClientRect(), q = h.getBoundingClientRect(), cs = getComputedStyle(t);
+        return { on: t.classList.contains('on') && cs.visibility === 'visible' && cs.position === 'fixed', role: t.getAttribute('role'), by: h.getAttribute('aria-describedby'), text: t.textContent, want: T('help.' + h.dataset.help),
+          inside: r.left >= 8 && r.top >= 8 && r.right <= innerWidth - 8 && r.bottom <= innerHeight - 8, near: Math.min(Math.abs(r.top - q.bottom), Math.abs(q.top - r.bottom)) <= 8,
+          rect: [r.left, r.top, r.width, r.height].map(Math.round).join() }; })()`);
+      const off = () => b.ev(`!document.querySelector('#tip').classList.contains('on') && !document.querySelector('[aria-describedby="tip"]')`);
+      const shows = async (how, sel) => {
+        await b.until(`document.querySelector('#tip').classList.contains('on') || null`, `${how}: the tip of ${sel}`);
+        const s = await tipOf(sel);
+        if (!s.on || s.role !== 'tooltip' || s.by !== 'tip' || !s.text || s.text !== s.want) fail(`help ${how} ${sel}: ${JSON.stringify(s)}`);
+        if (!s.inside) fail(`help ${how} ${sel}: the tip is out of the window: ${s.rect}`);
+        if (!s.near) fail(`help ${how} ${sel}: the tip is not by its "?": ${s.rect}`);
+      };
+      const hides = async how => { for (let k = 0; k < 10 && !(await off()); k++) await sleep(100); if (!(await off())) fail(`help: ${how} does not hide the tip`); };
+      const still = async (what, f0) => { for (const m of moved(f0, await b.ev(BOXES))) fail(`help ${what}: ${m}`); };
+      const noShift = async from => { for (const s of await b.ev(`__shifts.slice(${from})`)) fail(`help: layout shift ${s.v.toFixed(4)}: ${s.src}`); };
+      // a key as a keyboard sends it, with its text: ↵ and Space press a focused button
+      const press = async (k, code, vk, text) => { await b.acted(); await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code, windowsVirtualKeyCode: vk, text }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk }); };
+      const hover = async sel => { const [x, y] = await at(sel); await sleep(150); const f0 = await b.ev(BOXES);
+        await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }); await shows('hover', sel); await still('hover ' + sel, f0); return f0; };
+      await tab('work'); await sleep(400);
+      const n0 = await b.ev('__shifts.length');
+      const g = '#b-list [data-help="grp.fstart"]';
+      // mouse: shows while pointed at, goes when the pointer leaves
+      const f0 = await hover(g);
+      await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 }); await hides('the pointer leaving');
+      await still('hidden', f0);
+      // keyboard: Tab to it from the row before; Esc hides it and keeps focus and the search; ↵ shows it, Space hides it, the selection stays
+      const sel0 = await b.ev(`document.querySelector('#b-list [aria-selected="true"]')?.dataset.bsel`);
+      await b.ev(`(() => { const bs = [...document.querySelectorAll('#b-list button')]; bs[bs.indexOf(document.querySelector(${JSON.stringify(g)})) - 1].focus(); })()`);
+      await b.key('Tab', 'Tab', 9);
+      if (!(await b.ev(`document.activeElement === document.querySelector(${JSON.stringify(g)})`))) fail('help: Tab does not reach the "?"');
+      await shows('focus', g);
+      await b.key('Escape', 'Escape', 27); await hides('Esc');
+      if (!(await b.ev(`document.activeElement?.dataset.help === 'grp.fstart' && document.querySelector('#bq').value === ''`))) fail('help: Esc moved the focus or touched the search');
+      await press('Enter', 'Enter', 13, '\r'); await shows('↵', g);
+      // a redraw under it (the list's refresh time changes): the tip stays by the new "?", nothing moves
+      const f1 = await b.ev(BOXES);
+      await b.ev(`window.__help = document.querySelector(${JSON.stringify(g)})`);
+      await b.ev(`__push(${JSON.stringify(event(SESSIONS, { ...WORK, at: NOW - 3 * MIN }))})`); await sleep(300);
+      if (await b.ev(`__help === document.querySelector(${JSON.stringify(g)})`)) fail('help: the redraw did not replace the "?"');
+      await shows('after a redraw', g); await still('redraw', f1);
+      await press(' ', 'Space', 32, ' '); await hides('Space on a shown tip');
+      if (await b.ev(`document.activeElement !== document.querySelector(${JSON.stringify(g)}) || document.querySelector('#bq').value !== ''`)) fail('help: Space left the "?" or typed in the search');
+      if (await b.ev(`document.querySelector('#b-list [aria-selected="true"]')?.dataset.bsel`) !== sel0 || await b.ev(`!!document.querySelector('dialog[open]')`)) fail('help: ↵ or Space on the "?" ran the selected item');
+      await b.ev('document.activeElement.blur()');
+      // touch: a tap shows it, a second tap hides it, a tap elsewhere hides it too
+      await b.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+      try {
+        const tap = async sel => { const [x, y] = await at(sel); await sleep(150);
+          await b.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }); await b.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(250); };
+        const f2 = await b.ev(BOXES);
+        await tap(g); await shows('tap', g); await still('tap', f2);
+        await tap(g); await hides('a second tap');
+        await tap(g); await shows('tap again', g);
+        await tap('#b-list [data-grp="fstart"] .b-grp > span'); await hides('a tap elsewhere');
+      } finally { await b.send('Emulation.setTouchEmulationEnabled', { enabled: false }); }
+      await noShift(n0);
+      // a settings row's "?" (the tab switch and the pick before it may move things on a narrow window, as asked)
+      await tab('settings'); await sleep(300);
+      await b.click('#b-list [data-bsel="set:stuck"]'); await sleep(800);
+      const n1 = await b.ev('__shifts.length');
+      await hover('#settings [data-help="row.stuckIdle"]');
+      await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 }); await hides('the pointer leaving a row\'s "?"');
+      await noShift(n1);
+    });
+    // The tour: every step points at an element that is on screen (or, when it has an alt, at that one), with the bubble up.
+    // (the targets do not depend on the language, so one language of the two keeps the run short on a slow runner)
+    if (lang === 'vi') await part('tour targets', async () => {
+      const keys = await b.ev('TOUR.STEPS.map(s => s.key)'), n0 = await b.ev('__shifts.length');
+      for (const [i, key] of keys.entries()) {
+        const r = await b.ev(`(async () => { tourStart(false); tourAt = ${i}; await tourShow(); const s = tourSteps[tourAt], t = tourTarget(s.at) || (s.alt && tourTarget(s.alt.at)), r = t && t.getBoundingClientRect();
+          return { key: s.key, ok: !!r && r.width > 0 && r.height > 0, shown: document.querySelector('#tour-pop').getBoundingClientRect().height > 0 }; })()`);
+        if (r.key !== key || !r.ok) fail(`tour step ${key}: the element it points at is not on screen`);
+        if (!r.shown) fail(`tour step ${key}: no bubble`);
+      }
+      await b.ev('tourEnd()'); await sleep(400);
+      await b.ev(`__shifts.length = ${n0}`); // the bubble and its highlight are an overlay that moves from step to step on purpose
     });
     await b.ev(`document.querySelectorAll('dialog[open]').forEach(d => d.close())`);
     // Nothing the layout-shift API sees either (narrow: a tab switch moves the detail below the list, as asked).

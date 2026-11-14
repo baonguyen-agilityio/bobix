@@ -362,6 +362,74 @@ async function oneCard(b, url) {
   return out.map(o => 'one card at a time: ' + o);
 }
 
+// A hovered card while its session runs tool after tool: it stays put (same height, no entrance replayed) and its status
+// row names the file or command the tool works on (a long path keeps its file name).
+async function liveCard(b, url) {
+  const out = [];
+  await b.send('Page.navigate', { url }); await b.once('Page.loadEventFired');
+  const ev = async x => { const r = await b.send('Runtime.evaluate', { expression: x, returnByValue: true }); if (r.exceptionDetails) b.errors.push(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
+  await ev(`__apply(${JSON.stringify({ edge: 'bottom', size: 56, zoneStart: 30, zoneEnd: 70, fadeNearCursor: false, showIdle: true, sleepHide: 0, language: 'en' })})`);
+  const n = await ev('__now()'), step = async k => { for (let i = 0; i < k; i++) await ev('__step(33.4)'); };
+  const long = '/home/dev/' + 'deep/'.repeat(8) + 'src/ui/pets.html';
+  const push = o => ev(`__push(${JSON.stringify([ses('w0', { state: 'working', since: n, title: 'Fix the card', quest: 'Make the card say what it does', ...o })])})`);
+  await push({ tool: 'Edit', toolArg: long, ctx: 60 }); await step(60);
+  const r = await ev(`(() => { const b = pets.get('w0').el.querySelector('.spr').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; })()`);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r[0], y: r[1] }); await step(6);
+  const look = () => ev(`(() => { const c = pets.get('w0').el.querySelector('.card'); if (!c) return null;
+    return { h: Math.round(c.getBoundingClientRect().height * 10) / 10, still: c.classList.contains('still'), arg: c.querySelector('.st code')?.textContent || '' }; })()`);
+  const first = await look();
+  if (!first) return ['live card: no card on the hovered pet'];
+  if (!first.arg.endsWith('pets.html')) out.push(`the status row lost the file name: "${first.arg}"`);
+  const steps = [[{ tool: 'Bash', toolArg: 'npm test -- ' + 'x'.repeat(80), ctx: 45 }, 'npm test'], [{ tool: 'Read', toolArg: long, ctx: 20 }, 'pets.html'],
+    [{ tool: 'Grep', toolArg: '', ctx: 3 }, ''], [{ tool: 'Bash', toolArg: 'git status', ctx: 0 }, 'git status']];
+  for (const [o, arg] of steps) {
+    await push(o); await step(2);
+    const c = await look();
+    if (!c) { out.push(`${o.tool}: the card closed`); continue; }
+    if (!c.still) out.push(`${o.tool}: the card played its entrance again`);
+    if (c.h !== first.h) out.push(`${o.tool}: the card's height moved ${first.h} → ${c.h}`);
+    if (arg ? !c.arg.includes(arg) : c.arg) out.push(`${o.tool}: the status row says "${c.arg}", want ${arg ? `"${arg}" in it` : 'nothing'}`);
+  }
+  // What a path shows, whatever its separator: the last folders and the file name; a short path whole; not a path, untouched.
+  for (const [tool, arg, want] of [
+    ['Edit', 'C:\\Users\\dev\\app\\src\\ui\\pets.html', '…\\src\\ui\\pets.html'],
+    ['Read', '/home/dev/my project/src/ui/pets file.html', '…/src/ui/pets file.html'],
+    ['Write', '…\\deep\\src\\ui\\pets.html', '…\\src\\ui\\pets.html'], // the Rust side already cut it
+    ['MultiEdit', 'C:\\app\\pets.html', 'C:\\app\\pets.html'], ['Read', '/a/b/c', '/a/b/c'],
+    ['Bash', 'cd /a/b/c/d/e && npm test', 'cd /a/b/c/d/e && npm test']]) {
+    const got = await ev(`argText(${JSON.stringify(tool)}, ${JSON.stringify(arg)})`);
+    if (got !== want) out.push(`${tool} "${arg}" shows "${got}", want "${want}"`);
+  }
+  // A long MCP status beside the badges: the status gives way (no overlap), what the tool names stays on screen, and a path
+  // too wide for the row keeps its file name.
+  const geo = () => ev(`(() => { const c = pets.get('w0').el.querySelector('.card'), q = x => c.querySelector(x).getBoundingClientRect();
+    const st = q('.row .st'), bdg = q('.row .bdg'), code = c.querySelector('.st code'), cr = code?.getBoundingClientRect(), stx = c.querySelector('.tx');
+    let end = null; if (code) { const t = code.querySelector('bdi').firstChild, r = document.createRange(); r.setStart(t, t.length - 1); r.setEnd(t, t.length); end = r.getBoundingClientRect(); }
+    return { stRight: st.right, bdgLeft: bdg.left, stxRight: stx.getBoundingClientRect().right, codeLeft: cr?.left, codeW: cr?.width, codeRight: cr?.right,
+      endLeft: end?.left, endRight: end?.right, h: Math.round(c.getBoundingClientRect().height * 10) / 10, stxCut: stx.scrollWidth > stx.clientWidth }; })()`);
+  await push({ tool: 'mcp__claude-in-chrome__browser_take_screenshot_of_the_page', toolArg: 'https://example.com/pricing', ctx: 30 }); await step(2);
+  { const g = await geo();
+    if (g.stRight > g.bdgLeft + 0.5) out.push(`a long MCP status runs over the badges: status ends ${g.stRight}, badges start ${g.bdgLeft}`);
+    if (!(g.codeW >= 40)) out.push(`a long MCP status leaves what the tool names ${g.codeW} px`);
+    if (g.stxRight > g.codeLeft + 0.5) out.push('the status runs over what the tool names');
+    if (!g.stxCut) out.push('the long status was not cut (the test no longer shows the case)');
+    if (g.h !== first.h) out.push(`the card's height moved ${first.h} → ${g.h} on a long MCP status`); }
+  await push({ tool: 'Edit', toolArg: '…/' + 'a-very-long-file-name-that-keeps-going-and-going-until-the-row-runs-out'.repeat(2) + '.html', ctx: 30 }); await step(2);
+  { const g = await geo();
+    if (g.endLeft < g.codeLeft - 0.5 || g.endRight > g.codeRight + 0.5) out.push(`a path wider than the row loses its file name: last letter ${g.endLeft}-${g.endRight}, box ${g.codeLeft}-${g.codeRight}`);
+    if (g.stRight > g.bdgLeft + 0.5) out.push('a long path runs over the badges'); }
+  // A bubble that changes kind (a tool it picked up, then a request) enters; only the same kind is redrawn in place.
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); await step(20);
+  await push({ tool: 'Bash', toolArg: 'ls', hits: 1 }); await step(2);
+  const bubble = () => ev(`(() => { const e = pets.get('w0').el.querySelector('.say'); return e && { cls: e.className }; })()`);
+  { const x = await bubble(); if (!x) out.push('no bubble for a tool it picked up'); }
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r[0], y: r[1] }); // hovered as the request arrives: the bubble shows it
+  await push({ state: 'waiting', tool: '', askTool: 'Bash', ask: 'ls', hits: 1 }); await step(1); // the frame it first shows in; a later redraw of the same bubble is still
+  { const x = await bubble(); if (!x) out.push('no bubble for a permission request'); else if (/\bstill\b/.test(x.cls)) out.push(`the request after a tool shows without its entrance: "${x.cls}"`); }
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
+  return out.map(o => 'live card: ' + o);
+}
+
 // A pet dragged onto its neighbour and let go: no overlap after it, and 1.5 s after the drop the line is evenly spaced
 // again (every gap the line's own gap, nothing still sliding).
 // Every frame right after a drop: no two pets in sight overlap and no two name tags touch, sliding or not.
@@ -436,6 +504,7 @@ test('no effect pixel lands on another pet, a tag, a balloon or another effect, 
     if (r.fxOn || r.effects || r.balloons.length || !r.ring) bad.push(`reduced motion: want no effect, no balloon and the waiting pet's ring, got ${JSON.stringify(r)}`);
     await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 one card')) bad.push(...await oneCard(b, url), ...b.errors.splice(0).map(e => `one card: page error: ${e}`));
+    if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 live card')) bad.push(...await liveCard(b, url), ...b.errors.splice(0).map(e => `live card: page error: ${e}`));
     if (!process.env.OVERLAY_ONLY || new RegExp(process.env.OVERLAY_ONLY).test(' 56 show when needed')) for (const rm of [false, true]) bad.push(...await onDemand(b, url, rm), ...b.errors.splice(0).map(e => `show when needed: page error: ${e}`));
     const cases = [];
     for (const edge of ['bottom', 'top']) for (const size of [32, 56, 128]) {
