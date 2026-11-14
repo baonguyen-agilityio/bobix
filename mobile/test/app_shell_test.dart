@@ -138,4 +138,13 @@ void main() {
       await tester.pumpAndSettle();
     },
   );
+
+  testWidgets(
+    'only the floating surfaces blur: the tab bar, Start and the computer chip',
+    (tester) async {
+      await tester.pumpWidget(app());
+      await tester.pump();
+      expect(find.byType(BackdropFilter), findsNWidgets(3));
+    },
+  );
 }

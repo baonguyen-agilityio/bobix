@@ -94,6 +94,7 @@ class GlassTabBar extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Glass(
+            blur: true,
             radius: 24,
             padding: const EdgeInsets.all(3),
             child: Row(
@@ -109,6 +110,7 @@ class GlassTabBar extends StatelessWidget {
             child: InkResponse(
               onTap: () => onSelect(startIndex),
               child: Glass(
+                blur: true,
                 radius: 25,
                 child: SizedBox(
                   width: 50,

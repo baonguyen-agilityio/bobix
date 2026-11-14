@@ -1,9 +1,14 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../theme/tokens.dart';
 
-/// A flat translucent surface with a hairline border: the prototype's glass without the blur. Blur is added once the
-/// Android glass experiment says it is fast enough.
+/// The prototype's glass: a translucent surface with a hairline border. It blurs what is behind it (as the desktop's
+/// `backdrop-filter: blur(20px)`) only when [blur] is set, which is for surfaces that float over scrolling content: the
+/// tab bar, the Start button and the computer chip. Everywhere else the page behind is flat, a blur would blur nothing and
+/// would cost a layer each, so the fill is flat. [blurEnabled] turns every blur off at once (the spike measured the cost
+/// on an emulator only; switch it off if a phone's numbers are bad).
 class Glass extends StatelessWidget {
   const Glass({
     super.key,
@@ -12,7 +17,13 @@ class Glass extends StatelessWidget {
     this.padding,
     this.tint,
     this.border,
+    this.blur = false,
   });
+
+  /// The one switch for every blur in the app.
+  static bool blurEnabled = true;
+
+  static const blurSigma = 20.0;
 
   final Widget child;
   final double radius;
@@ -20,22 +31,34 @@ class Glass extends StatelessWidget {
   final Color? tint;
   final Color? border;
 
+  /// This surface floats over scrolling content: blur what is behind it (when [blurEnabled]).
+  final bool blur;
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
     final fill =
         tint ??
         (t.isDark ? t.surface2.withValues(alpha: .6) : const Color(0x85FFFFFF));
-    return DecoratedBox(
+    final shape = BorderRadius.circular(radius);
+    final content = Padding(padding: padding ?? EdgeInsets.zero, child: child);
+    final body = DecoratedBox(
       decoration: BoxDecoration(
         color: fill,
-        borderRadius: BorderRadius.circular(radius),
+        borderRadius: shape,
         border: Border.all(
           width: .5,
           color:
               border ??
               (t.isDark ? const Color(0x17FFFFFF) : const Color(0xE6FFFFFF)),
         ),
+      ),
+      child: content,
+    );
+    final blurred = blur && blurEnabled;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: shape,
         boxShadow: [
           BoxShadow(
             color: Color(t.isDark ? 0x4D000000 : 0x12141828),
@@ -44,7 +67,15 @@ class Glass extends StatelessWidget {
           ),
         ],
       ),
-      child: Padding(padding: padding ?? EdgeInsets.zero, child: child),
+      child: blurred
+          ? ClipRRect(
+              borderRadius: shape,
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+                child: body,
+              ),
+            )
+          : body,
     );
   }
 }

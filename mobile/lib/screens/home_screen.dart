@@ -135,6 +135,7 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
               Glass(
+                blur: true,
                 radius: 22,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: SizedBox(
