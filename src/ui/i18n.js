@@ -3,7 +3,7 @@
   const STR = {
     en: {
       'app.name': 'Bobix',
-      'tab.overview': 'Overview', 'tab.sessions': 'Sessions', 'tab.work': 'Work', 'tab.room': 'Room', 'tab.settings': 'Settings', 'tab.setup': 'Setup',
+      'tab.overview': 'Home', 'tab.sessions': 'Sessions', 'tab.work': 'Work', 'tab.room': 'Room', 'tab.settings': 'Settings', 'tab.setup': 'Setup',
       'b.search.overview': 'Search approvals, warnings, sessions…', 'b.search.sessions': 'Search sessions and issues…', 'b.search.work': 'Search tickets…', 'b.search.skills': 'Search skills and projects…', 'b.search.room': 'Search rooms…', 'b.search.settings': 'Search settings…',
       'b.scopes': 'Screens', 'b.actions': 'Actions', 'b.noMatch': 'Nothing matches "{q}".', 'b.empty': 'Nothing here yet.',
       'b.today': 'Today', 'b.today.sub': '{r} running · {w} need you', 'b.stat.running': 'running', 'b.stat.need': 'need you', 'b.stat.warn': 'warnings',
