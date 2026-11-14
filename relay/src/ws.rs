@@ -1,7 +1,7 @@
 //! `GET /v1/ws`: challenge, proof of the `auth` key, then frames both ways. The relay forwards `body` strings it
 //! cannot read; it holds no key that opens one.
 
-use crate::hub::{now_ms, Out, Tx};
+use crate::hub::{Out, Tx};
 use crate::limits::client_ip;
 use crate::log::quote;
 use crate::push::Outcome;
@@ -110,20 +110,6 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, s
         frames.1 += 1;
         frames.1 > cfg_max
     };
-
-    let revoked = app.hub.lock().unwrap().revoked.is_revoked(&id, now_ms());
-    if revoked {
-        // A revoked device gets this on connect and on every frame after it, and nothing else.
-        app.log.line(&format!("revoked device {id} refused"));
-        error(tx, ErrorCode::Revoked);
-        while let Ok(Some(Ok(_))) = timeout(app.cfg.dead_after, stream.next()).await {
-            if over_rate(app.cfg.device_frames_per_sec) {
-                break;
-            }
-            error(tx, ErrorCode::Revoked);
-        }
-        return;
-    }
 
     let guest = {
         let mut hub = app.hub.lock().unwrap();

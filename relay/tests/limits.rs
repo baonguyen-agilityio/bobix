@@ -120,7 +120,7 @@ async fn presence_goes_only_to_devices_that_allow_each_other() {
 }
 
 #[tokio::test]
-async fn a_desktop_can_revoke_a_phone_it_paired_before_a_relay_restart() {
+async fn a_revoked_pair_stays_cut_after_a_relay_restart_and_can_still_be_revoked_after_one() {
     let dir = scratch("restart");
     let mut c = cfg();
     c.revoked_dir = Some(dir.clone());
@@ -128,21 +128,31 @@ async fn a_desktop_can_revoke_a_phone_it_paired_before_a_relay_restart() {
     let (desktop, phone) = (ident(), ident());
     let mut d = Dev::connect(&s, desktop.clone()).await;
     let mut p = Dev::connect(&s, phone.clone()).await;
-    let (token, hash) = token_pair(5);
-    d.send(&Frame::PairOpen { relay_token_hash: hash, ttl: 120 }).await;
-    d.sync().await;
-    p.send(&Frame::PairSend { relay_token: token, body: "hello".into() }).await;
+    d.send(&Frame::Peers { allow: vec![p.id()] }).await;
+    p.send(&Frame::Peers { allow: vec![d.id()] }).await;
+    p.sync().await;
+    p.send(&send(&d.id(), "paired", 600, None, "AAAA")).await; // the phone confirms the pairing
     d.expect(|f| matches!(f, Frame::Msg { .. }), 1000).await;
     drop((d, p));
 
-    // The relay is redeployed; afterwards the desktop revokes the phone.
-    let s2 = start(c).await;
-    let mut d = Dev::connect(&s2, desktop).await;
+    // The relay is redeployed; afterwards the desktop revokes the phone (what it paired survived the restart).
+    let s2 = start(c.clone()).await;
+    let mut d = Dev::connect(&s2, desktop.clone()).await;
     d.send(&Frame::Revoke { id: phone.device_id() }).await;
     d.sync().await;
     d.none(is_err(ErrorCode::NoPeer), 300).await;
-    let mut back = Dev::connect(&s2, phone).await;
-    back.expect(is_err(ErrorCode::Revoked), 1000).await;
+    drop(d);
+
+    // Another redeploy: the cut is still there. The phone is told on connect and cannot reach that desktop.
+    let s3 = start(c).await;
+    let mut d = Dev::connect(&s3, desktop).await;
+    let mut p = Dev::connect(&s3, phone).await;
+    p.expect(is_err(ErrorCode::Revoked), 1000).await;
+    d.send(&Frame::Peers { allow: vec![p.id()] }).await;
+    p.send(&Frame::Peers { allow: vec![d.id()] }).await;
+    p.sync().await;
+    p.send(&send(&d.id(), "x", 600, None, "AAAA")).await;
+    p.expect(is_err(ErrorCode::Revoked), 1000).await;
     std::fs::remove_dir_all(dir).unwrap();
 }
 

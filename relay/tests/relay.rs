@@ -318,34 +318,6 @@ async fn a_packet_queued_while_a_desktop_was_gone_arrives_when_it_returns() {
     d.expect(is_msg("while-away"), 1000).await;
 }
 
-#[tokio::test]
-async fn a_revoked_device_gets_revoked_on_connect_and_on_every_frame_also_after_a_restart() {
-    let dir = scratch("revoked");
-    let mut c = cfg();
-    c.revoked_dir = Some(dir.clone());
-    let s = start(c.clone()).await;
-    let (mut d, mut p) = pair_up(&s).await;
-    answer_pairing(&mut d, &mut p, 7).await; // only a device that answered one of its pairings can be revoked by a desktop
-    let phone = p.ident.clone();
-    d.send(&Frame::Revoke { id: p.id() }).await;
-    p.expect(is_err(ErrorCode::Revoked), 1000).await;
-    p.closed(1000).await;
-
-    let mut again = Dev::connect(&s, phone.clone()).await;
-    again.expect(is_err(ErrorCode::Revoked), 1000).await;
-    again.send(&send(&d.id(), "x", 600, None, "AAAA")).await;
-    again.expect(is_err(ErrorCode::Revoked), 1000).await;
-    again.send(&Frame::Peers { allow: vec![d.id()] }).await;
-    again.expect(is_err(ErrorCode::Revoked), 1000).await;
-    d.none(|f| matches!(f, Frame::Msg { .. }), 300).await;
-
-    // A new relay process reads the same directory.
-    let s2 = start(c).await;
-    let mut after = Dev::connect(&s2, phone).await;
-    after.expect(is_err(ErrorCode::Revoked), 1000).await;
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
 async fn answer_pairing(d: &mut Dev, p: &mut Dev, n: u8) {
     let (token, hash) = token_pair(n);
     d.send(&Frame::PairOpen { relay_token_hash: hash, ttl: 120 }).await;
@@ -354,25 +326,99 @@ async fn answer_pairing(d: &mut Dev, p: &mut Dev, n: u8) {
     d.expect(|f| matches!(f, Frame::Msg { body, .. } if body == "hello"), 1000).await;
 }
 
+/// The phone sends the desktop a packet and the desktop gets it: the phone treats the desktop as paired.
+async fn confirm_pairing(d: &mut Dev, p: &mut Dev, pid: &str) {
+    p.send(&send(&d.id(), pid, 600, None, "AAAA")).await;
+    d.expect(is_msg(pid), 1000).await;
+}
+
 #[tokio::test]
-async fn nobody_can_revoke_a_device_that_did_not_answer_its_pairing() {
+async fn a_revocation_cuts_only_the_path_between_that_desktop_and_that_device() {
+    let s = start(cfg()).await;
+    let (mut d1, mut p) = pair_up(&s).await;
+    // The phone is also paired with a second desktop.
+    let mut d2 = Dev::connect(&s, ident()).await;
+    d2.send(&Frame::Peers { allow: vec![p.id()] }).await;
+    p.send(&Frame::Peers { allow: vec![d1.id(), d2.id()] }).await;
+    p.sync().await;
+    confirm_pairing(&mut d1, &mut p, "c1").await;
+    confirm_pairing(&mut d2, &mut p, "c2").await;
+
+    d1.send(&Frame::Revoke { id: p.id() }).await;
+    p.expect(|f| matches!(f, Frame::Error { code: ErrorCode::Revoked, .. }), 1000).await;
+    // The first desktop is cut, in both directions ...
+    p.send(&send(&d1.id(), "to-d1", 600, None, "AAAA")).await;
+    p.expect(is_err(ErrorCode::Revoked), 1000).await;
+    d1.send(&send(&p.id(), "from-d1", 600, None, "AAAA")).await;
+    d1.expect(is_err(ErrorCode::Revoked), 1000).await;
+    p.none(is_msg("from-d1"), 300).await;
+    // ... a later `peers` that lists it does not bring it back ...
+    d1.send(&Frame::Peers { allow: vec![p.id()] }).await;
+    p.send(&send(&d1.id(), "again", 600, None, "AAAA")).await;
+    p.expect(is_err(ErrorCode::Revoked), 1000).await;
+    // ... and the second desktop is untouched.
+    d2.send(&send(&p.id(), "from-d2", 600, None, "AAAA")).await;
+    p.expect(is_msg("from-d2"), 1000).await;
+    p.send(&send(&d2.id(), "to-d2", 600, None, "AAAA")).await;
+    d2.expect(is_msg("to-d2"), 1000).await;
+}
+
+#[tokio::test]
+async fn a_desktop_that_only_received_a_hello_cannot_lock_a_phone_out() {
+    let s = start(cfg()).await;
+    let (mut real, mut p) = pair_up(&s).await;
+    confirm_pairing(&mut real, &mut p, "c1").await;
+    // A hostile desktop shows a QR code; the phone's scan sends it a hello, which is all it ever gets.
+    let mut hostile = Dev::connect(&s, ident()).await;
+    let (token, hash) = token_pair(8);
+    hostile.send(&Frame::PairOpen { relay_token_hash: hash, ttl: 120 }).await;
+    hostile.sync().await;
+    p.send(&Frame::PairSend { relay_token: token, body: "hello".into() }).await;
+    hostile.expect(|f| matches!(f, Frame::Msg { .. }), 1000).await;
+    hostile.send(&Frame::Peers { allow: vec![p.id()] }).await;
+    hostile.send(&Frame::Revoke { id: p.id() }).await;
+    hostile.expect(is_err(ErrorCode::NoPeer), 1000).await;
+    // The phone is not told it was revoked, on this socket or the next, and still works with its real desktop.
+    p.none(is_err(ErrorCode::Revoked), 300).await;
+    let phone = p.ident.clone();
+    drop(p);
+    let mut p = Dev::connect(&s, phone).await;
+    p.none(is_err(ErrorCode::Revoked), 300).await;
+    real.send(&send(&p.id(), "still-works", 600, None, "AAAA")).await;
+    p.expect(is_msg("still-works"), 1000).await;
+}
+
+#[tokio::test]
+async fn nobody_can_revoke_a_device_that_did_not_confirm_a_pairing_with_them() {
     let s = start(cfg()).await;
     let (mut d, mut p) = pair_up(&s).await;
     let stranger = ident();
     let mut ok = Dev::connect(&s, stranger.clone()).await;
-    // A desktop that merely lists a stranger in `peers` cannot then ban it (a device sets its own allow-list).
+    // A desktop that lists a stranger in `peers` cannot then cut it (a device sets its own allow-list).
     d.send(&Frame::Peers { allow: vec![p.id(), stranger.device_id()] }).await;
     d.sync().await;
     d.send(&Frame::Revoke { id: stranger.device_id() }).await;
     d.expect(is_err(ErrorCode::NoPeer), 1000).await;
     ok.none(is_err(ErrorCode::Revoked), 300).await;
-    // A phone cannot revoke its desktop, and a desktop cannot revoke what it never paired with.
+    // A phone cannot revoke its desktop, and a desktop cannot revoke a phone that never sent it a packet.
     p.send(&Frame::Revoke { id: d.id() }).await;
     p.expect(is_err(ErrorCode::NoPeer), 1000).await;
     d.send(&Frame::Revoke { id: p.id() }).await;
     d.expect(is_err(ErrorCode::NoPeer), 1000).await;
-    let mut again = Dev::connect(&s, d.ident.clone()).await;
-    again.none(is_err(ErrorCode::Revoked), 300).await;
+}
+
+#[tokio::test]
+async fn a_fresh_pairing_the_desktop_opens_replaces_an_old_cut() {
+    let s = start(cfg()).await;
+    let (mut d, mut p) = pair_up(&s).await;
+    confirm_pairing(&mut d, &mut p, "c1").await;
+    d.send(&Frame::Revoke { id: p.id() }).await;
+    p.expect(is_err(ErrorCode::Revoked), 1000).await;
+    answer_pairing(&mut d, &mut p, 9).await; // the owner pairs the phone again
+    d.send(&Frame::Peers { allow: vec![p.id()] }).await;
+    d.sync().await;
+    d.send(&send(&p.id(), "back", 600, None, "AAAA")).await;
+    p.expect(is_msg("back"), 1000).await;
 }
 
 #[tokio::test]

@@ -63,15 +63,31 @@ impl Revoked {
         save(&self.dir, desktop, ".json", &self.by[desktop]);
     }
 
-    pub fn is_revoked(&self, id: &str, now_ms: u64) -> bool {
+    /// A revocation cuts the path between one desktop and one device, whichever way the question is asked.
+    pub fn is_cut(&self, a: &str, b: &str, now_ms: u64) -> bool {
+        let after = self.keep_after(now_ms);
+        let live = |d: &str, x: &str| self.by.get(d).and_then(|m| m.get(x)).is_some_and(|at| *at > after);
+        live(a, b) || live(b, a)
+    }
+
+    /// Some desktop has revoked `id` (it is told so when it connects).
+    pub fn cut_by_any(&self, id: &str, now_ms: u64) -> bool {
         let after = self.keep_after(now_ms);
         self.by.values().any(|m| m.get(id).is_some_and(|at| *at > after))
     }
 
-    /// `id` answered one of `desktop`'s pairing tokens.
+    /// The desktop opened a fresh pairing and `id` answered it: the old cut no longer applies.
+    pub fn lift(&mut self, desktop: &str, id: &str) {
+        if self.by.get_mut(desktop).is_some_and(|m| m.remove(id).is_some()) {
+            save(&self.dir, desktop, ".json", &self.by[desktop]);
+        }
+    }
+
+    /// `id` sent a packet that `desktop` had allowed: it treats the desktop as paired (a pairing it confirmed).
+    /// Only such a device can be revoked by the desktop. Written when new, and again at most once a day.
     pub fn note_paired(&mut self, desktop: &str, id: &str, now_ms: u64) {
         let m = self.paired.entry(desktop.to_owned()).or_default();
-        if m.len() >= MAX_PAIRED && !m.contains_key(id) {
+        if m.get(id).is_some_and(|at| now_ms.saturating_sub(*at) < DAY_MS) || (m.len() >= MAX_PAIRED && !m.contains_key(id)) {
             return;
         }
         m.insert(id.to_owned(), now_ms);
@@ -108,11 +124,12 @@ mod tests {
         r.add("desk", "phone-new", t0 - DAY_MS);
         r.note_paired("desk", "phone-new", t0 - DAY_MS);
         r.note_paired("desk", "phone-old", t0 - 91 * DAY_MS);
-        assert!(!r.is_revoked("phone-old", t0), "an entry past 90 days no longer counts, even before it is pruned");
+        assert!(!r.is_cut("desk", "phone-old", t0), "an entry past 90 days no longer counts, even before it is pruned");
         let r2 = Revoked::load(Some(dir.clone()), 90, t0);
-        assert!(r2.is_revoked("phone-new", t0));
-        assert!(!r2.is_revoked("phone-old", t0));
-        assert!(!r2.is_revoked("someone", t0));
+        assert!(r2.is_cut("desk", "phone-new", t0) && r2.is_cut("phone-new", "desk", t0), "the cut holds both ways");
+        assert!(!r2.is_cut("desk", "phone-old", t0));
+        assert!(!r2.is_cut("desk", "someone", t0) && !r2.is_cut("other-desk", "phone-new", t0), "only that pair is cut");
+        assert!(r2.cut_by_any("phone-new", t0) && !r2.cut_by_any("someone", t0));
         assert!(r2.has_paired("desk", "phone-new", t0), "who paired survives a restart");
         assert!(!r2.has_paired("desk", "phone-old", t0) && !r2.has_paired("desk", "stranger", t0));
         let text = std::fs::read_to_string(dir.join("desk.json")).unwrap();

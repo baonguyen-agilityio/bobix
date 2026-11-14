@@ -228,6 +228,9 @@ impl Hub {
                 self.send_to(id, f);
             }
         }
+        if self.revoked.cut_by_any(id, now_ms()) {
+            self.err(id, ErrorCode::Revoked, Some(Who::Desktop));
+        }
         for p in self.boxes.get(id).into_iter().flat_map(|b| b.iter()) {
             self.send_to(id, Frame::Msg { pid: p.pid.clone(), from: p.from.clone(), body: p.body.clone() });
         }
@@ -314,7 +317,8 @@ impl Hub {
     }
 
     fn peers(&mut self, me: &str, guest: bool, allow: Vec<String>) {
-        let mut allow: HashSet<String> = allow.into_iter().filter(|a| a != me).take(256).collect();
+        let now = now_ms();
+        let mut allow: HashSet<String> = allow.into_iter().filter(|a| a != me && !self.revoked.is_cut(me, a, now)).take(256).collect();
         if guest {
             // A guest is admitted only through invited computers: it can never allow, or be reached by, another guest.
             let ids: Vec<String> = allow.drain().collect();
@@ -338,31 +342,41 @@ impl Hub {
         }
     }
 
+    /// Cuts the path between this desktop and `id`, and only that path. Only a device that confirmed a pairing with
+    /// this desktop (it sent a packet the desktop had allowed) can be revoked by it.
     fn revoke(&mut self, me: &str, id: &str) {
-        if !self.revoked.has_paired(me, id, now_ms()) {
+        let now = now_ms();
+        if !self.revoked.has_paired(me, id, now) {
             return self.err(me, ErrorCode::NoPeer, None);
         }
-        self.revoked.add(me, id, now_ms());
+        self.revoked.add(me, id, now);
         if let Some(a) = self.allow.get_mut(me) {
             a.remove(id);
         }
-        if let Some(b) = self.boxes.get_mut(me) {
-            b.drain_where(|p| p.from == id);
+        for (owner, from) in [(me, id), (id, me)] {
+            if let Some(b) = self.boxes.get_mut(owner) {
+                b.drain_where(|p| p.from == from);
+            }
         }
-        if let Some(c) = self.online.get(id) {
-            c.tx.send(Out::Frame(Frame::Error { code: ErrorCode::Revoked, who: None }));
-            c.tx.send(Out::Close);
-        }
+        // The device stays connected and keeps its other desktops; it is told this one is gone.
+        self.err(id, ErrorCode::Revoked, Some(Who::Desktop));
     }
 
     #[allow(clippy::too_many_arguments)]
     fn send(&mut self, me: &str, pid: String, to: String, ttl: u32, collapse: Option<String>, push: Option<Push>, body: String) -> Vec<PushJob> {
+        if self.revoked.is_cut(me, &to, now_ms()) {
+            self.err(me, ErrorCode::Revoked, None);
+            self.send_to(me, Frame::Dropped { pid });
+            return vec![];
+        }
         // A packet to oneself would be a reflection; a packet to a device that did not allow the sender is refused.
         if to == me || !self.allow.get(&to).is_some_and(|a| a.contains(me)) {
             self.err(me, ErrorCode::NoPeer, None);
             self.send_to(me, Frame::Dropped { pid });
             return vec![];
         }
+        // `me` sent a packet that `to` had allowed: `me` treats `to` as paired, which lets `to` revoke it later.
+        self.revoked.note_paired(&to, me, now_ms());
         let held: usize = self.boxes.values().map(|b| b.bytes()).sum();
         if (!self.boxes.contains_key(&to) && self.boxes.len() >= self.cfg.max_mailboxes) || held + body.len() > self.cfg.max_total_bytes {
             self.send_to(me, Frame::Dropped { pid });
@@ -423,7 +437,8 @@ impl Hub {
             return self.err(me, ErrorCode::NoPeer, None);
         }
         self.pairs.get_mut(&hash).expect("checked above").used += 1;
-        self.revoked.note_paired(&desktop, me, now_ms());
+        // A fresh pairing the desktop itself opened replaces an older cut with this device.
+        self.revoked.lift(&desktop, me);
         self.send_to(&desktop, Frame::Msg { pid: hex(&random::<8>()), from: me.to_owned(), body });
     }
 
