@@ -1078,13 +1078,20 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
     };
     send("SessionStart", json!({ "source": "startup" }));
     send("UserPromptSubmit", json!({ "prompt": "Open me from everywhere" }));
+    // A new Claude desktop session is held back from the lists until its parent link is known (up to state::LINK_HOLD_MS).
+    let held = || b.core.lock().unwrap().sessions.get(id).is_some_and(|s| crate::state::linking(s, crate::state::now()));
+    let t = Instant::now();
+    while held() && t.elapsed() < Duration::from_secs(20) { thread::sleep(Duration::from_millis(200)); }
+    thread::sleep(Duration::from_millis(1500)); // the lists get it
     let hits = || OPENED.lock().unwrap().iter().filter(|u| *u == link).count();
     let mut r = json!({});
     let until = |f: &dyn Fn() -> bool| { let t = Instant::now(); while !f() && t.elapsed() < Duration::from_secs(8) { thread::sleep(Duration::from_millis(100)); } f() };
     // The Overview: the session's row has an Open button; one click opens it.
     r["overview"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); showTab('overview'); \
         for (let t = 0; t < 8000 && !document.querySelector('#b-list [data-open-id={id:?}]'); t += 100) await w(100); \
-        const bt = document.querySelector('#b-list [data-open-id={id:?}]'); const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '' }}; bt?.click(); return r; }})()"), 15);
+        const bt = document.querySelector('#b-list [data-open-id={id:?}]'); const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '' }}; \
+        if (bt) {{ const ev = new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true, cancelable: true }}); bt.focus(); bt.dispatchEvent(ev); r.enterKept = !ev.defaultPrevented; }} /* Enter on the button must not run the selected row's action */ \
+        bt?.click(); return r; }})()"), 15);
     r["overviewOpened"] = json!(until(&|| hits() == 1));
     // The command bar: Enter opens, Shift+Enter shows the details and opens nothing more.
     r["search"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); const s = list.find(x => x.id === {id:?}); \
@@ -1118,7 +1125,7 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
     r["ended"] = json!(gone["ok"] == false && gone["reason"] == "ended" && gone["cmd"] == format!("claude --resume {ended}"));
     send("SessionEnd", json!({}));
     let mut pass = ["overviewOpened", "searchOpened", "searchDetailsOpenedNothing", "cardOpened", "trayOpened", "ended"].iter().all(|k| r[k] == true);
-    pass = pass && r["overview"]["button"] == true && r["search"]["found"] == true && r["search"]["closed"] == true && r["searchDetails"] == true && r["card"]["button"] == true
+    pass = pass && r["overview"]["button"] == true && r["overview"]["enterKept"] == true && r["search"]["found"] == true && r["search"]["closed"] == true && r["searchDetails"] == true && r["card"]["button"] == true
         && ["overview", "card"].iter().all(|k| r[k]["label"].as_str().is_some_and(|l| l.contains("Open me from everywhere") || l.contains("open-app")));
     r["pass"] = json!(pass);
     r

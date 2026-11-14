@@ -3288,7 +3288,7 @@ document.addEventListener('keydown', e => {
   if (document.querySelector('dialog[open]') || e.isComposing) return; // a dialog takes its own keys (Esc closes it)
   const a = document.activeElement, inBq = a?.id === 'bq', inList = !!a?.closest?.('#b-list'), onPage = !a || a === document.body || a.id === 'b-detail';
   if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && !inBq) return;
-  if (a?.classList?.contains('help') && (k === 'Enter' || k === ' ')) return; // the "?" shows its tip, not the selected item's action
+  if (a?.matches?.('.help, [data-open-id]') && (k === 'Enter' || k === ' ')) return; // the "?" shows its tip, a row's Open / Approve opens its own session: not the selected item's action
   if (!mod && (k === 'ArrowDown' || k === 'ArrowUp') && (inBq || inList || onPage)) { e.preventDefault(); return move(k === 'ArrowDown' ? 1 : -1, inList); }
   if (mod && !e.shiftKey && !e.altKey && /^[1-6]$/.test(k)) { e.preventDefault(); return showTab(SCOPES[+k - 1]); }
   const combo = (mod ? CMD : '') + (mod && e.shiftKey ? '⇧' : '') + ({ Backspace: '⌫', Enter: '↵' }[k] || (k.length === 1 ? k.toUpperCase() : k));
