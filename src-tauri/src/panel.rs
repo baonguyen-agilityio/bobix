@@ -28,7 +28,7 @@ pub fn show(app: &AppHandle, b: &Arc<Bobix>, select: Option<String>, tab: Option
             if let Some(f) = &fail { emit(&app, LABEL, "open-fail", f); }
             let _ = w.unminimize();
             let _ = w.show();
-            let _ = w.set_focus();
+            focus(&w);
             return;
         }
         let origin = format!("http://127.0.0.1:{}", b.port);
@@ -55,11 +55,25 @@ pub fn show(app: &AppHandle, b: &Arc<Bobix>, select: Option<String>, tab: Option
                     let app = app.clone();
                     w.on_window_event(move |e| if let tauri::WindowEvent::Destroyed = e { let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory); });
                 }
-                let _ = w.set_focus();
+                focus(&w);
                 crate::tray::badge(&app, &b, true); // the Dock icon (macOS) or taskbar button (Windows) is new
                 eprintln!("[bobix] panel: open");
             }
             Err(e) => eprintln!("[bobix] panel: {e}"),
         }
     });
+}
+
+// Brings the panel to the front. On X11 (XWayland too) GNOME keeps a window raised with no click behind it (the first
+// start, a second start from the app menu) behind the others as focus stealing; the X server's time stands in for the click.
+fn focus(w: &tauri::WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        if let Some((gw, x)) = w.gtk_window().ok().and_then(|gw| gw.window().and_then(|g| g.downcast::<gdkx11::X11Window>().ok()).map(|x| (gw, x))) {
+            gw.present_with_time(gdkx11::functions::x11_get_server_time(&x));
+            return;
+        }
+    }
+    let _ = w.set_focus();
 }
