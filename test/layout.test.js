@@ -421,13 +421,16 @@ async function card(b, url) {
 const exe = chrome();
 test('nothing moves in the panel or the pets card unless asked (tabs, data arriving, typing, toasts, dialogs; wide and narrow, en and vi)', { skip: !exe && 'no Chrome', timeout: 300e3 }, async () => {
   const srv = await server(), base = `http://127.0.0.1:${srv.address().port}`;
-  // One browser each, side by side: the checks wait on the stand-in's delays, not on the machine.
+  // One browser each: the checks wait on the stand-in's delays, not on the machine.
   const runs = [{ width: 1180, height: 780, lang: 'vi' }, { width: 1180, height: 780, lang: 'en', dark: true }, { width: 420, height: 780, lang: 'vi' }, { width: 420, height: 780, lang: 'en', dark: true }, null];
   try {
-    const bad = await Promise.all(runs.map(async c => {
+    // Two browsers at a time: five at once starve a small CI machine (Windows), and a Chrome that cannot answer fails the run.
+    const one = async c => {
       const b = await browser(exe);
       try { await b.send('Page.enable'); await b.send('Runtime.enable'); return c ? await panel(b, base + '/?t=x', c) : await card(b, base + '/pets'); } finally { await b.close(); }
-    }));
+    };
+    const bad = [];
+    for (let i = 0; i < runs.length; i += 2) bad.push(...await Promise.all(runs.slice(i, i + 2).map(one)));
     assert.deepEqual(bad.flat(), []);
   } finally { srv.close(); }
 });
