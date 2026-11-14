@@ -179,6 +179,10 @@ fn arg_of(input: Option<&Value>) -> String {
         .find_map(|k| i.get(*k).filter(|v| truthy(v))).map(|v| js_string(Some(v))).unwrap_or_default()
 }
 // A file path keeps its end, where the file name is; anything else keeps its start.
+// The first question of an AskUserQuestion call.
+fn question_of(input: Option<&Value>) -> Option<String> {
+    input?.get("questions")?.get(0)?.get("question").filter(|v| truthy(v)).map(|v| js_string(Some(v)))
+}
 fn tool_arg(input: Option<&Value>) -> String {
     let a = arg_of(input);
     if input.and_then(|i| i.get("file_path")).is_some_and(truthy) { short_tail(&a, 60) } else { short(&a, 60) }
@@ -261,14 +265,21 @@ pub fn apply(sessions: &mut Sessions, e: &Value, now: u64) -> Option<Applied> {
             if s.state == "waiting" { s.ask.clear(); s.ask_tool.clear(); }
             let t = s.tool.clone();
             log(s, now, "tool", short(&arg_of(e.get("tool_input")), 300), t); // the panel shows it whole on hover
-            set(s, now, "working");
+            // Claude asking you a question waits for you whether or not a permission request follows
+            if s.tool == "AskUserQuestion" {
+                if let Some(q) = question_of(e.get("tool_input")) { notice = ask_for(s, now, "AskUserQuestion".into(), &q); }
+            } else { set(s, now, "working"); }
         }
         "PostToolUse" => {
             // Only the tool that asked clears "waiting": parallel tools / subagents finish while it still waits.
             if s.state == "waiting" && (s.ask_tool.is_empty() || tool_name == s.ask_tool) { s.ask.clear(); s.ask_tool.clear(); set(s, now, "working"); }
         }
         "PermissionRequest" => {
-            let text = format!("{} {}", tool_name, tool_arg(e.get("tool_input")));
+            // Claude asking you a question (the ticket flow's interview): show the question itself
+            let text = match question_of(e.get("tool_input")).filter(|_| tool_name == "AskUserQuestion") {
+                Some(q) => q,
+                None => format!("{} {}", tool_name, tool_arg(e.get("tool_input"))),
+            };
             notice = ask_for(s, now, tool_name, text.trim());
         }
         "Notification" => {
@@ -492,6 +503,16 @@ mod tests {
         assert_eq!(m["abc"].hits, 1);
         assert_eq!(notice(ap(&mut m, base("PermissionRequest", json!({ "tool_name": "Bash", "tool_input": { "command": "rm x" } })))), Some("waiting"));
         assert_eq!(notice(ap(&mut m, base("Notification", json!({ "message": "Claude needs your permission to use Bash" })))), None);
+        // Claude asks a question (AskUserQuestion): waiting, one notice, the question is the ask text
+        let q = json!({ "questions": [{ "question": "[scope] Negative results? (ticket: \"any numbers\")", "options": [] }] });
+        let mut m3 = Sessions::new(); // seen first as a PreToolUse: waiting; the permission request after it does not notify again
+        assert_eq!(notice(ap(&mut m3, base("PreToolUse", json!({ "tool_name": "AskUserQuestion", "tool_input": q.clone() })))), Some("waiting"));
+        assert_eq!(notice(ap(&mut m3, base("PermissionRequest", json!({ "tool_name": "AskUserQuestion", "tool_input": q.clone() })))), None);
+        ap(&mut m3, base("PostToolUse", json!({ "tool_name": "AskUserQuestion" })));
+        assert_eq!(m3["abc"].state, "working");
+        let mut m2 = Sessions::new();
+        assert_eq!(notice(ap(&mut m2, base("PermissionRequest", json!({ "tool_name": "AskUserQuestion", "tool_input": q })))), Some("waiting"));
+        assert_eq!(m2.get("abc").map(|s| (s.state.as_str(), s.ask.as_str())), Some(("waiting", "[scope] Negative results? (ticket: \"any numbers\")")));
         assert_eq!(m["abc"].ask_tool, "Bash");
         ap(&mut m, base("PostToolUse", json!({ "tool_name": "Read" })));
         assert_eq!(m["abc"].state, "waiting");
