@@ -73,7 +73,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 
 ## Install
 
-Download the installer for your computer. The links give the newest stable release, which is still 0.1.3 while 0.2 is in test builds (GitHub does not count pre-releases as latest); for a 0.2 test build pick one from [all releases](https://github.com/baonguyen-agilityio/bobix/releases)):
+Download the installer for your computer. The links give the newest stable release, which is still 0.1.3 while 0.2 is in test builds (GitHub does not count pre-releases as latest); for a 0.2 test build pick one from [all releases](https://github.com/baonguyen-agilityio/bobix/releases):
 
 | Your computer | Download |
 |---|---|
@@ -162,7 +162,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **It shows nothing on my work laptop.** Your organization may allow only managed hooks (`allowManagedHooksOnly`). Bobix respects that and cannot receive events there.
 
-**Is my code sent anywhere?** Not by Bobix, and nothing goes to its author. By default Bobix makes two kinds of request: the daily check for a new version, and reading your issues through your own `glab` / `gh`. Text goes to Anthropic only for features you switch on or press, through your own `claude -p`: the weekly habits scan (the prompts you typed), the ticket helper (an issue's title and description, or a work log, commit subjects and changed file names) and the room draft (the room's chat). No file contents are among them. See [Privacy](docs/privacy.md).
+**Is my code sent anywhere?** Not by Bobix, and nothing goes to its author. By default Bobix makes two kinds of request: the daily check for a new version, and reading your issues through your own `glab` / `gh`. Text goes to Anthropic only for features you switch on or press, through your own `claude -p`: the weekly habits scan (the prompts you typed), the habits draft (examples of those prompts and the skill file it improves; Claude may also read files with its Read tool), the ticket helper (an issue's title and description, or a work log, commit subjects and changed file names) and the room draft (the room's chat). Bobix does not send your project's source files; the one file it puts in a prompt is the skill you ask it to improve. A Full Start also runs `git fetch` on your project's remote, and Push and open MR / PR pushes your branch, both only when you click. See [Privacy](docs/privacy.md).
 
 ## Status and limitations
 

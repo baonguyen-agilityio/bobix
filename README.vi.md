@@ -73,7 +73,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 
 ## Cài đặt
 
-Tải file cài cho máy của bạn. Các link trỏ tới bản ổn định mới nhất, hiện vẫn là 0.1.3 vì 0.2 còn ở bản thử (GitHub không tính bản phát hành thử là mới nhất); muốn bản thử 0.2 thì chọn trong [tất cả bản phát hành](https://github.com/baonguyen-agilityio/bobix/releases)):
+Tải file cài cho máy của bạn. Các link trỏ tới bản ổn định mới nhất, hiện vẫn là 0.1.3 vì 0.2 còn ở bản thử (GitHub không tính bản phát hành thử là mới nhất); muốn bản thử 0.2 thì chọn trong [tất cả bản phát hành](https://github.com/baonguyen-agilityio/bobix/releases):
 
 | Máy của bạn | Tải về |
 |---|---|
@@ -162,7 +162,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Máy công ty không hiện gì cả.** Tổ chức của bạn có thể chỉ cho phép hook do quản trị cài (`allowManagedHooksOnly`). Bobix tôn trọng thiết lập đó nên không nhận được sự kiện.
 
-**Code của tôi có bị gửi đi đâu không?** Bobix không gửi, và không gì tới tác giả của nó. Mặc định Bobix chỉ làm hai loại yêu cầu: hỏi bản mới mỗi ngày, và đọc issue của bạn qua chính `glab` / `gh`. Văn bản chỉ tới Anthropic cho những tính năng bạn bật hoặc bấm, qua chính `claude -p` của bạn: quét thói quen hằng tuần (các prompt bạn gõ), trợ giúp ticket (tiêu đề và mô tả issue, hoặc nhật ký công việc, tiêu đề commit và tên file đã đổi) và bản nháp của phòng (cuộc trò chuyện trong phòng). Không có nội dung file nào trong đó. Xem [Quyền riêng tư](docs/privacy.md).
+**Code của tôi có bị gửi đi đâu không?** Bobix không gửi, và không gì tới tác giả của nó. Mặc định Bobix chỉ làm hai loại yêu cầu: hỏi bản mới mỗi ngày, và đọc issue của bạn qua chính `glab` / `gh`. Văn bản chỉ tới Anthropic cho những tính năng bạn bật hoặc bấm, qua chính `claude -p` của bạn: quét thói quen hằng tuần (các prompt bạn gõ), bản nháp thói quen (các ví dụ prompt đó và file skill nó cải thiện; Claude cũng có thể đọc file bằng công cụ Read), trợ giúp ticket (tiêu đề và mô tả issue, hoặc nhật ký công việc, tiêu đề commit và tên file đã đổi) và bản nháp của phòng (cuộc trò chuyện trong phòng). Bobix không gửi file mã nguồn của project bạn; file duy nhất nó đưa vào prompt là skill bạn nhờ cải thiện. Bắt đầu Đầy đủ còn chạy `git fetch` trên remote của project bạn, và Đẩy và mở MR / PR đẩy nhánh của bạn, cả hai chỉ khi bạn bấm. Xem [Quyền riêng tư](docs/privacy.md).
 
 ## Tình trạng và giới hạn
 
