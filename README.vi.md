@@ -66,10 +66,10 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - **Phòng**: phòng họp cho một vấn đề, qua mạng Tailscale của bạn. Máy của người chủ phòng giữ phòng, chỉ ở địa chỉ Tailscale của máy đó; những người chủ phòng mời thì trò chuyện; Claude của chính chủ phòng sắp xếp cuộc trò chuyện thành vấn đề, các phương án, ưu và nhược, rồi chủ phòng quyết định. Cần có Tailscale, trên một tailnet mà các laptop kết nối được với nhau, và chưa thử giữa hai máy thật.
 
 ### Và
-- **Thông báo** khi session cần duyệt hoặc xong việc, số session đang chờ bạn duyệt trên biểu tượng ở thanh menu hoặc khay hệ thống, **Đừng làm phiền** 30 hoặc 60 phút, nhật ký thói quen làm việc với Claude lưu trên máy (tùy chọn, mặc định tắt, 30 ngày, không bao giờ lưu nội dung bạn viết), và thông báo khi có bản mới.
+- **Thông báo** khi session cần duyệt hoặc xong việc, số session đang chờ bạn duyệt trên biểu tượng ở thanh menu hoặc khay hệ thống, **Đừng làm phiền** 30 hoặc 60 phút, nhật ký thói quen làm việc với Claude lưu trên máy (tùy chọn, mặc định tắt, 30 ngày, không bao giờ lưu nội dung bạn viết), và thông báo khi có bản mới, bạn có thể cài ngay trong ứng dụng (Bobix hỏi trước).
 - **Không vướng víu**: chọn màn hình, mép, vùng, kích thước và độ rõ; chú thú mờ đi khi chuột tới gần và để cú bấm đi xuyên qua.
 - **macOS, Windows và Linux**, tiếng Anh và tiếng Việt. macOS là nơi mỗi bản phát hành được thử bằng tay; Windows và Linux được một người thử trên máy thật và chạy trên CI (xem Tình trạng và giới hạn).
-- **Riêng tư từ thiết kế**: chạy trên máy bạn, không tài khoản, không gì được gửi cho tác giả Bobix. Mặc định Bobix chỉ đọc issue của bạn qua chính `glab` / `gh`, và mỗi ngày hỏi GitHub có bản mới không (cả hai đều tắt được). Văn bản chỉ tới Anthropic cho những tính năng bạn bật hoặc bấm, qua chính Claude của bạn. Xem [Quyền riêng tư](docs/privacy.md).
+- **Riêng tư từ thiết kế**: chạy trên máy bạn, không tài khoản, không gì được gửi cho tác giả Bobix. Mặc định Bobix chỉ đọc issue của bạn qua chính `glab` / `gh`, và mỗi ngày đọc danh sách cập nhật trên GitHub để biết có bản mới không (cả hai đều tắt được); Bobix chỉ tải bản mới khi bạn bấm Cập nhật. Văn bản chỉ tới Anthropic cho những tính năng bạn bật hoặc bấm, qua chính Claude của bạn. Xem [Quyền riêng tư](docs/privacy.md).
 
 ## Cài đặt
 

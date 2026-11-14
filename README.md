@@ -66,10 +66,10 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - **Room**: a war room for one problem, over your Tailscale network. The host's computer hosts it on its Tailscale address only; people the host invites chat; the host's own Claude arranges the chat into problem, options, pros and cons, and the host decides. It needs Tailscale, on a tailnet where the laptops can reach each other, and has not been tried between two real machines yet.
 
 ### And
-- **Notifications** when a session needs approval or finishes, the number of sessions waiting for you on the menu bar or tray icon, **Do not disturb** for 30 or 60 minutes, an optional local log of your habits with Claude (opt-in, 30 days, never what you write), and a notification when a new version is out.
+- **Notifications** when a session needs approval or finishes, the number of sessions waiting for you on the menu bar or tray icon, **Do not disturb** for 30 or 60 minutes, an optional local log of your habits with Claude (opt-in, 30 days, never what you write), and a notification when a new version is out, which you can install from the app (it asks first).
 - **Stays out of your way**: pick the screen, edge, area, size and visibility; pets fade near the cursor and let clicks through.
 - **macOS, Windows and Linux**, in English and Vietnamese. macOS is what a release is tested on by hand; Windows and Linux are tried by a person on a real machine and by CI (see Status and limitations).
-- **Private by design**: runs on your computer, no account, nothing goes to Bobix's author. By default it only reads your issues through your own `glab` / `gh`, and asks GitHub once a day whether a new version is out (you can turn either off). Text goes to Anthropic only for the features you switch on or press, through your own Claude. See [Privacy](docs/privacy.md).
+- **Private by design**: runs on your computer, no account, nothing goes to Bobix's author. By default it only reads your issues through your own `glab` / `gh`, and reads GitHub's update list once a day to see whether a new version is out (you can turn either off); it downloads a new version only when you press Update. Text goes to Anthropic only for the features you switch on or press, through your own Claude. See [Privacy](docs/privacy.md).
 
 ## Install
 
