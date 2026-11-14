@@ -1,0 +1,89 @@
+# The relay (relay/): tests, lints and a dependency audit. Same shape as the link workflow: it starts on every pull
+# request so its checks always report, and its jobs skip themselves when nothing under relay/ or crates/bobix-link/
+# changed (the relay builds against the crate by path). One check to require: relay-ok.
+name: relay
+on:
+  push:
+    branches: [develop, main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      relay: ${{ steps.filter.outputs.relay }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || git diff --name-only "origin/$BASE"...HEAD | grep -qE '^(relay/|crates/bobix-link/|\.github/workflows/relay\.yml|\.github/dependabot\.yml)'; then
+            echo "relay=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relay=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  relay:
+    needs: changes
+    if: needs.changes.outputs.relay == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: relay
+          key: relay
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests (delivery, pairing, presence, revoked list, invitations, push, gateway, packet refusals)
+        run: cargo test --locked
+
+  audit:
+    needs: changes
+    if: needs.changes.outputs.relay == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Known vulnerabilities in the relay's dependencies
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: relay/Cargo.toml
+          command: check advisories
+
+  # The one check to require: it reports on every pull request, also when the other jobs skipped themselves.
+  relay-ok:
+    needs: [changes, relay, audit]
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1 ;; esac
