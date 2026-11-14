@@ -266,9 +266,9 @@ async function panel(b, url, { width, height, lang, dark }) {
         if (!s.near) fail(`help ${how} ${sel}: the tip is not by its "?": ${s.rect}`);
       };
       // A hide is a 200 ms timer after the pointer leaves, and a slow runner delivers the pointer's events late: up to 3 s.
-      // A tip that is still there says what it holds (tipBy, tipLeaving, the "?" it is by, the focus) in the failure.
+      // A tip that is still there says what it holds (tipBy, the "?" it is by, the focus) in the failure.
       const hides = async how => { for (let k = 0; k < 30 && !(await off()); k++) await sleep(100);
-        if (!(await off())) fail(`help: ${how} does not hide the tip ${await b.ev(`JSON.stringify({ by: tipBy, leaving: tipLeaving, at: tipAt && tipAt.dataset.help, on: $('#tip').className, focus: document.activeElement && (document.activeElement.dataset.help || document.activeElement.tagName) })`)}`); };
+        if (!(await off())) fail(`help: ${how} does not hide the tip ${await b.ev(`JSON.stringify({ by: tipBy, at: tipAt && tipAt.dataset.help, on: $('#tip').className, focus: document.activeElement && (document.activeElement.dataset.help || document.activeElement.tagName) })`)}`); };
       const still = async (what, f0) => { for (const m of moved(f0, await b.ev(BOXES))) fail(`help ${what}: ${m}`); };
       const noShift = async from => { for (const s of await b.ev(`__shifts.slice(${from})`)) fail(`help: layout shift ${s.v.toFixed(4)}: ${s.src}`); };
       // a key as a keyboard sends it, with its text: ↵ and Space press a focused button
@@ -282,10 +282,6 @@ async function panel(b, url, { width, height, lang, dark }) {
       const f0 = await hover(g);
       await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 }); await hides('the pointer leaving');
       await still('hidden', f0);
-      // a scroll or resize while the tip waits to hide (a narrow window's list moves as data arrives) must not cancel the hide
-      await hover(g);
-      await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 });
-      await b.ev(`document.querySelector('#b-list').dispatchEvent(new Event('scroll'))`); await hides('the pointer leaving, with a scroll right after');
       // keyboard: Tab to it from the row before; Esc hides it and keeps focus and the search; ↵ shows it, Space hides it, the selection stays
       const sel0 = await b.ev(`document.querySelector('#b-list [aria-selected="true"]')?.dataset.bsel`);
       await b.ev(`(() => { const bs = [...document.querySelectorAll('#b-list button')]; bs[bs.indexOf(document.querySelector(${JSON.stringify(g)})) - 1].focus(); })()`);

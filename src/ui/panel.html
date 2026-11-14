@@ -2942,7 +2942,7 @@ function buildItems(sc) {
 }
 // The "?" tip shown (see "help" below): its "?", how it was opened, its hide timer; refocus: swap() gives the focus
 // back after a redraw (tipSync keeps the tip by the new "?"). Up here: a redraw can come before that part has run.
-let tipAt = null, tipBy = '', tipTimer = 0, tipLeaving = false, refocus = false; // tipLeaving: the pointer left, the hide is pending
+let tipAt = null, tipBy = '', tipTimer = 0, refocus = false;
 // Replaces a box's content when it changed; the focused control (and the caret in a field) survives the redraw.
 function swap(box, html) {
   if (box.dataset.html === html) return false;
@@ -3338,8 +3338,7 @@ addEventListener('scroll', () => tourPlace(), true);
 // a redraw that replaces its "?" keeps it by the new one. ----------
 function tipShow(btn, by, again) {
   clearTimeout(tipTimer);
-  if (tipAt === btn && !again) { tipBy = by; tipLeaving = false; return; }
-  const leaving = again && tipLeaving; // a scroll or resize during the hide delay re-places the tip, it does not cancel the hide
+  if (tipAt === btn && !again) { tipBy = by; return; }
   tipHide();
   const r = btn.getBoundingClientRect(), box = btn.closest('#b-list, #b-detail')?.getBoundingClientRect() || { top: 0, bottom: innerHeight };
   if (!btn.getClientRects().length || r.bottom < Math.max(0, box.top) || r.top > Math.min(innerHeight, box.bottom)) return; // scrolled out of sight
@@ -3354,15 +3353,14 @@ function tipShow(btn, by, again) {
   Object.assign(t.style, { left: p.left + 'px', top: p.top + 'px' });
   t.dataset.at = [r.left, r.top].map(Math.round).join();
   t.classList.add('on');
-  if (leaving) tipLater();
 }
 function tipHide() {
-  clearTimeout(tipTimer); tipLeaving = false;
+  clearTimeout(tipTimer);
   $('#tip').classList.remove('on');
   tipAt?.removeAttribute('aria-describedby');
   tipAt = null; tipBy = '';
 }
-const tipLater = () => { clearTimeout(tipTimer); tipLeaving = true; tipTimer = setTimeout(tipHide, 200); };
+const tipLater = () => { clearTimeout(tipTimer); tipTimer = setTimeout(tipHide, 200); };
 function tipSync() {
   if (!tipAt || tipAt.isConnected) return;
   const by = tipBy, n = document.querySelector(`[data-f="${CSS.escape(tipAt.dataset.f)}"]`);
@@ -3375,7 +3373,10 @@ document.addEventListener('pointerover', e => {
   if (e.pointerType !== 'mouse') return;
   const h = e.target.closest?.('.help');
   if (h && !(tipAt === h && tipBy === 'click')) tipShow(h, tipAt === h ? tipBy || 'hover' : 'hover');
-  else if (e.target.closest?.('#tip')) { clearTimeout(tipTimer); tipLeaving = false; }
+  else if (e.target.closest?.('#tip')) clearTimeout(tipTimer);
+  // A tip replaced under the pointer (a scroll or a redraw re-places it) loses its "out": the pointer's next "over" on
+  // anything else is what tells that it left.
+  else if (tipAt && tipBy === 'hover') tipLater();
 });
 document.addEventListener('pointerout', e => {
   if (e.pointerType !== 'mouse' || tipBy !== 'hover' || !e.target.closest?.('.help, #tip')) return;
