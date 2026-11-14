@@ -297,7 +297,11 @@ async function panel(b, url, { width, height, lang, dark }) {
       await b.ev(`__push(${JSON.stringify(event(SESSIONS, { ...WORK, at: NOW - 3 * MIN }))})`); await sleep(300);
       if (await b.ev(`__help === document.querySelector(${JSON.stringify(g)})`)) fail('help: the redraw did not replace the "?"');
       await shows('after a redraw', g); await still('redraw', f1);
-      await press(' ', 'Space', 32, ' '); await hides('Space on a shown tip');
+      // A redraw (the list's clock text changes every minute) can land between Space going down and up: the "?" it replaces
+      // never sees the key go up, so a redraw waits for the release.
+      await b.acted(); await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' ' });
+      await b.ev(`__push(${JSON.stringify(event(SESSIONS, { ...WORK, at: NOW - 9 * MIN }))})`);
+      await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 }); await hides('Space on a shown tip, with a redraw before it goes up');
       if (await b.ev(`document.activeElement !== document.querySelector(${JSON.stringify(g)}) || document.querySelector('#bq').value !== ''`)) fail('help: Space left the "?" or typed in the search');
       if (await b.ev(`document.querySelector('#b-list [aria-selected="true"]')?.dataset.bsel`) !== sel0 || await b.ev(`!!document.querySelector('dialog[open]')`)) fail('help: ↵ or Space on the "?" ran the selected item');
       await b.ev('document.activeElement.blur()');

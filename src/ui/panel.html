@@ -3036,8 +3036,15 @@ function buildItems(sc) {
 // back after a redraw (tipSync keeps the tip by the new "?"). Up here: a redraw can come before that part has run.
 let tipAt = null, tipBy = '', tipTimer = 0, refocus = false;
 // Replaces a box's content when it changed; the focused control (and the caret in a field) survives the redraw.
+// A key pressed on a button is a click only if the same button sees the key go up. A redraw between the two replaces the
+// button, and the press is lost (Space on the "?"). So while such a key is down the redraw waits for its release.
+let keyOnButton = false;
+addEventListener('keydown', e => { keyOnButton = e.target.tagName === 'BUTTON'; }, true);
+addEventListener('keyup', () => { if (keyOnButton) { keyOnButton = false; setTimeout(() => render(), 0); } }, true); // later than the click the release makes
+addEventListener('blur', () => { keyOnButton = false; });
 function swap(box, html) {
   if (box.dataset.html === html) return false;
+  if (keyOnButton && box.contains(document.activeElement)) return false;
   const a = document.activeElement, f = nextFocus || (box.contains(a) ? a.dataset.f : null), sel = a?.selectionStart;
   box.dataset.html = html;
   box.innerHTML = html;
