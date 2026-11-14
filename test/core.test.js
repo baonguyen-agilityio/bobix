@@ -1165,6 +1165,21 @@ test('room: every string in both languages, and every one the panel uses exists'
   for (const k of keys) if (!k.startsWith('rm.why.') && !k.startsWith('rm.ev.') && !k.startsWith('rm.state.')) assert.ok(html.includes(`'${k}'`), `unused ${k}`);
 });
 
+test('phones: every string in both languages, and every one the panel uses exists', () => {
+  const I18N = require('../src/ui/i18n');
+  const vars = s => (s.match(/\{\w+\}/g) || []).sort().join();
+  const keys = Object.keys(I18N.STR.en).filter(k => k.startsWith('phone.'));
+  for (const k of keys) assert.equal(vars(I18N.STR.vi[k] || '-'), vars(I18N.STR.en[k]), `vi ${k}`);
+  for (const k of Object.keys(I18N.STR.vi).filter(k => k.startsWith('phone.'))) assert.ok(I18N.STR.en[k], `en ${k}`);
+  const html = require('fs').readFileSync(require('path').join(__dirname, '../src/ui/panel.html'), 'utf8');
+  const used = new Set([...html.matchAll(/T\('(phone\.[\w.]*\w)'/g)].map(m => m[1]));
+  for (const w of ['off', 'connecting', 'online', 'invite', 'update', 'url', 'auth']) used.add('phone.status.' + w);
+  for (const w of ['answer', 'plan', 'question', 'start', 'stop', 'activity']) used.add('phone.right.' + w);
+  for (const w of ['Keychain', 'FileDataDir', 'FileNoKeychain']) used.add('phone.storage.' + w);
+  for (const k of used) assert.ok(I18N.STR.en[k], `missing ${k}`);
+  for (const k of keys) if (!/^phone\.(note|err)\./.test(k)) assert.ok(used.has(k), `unused ${k}`);
+});
+
 test('a plan approval reads "Approve the plan", not ExitPlanMode; other tools keep their own name', () => {
   const I18N = require('../src/ui/i18n');
   assert.equal(I18N.askLabel('en', 'ExitPlanMode'), 'Approve the plan');

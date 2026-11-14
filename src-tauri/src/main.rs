@@ -12,6 +12,7 @@ mod hooks;
 mod i18n;
 mod js;
 mod habits;
+mod link;
 mod links;
 mod model;
 mod notify;
@@ -19,6 +20,7 @@ mod overlay;
 mod panel;
 mod paths;
 mod petstore;
+mod phones;
 mod procs;
 mod process;
 mod project;
@@ -30,6 +32,7 @@ mod room;
 mod secrets;
 mod skills;
 mod smoke;
+mod smoke_phones;
 mod state;
 mod tickets;
 mod tray;
@@ -76,6 +79,7 @@ pub struct Core {
     pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
     pub ended: Vec<Ended>,                 // the last sessions that ended, so a click on a stale Open can still reopen them (memory only)
     pub tickets: tickets::Flows,           // the ticket flow (#112): kept in the data folder, this machine only
+    pub phones: phones::State,             // phone access (phones.rs)
     pub usage: Value,                      // usage::Store::meta: the price table's date, how many past sessions make the normal
 }
 
@@ -1929,10 +1933,37 @@ fn pet_reset(id: String, b: B) -> Value {
     json!({ "ok": true })
 }
 
+// ---------- phone access (phones.rs) ----------
+#[tauri::command]
+fn phones_state(b: B) -> Value { phones::view(&b) }
+// on: the switch; hold: "phone" | "computer" (when the pets are hidden or paused). Either may be left out.
+#[tauri::command]
+fn phones_enable(on: Option<bool>, hold: Option<String>, b: B) -> Result<Value, String> {
+    if let Some(h) = hold { phones::set_hold(&b, &h); }
+    match on { Some(on) => phones::enable(&b, on), None => Ok(phones::view(&b)) }
+}
+#[tauri::command]
+fn phones_relay(url: String, b: B) -> Result<Value, String> { phones::set_relay(&b, &url) }
+#[tauri::command]
+fn phones_pair_start(b: B) -> Result<Value, String> { phones::pair_start(&b) }
+#[tauri::command]
+fn phones_pair_cancel(b: B) -> Value { phones::pair_cancel(&b) }
+#[tauri::command]
+fn phones_pair_confirm(rights: Value, b: B) -> Result<Value, String> { phones::pair_confirm(&b, phones::rights_of(&rights)) }
+#[tauri::command]
+fn phones_rights(id: String, rights: Value, b: B) -> Result<Value, String> { phones::set_rights(&b, &id, phones::rights_of(&rights)) }
+#[tauri::command]
+fn phones_disconnect(id: String, b: B) -> Result<Value, String> { phones::disconnect(&b, &id) }
+#[tauri::command]
+fn phones_new_identity(b: B) -> Result<Value, String> { phones::new_identity(&b) }
+#[tauri::command]
+fn phones_log(b: B) -> Value { phones::log(&b) }
+
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act"];
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act",
+    "phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -2028,7 +2059,7 @@ fn main() {
     let token = paths::ensure_token().unwrap_or_else(|e| fail(format!("token: {e}")));
     let (tx, _) = broadcast::channel(4); // the pages only need the newest state (a page that lags gets the next one whole)
     let b = Arc::new(Bobix {
-        core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(),
+        core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), phones: Default::default(),
             node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
         tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
     });
@@ -2039,13 +2070,15 @@ fn main() {
         for f in tickets.waiting() { work.wait_for(&f.dir, &f.repo, &f.path, f.iid, &json!(f.title), &json!(f.url)); }
     }
 
+    phones::init(&b);
     let rb = b.clone();
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
             settings_set, update_act, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove, usage_effects,
-            pet_choose, pet_original, pet_save, pet_reset])
+            pet_choose, pet_original, pet_save, pet_reset,
+            phones_state, phones_enable, phones_relay, phones_pair_start, phones_pair_cancel, phones_pair_confirm, phones_rights, phones_disconnect, phones_new_identity, phones_log])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement
@@ -2208,7 +2241,7 @@ mod snapshot_tests {
         ];
         work.wait_for("/src/shop", "/src/shop", "team/shop", 32, &json!("t32"), &Value::Null);
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), phones: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");
@@ -2328,7 +2361,7 @@ mod open_tests {
 
     fn bobix() -> Arc<Bobix> {
         let (tx, _) = broadcast::channel(4);
-        let core = Core { sessions: Sessions::new(), settings: json!({}), rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(),
+        let core = Core { sessions: Sessions::new(), settings: json!({}), rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), phones: Default::default(),
             node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null };
         Arc::new(Bobix { core: Mutex::new(core), tx, token: "t".into(), port: 0, app: Default::default(), usage: Mutex::new(usage::Store::new(std::env::temp_dir().join("bobix-open-test"))), dirty: Default::default() })
     }

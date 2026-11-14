@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-phones-log"
+description = "Enables the phones_log command without any pre-configured scope."
+commands.allow = ["phones_log"]
+
+[[permission]]
+identifier = "deny-phones-log"
+description = "Denies the phones_log command without any pre-configured scope."
+commands.deny = ["phones_log"]

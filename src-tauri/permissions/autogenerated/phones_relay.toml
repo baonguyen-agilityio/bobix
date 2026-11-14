@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-phones-relay"
+description = "Enables the phones_relay command without any pre-configured scope."
+commands.allow = ["phones_relay"]
+
+[[permission]]
+identifier = "deny-phones-relay"
+description = "Denies the phones_relay command without any pre-configured scope."
+commands.deny = ["phones_relay"]
