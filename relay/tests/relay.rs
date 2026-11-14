@@ -184,7 +184,7 @@ async fn notices_wait_for_a_sender_that_is_offline() {
 async fn an_oversize_frame_gets_an_error_and_the_connection_stays_usable() {
     let s = start(cfg()).await;
     let (mut d, mut p) = pair_up(&s).await;
-    d.send_text(&format!("{{\"type\":\"ack\",\"pid\":\"{}\"}}", "x".repeat(300_000))).await;
+    d.send_text(&format!("{{\"type\":\"ack\",\"pid\":\"{}\"}}", "x".repeat(270_000))).await;
     d.expect(is_err(ErrorCode::Oversize), 1000).await;
     d.send(&send(&p.id(), "after", 600, None, "AAAA")).await;
     p.expect(is_msg("after"), 1000).await;
@@ -218,7 +218,7 @@ async fn a_packet_is_delivered_only_when_the_recipient_allowed_the_sender() {
     b.none(is_msg("n1"), 300).await;
     // Allowing is one-way; sending to oneself is refused too.
     b.send(&Frame::Peers { allow: vec![a.id()] }).await;
-    a.expect(presence(&b.id(), PresenceState::Online), 1000).await;
+    b.sync().await;
     a.send(&send(&b.id(), "n2", 600, None, "AAAA")).await;
     b.expect(is_msg("n2"), 1000).await;
     b.send(&send(&a.id(), "n3", 600, None, "AAAA")).await;

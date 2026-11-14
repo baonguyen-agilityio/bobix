@@ -95,7 +95,7 @@ pub async fn push(
             None => return answer(StatusCode::UNAUTHORIZED, "key"),
         }
     } else {
-        (addr.ip().to_string(), None)
+        (crate::limits::client_ip(&headers, addr, &app.cfg.client_ip_header), None)
     };
     if !app.gateway_limits.lock().unwrap().per_caller.allow(&caller) {
         return answer(StatusCode::TOO_MANY_REQUESTS, "caller");

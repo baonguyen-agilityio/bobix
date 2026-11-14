@@ -30,6 +30,7 @@ pub struct App {
     pub fake: Option<Arc<FakeSender>>,
     pub log: log::Logger,
     pub gateway_limits: Mutex<gateway::Limits>,
+    pub ips: Mutex<limits::Ips>,
 }
 
 impl App {
@@ -37,6 +38,7 @@ impl App {
         Arc::new(App {
             log: log::Logger::new(cfg.log_dir.clone(), cfg.log_days),
             gateway_limits: Mutex::new(gateway::Limits::new(&cfg)),
+            ips: Mutex::new(limits::Ips::new(cfg.max_unauth_per_ip, cfg.conns_per_ip_per_min)),
             hub: Mutex::new(Hub::new(cfg.clone())),
             sender,
             fake,

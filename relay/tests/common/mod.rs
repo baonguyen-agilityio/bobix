@@ -113,6 +113,11 @@ impl Dev {
         self.ws.send(Message::text(t.to_owned())).await.unwrap();
     }
 
+    /// Like `send_text`, but false when the relay has closed the socket (which is what a flood is meant to cause).
+    pub async fn try_send_text(&mut self, t: &str) -> bool {
+        self.ws.send(Message::text(t.to_owned())).await.is_ok()
+    }
+
     /// Everything that arrives before the answer to a `withdraw` of an unknown pid is kept; the answer is not.
     pub async fn sync(&mut self) {
         self.send(&Frame::Withdraw { pid: "sync".into() }).await;
@@ -194,8 +199,9 @@ impl Dev {
 pub async fn pair_up(s: &Server) -> (Dev, Dev) {
     let (mut d, mut p) = (Dev::connect(s, ident()).await, Dev::connect(s, ident()).await);
     d.send(&Frame::Peers { allow: vec![p.id()] }).await;
-    p.expect(|f| matches!(f, Frame::Presence { state: PresenceState::Online, .. }), 2000).await;
     p.send(&Frame::Peers { allow: vec![d.id()] }).await;
+    // Presence is shared once both allow each other.
     d.expect(|f| matches!(f, Frame::Presence { state: PresenceState::Online, .. }), 2000).await;
+    p.expect(|f| matches!(f, Frame::Presence { state: PresenceState::Online, .. }), 2000).await;
     (d, p)
 }

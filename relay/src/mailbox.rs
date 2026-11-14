@@ -35,6 +35,10 @@ impl Mailbox {
         Mailbox { packets: VecDeque::new(), bytes: 0, max_packets, max_bytes }
     }
 
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
     pub fn is_empty(&self) -> bool {
         self.packets.is_empty()
     }

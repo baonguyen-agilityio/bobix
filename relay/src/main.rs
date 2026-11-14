@@ -14,6 +14,9 @@ async fn main() {
         eprintln!("cannot listen on {}: {e} (is another process using it?)", cfg.addr);
         std::process::exit(1)
     });
+    if dev && !cfg.addr.starts_with("127.") && !cfg.addr.starts_with("localhost") && !cfg.addr.starts_with("[::1]") {
+        eprintln!("WARNING: --dev on {} because RELAY_DEV_FORCE_BIND=1: nothing is kept on disk and no real push is sent", cfg.addr);
+    }
     println!("relay listening on {}{}", cfg.addr, if dev { " (--dev: plain ws, recording push fake)" } else { "" });
     let app = App::from_config(cfg).unwrap_or_else(|e| {
         eprintln!("{e}");

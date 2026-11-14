@@ -11,7 +11,10 @@ use bobix_link::messages::{Who, MAX_PUSH_BODY};
 use bobix_link::{b64, b64_decode, hex, random, sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant, SystemTime};
-use tokio::sync::mpsc::UnboundedSender;
+use crate::limits::RateLimit;
+use std::sync::Arc;
+use tokio::sync::mpsc::{channel, error::TrySendError, Receiver, Sender};
+use tokio::sync::Notify;
 
 pub enum Out {
     Frame(Frame),
@@ -19,9 +22,35 @@ pub enum Out {
     Close,
 }
 
+/// The way to one socket: a bounded queue. When it is full (the reader is too slow, or a flood is aimed at it) the
+/// frame is not queued and the socket is told to close, so memory never grows with a slow reader.
+#[derive(Clone)]
+pub struct Tx {
+    s: Sender<Out>,
+    pub kill: Arc<Notify>,
+}
+
+impl Tx {
+    pub fn new(cap: usize) -> (Tx, Receiver<Out>) {
+        let (s, r) = channel(cap.max(2));
+        (Tx { s, kill: Arc::new(Notify::new()) }, r)
+    }
+
+    pub fn send(&self, o: Out) -> bool {
+        match self.s.try_send(o) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                self.kill.notify_one();
+                false
+            }
+            Err(TrySendError::Closed(_)) => false,
+        }
+    }
+}
+
 struct Conn {
     id: u64,
-    tx: UnboundedSender<Out>,
+    tx: Tx,
 }
 
 struct Pair {
@@ -47,22 +76,37 @@ pub struct PushJob {
     pub req: PushRequest,
 }
 
-/// The list of invited computers, re-read when the file changes.
+/// The list of invited computers, looked at again when the file changed, at most once per `every`.
 struct Invites {
     path: std::path::PathBuf,
+    every: Duration,
+    checked: Option<Instant>,
     seen: Option<SystemTime>,
     ids: HashSet<String>,
 }
 
 impl Invites {
     fn contains(&mut self, id: &str) -> bool {
-        let modified = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
-        if modified != self.seen || modified.is_none() {
-            self.seen = modified;
-            let text = std::fs::read_to_string(&self.path).unwrap_or_default();
-            self.ids = text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect();
+        if self.checked.is_none_or_older(self.every) {
+            self.checked = Some(Instant::now());
+            let modified = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+            if modified != self.seen || modified.is_none() {
+                self.seen = modified;
+                let text = std::fs::read_to_string(&self.path).unwrap_or_default();
+                self.ids = text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect();
+            }
         }
         self.ids.contains(id)
+    }
+}
+
+trait OlderThan {
+    fn is_none_or_older(&self, d: Duration) -> bool;
+}
+
+impl OlderThan for Option<Instant> {
+    fn is_none_or_older(&self, d: Duration) -> bool {
+        self.map_or(true, |t| t.elapsed() >= d)
     }
 }
 
@@ -73,9 +117,10 @@ pub struct Hub {
     asleep: HashSet<String>,
     /// `allow[x]` are the devices that may send to `x`.
     allow: HashMap<String, HashSet<String>>,
-    /// Per desktop: the devices that answered one of its pairing tokens. Only these can be revoked by it (a device
-    /// sets its own allow-list, so that list says nothing about who paired with whom). Lost on a restart.
-    known: HashMap<String, HashSet<String>>,
+    /// When each offline device left, so what it set (allow-list, push tokens) is dropped after `state_keep`.
+    gone_at: HashMap<String, Instant>,
+    push_token_limit: RateLimit,
+    push_sender_limit: RateLimit,
     boxes: HashMap<String, Mailbox>,
     notices: HashMap<String, VecDeque<(Instant, Frame)>>,
     pairs: HashMap<String, Pair>,
@@ -90,15 +135,17 @@ pub fn now_ms() -> u64 {
 
 impl Hub {
     pub fn new(cfg: Config) -> Hub {
-        let invites = cfg.invite_file.clone().map(|path| Invites { path, seen: None, ids: HashSet::new() });
+        let invites = cfg.invite_file.clone().map(|path| Invites { path, every: cfg.invite_recheck, checked: None, seen: None, ids: HashSet::new() });
         let revoked = Revoked::load(cfg.revoked_dir.clone(), cfg.revoked_days, now_ms());
         Hub {
-            cfg,
+            cfg: cfg.clone(),
             next_conn: 0,
             online: HashMap::new(),
             asleep: HashSet::new(),
             allow: HashMap::new(),
-            known: HashMap::new(),
+            gone_at: HashMap::new(),
+            push_token_limit: RateLimit::new(cfg.push_per_token, cfg.gateway_window),
+            push_sender_limit: RateLimit::new(cfg.push_per_sender, cfg.gateway_window),
             boxes: HashMap::new(),
             notices: HashMap::new(),
             pairs: HashMap::new(),
@@ -111,7 +158,7 @@ impl Hub {
     // ---- small helpers -------------------------------------------------------------------------------------------
 
     fn send_to(&self, id: &str, f: Frame) -> bool {
-        self.online.get(id).is_some_and(|c| c.tx.send(Out::Frame(f)).is_ok())
+        self.online.get(id).is_some_and(|c| c.tx.send(Out::Frame(f)))
     }
 
     fn err(&self, to: &str, code: ErrorCode, who: Option<Who>) {
@@ -140,9 +187,14 @@ impl Hub {
     /// Tells the devices that may send to `id` how it is doing.
     fn announce(&self, id: &str) {
         let state = self.state_of(id);
-        for p in self.allow.get(id).into_iter().flatten() {
+        for p in self.allow.get(id).into_iter().flatten().filter(|p| self.allows(p, id)) {
             self.send_to(p, Frame::Presence { peer: id.to_owned(), state });
         }
+    }
+
+    /// `a` allows `b` to send to it.
+    fn allows(&self, a: &str, b: &str) -> bool {
+        self.allow.get(a).is_some_and(|s| s.contains(b))
     }
 
     /// With invitations on, a device that is not invited is a guest: it is admitted through an invited desktop.
@@ -156,16 +208,17 @@ impl Hub {
 
     // ---- connection life -----------------------------------------------------------------------------------------
 
-    pub fn connect(&mut self, id: &str, tx: UnboundedSender<Out>) -> u64 {
+    pub fn connect(&mut self, id: &str, tx: Tx) -> u64 {
         self.next_conn += 1;
         let conn = self.next_conn;
         if let Some(old) = self.online.insert(id.to_owned(), Conn { id: conn, tx: tx.clone() }) {
-            let _ = old.tx.send(Out::Close);
+            old.tx.send(Out::Close);
         }
         self.asleep.remove(id);
+        self.gone_at.remove(id);
         self.announce(id);
         // What this device missed: how its peers are, then its notices, then its packets.
-        let watching: Vec<String> = self.allow.iter().filter(|(_, a)| a.contains(id)).map(|(y, _)| y.clone()).collect();
+        let watching: Vec<String> = self.allow.iter().filter(|(y, a)| a.contains(id) && self.allows(id, y)).map(|(y, _)| y.clone()).collect();
         for y in watching {
             self.send_to(id, Frame::Presence { peer: y.clone(), state: self.state_of(&y) });
         }
@@ -184,6 +237,7 @@ impl Hub {
     pub fn disconnect(&mut self, id: &str, conn: u64) {
         if self.online.get(id).is_some_and(|c| c.id == conn) {
             self.online.remove(id);
+            self.gone_at.insert(id.to_owned(), Instant::now());
             self.announce(id);
         }
     }
@@ -209,12 +263,22 @@ impl Hub {
         self.notices.retain(|_, q| !q.is_empty());
         self.pairs.retain(|_, p| p.until > now);
         self.revoked.prune(now_ms());
+        let keep = self.cfg.state_keep;
+        let departed: Vec<String> = self.gone_at.iter().filter(|(_, t)| t.elapsed() >= keep).map(|(id, _)| id.clone()).collect();
+        for id in departed {
+            self.gone_at.remove(&id);
+            self.allow.remove(&id);
+            self.asleep.remove(&id);
+            self.tokens.remove(&id);
+        }
     }
 
     // ---- frames from a device ------------------------------------------------------------------------------------
 
-    pub fn frame(&mut self, me: &str, guest: bool, f: Frame) -> Vec<PushJob> {
+    pub fn frame(&mut self, me: &str, f: Frame) -> Vec<PushJob> {
         let mut jobs = Vec::new();
+        // Looked at on every frame (the file is re-read on a timer): a desktop removed from the list loses its rights.
+        let guest = self.is_guest(me);
         // A guest may only do what a phone does: say who may send to it, answer a pairing, acknowledge, withdraw,
         // send to a device that allowed it, and register a push token.
         let desktop_only = matches!(f, Frame::PairOpen { .. } | Frame::Revoke { .. } | Frame::State { .. });
@@ -266,12 +330,16 @@ impl Hub {
             self.notify(&p.from.clone(), Frame::Dropped { pid: p.pid });
         }
         for n in allow.difference(&old) {
-            self.send_to(n, Frame::Presence { peer: me.to_owned(), state: self.state_of(me) });
+            // Presence goes both ways once both sides allow each other.
+            if self.allows(n, me) {
+                self.send_to(n, Frame::Presence { peer: me.to_owned(), state: self.state_of(me) });
+                self.send_to(me, Frame::Presence { peer: n.clone(), state: self.state_of(n) });
+            }
         }
     }
 
     fn revoke(&mut self, me: &str, id: &str) {
-        if !self.known.get(me).is_some_and(|k| k.contains(id)) {
+        if !self.revoked.has_paired(me, id, now_ms()) {
             return self.err(me, ErrorCode::NoPeer, None);
         }
         self.revoked.add(me, id, now_ms());
@@ -282,8 +350,8 @@ impl Hub {
             b.drain_where(|p| p.from == id);
         }
         if let Some(c) = self.online.get(id) {
-            let _ = c.tx.send(Out::Frame(Frame::Error { code: ErrorCode::Revoked, who: None }));
-            let _ = c.tx.send(Out::Close);
+            c.tx.send(Out::Frame(Frame::Error { code: ErrorCode::Revoked, who: None }));
+            c.tx.send(Out::Close);
         }
     }
 
@@ -292,6 +360,11 @@ impl Hub {
         // A packet to oneself would be a reflection; a packet to a device that did not allow the sender is refused.
         if to == me || !self.allow.get(&to).is_some_and(|a| a.contains(me)) {
             self.err(me, ErrorCode::NoPeer, None);
+            self.send_to(me, Frame::Dropped { pid });
+            return vec![];
+        }
+        let held: usize = self.boxes.values().map(|b| b.bytes()).sum();
+        if (!self.boxes.contains_key(&to) && self.boxes.len() >= self.cfg.max_mailboxes) || held + body.len() > self.cfg.max_total_bytes {
             self.send_to(me, Frame::Dropped { pid });
             return vec![];
         }
@@ -328,7 +401,15 @@ impl Hub {
             return self.err(me, ErrorCode::Other, Some(Who::Relay));
         }
         let ttl = ttl.clamp(1, self.cfg.pair_ttl_secs) as u64;
-        self.pairs.insert(hash, Pair { desktop: me.to_owned(), until: now + Duration::from_secs(ttl), used: 0 });
+        let until = now + Duration::from_secs(ttl);
+        match self.pairs.get_mut(&hash) {
+            // Someone else's open token is not theirs to take over.
+            Some(p) if p.desktop != me => self.err(me, ErrorCode::Other, Some(Who::Relay)),
+            Some(p) => p.until = until,
+            None => {
+                self.pairs.insert(hash, Pair { desktop: me.to_owned(), until, used: 0 });
+            }
+        }
     }
 
     fn pair_send(&mut self, me: &str, token: &str, body: String) {
@@ -342,7 +423,7 @@ impl Hub {
             return self.err(me, ErrorCode::NoPeer, None);
         }
         self.pairs.get_mut(&hash).expect("checked above").used += 1;
-        self.known.entry(desktop.clone()).or_default().insert(me.to_owned());
+        self.revoked.note_paired(&desktop, me, now_ms());
         self.send_to(&desktop, Frame::Msg { pid: hex(&random::<8>()), from: me.to_owned(), body });
     }
 
@@ -380,6 +461,11 @@ impl Hub {
             self.err(from, ErrorCode::Grant, Some(Who::Phone));
             return vec![];
         }
+        let sender_key = format!("sender:{from}");
+        let token_key = format!("token:{}", hex(&sha256(&[reg.token.as_bytes()])[..8]));
+        if !self.push_sender_limit.allow(&sender_key) || !self.push_token_limit.allow(&token_key) {
+            return vec![]; // too many pushes: the packet still goes over the socket
+        }
         let req = PushRequest {
             platform: reg.platform,
             env: reg.env,
@@ -398,5 +484,18 @@ impl Hub {
         if let Some(l) = self.tokens.get_mut(id) {
             l.retain(|t| t.token != token);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_full_queue_refuses_the_frame_and_tells_the_socket_to_close() {
+        let (tx, _rx_kept_unread) = Tx::new(2);
+        assert!(tx.send(Out::Ping) && tx.send(Out::Ping));
+        assert!(!tx.send(Out::Ping), "the third frame does not fit and is not queued");
+        tokio::time::timeout(Duration::from_secs(1), tx.kill.notified()).await.expect("the socket was told to close");
     }
 }

@@ -11,6 +11,12 @@ pub fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
+/// Text from a device, made safe for one log line: escaped (no newline or control character survives) and cut.
+pub fn quote(s: &str) -> String {
+    let cut: String = s.chars().take(100).collect();
+    format!("{cut:?}{}", if s.chars().count() > 100 { "…" } else { "" })
+}
+
 pub struct Logger {
     dir: Option<PathBuf>,
     keep_days: u64,
@@ -52,6 +58,13 @@ impl Logger {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_text_cannot_forge_a_log_line() {
+        let q = quote("wss://x/\n1794 connected deadbeef");
+        assert!(!q.contains('\n') && q.contains("\\n"));
+        assert!(quote(&"a".repeat(500)).chars().count() < 120);
+    }
 
     #[test]
     fn old_day_files_are_removed_and_recent_ones_kept() {
