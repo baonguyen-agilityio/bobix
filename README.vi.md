@@ -58,7 +58,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - **Stand-up và báo cáo hôm nay** dạng văn bản để chép. Bobix không gửi gì đi.
 
 ### Bảng điều khiển
-- Một cửa sổ có ô tìm kiếm và các màn hình: **Tổng quan** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session Claude, nhóm theo issue), **Công việc** (issue cần bắt đầu, và luồng ticket), **Skill**, **Phòng** và **Cài đặt**.
+- Một cửa sổ có ô tìm kiếm và các màn hình: **Trang chủ** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session Claude, nhóm theo issue), **Công việc** (issue cần bắt đầu, và luồng ticket), **Skill**, **Phòng** và **Cài đặt**.
 - Mọi thao tác đều có phím tắt, và ⌘K / Ctrl+K tìm bất kỳ thao tác, session hay màn hình nào.
 
 ### Thói quen và phòng họp (chỉ khi bạn dùng)
@@ -120,10 +120,10 @@ curl -fL -o /tmp/bobix.deb https://github.com/baonguyen-agilityio/bobix/releases
 
 <table>
 <tr>
-<td colspan="2"><img src="docs/media/overview.png" alt="Tổng quan: các session hôm nay, một yêu cầu Bash đang chờ duyệt, ba cảnh báo mức dùng kèm lý do, và mức dùng của từng session so với phiên thường ngày."></td>
+<td colspan="2"><img src="docs/media/overview.png" alt="Trang chủ: các session hôm nay, một yêu cầu Bash đang chờ duyệt, ba cảnh báo mức dùng kèm lý do, và mức dùng của từng session so với phiên thường ngày."></td>
 </tr>
 <tr>
-<td colspan="2"><b>Tổng quan</b>: việc cần bạn lên trước, rồi tới cảnh báo và mức dùng hôm nay.</td>
+<td colspan="2"><b>Trang chủ</b>: việc cần bạn lên trước, rồi tới cảnh báo và mức dùng hôm nay.</td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/media/session.png" alt="Chi tiết một session: gấp 3,7 lần phiên thường ngày, 77 lượt, 99% token đầu vào là đọc lại ngữ cảnh, Opus 5.5, ước tính theo giá API và cảnh báo session dài."></td>

@@ -58,7 +58,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - **Stand-up and today's report** as plain text to copy. Bobix sends nothing.
 
 ### The panel
-- One window with a search field and screens: **Overview** (what needs you, warnings, today's usage), **Sessions** (Claude sessions, grouped by issue), **Work** (issues to start, and the ticket flow), **Skills**, **Room** and **Settings**.
+- One window with a search field and screens: **Home** (what needs you, warnings, today's usage), **Sessions** (Claude sessions, grouped by issue), **Work** (issues to start, and the ticket flow), **Skills**, **Room** and **Settings**.
 - Every action has a key, and ⌘K / Ctrl+K finds any action, session or screen.
 
 ### Habits and rooms (only if you use them)
@@ -120,10 +120,10 @@ curl -fL -o /tmp/bobix.deb https://github.com/baonguyen-agilityio/bobix/releases
 
 <table>
 <tr>
-<td colspan="2"><img src="docs/media/overview.png" alt="Overview: today's sessions, one Bash request waiting for approval, three usage warnings with their reasons, and each live session's usage against the usual session."></td>
+<td colspan="2"><img src="docs/media/overview.png" alt="Home: today's sessions, one Bash request waiting for approval, three usage warnings with their reasons, and each live session's usage against the usual session."></td>
 </tr>
 <tr>
-<td colspan="2"><b>Overview</b>: what needs you first, then warnings and today's usage.</td>
+<td colspan="2"><b>Home</b>: what needs you first, then warnings and today's usage.</td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/media/session.png" alt="A session's details: 3.7 times the usual session, 77 turns, 99% of input tokens spent re-reading context, Opus 5.5, an API-equivalent estimate and a long-session warning."></td>
