@@ -3,7 +3,7 @@
 // on screen, open the panel and use its bridge (state, a settings change that is saved, feedback), check the tray, the
 // session's git status and a second start, write <dir>/report.json and <dir>/done, exit 0 (pass) or 1. Port of smoke()
 // in the 0.1 (Electron) app's main.js. The panel also imports a picture it draws (decode, pixel art in the worker, save, served, reset).
-use crate::{answers, hooks, overlay, panel, paths, Bobix};
+use crate::{answers, hooks, overlay, panel, paths, tickets, Bobix};
 use serde_json::{json, Value};
 use std::{fs, io::Write, path::PathBuf, process::{Command, Stdio}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}};
 use tauri::{AppHandle, Manager};
@@ -26,7 +26,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_FOLLOW").is_some() { 400 } else { 0 };
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_FOLLOW").is_some() { 400 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_BASE").is_some() { 240 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -169,12 +169,14 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_REPOS") { report["repos"] = repos_step(&app, &spec); }
         if let Ok(key) = std::env::var("BOBIX_SMOKE_TICKET") { report["ticket"] = ticket(&app, &b, &dir, &key); }
+        if let Ok(key) = std::env::var("BOBIX_SMOKE_BASE") { report["base"] = base_step(&app, &key); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_AGAIN") { report["again"] = again_step(&app, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_CLONES") { report["clones"] = clones_step(&app, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_START") { report["start"] = start_step(&app, b.port, &dir, &spec); }
         if let Ok(sdir) = std::env::var("BOBIX_SMOKE_READS") { report["reads"] = reads_step(&app, &sdir); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_NAME") { report["name"] = name_step(&app, b.port, &dir, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_FOLLOW") { report["follow"] = follow_step(&app, &b, &dir, &spec); }
+        report["open"] = open_step(&app, &b);
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
             && report["pageErrors"].as_array().is_some_and(|a| a.is_empty()) && report["realSession"].is_object() && report["realSession"]["usage"]["turns"] == 1
@@ -184,6 +186,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && (report.get("hover").is_none() || (report["hover"]["hover"] == true && report["hover"]["stopped"] == true))
             && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
             && ["audit", "disable", "undoDisable", "remove", "undoRemove", "lines", "rulesAdd", "rulesRemove"].iter().all(|k| report["skillsPanel"][k] == true)
+            && report["open"]["pass"] == true
             && (report.get("ticket").is_none() || report["ticket"]["pass"] == true)
             && (report.get("clones").is_none() || report["clones"]["pass"] == true)
             && (report.get("repos").is_none() || report["repos"]["pass"] == true)
@@ -423,7 +426,7 @@ fn name_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> V
         const issue = n => st.todo.map(x => x[0]).find(i => i.iid === n && i.url.includes('/' + A + '/')); \
         const prompt = n => BOARD.brief(issue(n), 'Made-up description.'); \
         const quick = (n, d) => bridge.startIssue(A, n, prompt(n), d); \
-        const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); return bridge.ticketStart(A, n, prompt(n), p.models ? {{ size: 'small' }} : null, how, code, true); }}; \
+        const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); return bridge.ticketStart(A, n, prompt(n), p.models ? {{ size: 'small' }} : null, how, code, true, p.from?.branches?.[0]); }}; \
         const waits = (d, n) => waiting.some(x => x.dir === d && x.iid === n);",
         json!(a), json!(b), json!(bdir), json!(c), json!(cdir));
     let js = |body: &str| format!("(async () => {{ {pre} {body} return r; }})()");
@@ -480,6 +483,62 @@ fn name_step(app: &AppHandle, port: u16, dir: &std::path::Path, spec: &str) -> V
     r
 }
 
+// BOBIX_SMOKE_BASE=<project>#<number> (with BOBIX_HOME set; not in CI): #214, Start asks which branch new work starts from.
+// The project's clone sits where Bobix finds it (~/code), its origin has main and develop (and more), against a stand-in
+// glab. First Start: the question, nothing preselected, Start off, a start with no branch or a gone one refused; then
+// develop picked: the worktree's HEAD is origin/develop, the choice is remembered ("From: develop" and the Settings row).
+fn base_step(app: &AppHandle, key: &str) -> Value {
+    if std::env::var_os("BOBIX_HOME").is_none() { return json!("skipped: set BOBIX_HOME to a scratch folder"); }
+    let hold = std::env::var("BOBIX_SMOKE_HOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let k = json!(key);
+    thread::sleep(Duration::from_secs(8)); // an answer the step before gave late must not be taken for this one's
+    let r = ask_for(app, panel::LABEL, &format!("(async () => {{ const k = {k}, [A, n] = k.split('#'), iid = +n, w = ms => new Promise(o => setTimeout(o, ms)), r = {{}}; \
+        const until = async (f, ms) => {{ for (let t = 0; t < ms; t += 200) {{ if (f()) return true; await w(200); }} return false; }}; \
+        const sc = q => document.querySelector(q)?.scrollIntoView({{ block: 'center' }}); navigator.clipboard.writeText = async () => {{}}; await bridge.refreshWork(); showTab('work'); \
+        r.listed = await until(() => items.some(x => x.id === 'n:' + k), 40000); if (!r.listed) return r; \
+        bsel.work = 'n:' + k; render(); await w(300); document.querySelector('#b-dyn [data-tk-prep]').click(); \
+        r.box = await until(() => document.querySelector('#b-dyn .tk-prompt'), 30000); if (!r.box) return r; await w(300); \
+        const radios = [...document.querySelectorAll('#b-dyn [data-tk-from]')]; \
+        r.branches = radios.map(x => x.value); r.nothingPicked = radios.length > 0 && radios.every(x => !x.checked); \
+        r.startOff = document.querySelector('#b-dyn [data-tk-go]').disabled === true; r.noRemembered = !tkPrep[k].prep.remembered; \
+        const foot = [...document.querySelectorAll('#b-bar [data-tk-go], #b-bar [data-tk-cli]')]; r.footerOff = foot.length === 2 && foot.every(x => x.disabled); \
+        const spy = bridge.ticketStart; let calls = 0; bridge.ticketStart = async (...a) => {{ calls++; return spy(...a); }}; document.activeElement?.blur?.(); \
+        document.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }})); document.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'C', metaKey: true, shiftKey: true, bubbles: true }})); foot.forEach(x => x.click()); document.querySelector('#b-dyn [data-tk-go]').click(); await w(500); \
+        bridge.ticketStart = spy; r.noStartWithoutBranch = calls === 0 && !tickets.list.some(f => f.key === k); sc('#b-dyn [data-tk-from]'); await w({hold}); \
+        r.refusedNone = (await bridge.ticketStart(A, iid, 'p', {{ size: 'small' }}, 'cli', A, true))?.reason; \
+        r.refusedGone = (await bridge.ticketStart(A, iid, 'p', {{ size: 'small' }}, 'cli', A, true, 'no-such-branch'))?.reason; \
+        r.noFlowYet = !tickets.list.some(f => f.key === k); \
+        radios.find(x => x.value === 'develop').click(); await w(300); \
+        r.startOn = document.querySelector('#b-dyn [data-tk-go]').disabled === false; r.fromShown = [...document.querySelectorAll('#b-dyn .note')].some(x => x.textContent.includes('cut from develop')); sc('#b-dyn [data-tk-from]'); await w({hold}); \
+        const x = await bridge.ticketStart(A, iid, tkPrep[k].prompt, {{ size: 'small' }}, 'cli', A, true, tkPrep[k].base); \
+        r.started = x?.ok === true; r.reason = x?.reason; r.fetch = x?.fetch; r.dir = x?.dir; \
+        r.remembered = state.settings.workBase?.[A] ?? (await until(() => state.settings.workBase?.[A], 5000), state.settings.workBase?.[A]); \
+        await until(() => tickets.list.some(f => f.key === k), 5000); r.flowBase = tickets.list.find(f => f.key === k)?.baseBranch; \
+        delete tkPrep[k]; render(); await w(300); const p2 = await bridge.ticketPrep(A, iid, A); r.rememberedAgain = p2.remembered; r.fromAfter = tkFrom(p2); \
+        const k2 = A + '#' + (iid + 1); \
+        if (items.some(x => x.id === 'n:' + k2)) {{ bsel.work = 'n:' + k2; render(); await w(300); document.querySelector('#b-dyn [data-tk-prep]').click(); \
+          r.box2 = await until(() => document.querySelector('#b-dyn .tk-prompt'), 30000); await w(300); \
+          r.fromNow = document.querySelector('#b-dyn [data-tk-from-change]')?.closest('p')?.textContent.replace(/\\s+/g, ' ').trim(); r.goOn2 = document.querySelector('#b-dyn [data-tk-go]').disabled === false; sc('#b-dyn [data-tk-from-change]'); await w({hold}); }} \
+        if (items.some(x => x.id === 'n:' + k2)) {{ await save({{ workBase: {{ [A]: 'retired-branch' }} }}); delete tkPrep[k2]; render(); await w(300); document.querySelector('#b-dyn [data-tk-prep]').click(); \
+          r.box3 = await until(() => document.querySelector('#b-dyn .tk-prompt'), 30000); await w(300); \
+          r.goneShown = [...document.querySelectorAll('#b-dyn .note.err')].some(x => x.textContent.includes('Branch retired-branch no longer exists, pick again')); r.goneNothingPicked = [...document.querySelectorAll('#b-dyn [data-tk-from]')].every(x => !x.checked); r.goneStartOff = document.querySelector('#b-dyn [data-tk-go]').disabled === true; \
+          sc('#b-dyn [data-tk-from]'); await w({hold}); await save({{ workBase: {{ [A]: 'develop' }} }}); }} \
+        showTab('settings'); bsel.settings = 'set:work'; render(); await w(400); r.settingsRow = document.querySelector('#settings [data-base-of]')?.value; sc('#settings [data-base-of]'); await w({hold}); showTab('work'); \
+        return r; }})()"), 150);
+    let mut r = if r.is_object() { r } else { return json!({ "error": r }) };
+    // the worktree is cut from the remote branch's commit
+    let dir = r["dir"].as_str().unwrap_or("").to_string();
+    if !dir.is_empty() {
+        let head = tickets::head_commit(&dir);
+        let tip = tickets::head_commit_of(&dir, "refs/remotes/origin/develop");
+        r["headIsOriginDevelop"] = json!(!head.is_empty() && head == tip);
+    }
+    let ok = ["listed", "box", "nothingPicked", "startOff", "footerOff", "noStartWithoutBranch", "noRemembered", "noFlowYet", "startOn", "fromShown", "started", "headIsOriginDevelop", "goneShown", "goneNothingPicked", "goneStartOff"].iter().all(|k| r[*k] == true)
+        && r["refusedNone"] == "nobase" && r["refusedGone"] == "base-gone" && r["remembered"] == "develop" && r["flowBase"] == "develop" && r["rememberedAgain"] == "develop" && r["fromAfter"] == "develop";
+    r["pass"] = json!(ok);
+    r
+}
+
 // BOBIX_SMOKE_FOLLOW=<issue project>|<its folder>|<another code project>|<its folder>|<phase: 1 or 2> (with BOBIX_HOME
 // set; not in CI): #188, a Full start opened in Claude desktop is followed wherever Claude opens its session. Against a
 // stand-in glab (issues 501 to 510 of the issue project, `mr create`) and two made-up clones whose `origin` is a local
@@ -504,7 +563,7 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
         const show = async k => {{ showTab('work'); bsel.work = 'f:' + k; render(); await w(400); }}; \
         const note = () => document.querySelector('#b-dyn .tk-place')?.textContent.trim() || ''; \
         const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); const pr = BOARD.flowPrompt(issue(n), 'Made-up description.', p.models, p.rules); \
-          const x = await bridge.ticketStart(A, n, pr, {{ size: 'small' }}, how, code, true); return {{ ok: x?.ok === true, key: x?.key, dir: x?.dir, prompt: pr }}; }};",
+          const x = await bridge.ticketStart(A, n, pr, {{ size: 'small' }}, how, code, true, p.from?.branches?.[0]); return {{ ok: x?.ok === true, key: x?.key, dir: x?.dir, prompt: pr }}; }};",
         json!(a), json!(adir), json!(bp), json!(bdir));
     let js = |body: &str| format!("(async () => {{ {pre} {body} return r; }})()");
     let hook = hooks::hook_target(&paths::home());
@@ -833,6 +892,7 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         let land = null; if (claudeWarn) {{ document.querySelector('#b-dyn [data-tk-claude]').click(); await until(() => scope === 'skills' && !aud.busy && aud.dir === claudeDir); await w(300); \
           land = {{ scope, item: bsel.skills, dir: aud.dir === claudeDir, picker: document.querySelector('#scopes [data-skdir]')?.value === claudeDir, add: !!document.querySelector('#b-bar [data-sk=testsAdd]') }}; await w({hold}); \
           showTab('work'); bsel.work = 'n:' + ik; render(); await w(300); }} \
+        const pick = document.querySelector('#b-dyn [data-tk-from]'); if (pick) {{ pick.click(); await w(300); await w({hold}); }} \
         document.querySelector('#b-dyn [data-tk-cli]').click(); \
         if (!await until(() => tickets.list.some(f => f.key === k))) return {{ error: 'not started', keys: tickets.list.map(f => f.key) }}; \
         return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir, land, code: tkCode(ik) }}; }})()"), 40 + 2 * hold / 1000);
@@ -1062,4 +1122,100 @@ fn run_hook(hook: &PathBuf, port: u16, input: &str) -> String {
         Ok(o) => format!("error: {} {}", o.status, String::from_utf8_lossy(&o.stderr).chars().take(200).collect::<String>()),
         Err(e) => format!("error: {e}"),
     }
+}
+
+// Opening a session from wherever it shows (#215): a Claude desktop session is opened from the Overview row's button,
+// from the command bar (Enter; Shift+Enter shows details instead), from the pet card and from the tray menu. Each must
+// reach open_session, which in a smoke run notes the claude:// link it would open; a session that has ended opens as well.
+fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
+    let (id, link) = ("smoke-open", "claude://code/continue?session=local_smoke-open");
+    let send = |name: &str, extra: Value| {
+        let mut e = json!({ "session_id": id, "cwd": "/smoke/open-app", "hook_event_name": name, "bobix_host_session": "local_smoke-open" });
+        for (k, v) in extra.as_object().unwrap() { e[k] = v.clone(); }
+        b.on_event(e, false);
+    };
+    send("SessionStart", json!({ "source": "startup" }));
+    send("UserPromptSubmit", json!({ "prompt": "Open me from everywhere" }));
+    // A second Claude desktop session that waits for an approval (Overview shows Approve, the tray lists it), and a third that has ended.
+    let more = |sid: &str, host: &str, names: &[(&str, Value)]| for (n, extra) in names {
+        let mut e = json!({ "session_id": sid, "cwd": "/smoke/wait-app", "hook_event_name": n, "bobix_host_session": host });
+        for (k, v) in extra.as_object().unwrap() { e[k] = v.clone(); }
+        b.on_event(e, false);
+    };
+    more("smoke-wait", "local_smoke-wait", &[("SessionStart", json!({ "source": "startup" })), ("UserPromptSubmit", json!({ "prompt": "Wait for me" })),
+        ("Notification", json!({ "message": "Claude needs your permission to use Bash" }))]);
+    more("smoke-endhost", "local_smoke-endhost", &[("SessionStart", json!({ "source": "startup" })), ("SessionEnd", json!({}))]);
+    // A new Claude desktop session is held back from the lists until its parent link is known (up to state::LINK_HOLD_MS).
+    let held = || { let c = b.core.lock().unwrap(); [id, "smoke-wait"].iter().filter_map(|i| c.sessions.get(*i)).any(|s| crate::state::linking(s, crate::state::now())) };
+    let t = Instant::now();
+    while held() && t.elapsed() < Duration::from_secs(20) { thread::sleep(Duration::from_millis(200)); }
+    thread::sleep(Duration::from_millis(1500)); // the lists get it
+    let hits_of = |l: &str| OPENED.lock().unwrap().iter().filter(|u| *u == l).count();
+    let hits = || hits_of(link);
+    let wait_link = "claude://code/continue?session=local_smoke-wait";
+    let mut r = json!({});
+    let until = |f: &dyn Fn() -> bool| { let t = Instant::now(); while !f() && t.elapsed() < Duration::from_secs(8) { thread::sleep(Duration::from_millis(100)); } f() };
+    // The Overview: the session's row has an Open button; one click opens it.
+    r["overview"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); showTab('overview'); \
+        for (let t = 0; t < 8000 && !document.querySelector('#b-list [data-open-id={id:?}]'); t += 100) await w(100); \
+        const bt = document.querySelector('#b-list [data-open-id={id:?}]'); const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '' }}; \
+        if (bt) {{ const ev = new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true, cancelable: true }}); bt.focus(); bt.dispatchEvent(ev); r.enterKept = !ev.defaultPrevented; }} /* Enter on the button must not run the selected row's action */ \
+        bt?.click(); return r; }})()"), 15);
+    r["overviewOpened"] = json!(until(&|| hits() == 1));
+    // The command bar: Enter opens, Shift+Enter shows the details and opens nothing more.
+    r["search"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); const s = list.find(x => x.id === {id:?}); \
+        openCmdk(); $('#cmdk-q').value = s.title || s.name; $('#cmdk-q').dispatchEvent(new Event('input')); await w(200); \
+        const r = {{ found: cmdItems.length > 0 && !!document.querySelector('#cmdk-res [data-ci-alt]') }}; \
+        $('#cmdk').dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }})); await w(400); r.closed = !$('#cmdk').open; return r; }})()"), 15);
+    r["searchOpened"] = json!(until(&|| hits() == 2));
+    r["searchDetails"] = ask_for(app, panel::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); const s = list.find(x => x.id === {id:?}); \
+        showTab('overview'); bsel.sessions = null; openCmdk(); $('#cmdk-q').value = s.title || s.name; $('#cmdk-q').dispatchEvent(new Event('input')); await w(200); \
+        $('#cmdk').dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', shiftKey: true, bubbles: true }})); await w(600); \
+        return scope === 'sessions' || bsel[scope] === 's:' + {id:?}; }})()"), 15);
+    thread::sleep(Duration::from_millis(500));
+    r["searchDetailsOpenedNothing"] = json!(hits() == 2);
+    // The pet card: hover it, press its Open session button.
+    r["card"] = ask_for(app, overlay::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); \
+        for (let t = 0; t < 8000 && !pets.get({id:?}); t += 100) await w(100); const p = pets.get({id:?}); if (!p) return {{ error: 'no pet' }}; \
+        let bt; /* point at the pet as the mouse does (another pet under a real pointer would end its hover), and keep doing so until the card is there */ \
+        for (let t = 0; t < 8000 && !(bt = p.el.querySelector('.card [data-open]')); t += 100) {{ const b = p.el.querySelector('.spr').getBoundingClientRect(); mouse.x = b.left + b.width / 2; mouse.y = b.top + b.height / 2; mouseMoved = true; p.hoverUntil = Date.now() + 8000; wake(); await w(100); }} \
+        const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '', why: bt ? '' : [p.el.className, p.hover, p.hoverUntil, Date.now(), mouse.x, mouse.y, document.hidden, p.s.state, !!p.el.querySelector('.card')].join(' | ') }}; bt?.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); return r; }})()"), 15);
+    r["cardOpened"] = json!(until(&|| hits() == 3));
+    // The Overview's Approve on a session that waits for you: Enter on it keeps its own action, a click opens that session.
+    r["approve"] = ask_for(app, panel::LABEL, "(async () => { const w = ms => new Promise(o => setTimeout(o, ms)); showTab('overview'); \
+        for (let t = 0; t < 8000 && !document.querySelector('#b-list [data-open-id=\"smoke-wait\"]'); t += 100) await w(100); \
+        const bt = document.querySelector('#b-list [data-open-id=\"smoke-wait\"]'); const r = { button: !!bt, text: bt?.textContent || '', label: bt?.getAttribute('aria-label') || '' }; \
+        if (bt) { const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }); bt.focus(); bt.dispatchEvent(ev); r.enterKept = !ev.defaultPrevented; } \
+        bt?.click(); return r; })()", 15);
+    r["approveOpened"] = json!(until(&|| hits_of(wait_link) == 1));
+    // The tray menu lists the sessions that are really waiting (what its items are built from); its item opens that session.
+    r["trayListed"] = json!(crate::tray::needs(&b.core.lock().unwrap().sessions).iter().any(|(sid, _)| sid == "smoke-wait"));
+    crate::tray::on_menu(app, "open:smoke-wait");
+    r["trayOpened"] = json!(until(&|| hits_of(wait_link) == 2));
+    // The ended-session message: a second one replaces the first, so Copy command copies the latest, and the folder is named.
+    r["endedToast"] = ask_for(app, panel::LABEL, "(async () => { let copied = null; Object.defineProperty(navigator, 'clipboard', { value: { writeText: async v => { copied = v; } }, configurable: true }); \
+        openFail({ reason: 'ended', cmd: 'claude --resume A', folder: '/smoke/x' }); openFail({ reason: 'ended', cmd: 'claude --resume B', folder: '/smoke/x' }); \
+        const ts = [...document.querySelectorAll('.toast')].filter(t => t.textContent.includes('has ended')); ts[0]?.querySelector('button')?.click(); \
+        return { n: ts.length, folder: !!ts[0]?.textContent.includes('/smoke/x'), copied, live: document.getElementById('toasts').getAttribute('aria-live') }; })()", 15);
+    // Ended: a terminal session reopens as the command that resumes it.
+    let ended = "smoke-ended-terminal";
+    for (n, extra) in [("SessionStart", json!({ "source": "startup" })), ("SessionEnd", json!({}))] {
+        let mut e = json!({ "session_id": ended, "cwd": "/smoke/ended-app", "hook_event_name": n });
+        for (k, v) in extra.as_object().unwrap() { e[k] = v.clone(); }
+        b.on_event(e, false);
+    }
+    let gone = b.open_session(ended, true, false);
+    r["ended"] = json!(gone["ok"] == false && gone["reason"] == "ended" && gone["cmd"] == format!("claude --resume {ended}"));
+    // An ended Claude desktop session reopens through its link.
+    let again = b.open_session("smoke-endhost", true, false);
+    r["endedDesktop"] = json!(again["ok"] == true && until(&|| hits_of("claude://code/continue?session=local_smoke-endhost") == 1));
+    send("SessionEnd", json!({}));
+    more("smoke-wait", "local_smoke-wait", &[("SessionEnd", json!({}))]);
+    let mut pass = ["overviewOpened", "searchOpened", "searchDetailsOpenedNothing", "cardOpened", "approveOpened", "trayListed", "trayOpened", "ended", "endedDesktop"].iter().all(|k| r[k] == true);
+    pass = pass && r["approve"]["button"] == true && r["approve"]["text"] == "Open to approve" && r["approve"]["enterKept"] == true
+        && r["endedToast"]["n"] == 1 && r["endedToast"]["folder"] == true && r["endedToast"]["copied"] == "claude --resume B" && r["endedToast"]["live"] == "polite";
+    pass = pass && r["overview"]["button"] == true && r["overview"]["enterKept"] == true && r["search"]["found"] == true && r["search"]["closed"] == true && r["searchDetails"] == true && r["card"]["button"] == true
+        && ["overview", "card"].iter().all(|k| r[k]["label"].as_str().is_some_and(|l| l.contains("Open me from everywhere") || l.contains("open-app")));
+    r["pass"] = json!(pass);
+    r
 }

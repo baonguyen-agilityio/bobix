@@ -1,0 +1,29 @@
+[package]
+name = "bobix-link-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bobix-link = { path = ".." }
+
+[[bin]]
+name = "open_envelope"
+path = "fuzz_targets/open_envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_relay_frame"
+path = "fuzz_targets/parse_relay_frame.rs"
+test = false
+doc = false
+bench = false
+
+# Not part of any workspace: cargo-fuzz builds this crate on its own (nightly), with its own lock file.
+[workspace]

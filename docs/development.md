@@ -35,7 +35,7 @@ How a change gets made, by people and by Claude Code sessions alike. The working
 6. **CI.** The three smoke checks (see [CI](#ci)) must pass.
 7. **The owner approves the merge.** Sessions never merge, and never `gh pr merge --auto`. A new feature is tried by hand by the owner first.
 
-[`dependabot.yml`](../.github/dependabot.yml) opens one weekly pull request per ecosystem (cargo, npm, GitHub Actions). The smoke checks run on it; the review skips it. Read it like any other pull request before the owner merges it.
+[`dependabot.yml`](../.github/dependabot.yml) opens one weekly pull request per ecosystem and directory (cargo for `src-tauri`, `crates/bobix-link` and its `fuzz` crate; npm; GitHub Actions). The smoke checks run on it; the review skips it. Read it like any other pull request before the owner merges it.
 
 ## Layout
 
@@ -52,7 +52,8 @@ How a change gets made, by people and by Claude Code sessions alike. The working
 | `test/` | `core.test.js`: Node tests (`node --test`), run by `npm test`. `overlay.test.js` and `layout.test.js`: the pets overlay, and the panel with the pets card (no layout shift), in headless Chrome (CI runs them; skipped without Chrome); `chrome-helper.js` starts Chrome for both, with limits and cleanup. `fixtures/`: their input files |
 | `docs/` | This documentation; `docs/media/` holds the screenshots and `demo.gif`, `docs/releases/` the release notes |
 | `site/` | The project's web page (published by `.github/workflows/pages.yml`) |
-| `.github/` | Workflows (`smoke.yml`, `release.yml`, `claude-review.yml`, `pages.yml`), `dependabot.yml`, the pull request template |
+| `crates/bobix-link/` | The link crate: the wire format and the crypto that the desktop, the phone-access relay and the phone app will share (see [The link crate](#the-link-crate)). Not used by `src-tauri` yet |
+| `.github/` | Workflows (`smoke.yml`, `release.yml`, `claude-review.yml`, `pages.yml`, `link.yml`), `dependabot.yml`, the pull request template |
 | `CLAUDE.md`, `.claude/settings.json` | The working rules and shared permissions for Claude Code sessions in this repository |
 
 ## Build installers
@@ -101,7 +102,7 @@ The key reaches only runs for a `v*` tag: a develop push or a run by hand builds
 
 ## CI
 
-[The smoke workflow](../.github/workflows/smoke.yml) runs on every push: node and Rust tests, then the app on each OS with a pretend and a real session (`BOBIX_SMOKE`, see `src-tauri/src/smoke.rs`): pets on screen, a held permission request answered, the panel and its bridge, a pet picture imported, the Skills screen's audit actions on a scratch skill and the session's `CLAUDE.md` (each undone), the tray, start at login. On Linux it takes the Wayland path (XWayland) and drags a pet with the real mouse (`xdotool`), then points at a pet: the line of pets must stop. To run the same check on your machine before pushing (scratch folders, so it never touches your own settings or hooks):
+[The smoke workflow](../.github/workflows/smoke.yml) runs on every push: node and Rust tests, then the app on each OS with a pretend and a real session (`BOBIX_SMOKE`, see `src-tauri/src/smoke.rs`): pets on screen, a held permission request answered, the panel and its bridge, a pet picture imported, the Skills screen's audit actions on a scratch skill and the session's `CLAUDE.md` (each undone), the tray, start at login, a session opened from Overview, ⌘K, the pet card and the tray (and an ended one). On Linux it takes the Wayland path (XWayland) and drags a pet with the real mouse (`xdotool`), then points at a pet: the line of pets must stop. To run the same check on your machine before pushing (scratch folders, so it never touches your own settings or hooks):
 
 ```bash
 cd src-tauri && cargo build && cd .. && T=$(mktemp -d) && BOBIX_SMOKE=$T/out BOBIX_PORT=4767 BOBIX_DATA_DIR=$T/data BOBIX_HOME=$T/home ./src-tauri/target/debug/bobix; cat $T/out/report.json
@@ -110,6 +111,27 @@ cd src-tauri && cargo build && cd .. && T=$(mktemp -d) && BOBIX_SMOKE=$T/out BOB
 It exits by itself and `report.json` must say `"pass": true` with empty `pageErrors`. Started from inside a Claude Code session, unset the `CLAUDE*` variables first (`CLAUDE_PID`, `CLAUDE_CODE_HOST_SESSION_ID`): the pretend session would otherwise belong to that session and wait for its parent link, and the check counts one pet too few. The pages load only the files `src-tauri/src/server.rs` lists in `ASSETS` (a new file under `src/ui/` must be added there; `npm test` checks it).
 
 [The release workflow](../.github/workflows/release.yml) builds the installers, installs each (over the last Electron-based release on Windows and Linux) and runs the same check on the installed app.
+
+## The link crate
+
+`crates/bobix-link` holds the protocol and the crypto for phone access in one place: keys, the sealed packet, counters, messages, signed commands, the pairing code and the frames spoken to the relay. Every primitive comes from an audited RustCrypto crate; the crate decides only how they combine. It is a path dependency, not part of a Cargo workspace (`src-tauri` keeps its own `target`), and it does no file or network I/O, so the same code can sit behind the phone app's bindings. Nothing in `src-tauri` calls it yet.
+
+```bash
+cd crates/bobix-link && cargo test
+```
+
+- `tests/vectors.json` is a committed file with fixed keys, nonces and expected bytes. The tests compare against it and never rewrite it. After a deliberate wire change, run `cargo test --test vectors -- --ignored print_vectors`, review the diff and commit it. Signature vectors are verify-only (a phone's secure hardware does not sign the same bytes twice).
+- `fuzz/` holds two cargo-fuzz targets (`open_envelope`, `parse_relay_frame`); they need a nightly toolchain: `cargo install cargo-fuzz && cd crates/bobix-link && cargo +nightly fuzz run open_envelope`. The `link` workflow runs each for 45 seconds on every pull request that touches the crate.
+- The fake tools are examples and use made-up data only; they speak plain `ws://`, so use them with the in-process stub or with a relay started with `--dev` on localhost:
+  ```bash
+  cd crates/bobix-link
+  cargo run --example relay-stub                      # prints ws://127.0.0.1:PORT
+  cargo run --example fake-desktop -- --relay ws://127.0.0.1:PORT --scenario normal   # prints a QR string
+  cargo run --example fake-phone -- --relay ws://127.0.0.1:PORT --qr 'bobix://pair?...'
+  ```
+  `fake-desktop --scenario list` names the 20 scenarios; `tests/fakes.rs` runs each of them in-process. `fake-phone` reads commands from standard input (the list is at the top of its source file) and signs with a software key.
+
+[The link workflow](../.github/workflows/link.yml) runs on every pull request, but its jobs skip themselves when nothing under `crates/bobix-link/` changed (a skipped job counts as passing for a required check). Jobs: `link` on macOS, Windows and Ubuntu (clippy, tests, the fake tools built and kept as an artifact), `fuzz`, `audit` (known vulnerabilities in the dependencies, with cargo-deny), and `link-ok`, which fails when any of them failed. They have their own cache keys, so they never evict the app's cache. The owner makes `link-ok` a required check of `develop`, `main` and the phone-access integration branch `feat/phone-access` after the workflow has run once; it is the only name to require, because a skipped matrix job does not report one check per system.
 
 ## Demo and screenshots
 

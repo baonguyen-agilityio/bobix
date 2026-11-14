@@ -82,7 +82,7 @@ const APP = {
   skills_rules: [{ file: '/home/dev/acme-shop/CLAUDE.md', present: false, text: '## When to split, which model\n- Plan with Opus', block: '## When to split, which model\n', undo: null }, 450],
   skills_backups: [[], 450],
   room: [{ ok: true, tailnet: { me: { login: 'dev@example.com', name: 'Dev' }, ip: '100.64.0.10', port: 4748, serving: true }, hosted: [], joined: [] }, 300],
-  ticket_prep: [{ ok: true, dir: '/home/dev/acme-shop-42', branch: '42-delivery', room: 5, free: 50e9, need: 2e9, models: 'Plan with Opus.', rules: [], exists: false }, 1000],
+  ticket_prep: [{ ok: true, from: { ok: true, branches: ['develop', 'main'] }, remembered: 'develop', dir: '/home/dev/acme-shop-42', branch: '42-delivery', room: 5, free: 50e9, need: 2e9, models: 'Plan with Opus.', rules: [], exists: false }, 1000],
   work_brief: [{ ok: true, body: 'Customers want to know when the order arrives.', labels: [], process: null,
     skills: ['review', 'notes', 'deploy', 'perf', 'docs', 'tests', 'i18n', 'style'].map(name => ({ name, description: `What ${name} does, in a line long enough to wrap in the list.`, source: 'personal' })) }, 200],
   feedback_info: [{ lines: ['Bobix', 'linux'], errs: [] }, 0],
