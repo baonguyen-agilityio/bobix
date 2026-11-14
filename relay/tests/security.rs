@@ -50,7 +50,7 @@ async fn altered_replayed_reflected_rerouted_and_old_packets_are_refused_by_the_
     let mut o_from_d = link(Direction::ToDesktop, &o, d.public().boxk);
 
     // The honest path works, so the refusals below are the packet's doing and not the setup's.
-    let first = d_to_p.seal(Stream::State, b"home-1").packet;
+    let first = d_to_p.seal(Stream::State, b"home-1").expect("a valid peer key seals").packet;
     let got = through_relay(&mut desktop, &mut phone, "ok", &first).await;
     assert_eq!(got, first, "the relay forwards the packet byte for byte");
     assert_eq!(p_from_d.open(&got).unwrap().plaintext, b"home-1");
@@ -60,7 +60,7 @@ async fn altered_replayed_reflected_rerouted_and_old_packets_are_refused_by_the_
     assert_eq!(p_from_d.open(&replayed).unwrap_err(), OpenError::Dropped);
 
     // Altered: one bit flipped on the way.
-    let second = d_to_p.seal(Stream::State, b"home-2").packet;
+    let second = d_to_p.seal(Stream::State, b"home-2").expect("a valid peer key seals").packet;
     let mut altered = second.clone();
     let last = altered.len() - 1;
     altered[last] ^= 1;
@@ -70,20 +70,20 @@ async fn altered_replayed_reflected_rerouted_and_old_packets_are_refused_by_the_
     assert!(p_from_d.open(&second).is_ok());
 
     // Old: a packet with a counter below the highest the phone has taken on the `state` stream.
-    let newest = d_to_p.seal(Stream::State, b"home-9").packet;
-    let older = d_to_p.seal_with(Stream::State, 1, b"home-old");
+    let newest = d_to_p.seal(Stream::State, b"home-9").expect("a valid peer key seals").packet;
+    let older = d_to_p.seal_with(Stream::State, 1, b"home-old").expect("a valid peer key seals");
     p_from_d.open(&newest).unwrap();
     let got = through_relay(&mut mallory, &mut phone, "old", &older).await;
     assert_eq!(p_from_d.open(&got).unwrap_err(), OpenError::Dropped);
 
     // Reflected: the phone's own packet (made for the desktop) sent back to the phone.
-    let mine = p_to_d.seal(Stream::Event, b"command").packet;
+    let mine = p_to_d.seal(Stream::Event, b"command").expect("a valid peer key seals").packet;
     let got = through_relay(&mut mallory, &mut phone, "reflect", &mine).await;
     assert_eq!(p_from_d.open(&got).unwrap_err(), OpenError::Reflected);
     assert!(d_from_p.open(&mine).is_ok(), "while the desktop it was meant for opens it");
 
     // Re-routed: a packet the desktop made for the first phone, delivered to the second one.
-    let for_p = d_to_p.seal(Stream::Event, b"for the first phone").packet;
+    let for_p = d_to_p.seal(Stream::Event, b"for the first phone").expect("a valid peer key seals").packet;
     let got = through_relay(&mut mallory, &mut other_phone, "reroute", &for_p).await;
     assert_eq!(o_from_d.open(&got).unwrap_err(), OpenError::Decrypt);
 
