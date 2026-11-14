@@ -1154,7 +1154,7 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
     send("SessionEnd", json!({}));
     more("smoke-wait", "local_smoke-wait", &[("SessionEnd", json!({}))]);
     let mut pass = ["overviewOpened", "searchOpened", "searchDetailsOpenedNothing", "cardOpened", "approveOpened", "trayListed", "trayOpened", "ended", "endedDesktop"].iter().all(|k| r[k] == true);
-    pass = pass && r["approve"]["button"] == true && r["approve"]["text"] == "Approve" && r["approve"]["enterKept"] == true
+    pass = pass && r["approve"]["button"] == true && r["approve"]["text"] == "Open to approve" && r["approve"]["enterKept"] == true
         && r["endedToast"]["n"] == 1 && r["endedToast"]["folder"] == true && r["endedToast"]["copied"] == "claude --resume B" && r["endedToast"]["live"] == "polite";
     pass = pass && r["overview"]["button"] == true && r["overview"]["enterKept"] == true && r["search"]["found"] == true && r["search"]["closed"] == true && r["searchDetails"] == true && r["card"]["button"] == true
         && ["overview", "card"].iter().all(|k| r[k]["label"].as_str().is_some_and(|l| l.contains("Open me from everywhere") || l.contains("open-app")));
