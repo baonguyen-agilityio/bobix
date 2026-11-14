@@ -43,7 +43,7 @@ fn random_input_never_panics() {
         let _ = split_hello_body(&b);
     }
     // And a genuine packet still opens afterwards.
-    assert!(link.open(&good.seal_with(Stream::Event, 1, b"{}")).is_ok());
+    assert!(link.open(&good.seal_with(Stream::Event, 1, b"{}").unwrap()).is_ok());
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn truncated_and_extended_packets_never_panic() {
     let (d, p) = (Identity::generate(), Identity::generate());
     let sender = Link::new(Direction::ToPhone, *d.box_secret(), p.public().boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], 0, RecvState::default());
     let mut receiver = Link::new(Direction::ToDesktop, *p.box_secret(), d.public().boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], 0, RecvState::default());
-    let packet = sender.seal_with(Stream::Event, 5, b"payload");
+    let packet = sender.seal_with(Stream::Event, 5, b"payload").unwrap();
     for cut in 0..packet.len() {
         assert!(receiver.open(&packet[..cut]).is_err());
     }
@@ -67,10 +67,10 @@ fn a_used_receive_state_survives_garbage_and_mutated_packets() {
     let sender = Link::new(Direction::ToPhone, *d.box_secret(), p.public().boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], 0, RecvState::default());
     let mut receiver = Link::new(Direction::ToDesktop, *p.box_secret(), d.public().boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], 0, RecvState::default());
     for c in [5_000u64, 5_001, 9_000] {
-        receiver.open(&sender.seal_with(Stream::Event, c, b"{}")).unwrap();
-        receiver.open(&sender.seal_with(Stream::State, c, b"{}")).unwrap();
+        receiver.open(&sender.seal_with(Stream::Event, c, b"{}").unwrap()).unwrap();
+        receiver.open(&sender.seal_with(Stream::State, c, b"{}").unwrap()).unwrap();
     }
-    let packet = sender.seal_with(Stream::Event, 9_001, b"{\"k\":1}");
+    let packet = sender.seal_with(Stream::Event, 9_001, b"{\"k\":1}").unwrap();
     let mut seed = 0x1234_5678_9abc_def1u64;
     for i in 0..3000 {
         let mut m = packet.clone();
