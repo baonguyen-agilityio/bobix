@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ticket-review"
+description = "Enables the ticket_review command without any pre-configured scope."
+commands.allow = ["ticket_review"]
+
+[[permission]]
+identifier = "deny-ticket-review"
+description = "Denies the ticket_review command without any pre-configured scope."
+commands.deny = ["ticket_review"]

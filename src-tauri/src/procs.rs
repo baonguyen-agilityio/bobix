@@ -21,32 +21,75 @@ pub fn is_alive(pid: u32) -> bool {
     }
 }
 
-// What a command printed. `ok`: it ran and exited 0; `missing`: there is no such program.
-pub struct Ran { pub ok: bool, pub missing: bool, pub out: String, pub err: String }
+// What a command printed. `ok`: it ran and exited 0; `missing`: there is no such program; `late`: it ran past its time
+// and was stopped (with everything it started); `loose`: after that, something it started still held its output open
+// (it left Bobix's reach: its own session or job), so it may still be running.
+#[derive(Default)]
+pub struct Ran { pub ok: bool, pub missing: bool, pub late: bool, pub loose: bool, pub out: String, pub err: String }
+
+// Windows: a job object holds the command and all it starts, so a timeout ends the whole tree (TerminateJobObject).
+#[cfg(windows)]
+struct Job(windows_sys::Win32::Foundation::HANDLE);
+#[cfg(windows)]
+impl Job {
+    fn of(child: &std::process::Child) -> Option<Job> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW};
+        unsafe {
+            let j = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if j.is_null() { return None; }
+            let job = Job(j);
+            (AssignProcessToJobObject(j, child.as_raw_handle() as _) != 0).then_some(job)
+        }
+    }
+    fn kill(&self) { unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(self.0, 1); } }
+}
+#[cfg(windows)]
+impl Drop for Job { fn drop(&mut self) { unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0); } } }
+
+// After the command ends (or is stopped), how long its output may still take to close: a child it left behind that
+// keeps the pipe open (a daemon, a process outside its group) is not waited for past this.
+const DRAIN: Duration = Duration::from_secs(2);
 
 // Runs a command (argument list, never a shell) for at most `secs` seconds; stdout and stderr are read while it runs, so
-// a long output can't fill the pipe and stall it.
+// a long output can't fill the pipe and stall it. It runs in its own process group (a job object on Windows): a timeout
+// stops what it started too, and the call returns within `secs` plus a moment either way.
 pub fn exec(cmd: &str, args: &[&str], secs: u64, env: &[(&str, &str)]) -> Ran {
     let mut c = Command::new(cmd);
     c.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).envs(env.iter().copied());
     #[cfg(windows)]
     { use std::os::windows::process::CommandExt; c.creation_flags(0x0800_0000); } // CREATE_NO_WINDOW
+    #[cfg(unix)]
+    { use std::os::unix::process::CommandExt; c.process_group(0); } // its own group: a timeout ends what it started too
     let mut child = match c.spawn() {
         Ok(ch) => ch,
-        Err(e) => return Ran { ok: false, missing: e.kind() == std::io::ErrorKind::NotFound, out: String::new(), err: e.to_string() },
+        Err(e) => return Ran { missing: e.kind() == std::io::ErrorKind::NotFound, err: e.to_string(), ..Default::default() },
     };
-    let read = |p: Option<Box<dyn std::io::Read + Send>>| p.map(|mut p| thread::spawn(move || { let mut v = Vec::new(); let _ = p.read_to_end(&mut v); String::from_utf8_lossy(&v).into_owned() }));
+    #[cfg(windows)]
+    let job = Job::of(&child); // ponytail: what it starts in its first instant may escape the job; taskkill-like walks are slower
+    // Each pipe is read on its own thread, which sends what it read once the pipe closes (every writer gone).
+    let read = |p: Option<Box<dyn std::io::Read + Send>>| p.map(|mut p| { let (tx, rx) = std::sync::mpsc::channel(); thread::spawn(move || { let mut v = Vec::new(); let _ = p.read_to_end(&mut v); let _ = tx.send(String::from_utf8_lossy(&v).into_owned()); }); rx });
     let (so, se) = (read(child.stdout.take().map(|x| Box::new(x) as _)), read(child.stderr.take().map(|x| Box::new(x) as _)));
     let limit = Instant::now() + Duration::from_secs(secs);
-    let ok = loop {
+    let (ok, late) = loop {
         match child.try_wait() {
-            Ok(Some(st)) => break st.success(),
+            Ok(Some(st)) => break (st.success(), false),
             Ok(None) if Instant::now() < limit => thread::sleep(Duration::from_millis(20)),
-            _ => { let _ = child.kill(); let _ = child.wait(); break false; }
+            _ => {
+                #[cfg(unix)]
+                unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL); } // the whole group: no child keeps its pipes open
+                #[cfg(windows)]
+                if let Some(j) = &job { j.kill(); }
+                let _ = child.kill(); let _ = child.wait(); break (false, true);
+            }
         }
     };
-    let get = |h: Option<thread::JoinHandle<String>>| h.and_then(|h| h.join().ok()).unwrap_or_default();
-    Ran { ok, missing: false, out: get(so), err: get(se) }
+    // a grandchild may hold the pipes open after the command is gone: waited for DRAIN at most
+    let until = Instant::now() + DRAIN;
+    let mut loose = false;
+    let mut get = |rx: Option<std::sync::mpsc::Receiver<String>>| rx.map_or(String::new(), |rx| rx.recv_timeout(until.saturating_duration_since(Instant::now())).unwrap_or_else(|_| { loose = true; String::new() }));
+    let (out, err) = (get(so), get(se));
+    Ran { ok, missing: false, late, loose, out, err }
 }
 
 // Its trimmed output, or None when it fails or takes too long (PowerShell can take several seconds to start on a cold
@@ -165,6 +208,28 @@ mod tests {
         assert_eq!(super::host_app(&s(&["claude", "zsh", "claude-desktop"])).as_deref(), Some("Claude"));
         assert_eq!(super::host_app(&s(&["claude", "zsh", "iTerm2"])).as_deref(), Some("iTerm2"));
         assert_eq!(super::host_app(&s(&["claude", "node", "?"])), None);
+    }
+
+    // A timeout ends what the command started too, and the call returns soon after the limit even when a grandchild
+    // holds the output open.
+    #[test]
+    fn a_timeout_stops_the_whole_tree() {
+        let t = std::time::Instant::now();
+        let r = if cfg!(windows) { super::exec("cmd", &["/c", "ping -n 30 127.0.0.1"], 1, &[]) } else { super::exec("sh", &["-c", "sleep 30 & sleep 30"], 1, &[]) };
+        assert!(!r.ok && r.late && !r.loose, "stopped, and nothing it started kept its pipes");
+        assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+        let r = super::exec(if cfg!(windows) { "cmd" } else { "sh" }, &if cfg!(windows) { ["/c", "echo hi"] } else { ["-c", "echo hi"] }, 10, &[]);
+        assert!(r.ok && !r.late && r.out.trim() == "hi");
+    }
+
+    // Something that escapes the group (its own session) and keeps the pipe: not waited for, and said so.
+    #[cfg(unix)]
+    #[test]
+    fn a_child_that_escapes_is_not_waited_for() {
+        let t = std::time::Instant::now();
+        let r = super::exec("sh", &["-c", "perl -e 'use POSIX; POSIX::setsid(); sleep 8' & sleep 30"], 1, &[]);
+        assert!(r.late && r.loose && !r.ok, "late {} loose {}", r.late, r.loose);
+        assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
     }
 
     #[test]
