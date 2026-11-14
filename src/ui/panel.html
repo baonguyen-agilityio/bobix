@@ -3036,15 +3036,16 @@ function buildItems(sc) {
 // back after a redraw (tipSync keeps the tip by the new "?"). Up here: a redraw can come before that part has run.
 let tipAt = null, tipBy = '', tipTimer = 0, refocus = false;
 // Replaces a box's content when it changed; the focused control (and the caret in a field) survives the redraw.
-// A key pressed on a button is a click only if the same button sees the key go up. A redraw between the two replaces the
-// button, and the press is lost (Space on the "?"). So while such a key is down the redraw waits for its release.
-let keyOnButton = false;
-addEventListener('keydown', e => { keyOnButton = e.target.tagName === 'BUTTON'; }, true);
+// Space on a button is a click only if the same button sees the key go up. A redraw between the two replaces the button,
+// and the press is lost (Space on the "?"). So while Space is down on a button the redraw waits for its release.
+// (Enter clicks on key down and an arrow only moves, so they need no wait.)
+let keyOnButton = false, swapWaited = false; // swapWaited: a swap waited, so the focus asked for (nextFocus) is still wanted
+addEventListener('keydown', e => { keyOnButton = e.key === ' ' && e.target.tagName === 'BUTTON'; }, true);
 addEventListener('keyup', () => { if (keyOnButton) { keyOnButton = false; setTimeout(() => render(), 0); } }, true); // later than the click the release makes
 addEventListener('blur', () => { keyOnButton = false; });
 function swap(box, html) {
   if (box.dataset.html === html) return false;
-  if (keyOnButton && box.contains(document.activeElement)) return false;
+  if (keyOnButton && box.contains(document.activeElement)) { swapWaited = true; return false; }
   const a = document.activeElement, f = nextFocus || (box.contains(a) ? a.dataset.f : null), sel = a?.selectionStart;
   box.dataset.html = html;
   box.innerHTML = html;
@@ -3065,8 +3066,9 @@ function render(force) {
   cur = sel; curKey = key;
   if (sel && !sel.wait) { bsel[scope] = sel.id; lastIdx[scope] = items.indexOf(sel); }
   selected = cur?.kind === 'session' ? cur.s : null;
+  swapWaited = false;
   drawScopes(); drawList(); drawDetail(changed); drawBar();
-  nextFocus = null;
+  if (!swapWaited) nextFocus = null;
   tipSync();
   const n = waitingList().length;
   document.title = n ? `(${n}) ${T('app.name')}` : T('app.name');

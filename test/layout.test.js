@@ -299,11 +299,17 @@ async function panel(b, url, { width, height, lang, dark }) {
       await shows('after a redraw', g); await still('redraw', f1);
       // A redraw (the list's clock text changes every minute) can land between Space going down and up: the "?" it replaces
       // never sees the key go up, so a redraw waits for the release.
+      const before = await b.ev(`document.querySelector('#b-list').textContent`);
       await b.acted(); await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' ' });
       await b.ev(`__push(${JSON.stringify(event(SESSIONS, { ...WORK, at: NOW - 9 * MIN }))})`);
       await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 }); await hides('Space on a shown tip, with a redraw before it goes up');
+      await b.until(`document.querySelector('#b-list').textContent !== ${JSON.stringify(before)}`, 'the redraw that waited for Space to come up');
       if (await b.ev(`document.activeElement !== document.querySelector(${JSON.stringify(g)}) || document.querySelector('#bq').value !== ''`)) fail('help: Space left the "?" or typed in the search');
       if (await b.ev(`document.querySelector('#b-list [aria-selected="true"]')?.dataset.bsel`) !== sel0 || await b.ev(`!!document.querySelector('dialog[open]')`)) fail('help: ↵ or Space on the "?" ran the selected item');
+      // an arrow on a list row moves the selection and the focus together (the redraw that waited must not undo it)
+      await b.ev(`document.querySelector('#b-list .b-it').focus()`);
+      for (let k = 0; k < 2; k++) { await b.key('ArrowDown', 'ArrowDown', 40); await sleep(120);
+        if (!(await b.ev(`document.activeElement === document.querySelector('#b-list [aria-selected="true"]')`))) fail('help: ArrowDown on a list row left the focus behind the selection'); }
       await b.ev('document.activeElement.blur()');
       // touch: a tap shows it, a second tap hides it, a tap elsewhere hides it too
       await b.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });

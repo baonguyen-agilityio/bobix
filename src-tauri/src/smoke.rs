@@ -1019,22 +1019,23 @@ fn skills_panel(app: &AppHandle, sid: &str) -> Value {
         const until = async f => {{ for (let t = 0; t < 8000; t += 100) {{ if (f()) return true; await w(100); }} return false; }}; \
         const bar = q => document.querySelector('#b-bar ' + q); \
         const lost = what => new Error(what + ' never came (scope ' + scope + ', item ' + cur?.id + ', audit ' + (aud.fail || (aud.busy ? 'busy' : 'loaded')) + ', rules ' + !!aud.rules + ')'); \
+        const need = async (k, f) => {{ r[k] = await until(f); if (!r[k]) throw lost(k); }}; \
         const press = async q => {{ if (!await until(() => bar(q))) throw lost('button ' + q); bar(q).click(); }}; \
         const yes = async () => {{ if (!await until(() => $('#sk-dialog').open && $('#sk-dialog [data-sk-yes]'))) throw lost('the confirm dialog'); $('#sk-dialog [data-sk-yes]').click(); }}; \
         const undo = async t => {{ if (!await until(() => [...document.querySelectorAll('.toast')].find(x => x.textContent.includes(t))?.querySelector('button'))) throw lost('the Undo of ' + t); \
           [...document.querySelectorAll('.toast')].find(x => x.textContent.includes(t)).querySelector('button').click(); }}; \
         try {{ showTab('skills'); audDir = list.find(s => s.id === {sid:?})?.cwd; await loadAudit(); \
-        r.audit = await until(() => aud.a && items.some(x => x.label === 'smoke-skill')); \
+        await need('audit', () => aud.a && items.some(x => x.label === 'smoke-skill')); \
         const id = items.find(x => x.label === 'smoke-skill')?.id, back = () => !skBackups.length && items.some(x => x.id === id); \
         bsel.skills = id; render(); await press('[data-sk=disable]'); \
-        r.disable = await until(() => skBackups[0]?.kind === 'disable' && !items.some(x => x.id === id)); await undo('smoke-skill'); r.undoDisable = await until(back); \
+        await need('disable', () => skBackups[0]?.kind === 'disable' && !items.some(x => x.id === id)); await undo('smoke-skill'); await need('undoDisable', back); \
         bsel.skills = id; render(); await press('[data-sk=remove]'); await yes(); \
-        r.remove = await until(() => skBackups[0]?.kind === 'remove' && !items.some(x => x.id === id)); await undo('smoke-skill'); r.undoRemove = await until(back); \
+        await need('remove', () => skBackups[0]?.kind === 'remove' && !items.some(x => x.id === id)); await undo('smoke-skill'); await need('undoRemove', back); \
         bsel.skills = 'aud:rules'; render(); await press('[data-sk=rulesAdd]'); await until(() => $('#sk-dialog').open); \
         r.lines = $('#sk-dialog .b-code').textContent.includes('When to split, which model'); await yes(); \
-        r.rulesAdd = await until(() => aud.rules?.present && !!aud.rules.undo); \
+        await need('rulesAdd', () => aud.rules?.present && !!aud.rules.undo); \
         bsel.skills = 'aud:rules'; render(); await press('[data-sk=rulesRm]'); await yes(); \
-        r.rulesRemove = await until(() => aud.rules && !aud.rules.present && !skBackups.length); }} catch (e) {{ r.error = String(e); }} \
+        await need('rulesRemove', () => aud.rules && !aud.rules.present && !skBackups.length); }} catch (e) {{ r.error = String(e); }} \
         r.err = aud.err?.text || aud.fail || null; return r; }})()"), 60)
 }
 
