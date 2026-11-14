@@ -68,7 +68,8 @@ button{font:inherit;color:inherit}
 .card .meter{display:block;width:auto;margin:0 0 var(--s1)}
 .card .row.ctx{border-bottom:0;padding-bottom:4px}
 .card .answer{display:flex;flex-wrap:wrap;margin:0 0 10px}
-.card .hint{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--line);padding-top:var(--s2);margin-top:var(--s1)}
+.card .hbtn{display:flex;gap:4px;flex:none;margin-left:auto}
+.card .hint{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s2);font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--line);padding-top:var(--s2);margin-top:var(--s1)}
 .zz{position:absolute;left:70%;top:-6px;font:600 var(--t-sm) var(--f-ui);color:var(--ink-3);animation:zz 2.4s var(--ease) infinite}
 /* While an effect plays (pet-fx.js) the pet keeps its own SVG (it acts its state) and the effect draws round it; one
    that draws over the pet's head (XP bar, battery) hides the tool bubble there, and the "z". A pet
@@ -187,7 +188,7 @@ function sayText(p, st, now) {
 const left = (s, now) => (!s.answer ? 0 : s.answer.until == null ? Infinity : Math.max(0, Math.ceil((s.answer.until - now) / 1000)));
 function answerButtons(s, now) {
   const n = left(s, now);
-  if (!n || !bridge) return `<span class="where">${T(approveWhere(s))}</span>`; // Bobix can't answer it: say where it can be
+  if (!n || !bridge) return `<span class="where">${T(approveWhere(s))}</span>${bridge ? `<button class="btn sm pri" type="button" data-open aria-label="${esc(T('pane.approve') + ': ' + (s.title || s.name))}">${T('pane.approve')}</button>` : ''}`; // Bobix can't answer it: say where it can be, and open it
   return `<span class="answer">`
     + `<button class="btn sm pri" type="button" data-answer="allow">${T('ask.allow')}</button><button class="btn sm" type="button" data-answer="deny">${T('ask.deny')}</button>`
     + (n === Infinity ? '' : `<span class="left" data-sid="${esc(s.id)}">${T('ask.left', { n })}</span>`) + '</span>';
@@ -239,7 +240,7 @@ function paint(p, now) {
         <div class="row ctx"><span>${T('ctx')}</span><span>${hp == null ? '?' : hp + '%'}</span></div>
         <div class="meter ${hp != null && hp < 25 ? 'low' : ''}"><i style="--v:${(hp ?? 0) / 100}"></i></div>
         ${s.usage ? `<div class="row use"><span title="${esc(USAGE.line(s.usage, T, cfg))}">${esc(USAGE.line(s.usage, T, cfg))}</span></div>${USAGE.warns(s.usage, T).slice(0, 1).map(w => `<p class="need use">⚠ ${esc(w.text)}</p>`).join('')}` : ''}
-        <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<button class="btn sm ghost" type="button" data-hide>${T('pet.hide')}</button>` : ''}</div></div>` : ''}
+        <div class="hint"><span>${T(cfg.clickAction === 'focus' ? 'pet.clickFocus' : 'pet.clickPanel')}</span>${bridge ? `<span class="hbtn"><button class="btn sm" type="button" data-open aria-label="${esc(T('pet.open') + ': ' + (s.title || s.name))}">${T('pet.open')}</button><button class="btn sm ghost" type="button" data-hide>${T('pet.hide')}</button></span>` : ''}</div></div>` : ''}
     ${say && say[1] ? `<div class="say ${say[0]}${shown.say ? ' still' : ''}"${say[0] === 'habit' ? ' data-habit' : ''}>${esc(say[1])}${say[0] === 'waiting' ? answerButtons(s, now) : ''}</div>` : ''}
     ${st === 'idle' ? '<span class="zz">z</span>' : ''}
     <div class="spr">${petArt(art, st, color, pose)}${s.mark ? `<span class="mk" title="${esc(T('pet.assume'))}" aria-label="${esc(T('pet.assume'))}">?</span>` : ''}</div>
@@ -378,6 +379,7 @@ function draggable(p, id) {
   el.onpointerdown = e => {
     if (e.button !== 0) return;
     if (e.target.closest('[data-hide]')) { bridge?.setPet(id, 'hidden'); return; }
+    if (e.target.closest('[data-open]')) { bridge?.petClick(id, true); return; } // the card's Open session: whatever the click action is
     const a = e.target.closest('[data-answer]');
     if (a) { if (p.s.answer) bridge?.answer(p.s.answer.id, a.dataset.answer); return; }
     if (e.target.closest('[data-habit]')) { habitSay = null; p.key = null; bridge?.showBoard(); wake(); return; }

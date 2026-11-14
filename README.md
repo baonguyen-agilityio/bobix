@@ -60,6 +60,7 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 ### The panel
 - One window with a search field and screens: **Overview** (what needs you, warnings, today's usage), **Sessions** (Claude sessions, grouped by issue), **Work** (issues to start, and the ticket flow), **Skills**, **Room** and **Settings**.
 - Every action has a key, and ⌘K / Ctrl+K finds any action, session or screen.
+- **Open a session from wherever it shows**: an Overview row, the Sessions tab, a pet's card (**Open session**, whatever the click action is), a pet click (when set to open), a notification, the menu bar or tray list of sessions waiting for you, and ⌘K (↵ opens it, ⇧↵ shows its details). A session that waits for your approval says **Open to approve** instead. In Work, a running session's button says **Open session**; **Resume** reopens one that has ended in the Claude desktop app, and an ended terminal session says so and offers `claude --resume <id>` to copy.
 
 ### Habits and rooms (only if you use them)
 - **Habits become skills** (off by default: needs "Read my prompts to count them by kind" and the weekly scan, both in Settings → Usage). Once a week Bobix gives the prompts you typed in the last 14 days to Haiku through your own `claude -p`, finds the requests you make every week and drafts a skill you can edit. Only **Approve and install** writes it to `~/.claude/skills`, and every version can be undone. This sends text to Anthropic, through your own Claude.
@@ -158,7 +159,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Which Claude Code setups work?** The CLI in any terminal, the IDE extensions and the Claude desktop app. Click-to-open goes straight to the session in the desktop app; elsewhere it brings the app forward, not a specific tab.
 
-**What if I don't have Node.js?** Hooks fall back to `curl` or PowerShell. Everything works except click-to-open, which then shows the session's details.
+**What if I don't have Node.js?** Hooks fall back to `curl` or PowerShell. Everything works except opening a session (a pet click, **Open session** in the panel, on the pet's card or in the tray, ⌘K ↵), which then shows its details or says why instead of bringing its window forward.
 
 **It shows nothing on my work laptop.** Your organization may allow only managed hooks (`allowManagedHooksOnly`). Bobix respects that and cannot receive events there.
 

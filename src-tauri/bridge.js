@@ -96,7 +96,7 @@
     ticketReview: (key, how) => invoke('ticket_review', { key: String(key), how: how === 'cli' ? 'cli' : 'desktop' }), // a second session reviews a done flow
     onSettings: on('settings'), onUpdate: on('update'), onSelect: on('select'), onShowTab: on('show-tab'), onOpenFail: on('open-fail'),
     // overlay only
-    petClick: id => invoke('pet_click', { id }),
+    petClick: (id, force) => invoke('pet_click', { id, force: force === true }),
     setRects: r => invoke('rects', { r }),
     onMouse: on('mouse'),
   };

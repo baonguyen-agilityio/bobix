@@ -60,6 +60,7 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 ### Bảng điều khiển
 - Một cửa sổ có ô tìm kiếm và các màn hình: **Tổng quan** (việc cần bạn, cảnh báo, mức dùng hôm nay), **Phiên** (session Claude, nhóm theo issue), **Công việc** (issue cần bắt đầu, và luồng ticket), **Skill**, **Phòng** và **Cài đặt**.
 - Mọi thao tác đều có phím tắt, và ⌘K / Ctrl+K tìm bất kỳ thao tác, session hay màn hình nào.
+- **Mở một session từ bất cứ nơi nào nó hiện ra**: một dòng ở Tổng quan, tab Phiên, thẻ của chú thú (**Mở phiên**, bất kể cài đặt bấm thế nào), bấm vào chú thú (khi đặt là mở), thông báo, danh sách session đang chờ bạn ở thanh menu hoặc khay hệ thống, và ⌘K (↵ để mở, ⇧↵ để xem chi tiết). Session đang chờ duyệt hiện **Mở để duyệt**. Ở Công việc, nút của session đang chạy ghi **Mở phiên**; **Tiếp tục** mở lại session đã kết thúc trong app Claude, còn session terminal đã kết thúc thì báo như vậy và cho chép `claude --resume <id>`.
 
 ### Thói quen và phòng họp (chỉ khi bạn dùng)
 - **Thói quen thành skill** (mặc định tắt: cần bật "Đọc prompt để đếm theo loại" và quét hằng tuần, đều trong Cài đặt → Mức dùng). Mỗi tuần một lần Bobix đưa các prompt bạn gõ trong 14 ngày qua cho Haiku, qua chính `claude -p` của bạn, tìm những yêu cầu tuần nào bạn cũng làm và soạn nháp một skill để bạn sửa. Chỉ khi bấm **Duyệt và cài** nó mới được ghi vào `~/.claude/skills`, và mọi phiên bản đều hoàn tác được. Việc này gửi văn bản tới Anthropic, qua chính Claude của bạn.
@@ -158,7 +159,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 
 **Dùng được với những cách chạy Claude Code nào?** CLI trong mọi terminal, extension cho IDE và app Claude desktop. Bấm để mở sẽ vào thẳng session trong app desktop; ở chỗ khác thì đưa cửa sổ app lên trước, không chọn được đúng tab.
 
-**Không có Node.js thì sao?** Hook chuyển sang dùng `curl` hoặc PowerShell. Mọi thứ vẫn chạy, trừ bấm để mở: khi đó app hiện chi tiết session.
+**Không có Node.js thì sao?** Hook chuyển sang dùng `curl` hoặc PowerShell. Mọi thứ vẫn chạy, trừ việc mở một session (bấm vào chú thú, **Mở phiên** trong bảng điều khiển, trên thẻ của chú thú hoặc ở khay hệ thống, ⌘K ↵): khi đó app hiện chi tiết hoặc báo lý do thay vì đưa cửa sổ của nó lên trước.
 
 **Máy công ty không hiện gì cả.** Tổ chức của bạn có thể chỉ cho phép hook do quản trị cài (`allowManagedHooksOnly`). Bobix tôn trọng thiết lập đó nên không nhận được sự kiện.
 
