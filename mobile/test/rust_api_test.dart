@@ -65,4 +65,21 @@ void main() {
       'receiverBoxSecret',
     });
   });
+
+  test('the generated bridge lists the Rust functions: nothing was added or removed without regenerating', () {
+    final rust = File('rust/src/api/core.rs').readAsStringSync();
+    String camel(String snake) => snake.replaceAllMapped(
+      RegExp(r'_([a-z0-9])'),
+      (m) => m[1]!.toUpperCase(),
+    );
+    final inRust = RegExp(
+      r'^pub fn (\w+)',
+      multiLine: true,
+    ).allMatches(rust).map((m) => camel(m[1]!)).toSet();
+    expect(
+      inRust,
+      exposed,
+      reason: 'run flutter_rust_bridge_codegen generate in mobile/, then update the list above',
+    );
+  });
 }
