@@ -77,6 +77,8 @@ class PlatformSecureKeys implements SecureKeys {
     return switch (out?['result']) {
       'signed' => Signed(out!['signature']! as Uint8List),
       'cancelled' => const SignCancelled(),
+      'lockedOut' => const SignLockedOut(),
+      'unavailable' => const BiometryUnavailable(),
       'invalidated' => const KeyInvalidated(),
       _ => SignFailed('${out?['message'] ?? 'unknown'}'),
     };

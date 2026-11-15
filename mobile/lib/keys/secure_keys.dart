@@ -46,7 +46,18 @@ class SignCancelled extends SignResult {
   const SignCancelled();
 }
 
-/// The key is gone or unusable (the enrolled biometrics changed, the passcode was removed): the phone must pair again.
+/// Too many failed matches: the person can unlock with the passcode and try again. The key is fine; do not unpair.
+class SignLockedOut extends SignResult {
+  const SignLockedOut();
+}
+
+/// Biometrics cannot be used right now (none enrolled, or turned off for this app in Settings). The key is not lost.
+class BiometryUnavailable extends SignResult {
+  const BiometryUnavailable();
+}
+
+/// The key is really gone or unusable (the enrolled biometrics changed, the passcode was removed): the phone must pair
+/// again. Reported only after the platform checked that it is so; every temporary state has a result of its own.
 class KeyInvalidated extends SignResult {
   const KeyInvalidated();
 }

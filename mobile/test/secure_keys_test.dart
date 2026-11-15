@@ -57,6 +57,8 @@ void main() {
       {'result': 'signed', 'signature': signature}: (r) =>
           expect((r as Signed).signature, signature),
       {'result': 'cancelled'}: (r) => expect(r, isA<SignCancelled>()),
+      {'result': 'lockedOut'}: (r) => expect(r, isA<SignLockedOut>()),
+      {'result': 'unavailable'}: (r) => expect(r, isA<BiometryUnavailable>()),
       {'result': 'invalidated'}: (r) => expect(r, isA<KeyInvalidated>()),
       {'result': 'failed', 'message': 'boom'}: (r) =>
           expect((r as SignFailed).message, 'boom'),

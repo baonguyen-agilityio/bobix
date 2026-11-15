@@ -1,3 +1,4 @@
+import LocalAuthentication
 import Security
 import XCTest
 
@@ -128,6 +129,29 @@ final class SecureKeysTests: XCTestCase {
     _ = try s.createSigningKey()
     s.deleteSigningKey()
     XCTAssertEqual(s.sign(Data([1]), reason: "test"), .invalidated)
+  }
+
+  func testOnlyAReallyLostKeyMeansPairAgain() {
+    func la(_ c: LAError.Code, gone: Bool) -> KeyStore.SignOutcome { KeyStore.classify(domain: LAError.errorDomain, code: c.rawValue, keyGone: gone) }
+    // The person's choices and temporary states are reported as such, whatever the key's state.
+    for gone in [false, true] {
+      XCTAssertEqual(la(.userCancel, gone: gone), .cancelled)
+      XCTAssertEqual(la(.systemCancel, gone: gone), .cancelled)
+      XCTAssertEqual(la(.appCancel, gone: gone), .cancelled)
+      XCTAssertEqual(la(.biometryLockout, gone: gone), .lockedOut, "lockout clears with the passcode: the key is fine")
+    }
+    XCTAssertEqual(la(.biometryNotAvailable, gone: false), .unavailable, "Face ID turned off for the app")
+    XCTAssertEqual(la(.biometryNotEnrolled, gone: false), .unavailable)
+    XCTAssertEqual(la(.authenticationFailed, gone: false), .failed("authentication failed"), "a wrong match is not a lost key")
+    // A lost key is reported only when the biometric set really changed.
+    XCTAssertEqual(la(.biometryNotEnrolled, gone: true), .invalidated)
+    XCTAssertEqual(la(.authenticationFailed, gone: true), .invalidated)
+    let status = { (s: OSStatus, gone: Bool) in KeyStore.classify(domain: NSOSStatusErrorDomain, code: Int(s), keyGone: gone) }
+    XCTAssertEqual(status(errSecAuthFailed, false), .failed("authentication failed"))
+    XCTAssertEqual(status(errSecAuthFailed, true), .invalidated)
+    XCTAssertEqual(status(errSecItemNotFound, false), .invalidated, "the key item itself is gone")
+    XCTAssertEqual(status(errSecUserCanceled, true), .cancelled)
+    XCTAssertEqual(status(errSecMissingEntitlement, true), .failed("keychain (\(errSecMissingEntitlement))"))
   }
 
   func testAFreshInstallErasesEveryOldKey() throws {

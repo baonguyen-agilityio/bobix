@@ -16,7 +16,12 @@ final class KeyStore {
   enum SignOutcome: Equatable {
     case signed(Data)
     case cancelled
-    /// The key is gone or unusable (biometrics changed, passcode removed): the phone must pair again.
+    /// Too many failed matches: the person can unlock with the passcode and try again. The key is fine.
+    case lockedOut
+    /// Biometrics cannot be used right now (none enrolled, or turned off for this app in Settings). Not a lost key.
+    case unavailable
+    /// The key is really gone or unusable (the enrolled biometrics changed, the passcode was removed): the phone must pair
+    /// again. Only reported after checking that it is so.
     case invalidated
     case failed(String)
   }
@@ -52,7 +57,8 @@ final class KeyStore {
 
   private static func defaultMarkerURL() throws -> URL {
     var dir = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-    // The app's data stays out of device and cloud backups.
+    // The app's data stays out of device and cloud backups: the whole Application Support folder is excluded, so what the
+    // app keeps there (the last `home`) is out of backups too; anything stored elsewhere must be excluded on its own.
     var values = URLResourceValues()
     values.isExcludedFromBackup = true
     try? dir.setResourceValues(values)
@@ -145,6 +151,7 @@ final class KeyStore {
     guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
       throw KeyError(message: "signing key: \(error.map { String(describing: $0.takeRetainedValue()) } ?? "unknown")")
     }
+    if !software, let state = currentDomainState() { try putSecret(KeyStore.domainStateName, state) }
     return try exportPublic(key)
   }
 
@@ -154,6 +161,23 @@ final class KeyStore {
       throw KeyError(message: "public key: \(error.map { String(describing: $0.takeRetainedValue()) } ?? "unknown")")
     }
     return data
+  }
+
+  // The biometric "domain state" when the key was made. A key bound to the current biometric set dies when it changes, so
+  // comparing the two tells a lost key from a temporary state (lockout, Face ID off) or a wrong match.
+  private static let domainStateName = "sign-biometric-state"
+
+  private func currentDomainState() -> Data? {
+    let context = LAContext()
+    var error: NSError?
+    _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    return context.evaluatedPolicyDomainState
+  }
+
+  /// True only when the key was made under a biometric set that is no longer the current one (or none is left).
+  private func biometricSetChanged() -> Bool {
+    guard let stored = secret(KeyStore.domainStateName) else { return false } // a software key records none
+    return currentDomainState() != stored
   }
 
   func signingPublicKey() -> Data? {
@@ -178,36 +202,42 @@ final class KeyStore {
     query[kSecUseAuthenticationContext as String] = context
     var out: CFTypeRef?
     let found = SecItemCopyMatching(query as CFDictionary, &out)
-    if found == errSecItemNotFound { return .invalidated }
-    guard found == errSecSuccess, let ref = out else { return outcome(forStatus: found) }
+    if found == errSecItemNotFound { return .invalidated } // the key itself is gone
+    guard found == errSecSuccess, let ref = out else { return classify(domain: NSOSStatusErrorDomain, code: Int(found), keyGone: biometricSetChanged()) }
 
     var error: Unmanaged<CFError>?
     guard let signature = SecKeyCreateSignature(ref as! SecKey, .ecdsaSignatureMessageX962SHA256, data as CFData, &error) as Data? else {
-      return outcome(for: error?.takeRetainedValue())
+      let ns = error?.takeRetainedValue() as Error? as NSError?
+      return classify(domain: ns?.domain ?? "", code: ns?.code ?? 0, keyGone: biometricSetChanged(), message: ns?.localizedDescription)
     }
     return .signed(signature)
   }
 
-  private func outcome(forStatus status: OSStatus) -> SignOutcome {
-    switch status {
-    case errSecUserCanceled: return .cancelled
-    case errSecAuthFailed, errSecItemNotFound: return .invalidated
-    default: return .failed("keychain (\(status))")
-    }
+  /// What an error from the Keychain or LocalAuthentication means for the key. `keyGone` is whether the biometric set the
+  /// key was made under has changed; only then is a failed authentication "the key is lost" rather than a temporary state.
+  func classify(domain: String, code: Int, keyGone: Bool, message: String? = nil) -> SignOutcome {
+    KeyStore.classify(domain: domain, code: code, keyGone: keyGone, message: message)
   }
 
-  private func outcome(for error: CFError?) -> SignOutcome {
-    guard let error else { return .failed("unknown") }
-    let ns = error as Error as NSError
-    if ns.domain == LAError.errorDomain {
-      switch LAError.Code(rawValue: ns.code) {
+  static func classify(domain: String, code: Int, keyGone: Bool, message: String? = nil) -> SignOutcome {
+    if domain == LAError.errorDomain {
+      switch LAError.Code(rawValue: code) {
       case .userCancel, .systemCancel, .appCancel: return .cancelled
-      case .biometryNotEnrolled, .biometryLockout, .biometryNotAvailable: return .invalidated
-      default: break
+      case .biometryLockout: return .lockedOut
+      case .biometryNotEnrolled, .biometryNotAvailable: return keyGone ? .invalidated : .unavailable
+      case .authenticationFailed: return keyGone ? .invalidated : .failed("authentication failed")
+      default: return .failed(message ?? "authentication error \(code)")
       }
     }
-    if ns.domain == NSOSStatusErrorDomain { return outcome(forStatus: OSStatus(ns.code)) }
-    return .failed(ns.localizedDescription)
+    if domain == NSOSStatusErrorDomain {
+      switch OSStatus(code) {
+      case errSecUserCanceled: return .cancelled
+      case errSecItemNotFound: return .invalidated
+      case errSecAuthFailed: return keyGone ? .invalidated : .failed("authentication failed")
+      default: return .failed("keychain (\(code))")
+      }
+    }
+    return .failed(message ?? "unknown")
   }
 
   func deleteSigningKey() {
@@ -265,6 +295,8 @@ final class SecureKeysChannel {
           switch store.sign(data, reason: reason) {
           case .signed(let s): out = ["result": "signed", "signature": FlutterStandardTypedData(bytes: s)]
           case .cancelled: out = ["result": "cancelled"]
+          case .lockedOut: out = ["result": "lockedOut"]
+          case .unavailable: out = ["result": "unavailable"]
           case .invalidated: out = ["result": "invalidated"]
           case .failed(let m): out = ["result": "failed", "message": m]
           }
