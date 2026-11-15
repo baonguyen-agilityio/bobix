@@ -2,6 +2,7 @@ import Flutter
 import Foundation
 import LocalAuthentication
 import Security
+import UIKit
 
 /// The three keys of the app.
 ///
@@ -260,6 +261,14 @@ final class KeyStore {
     return .failed(message ?? "unknown")
   }
 
+  /// Whether the biometrics a signing key needs can be used on this phone (Face ID or Touch ID is enrolled). The software
+  /// key has no such need.
+  func strongBiometrics() -> Bool {
+    if software { return true }
+    var error: NSError?
+    return LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+  }
+
   func deleteSigningKey() {
     SecItemDelete(keyQuery as CFDictionary)
   }
@@ -295,6 +304,11 @@ final class SecureKeysChannel {
       }
       return
     }
+    if call.method == "openSettings" {
+      if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+      result(nil)
+      return
+    }
     guard let store else { return result(FlutterError(code: "not_open", message: "call open first", details: nil)) }
     func name() -> String { args["name"] as? String ?? "" }
     func bytes(_ key: String) -> Data { (args[key] as? FlutterStandardTypedData)?.data ?? Data() }
@@ -305,6 +319,7 @@ final class SecureKeysChannel {
       case "deleteSecret": store.deleteSecret(name()); result(nil)
       case "createSigningKey": result(FlutterStandardTypedData(bytes: try store.createSigningKey()))
       case "signingPublicKey": result(store.signingPublicKey().map { FlutterStandardTypedData(bytes: $0) })
+      case "strongBiometrics": result(store.strongBiometrics())
       case "deleteSigningKey": store.deleteSigningKey(); result(nil)
       case "eraseAll": store.eraseAll(); result(nil)
       case "sign":

@@ -117,6 +117,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PreparedCommand dco_decode_prepared_command(dynamic raw);
 
   @protected
+  ProtocolVersions dco_decode_protocol_versions(dynamic raw);
+
+  @protected
   ShownQuestion dco_decode_shown_question(dynamic raw);
 
   @protected
@@ -227,6 +230,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PreparedCommand sse_decode_prepared_command(SseDeserializer deserializer);
+
+  @protected
+  ProtocolVersions sse_decode_protocol_versions(SseDeserializer deserializer);
 
   @protected
   ShownQuestion sse_decode_shown_question(SseDeserializer deserializer);
@@ -360,6 +366,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_prepared_command(
     PreparedCommand self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_protocol_versions(
+    ProtocolVersions self,
     SseSerializer serializer,
   );
 

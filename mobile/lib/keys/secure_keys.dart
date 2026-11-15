@@ -16,6 +16,9 @@ abstract interface class SecureKeys {
   Future<Uint8List?> secret(String name);
   Future<void> deleteSecret(String name);
 
+  /// Whether the biometrics the signing key needs can be used on this phone. Pairing checks it first.
+  Future<bool> strongBiometrics();
+
   /// Makes the signing key, replacing any earlier one, and returns its public key (X9.63, 65 bytes).
   Future<Uint8List> createSigningKey();
 

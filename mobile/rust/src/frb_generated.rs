@@ -40,7 +40,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -907647130;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1676782699;
 
 // Section: executor
 
@@ -982,6 +982,38 @@ fn wire__crate__api__messages__prompt_hash_impl(
         },
     )
 }
+fn wire__crate__api__core__protocol_versions_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "protocol_versions",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>(crate::api::core::protocol_versions())?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__core__recv_check_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1785,6 +1817,20 @@ impl SseDecode for crate::api::messages::PreparedCommand {
     }
 }
 
+impl SseDecode for crate::api::core::ProtocolVersions {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_min = <u8>::sse_decode(deserializer);
+        let mut var_max = <u8>::sse_decode(deserializer);
+        let mut var_current = <u8>::sse_decode(deserializer);
+        return crate::api::core::ProtocolVersions {
+            min: var_min,
+            max: var_max,
+            current: var_current,
+        };
+    }
+}
+
 impl SseDecode for crate::api::core::ShownQuestion {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1881,23 +1927,24 @@ fn pde_ffi_dispatcher_primary_impl(
         23 => wire__crate__api__core__peek_packet_impl(port, ptr, rust_vec_len, data_len),
         24 => wire__crate__api__messages__prepare_command_impl(port, ptr, rust_vec_len, data_len),
         25 => wire__crate__api__messages__prompt_hash_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__core__recv_check_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__core__recv_commit_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__core__recv_state_new_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__core__relay_url_ok_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__messages__rights_allow_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__core__seal_packet_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__core__shown_hash_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__core__sign_with_auth_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__messages__start_preview_message_impl(
+        26 => wire__crate__api__core__protocol_versions_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__core__recv_check_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__core__recv_commit_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__core__recv_state_new_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__core__relay_url_ok_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__messages__rights_allow_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__core__seal_packet_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__core__shown_hash_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__core__sign_with_auth_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__messages__start_preview_message_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__api__messages__sync_message_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__core__verify_auth_signature_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__core__verify_p256_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__messages__sync_message_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__core__verify_auth_signature_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__core__verify_p256_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2228,6 +2275,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::messages::PreparedCommand>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::core::ProtocolVersions {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.min.into_into_dart().into_dart(),
+            self.max.into_into_dart().into_dart(),
+            self.current.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::core::ProtocolVersions
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::core::ProtocolVersions>
+    for crate::api::core::ProtocolVersions
+{
+    fn into_into_dart(self) -> crate::api::core::ProtocolVersions {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::core::ShownQuestion {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -2552,6 +2621,15 @@ impl SseEncode for crate::api::messages::PreparedCommand {
         <String>::sse_encode(self.kind, serializer);
         <String>::sse_encode(self.target, serializer);
         <Vec<u8>>::sse_encode(self.bytes_to_sign, serializer);
+    }
+}
+
+impl SseEncode for crate::api::core::ProtocolVersions {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u8>::sse_encode(self.min, serializer);
+        <u8>::sse_encode(self.max, serializer);
+        <u8>::sse_encode(self.current, serializer);
     }
 }
 

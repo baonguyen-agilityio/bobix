@@ -22,6 +22,7 @@ const exposed = {
   'peekPacket',
   'openPacket',
   'checkVersion',
+  'protocolVersions',
   'recvStateNew',
   'recvCheck',
   'recvCommit',
