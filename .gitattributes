@@ -3,6 +3,8 @@
 mobile/lib/l10n/strings.g.dart text eol=lf
 mobile/test/fixtures/creature-fixtures.json text eol=lf
 mobile/ios/Runner/*.lproj/InfoPlist.strings text eol=lf
+mobile/ios/Runner/*.lproj/Localizable.strings text eol=lf
+mobile/ios/NotificationService/*.lproj/Localizable.strings text eol=lf
 # The Android strings, the committed UniFFI binding and the notice fixtures are written by a script or a test and compared
 # byte for byte, so they stay LF in every checkout. The Gradle wrapper script must keep LF to run, its .bat CRLF.
 mobile/android/app/src/main/res/values*/strings.xml text eol=lf
