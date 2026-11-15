@@ -13,5 +13,17 @@ plans/
 .claude/worktrees/
 .claude/settings.local.json
 CLAUDE.local.md
+# Phone app: signing material and push-service config are never committed
+mobile/ios/**/GoogleService-Info.plist
+mobile/android/app/google-services.json
+mobile/android/key.properties
+*.jks
+*.keystore
+*.p8
+*.mobileprovision
 crates/*/fuzz/corpus/
 crates/*/fuzz/artifacts/
+# Phone app: the Rust core's build output
+mobile/rust/target/
+# Phone app: per-developer iOS settings (the Apple team), see mobile/ios/Flutter/Local.xcconfig.example
+mobile/ios/Flutter/Local.xcconfig
