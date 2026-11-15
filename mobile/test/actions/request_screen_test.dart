@@ -26,6 +26,12 @@ void main() {
       expect(parts.map((p) => p.text).join(), contains('b'));
       expect(hasHiddenChars('plain text\nwith a tab\t'), isFalse);
       expect(hasHiddenChars('x\u2066y'), isTrue);
+      for (final ok in ['\u26A0\uFE0F careful', 'done \u2705\uFE0F', 'a\uFE0F']) {
+        expect(hasHiddenChars(ok), isFalse, reason: ok);
+      }
+      for (final bad in ['\uFE0F', 'x \uFE0F', '\u26A0\uFE0F\uFE0F', 'a\u3164b', 'a\uFE00', 'a\u{E0100}']) {
+        expect(hasHiddenChars(bad), isTrue, reason: bad);
+      }
     });
 
     test('line separators, variation selectors and fillers are escaped', () {
@@ -33,7 +39,6 @@ void main() {
         '\u2028': '\\u2028',
         '\u2029': '\\u2029',
         '\uFE00': '\\uFE00',
-        '\uFE0F': '\\uFE0F',
         '\u{E0100}': '\\u{E0100}',
         '\u{E01EF}': '\\u{E01EF}',
         '\u034F': '\\u034F',
@@ -50,6 +55,9 @@ void main() {
         ], reason: escape);
         expect(parts.where((p) => !p.escaped).map((p) => p.text).join(), 'ab');
       });
+      // The emoji presentation selector is text after a visible character (`\u26A0\uFE0F`), and hidden alone or stacked.
+      expect(hasHiddenChars('a\uFE0Fb'), isFalse);
+      expect(showEscapes('a\uFE0F\uFE0Fb').where((p) => p.escaped).map((p) => p.text), ['\\uFE0F']);
       // Their neighbours are ordinary text.
       expect(hasHiddenChars('\u2027'), isFalse);
       expect(hasHiddenChars('\uFDFF\uFE10\u{E00FF}\u{E01F0}'), isFalse);

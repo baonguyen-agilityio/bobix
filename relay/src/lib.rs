@@ -38,7 +38,7 @@ impl App {
         Arc::new(App {
             log: log::Logger::new(cfg.log_dir.clone(), cfg.log_days),
             gateway_limits: Mutex::new(gateway::Limits::new(&cfg)),
-            ips: Mutex::new(limits::Ips::new(cfg.max_unauth_per_ip, cfg.conns_per_ip_per_min)),
+            ips: Mutex::new(limits::Ips::new(limits::IpLimits { unauth_per_ip: cfg.max_unauth_per_ip, open_per_ip: cfg.max_open_per_ip, unauth_total: cfg.max_unauth_total, open_total: cfg.max_open_total, unauth_per_net48: cfg.max_unauth_per_net48, per_min: cfg.conns_per_ip_per_min })),
             hub: Mutex::new(Hub::new(cfg.clone())),
             sender,
             fake,

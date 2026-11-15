@@ -24,7 +24,7 @@ pub fn pet_of(project: &str, id: &str) -> Pet {
 // One line of at most `max` bytes: secrets replaced, hidden characters dropped, whitespace folded.
 pub fn preview(text: &str, max: usize) -> String {
     // hidden characters go first: one inside a token must not hide it from the redactor, and then join it back together
-    let clean: String = text.chars().filter(|c| !is_odd_char(*c) || c.is_whitespace()).collect();
+    let clean: String = text.chars().zip(odd_flags(text)).filter(|(c, odd)| !odd || c.is_whitespace()).map(|(c, _)| c).collect();
     let (red, _) = room::redact(&clean);
     let line: String = red.split_whitespace().collect::<Vec<_>>().join(" ");
     cut_bytes(&line, max)
@@ -130,7 +130,7 @@ pub fn session_detail(sessions: &Sessions, id: &str, rights: Rights) -> Result<D
     if !rights.activity { return Err("right"); }
     let mut text = s.log.iter().filter(|l| l.kind != "prompt" && l.kind != "system").map(|l| {
         let line = if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) };
-        room::redact(&line.chars().filter(|c| !is_odd_char(*c) || *c == '\n' || *c == '\t').collect::<String>()).0.replace('\n', " ")
+        room::redact(&line.chars().zip(odd_flags(&line)).filter(|(c, odd)| !odd || *c == '\n' || *c == '\t').map(|(c, _)| c).collect::<String>()).0.replace('\n', " ")
     }).collect::<Vec<_>>().join("\n");
     let cut = text.len() > MAX_TOOL_INPUT;
     if cut { text = cut_bytes(&text, MAX_TOOL_INPUT / 2); } // escapes of hidden characters may grow it; half is safe for what remains
@@ -155,6 +155,15 @@ mod tests {
         let split = format!("ghp_{}\u{200b}{}", "a1B2c3D4e5", "F6g7H8i9J0k1L2m3N4");
         assert!(!preview(&split, 300).contains("F6g7H8") && !preview(&format!("x \u{feff}{split}"), 300).contains("a1B2c3"), "a token split by a hidden character is still redacted");
         assert!(!p.contains(&tok) && !p.contains('\u{202e}') && !p.contains('\n'), "{p}");
+        for line in [
+            "export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCY", "PGPASSWORD=hunter2hunter psql -h db", "GITHUB_TOKEN=abcd1234efgh", "DB_PASSWORD: s3cr3tvalue",
+            "MYSQL_PWD=hunter2hunter mysql", "curl --password hunter2hunter x", "mysql -u root -phunter2hunter db", "docker login --password=hunter2hunter",
+        ] {
+            let p = preview(line, 300);
+            assert!(!p.contains("hunter2") && !p.contains("wJalr") && !p.contains("abcd1234") && !p.contains("s3cr3t"), "{line} -> {p}");
+        }
+        assert_eq!(preview("password=hunter2hunter", 300), "password=[redacted]");
+        assert!(preview("the token_count was 5 and the secretary left", 300).contains("secretary left"), "plain words stay");
         for t in ["lin_api_abcdefghijklmnopqrstuvwx", "glpat-abcdefghijklmnopqrstu", "ATATT3xFfGF0abcdefghijklmnopqrstuvwx", "sk_live_abcdefghijklmnop", "npm_abcdefghijklmnopqrstuvwxyz0123456789"] {
             assert!(!preview(&format!("export T={t}"), 300).contains(t), "{t}");
         }

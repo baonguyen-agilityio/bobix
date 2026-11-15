@@ -112,16 +112,17 @@ pub fn risky(tool: &str, input: &Value) -> bool {
 
 // Control and format characters change what a screen shows without being seen: bidirectional overrides, zero-width
 // characters, terminal escapes. A newline, a tab and a CRLF are text. (Cf, plus U+2028/2029.)
-fn odd_char(c: char, next: Option<char>) -> bool {
-    match c {
-        '\n' | '\t' => false,
-        '\r' => next != Some('\n'),
-        c => c.is_control() || matches!(c as u32, 0xAD | 0x600..=0x605 | 0x61C | 0x6DD | 0x70F | 0x8E2 | 0x180E | 0x200B..=0x200F | 0x2028..=0x202E
-            | 0x2060..=0x2064 | 0x2066..=0x206F | 0xFEFF | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD | 0x13430..=0x1343F | 0x1BCA0..=0x1BCA3
-            | 0x1D173..=0x1D17A | 0xE0001 | 0xE0020..=0xE007F),
+// One list, in the crate (it also covers the invisible letters and the variation selectors; an emoji presentation selector
+// is allowed after a visible character). Here newline and tab are text, and so is a carriage return before a newline.
+fn flags(s: &str) -> Vec<bool> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut f = bobix_link::messages::odd_flags(s);
+    for (i, c) in chars.iter().enumerate() {
+        match c { '\n' | '\t' => f[i] = false, '\r' => f[i] = chars.get(i + 1) != Some(&'\n'), _ => {} }
     }
+    f
 }
-fn odd_str(s: &str) -> bool { let mut it = s.chars().peekable(); while let Some(c) = it.next() { if odd_char(c, it.peek().copied()) { return true; } } false }
+fn odd_str(s: &str) -> bool { flags(s).contains(&true) }
 // Any string of the value, or any key, holds such a character.
 pub fn odd(v: &Value) -> bool {
     match v {
@@ -135,9 +136,8 @@ pub fn odd(v: &Value) -> bool {
 pub fn escape_hidden(s: &str) -> String { escaped(s) }
 fn escaped(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    let mut it = s.chars().peekable();
-    while let Some(c) = it.next() {
-        if !odd_char(c, it.peek().copied()) { out.push(c); } else if (c as u32) < 0x10000 { out.push_str(&format!("\\u{:04X}", c as u32)); } else { out.push_str(&format!("\\u{{{:X}}}", c as u32)); }
+    for (c, hidden) in s.chars().zip(flags(s)) {
+        if !hidden { out.push(c); } else if (c as u32) < 0x10000 { out.push_str(&format!("\\u{:04X}", c as u32)); } else { out.push_str(&format!("\\u{{{:X}}}", c as u32)); }
     }
     out
 }
@@ -353,6 +353,18 @@ fn unseen_ids(c: &crate::Core) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn emoji_are_text_and_a_lone_selector_or_an_invisible_letter_is_not() {
+        let v = |s: &str| serde_json::Value::String(s.into());
+        for ok in ["\u{26A0}\u{FE0F} careful\r\nnext", "\u{2705}\u{FE0F} done", "ls\tx"] {
+            assert!(!super::odd(&v(ok)) && super::escape_hidden(ok) == ok, "{ok:?}");
+        }
+        for bad in ["x \u{FE0F}", "\u{26A0}\u{FE0F}\u{FE0F}", "a,\u{3164}", "a\u{FE00}", "a\rb"] {
+            assert!(super::odd(&v(bad)), "{bad:?}");
+        }
+        assert_eq!(super::escape_hidden("\u{26A0}\u{FE0F}\u{FE0F}"), "\u{26A0}\u{FE0F}\\uFE0F");
+    }
+
     #[test]
     fn decisions_match_the_electron_build() {
         assert_eq!(super::decision("allow").unwrap(), serde_json::json!({ "behavior": "allow" }));

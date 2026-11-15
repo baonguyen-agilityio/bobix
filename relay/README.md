@@ -51,7 +51,7 @@ Without Docker: `cd relay && cargo build --release`, then run `target/release/bo
 | `RELAY_ID` | **Required.** The id push grants name; use the relay's host name. Changing it invalidates the push grants phones already hold. |
 | `REVOKED_DIR` | **Required** outside `--dev`; the image sets `/data/revoked`. Must be on a persistent volume, otherwise a restart forgets who was revoked. |
 | `INVITE_FILE` | Path of a file with one device id per line (`#` comments). When set, only the computers listed may open a pairing or revoke; everyone else is a guest. **Keep it set during the beta, and do not unset it** until per-sender shares of the global mailbox budget exist (today 1,000 mailboxes and 256 MiB are shared by everyone, so one open relay could be filled by a single client; see #227). Read again every 5 seconds, so no restart is needed. If unset, anyone can use the relay. Put it on the data volume, such as `/data/invites.txt`. |
-| `CLIENT_IP_HEADER` | The header your proxy sets to the client's address, such as `X-Real-IP` or `X-Forwarded-For`; the last value is used. It keys the per-address limits (8 unauthenticated sockets, 120 connections a minute). Set it only when the proxy overwrites that header; otherwise a client picks its own address. If unset, the proxy's address is used and every client shares one limit. |
+| `CLIENT_IP_HEADER` | The header your proxy sets to the client's address, such as `X-Real-IP` or `X-Forwarded-For`; the last value is used. It keys the per-address limits (8 unauthenticated sockets, 32 sockets in all, 120 connections a minute; an IPv6 address counts by its /64), 32 unauthenticated sockets per IPv6 /48, and the totals (256 unauthenticated, 4096 open). Set it only when the proxy overwrites that header; otherwise a client picks its own address. If unset, the proxy's address is used and every client shares one limit. |
 
 ### Every setting
 
@@ -59,10 +59,10 @@ Without Docker: `cd relay && cargo build --release`, then run `target/release/bo
 |---|---|---|
 | `RELAY_ADDR` | `0.0.0.0:8787` (image: same) | Address to listen on. |
 | `LOG_DIR` | none (image: `/data/logs`) | One log file per day, 14 days kept. Standard output always carries the log too. |
-| `GATEWAY_KEYS_FILE` | none | Gateway keys, one per line, optionally followed by the relay id the key belongs to. Lets other relays use this one's push gateway. |
+| `GATEWAY_KEYS_FILE` | none | Gateway keys, one per line, optionally followed by the relay id the key belongs to. Lets other relays use this one's push gateway. A key with a relay id is bound to that relay; a key without one is a shared key, and its holder names the relay in each push, so give it only to operators you trust (a grant still binds the token, the relay id and an expiry, and cannot be forged). |
 | `APNS_KEY_FILE`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` | none | Apple push credentials (`.p8` key). All four together. |
 | `FCM_SERVICE_ACCOUNT_FILE` | none | Google service-account JSON for Android push. |
-| `PUSH_GATEWAY_URL`, `PUSH_GATEWAY_KEY_FILE` | none | Send pushes through another relay's gateway instead of holding credentials. |
+| `PUSH_GATEWAY_URL`, `PUSH_GATEWAY_KEY_FILE` | none | Send pushes through another relay's gateway instead of holding credentials. The URL must be `https://` (plain `http://` only with `--dev`): the key, push tokens and grants travel there. |
 | `RELAY_DEV_FORCE_BIND` | unset | Only with `--dev`: set to `1` to listen beyond loopback. |
 
 Credentials are read from the files named, never from the image or the repository. `POST /v1/push` (the gateway) exists

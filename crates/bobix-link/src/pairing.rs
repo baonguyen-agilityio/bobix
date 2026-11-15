@@ -10,7 +10,9 @@ use sha2::Sha256;
 
 /// Only the desktop enforces this: a code older than 2 minutes is not answered.
 pub const CODE_LIFETIME_MS: u64 = 2 * 60 * 1000;
-/// A pairing the phone did not acknowledge is dropped after this long.
+/// The owner has this long after the first `hello` to confirm, and the phone this long after the confirmation to acknowledge.
+/// After it the pairing session is over. A phone that was already confirmed stays paired (the desktop holds its keys from the
+/// moment of the confirmation, and its acknowledgement may only be late): the owner removes it in Settings if it is not theirs.
 pub const ACK_LIFETIME_MS: u64 = 10 * 60 * 1000;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -371,6 +373,9 @@ pub enum Offer {
     Duplicate,
     /// A second, different phone answered the same code: the pairing is cancelled and the owner is warned.
     Cancelled,
+    /// A different phone answered the same code after the owner confirmed the first one (the photographed-QR race, seen from
+    /// the other side): the confirmed phone stays, and the owner is warned so that they can remove it if it is not theirs.
+    Late,
 }
 
 /// The desktop's side of one pairing attempt. Time is passed in (Unix milliseconds) so it is testable.
@@ -415,12 +420,20 @@ impl PairingSession {
     /// whose own `boxk` is not `outer_box`, or whose MAC fails, is `Err` and changes nothing: the desktop keeps one
     /// phone box key.
     pub fn on_hello(&mut self, hello: &Hello, outer_box: &[u8; 32], from_id: &str, now_ms: u64) -> Result<Offer, PairError> {
-        if matches!(self.status(now_ms), PairStatus::Expired | PairStatus::Cancelled | PairStatus::Done | PairStatus::Confirmed) {
+        let status = self.status(now_ms);
+        // After the confirmation a hello is still read for [ACK_LIFETIME_MS], also once the phone acknowledged (which is
+        // within a second): a different phone with the code is exactly the one the owner must hear about.
+        let late = status == PairStatus::Confirmed || (status == PairStatus::Done && self.late_window(now_ms));
+        if !late && matches!(status, PairStatus::Expired | PairStatus::Cancelled | PairStatus::Done) {
             return Err(PairError::Expired);
         }
         let (phone, sign) = hello.verify(&self.code)?;
         if phone.device_id() != from_id || &phone.boxk != outer_box {
             return Err(PairError::Hello);
+        }
+        // Confirmed and not yet acknowledged: nothing changes, but a different phone that also holds the code is told.
+        if late {
+            return Ok(if self.first == Some(phone) { Offer::Duplicate } else { Offer::Late });
         }
         match self.first {
             None => {
@@ -433,6 +446,20 @@ impl PairingSession {
                 self.cancelled = true;
                 Ok(Offer::Cancelled)
             }
+        }
+    }
+
+    fn late_window(&self, now_ms: u64) -> bool {
+        self.confirmed_ms.is_some_and(|c| now_ms <= c + ACK_LIFETIME_MS)
+    }
+
+    /// Nothing more can happen in this session, so the caller may drop it: it ran out, or it is done and the time in which a
+    /// late second phone is still reported is over. (A cancelled one stays until the owner dismisses the warning.)
+    pub fn finished(&self, now_ms: u64) -> bool {
+        match self.status(now_ms) {
+            PairStatus::Expired => true,
+            PairStatus::Done => !self.late_window(now_ms),
+            _ => false,
         }
     }
 

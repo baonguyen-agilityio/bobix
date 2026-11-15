@@ -55,10 +55,8 @@ async fn socket(app: Arc<App>, ws: WebSocket, ip: String) {
         let _ = sink.close().await;
     });
     let mut slot = Some(ip.clone());
-    session(&app, &mut stream, &tx, &mut slot).await;
-    if let Some(ip) = slot {
-        app.ips.lock().unwrap().release(&ip);
-    }
+    session(&app, &mut stream, &tx, &mut slot, &ip).await;
+    app.ips.lock().unwrap().release(&ip, slot.is_none());
     // A reader that stopped reading leaves the writer stuck: it is cut, not waited for.
     if !tx.send(Out::Close) || timeout(Duration::from_secs(2), &mut writer).await.is_err() {
         writer.abort();
@@ -73,7 +71,7 @@ fn error(tx: &Tx, code: ErrorCode) {
     reply(tx, Frame::Error { code, who: None, peer: None });
 }
 
-async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, slot: &mut Option<String>) {
+async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, slot: &mut Option<String>, ip: &str) {
     let nonce = b64(&random::<32>());
     reply(tx, Frame::Challenge { nonce: nonce.clone() });
 
@@ -97,9 +95,9 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, s
         }
         return error(tx, refusal.code());
     }
-    // Authenticated: this socket no longer counts as unauthenticated for its address.
-    if let Some(ip) = slot.take() {
-        app.ips.lock().unwrap().release(&ip);
+    // Authenticated: this socket no longer counts as unauthenticated (it still counts as open for its address).
+    if slot.take().is_some() {
+        app.ips.lock().unwrap().authenticated(ip);
     }
 
     let mut frames = (Instant::now(), 0u32);
@@ -119,6 +117,8 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, s
     app.log.line(&format!("connected {id}{}", if guest { " (guest)" } else { "" }));
 
     let mut last_seen = Instant::now();
+    // With invitations on, a guest is there to reach an invited computer: one that has not named one in time is not.
+    let guest_until = guest.then(|| Instant::now() + app.cfg.guest_within);
     let mut ping = interval(app.cfg.ping_every);
     // Silence is judged often, so a device that stopped answering shows offline soon after `dead_after`.
     let mut check = interval((app.cfg.dead_after / 10).max(Duration::from_millis(20)));
@@ -144,6 +144,10 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, s
             }
             _ = ping.tick() => { tx.send(Out::Ping); }
             _ = check.tick() => {
+                if guest_until.is_some_and(|t| Instant::now() > t) && !app.hub.lock().unwrap().has_peers(&id) {
+                    app.log.line(&format!("{id} is a guest that named no invited computer in time: closed"));
+                    break;
+                }
                 if last_seen.elapsed() > app.cfg.dead_after {
                     app.log.line(&format!("no answer to ping from {id}"));
                     break;

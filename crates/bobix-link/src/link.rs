@@ -1,7 +1,9 @@
 //! One direction pair of a pairing, seen from one device: seals what it sends, opens what it receives, and keeps
 //! the counters of both. No file I/O: the caller stores `Sealed::reserve` before it sends the packet, and the
-//! `RecvState` whenever it changes (a device that lost it accepts one old packet once; commands stay bound by
-//! `issuedAt`, `cid`, the `shown` hash and the open-item check).
+//! `RecvState` whenever it changes. A device that lost it has no `highest` to compare with, so it accepts any packet whose
+//! counter it has not seen, and a replay of recorded packets in ascending order is accepted one by one; what holds then is not the
+//! counters but the rest: commands stay bound by `issuedAt`, `cid`, the `shown` hash and the open-item check. A replayed `bye`
+//! is the one that matters (it removes a phone that may have paired again with the same `auth` key), so keep the state.
 //!
 //! Keep the `Link` (or at least its `RecvState`) that opened the pairing `hello`: a sender's counters start at its
 //! clock, so the `hello`'s counter is what puts replays of packets from an earlier pairing with the same keys below
