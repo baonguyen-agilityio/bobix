@@ -276,7 +276,7 @@ pub fn later(b: &Arc<Bobix>) {
 async fn finish(b: Arc<Bobix>, app: AppHandle, u: Update, bytes: Vec<u8>) {
     set(&b, |x| x.phase = "installing".into());
     let ids: Vec<String> = b.core.lock().unwrap().pending.keys().cloned().collect();
-    for id in ids { answers::done(&b, &id, None); }
+    for id in ids { answers::done(&b, &id, None, answers::End::Released("restart")); }
     crate::save_now(&b);
     match tauri::async_runtime::spawn_blocking(move || u.install(bytes)).await {
         Ok(Ok(())) => app.restart(),

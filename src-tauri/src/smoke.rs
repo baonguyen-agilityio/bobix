@@ -26,7 +26,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         {
             let (dir, app) = (dir.clone(), app.clone());
             thread::spawn(move || {
-                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_FOLLOW").is_some() { 400 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_BASE").is_some() { 240 } else { 0 };
+                let extra = ticket_secs() + if std::env::var_os("BOBIX_SMOKE_CLONES").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_REPOS").is_some() { 240 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_PHONES").is_some() { 120 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_START").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_READS").is_some() { 300 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_NAME").is_some() { 180 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_FOLLOW").is_some() { 400 } else { 0 } + if std::env::var_os("BOBIX_SMOKE_BASE").is_some() { 240 } else { 0 };
                 thread::sleep(Duration::from_secs(90 + extra));
                 let _ = fs::write(dir.join("report.json"), json!({ "watchdog": format!("gave up after {} s", 90 + extra) }).to_string());
                 log("gave up after 90 s");
@@ -176,6 +176,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         if let Ok(sdir) = std::env::var("BOBIX_SMOKE_READS") { report["reads"] = reads_step(&app, &sdir); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_NAME") { report["name"] = name_step(&app, b.port, &dir, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_FOLLOW") { report["follow"] = follow_step(&app, &b, &dir, &spec); }
+        if let Ok(spec) = std::env::var("BOBIX_SMOKE_PHONES") { report["phones"] = crate::smoke_phones::run(&app, &b, &spec); }
         report["open"] = open_step(&app, &b);
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
@@ -191,6 +192,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && (report.get("clones").is_none() || report["clones"]["pass"] == true)
             && (report.get("repos").is_none() || report["repos"]["pass"] == true)
             && (report.get("again").is_none() || report["again"]["pass"] == true)
+            && (report.get("phones").is_none() || report["phones"]["pass"] == true)
             && report["settingsSaved"] == true && report["tray"] == true
             && report["badge"]["held"].as_u64().unwrap_or(0) >= 1 && report["badge"]["answered"].as_u64() < report["badge"]["held"].as_u64() && report["autostart"] == true && report["git"].is_object() && report["secondStart"] == true;
         report["pass"] = json!(pass);
@@ -1035,7 +1037,7 @@ fn skills_panel(app: &AppHandle, sid: &str) -> Value {
 // The value of a page expression (awaited), through the bridge like the pets' own calls.
 fn ask(app: &AppHandle, label: &str, expr: &str) -> Value { ask_for(app, label, expr, 5) }
 
-fn ask_for(app: &AppHandle, label: &str, expr: &str, secs: u64) -> Value {
+pub fn ask_for(app: &AppHandle, label: &str, expr: &str, secs: u64) -> Value {
     let Some(w) = app.get_webview_window(label) else { return json!("no window") };
     *PAGE.lock().unwrap() = None;
     let _ = w.eval(format!("(async () => {{ let v; try {{ v = await ({expr}); }} catch (e) {{ v = {{ error: String(e) }}; }} \
@@ -1106,7 +1108,7 @@ fn hover(app: &AppHandle) -> Value {
 }
 
 // The hook's stdout: what Claude Code would read.
-fn run_hook_out(hook: &PathBuf, port: u16, input: &str) -> String {
+pub fn run_hook_out(hook: &PathBuf, port: u16, input: &str) -> String {
     let Ok(mut child) = Command::new("node").arg(hook).arg(port.to_string()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else { return String::new() };
     if let Some(mut i) = child.stdin.take() { let _ = i.write_all(input.as_bytes()); }
     child.wait_with_output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()

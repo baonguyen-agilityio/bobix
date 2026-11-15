@@ -285,6 +285,163 @@ impl Model {
     pub fn json(&self) -> Value { serde_json::to_value(self).unwrap_or(json!({})) }
 }
 
+
+// ---------- stuck work and the stages of the day, in Rust (the page's board.js computes the same; tests hold both) ----------
+
+// Milliseconds since 1970 of an ISO 8601 text ("2026-11-09T10:00:00Z", with or without fractions or an offset); None when it
+// is not one (the page's Date.parse gives NaN, and an item with no date is left out the same way).
+pub fn parse_iso(s: &str) -> Option<f64> {
+    let b = s.as_bytes();
+    if b.len() < 10 || b[4] != b'-' || b[7] != b'-' { return None; }
+    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
+    let (y, mo, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
+    let (mut h, mut mi, mut sec, mut ms, mut off) = (0, 0, 0, 0.0, 0i64);
+    if b.len() > 10 {
+        if b[10] != b'T' && b[10] != b' ' || b.len() < 16 { return None; }
+        h = n(11..13)?; mi = n(14..16)?;
+        let mut i = 16;
+        if b.get(i) == Some(&b':') { sec = n(i + 1..i + 3)?; i += 3; }
+        if b.get(i) == Some(&b'.') { let j = (i + 1..b.len()).find(|&k| !b[k].is_ascii_digit()).unwrap_or(b.len()); ms = format!("0.{}", &s[i + 1..j]).parse::<f64>().ok()? * 1000.0; i = j; }
+        match b.get(i) {
+            Some(b'Z') | None => {}
+            Some(&c @ (b'+' | b'-')) => { let (oh, om) = (n(i + 1..i + 3)?, n((i + 4).min(s.len())..(i + 6).min(s.len())).unwrap_or(0)); off = (oh * 60 + om) * if c == b'-' { -1 } else { 1 }; }
+            _ => return None,
+        }
+    }
+    // days from civil (Howard Hinnant's algorithm)
+    let (yy, mm) = if mo <= 2 { (y - 1, mo + 9) } else { (y, mo - 3) };
+    let era = yy.div_euclid(400);
+    let yoe = yy - era * 400;
+    let doy = (153 * mm + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    Some(((days * 86400 + h * 3600 + (mi - off) * 60 + sec) * 1000) as f64 + ms)
+}
+
+const STUCK_DEFAULTS: [(&str, f64); 5] = [("stuckNoPr", 2.0), ("stuckNoReview", 24.0), ("stuckBranch", 4.0), ("stuckIdle", 4.0), ("stuckMaxAge", 14.0)];
+
+// Work that stands still, one item each (see board.js `stuck`): nopr, noreview, branch, idle; most stuck first within each
+// kind; `at` its last activity and `old` when quiet longer than stuckMaxAge days; skipped items (cfg.stuckSkipped: id → its
+// `at` then) are left out until they move. `model`: the work model as the pages get it; `sessions`: their JSON.
+pub fn stuck(model: &Value, sessions: &[Value], cfg: &Value, now: f64) -> Vec<Value> {
+    if !model.is_object() || cfg["stuckOn"] == false { return vec![]; }
+    const H: f64 = 3_600_000.0;
+    let by_id: HashMap<&str, &Value> = sessions.iter().filter_map(|s| Some((s["id"].as_str()?, s))).collect();
+    let hours = |k: &str| cfg[k].as_f64().unwrap_or_else(|| STUCK_DEFAULTS.iter().find(|d| d.0 == k).map_or(0.0, |d| d.1));
+    let over = |ms: f64, k: &str| ms >= hours(k) * H;
+    let busy = |s: &Value| matches!(s["state"].as_str(), Some("working" | "waiting"));
+    let num = |s: &Value, k: &str| s[k].as_f64().unwrap_or(0.0);
+    // the first session with the greatest `k` (reduce keeps the earlier one on a tie)
+    let newest = |ss: &[&Value], k: &str| -> Value { ss.iter().fold(ss[0], |a, b| if num(b, k) > num(a, k) { b } else { a }).clone() };
+    let reviewed: std::collections::HashSet<String> = model["reviews"].as_array().into_iter().flatten().map(|r| format!("{}\n{}", r["project"].as_str().unwrap_or(""), r["branch"].as_str().unwrap_or(""))).collect();
+    let mut items: [Vec<Value>; 4] = Default::default(); // nopr, noreview, branch, idle
+    for i in model["issues"].as_array().into_iter().flatten() {
+        let ss: Vec<&Value> = i["sessions"].as_array().into_iter().flatten().filter_map(|x| by_id.get(x["id"].as_str()?).copied()).collect();
+        if i["reviews"].as_array().is_some_and(|r| !r.is_empty()) || ss.is_empty() || ss.iter().any(|s| busy(s)) { continue; }
+        let done: Vec<&Value> = ss.iter().copied().filter(|s| s["state"] == "done").collect();
+        let (kind, k, s, at_key) = if done.is_empty() { ("idle", "stuckIdle", newest(&ss, "updated"), "updated") } else { ("nopr", "stuckNoPr", newest(&done, "since"), "since") };
+        let ms = now - num(&s, at_key);
+        if over(ms, k) {
+            let (project, iid) = (i["project"].as_str().unwrap_or(""), i["iid"].as_i64().unwrap_or(0));
+            items[if kind == "nopr" { 0 } else { 3 }].push(json!({ "id": format!("{kind}:{project}#{iid}"), "kind": kind, "project": project, "iid": iid, "title": i["title"], "ms": ms, "limit": hours(k), "session": s["id"], "branch": s["git"]["branch"], "at": num(&newest(&ss, "updated"), "updated") }));
+        }
+    }
+    for r in model["reviews"].as_array().into_iter().flatten() {
+        let Some(created) = r["created"].as_str().and_then(parse_iso) else { continue };
+        let ms = now - created;
+        if r["reviewed"] == true || !(ms >= 0.0) || !over(ms, "stuckNoReview") { continue; }
+        let l = &r["issues"][0];
+        let i = model["issues"].as_array().into_iter().flatten().find(|x| x["project"] == l["project"] && x["iid"] == l["iid"] && !l.is_null());
+        let at = created.max(r["updated"].as_str().and_then(parse_iso).unwrap_or(0.0));
+        items[1].push(json!({ "id": format!("noreview:{}", r["url"].as_str().unwrap_or("")), "kind": "noreview", "project": r["project"], "iid": i.map(|i| i["iid"].clone()).unwrap_or(Value::Null),
+            "title": i.map(|i| i["title"].clone()).filter(|t| t.as_str().is_some_and(|t| !t.is_empty())).unwrap_or_else(|| r["branch"].clone()), "ms": ms, "limit": hours("stuckNoReview"), "url": r["url"], "review": r["kind"], "at": at }));
+    }
+    for b in model["branches"].as_array().into_iter().flatten() {
+        let ss: Vec<&Value> = b["sessions"].as_array().into_iter().flatten().filter_map(|id| by_id.get(id.as_str()?).copied()).collect();
+        let Some(g) = ss.iter().find(|s| s["git"]["branch"] == b["name"]).map(|s| &s["git"]) else { continue };
+        let (own, last) = (g["own"].as_f64().unwrap_or(0.0), g["last"]["t"].as_f64().unwrap_or(0.0));
+        let key = format!("{}\n{}", b["project"].as_str().unwrap_or(""), b["name"].as_str().unwrap_or(""));
+        if !(own > 0.0) || last == 0.0 || ss.iter().any(|s| busy(s)) || reviewed.contains(&key) { continue; }
+        if items[0].iter().chain(&items[3]).any(|x| x["project"] == b["project"] && x["branch"] == b["name"]) { continue; }
+        let ms = now - last;
+        if over(ms, "stuckBranch") {
+            let n = newest(&ss, "updated");
+            items[2].push(json!({ "id": format!("branch:{}:{}", b["project"].as_str().unwrap_or(""), b["name"].as_str().unwrap_or("")), "kind": "branch", "project": b["project"], "iid": b["issue"]["iid"].clone(), "title": b["name"], "ms": ms, "limit": hours("stuckBranch"), "commits": own, "branch": b["name"], "session": n["id"], "at": last.max(num(&n, "updated")) }));
+        }
+    }
+    let skipped = &cfg["stuckSkipped"];
+    let max_age = hours("stuckMaxAge") * 24.0 * H;
+    let mut out = vec![];
+    for k in [0, 1, 2, 3] {
+        let mut v: Vec<Value> = items[k].iter().filter(|x| !(skipped[x["id"].as_str().unwrap_or("")].as_f64().is_some_and(|s| s >= x["at"].as_f64().unwrap_or(0.0)))).cloned().collect();
+        for x in &mut v { x["old"] = json!(now - x["at"].as_f64().unwrap_or(0.0) > max_age); }
+        v.sort_by(|a, b| b["ms"].as_f64().partial_cmp(&a["ms"].as_f64()).unwrap_or(std::cmp::Ordering::Equal));
+        out.extend(v);
+    }
+    out
+}
+
+// Each open issue in one stage of the day (see board.js `stages`): [issue, group path, live session ids] per list. `done`: the
+// issues closed on the same day as `now`, by `day` (the local calendar day of a time), once each; most urgent first in doing.
+pub fn stages(work: &Value, sessions: &[Value], now: f64, day: &dyn Fn(f64) -> String) -> Value {
+    let mut out = json!({ "todo": [], "doing": [], "verify": [], "done": [] });
+    if !work.is_object() || work["status"] == "off" { return out; }
+    let st: HashMap<&str, &Value> = sessions.iter().filter_map(|s| Some((s["id"].as_str()?, s))).collect();
+    let pri = |s: &str| match s { "waiting" => 0, "working" => 1, "done" => 2, _ => 3 };
+    let groups: Vec<&Value> = work["local"].as_array().into_iter().flatten().chain(work["away"].as_array().into_iter().flatten()).collect();
+    let mut doing: Vec<(Value, i32, f64)> = vec![];
+    for g in &groups {
+        for i in g["issues"].as_array().into_iter().flatten() {
+            let live: Vec<&Value> = i["sessions"].as_array().into_iter().flatten().filter_map(|id| st.get(id.as_str()?).copied()).collect();
+            let ids: Vec<Value> = live.iter().map(|s| s["id"].clone()).collect();
+            let item = json!([i, g["path"], ids]);
+            match i["stage"].as_str() {
+                Some("ask" | "doing") => {
+                    let lead = live.iter().map(|s| pri(s["st"].as_str().unwrap_or("idle"))).min().unwrap_or(i32::MAX);
+                    let last = live.iter().map(|s| s["since"].as_f64().unwrap_or(0.0)).fold(0.0, f64::max);
+                    doing.push((item, lead, last));
+                }
+                Some("verify") => out["verify"].as_array_mut().unwrap().push(item),
+                _ => out["todo"].as_array_mut().unwrap().push(item),
+            }
+        }
+    }
+    doing.sort_by(|a, b| a.1.cmp(&b.1).then(b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)));
+    out["doing"] = Value::Array(doing.into_iter().map(|d| d.0).collect());
+    let today = day(now);
+    for i in work["closed"].as_array().into_iter().flatten() {
+        let Some(t) = i["closedAt"].as_str().and_then(parse_iso) else { continue };
+        if day(t) != today { continue; }
+        let dup = out["done"].as_array().unwrap().iter().any(|d| d[0]["iid"] == i["iid"] && d[1] == i["project"]);
+        if !dup { out["done"].as_array_mut().unwrap().push(json!([i, i["project"], []])); }
+    }
+    out
+}
+
+// The local calendar day of a time, "YYYY-MM-DD" (the clock's offset where the OS tells it; UTC elsewhere).
+pub fn local_day(ms: f64) -> String {
+    let secs = (ms / 1000.0).floor() as i64 + local_offset_secs(ms);
+    let days = secs.div_euclid(86400);
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let (y, doy) = (yoe + era * 400, doe - (365 * yoe + yoe / 4 - yoe / 100));
+    let mp = (5 * doy + 2) / 153;
+    let (d, m) = (doy - (153 * mp + 2) / 5 + 1, if mp < 10 { mp + 3 } else { mp - 9 });
+    format!("{:04}-{:02}-{:02}", if m <= 2 { y + 1 } else { y }, m, d)
+}
+#[cfg(unix)]
+fn local_offset_secs(ms: f64) -> i64 {
+    let t = (ms / 1000.0).floor() as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: localtime_r fills `tm` from `t`; both are valid for the call.
+    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() { 0 } else { tm.tm_gmtoff as i64 }
+}
+// shortcut: Windows reads the day in UTC; the local offset through its time-zone API when it matters.
+#[cfg(not(unix))]
+fn local_offset_secs(_ms: f64) -> i64 { 0 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,5 +531,100 @@ mod tests {
         assert_eq!((noted.created.as_deref(), noted.updated.as_deref(), noted.reviewed), (Some("2026-11-08T01:00:00Z"), Some("2026-11-08T02:00:00Z"), true), "a comment on a merge request counts as a review");
         assert!(gl_mr(&json!({ "web_url": "u", "references": {}, "source_branch": "main" })).unwrap().issues.is_empty());
         assert!(gh_pr(&json!({})).is_none(), "no link to open: nothing to show");
+    }
+
+    // The same cases as the page's board tests (test/core.test.js): the two must agree.
+    fn sess(id: &str, state: &str, since: f64, updated: f64, git: Value) -> Value { json!({ "id": id, "state": state, "since": since, "updated": updated, "git": git }) }
+
+    #[test]
+    fn stuck_work_one_item_each_past_the_limits() {
+        const H: f64 = 3_600_000.0;
+        let now = parse_iso("2026-11-09T10:00:00Z").unwrap();
+        let iso = |t: f64| { let s = (t / 1000.0) as i64; let d = s.div_euclid(86400); let r = s.rem_euclid(86400); let z = d + 719468; let era = z.div_euclid(146097); let doe = z - era * 146097; let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); let mp = (5 * doy + 2) / 153; let dd = doy - (153 * mp + 2) / 5 + 1; let mm = if mp < 10 { mp + 3 } else { mp - 9 }; let yy = yoe + era * 400 + if mm <= 2 { 1 } else { 0 }; format!("{yy:04}-{mm:02}-{dd:02}T{:02}:{:02}:{:02}Z", r / 3600, r % 3600 / 60, r % 60) };
+        let git = |b: &str, own: i64, ago: f64| json!({ "branch": b, "own": own, "last": { "t": now - ago * H } });
+        let sessions = vec![
+            sess("s1", "done", now - 3.0 * H, now - 3.0 * H, git("1-cart", 2, 5.0)), sess("s2", "done", now - H, now - H, Value::Null), sess("s3", "idle", now - 5.0 * H, now - 5.0 * H, git("3-login", 0, 9.0)),
+            sess("s4", "working", now - 9.0 * H, now, Value::Null), sess("s5", "done", now - 9.0 * H, now - 9.0 * H, git("r-branch", 2, 40.0)), sess("s6", "done", now - 7.0 * H, now - 7.0 * H, git("feat/cache", 4, 6.0)),
+            sess("s7", "idle", 0.0, 0.0, git("main", 0, 50.0)), sess("s8", "waiting", now, now, git("feat/busy", 3, 9.0)), sess("s9", "idle", 0.0, 0.0, git("feat/new", 3, 1.0)),
+        ];
+        let on = |ids: &[&str]| ids.iter().map(|id| json!({ "id": id, "why": "branch" })).collect::<Vec<_>>();
+        let branches: Vec<Value> = ["1-cart:s1", "3-login:s3", "feat/cache:s6", "main:s7", "feat/busy:s8", "feat/new:s9", "r-branch:s5"].iter().map(|x| { let (n, s) = x.split_once(':').unwrap(); json!({ "project": "g/app", "name": n, "issue": null, "sessions": [s], "reviews": [] }) }).collect();
+        let model = json!({
+            "issues": [
+                { "project": "g/app", "iid": 1, "title": "Cart", "sessions": on(&["s1"]), "reviews": [] }, { "project": "g/app", "iid": 2, "title": "Two", "sessions": on(&["s2"]), "reviews": [] },
+                { "project": "g/app", "iid": 3, "title": "Login", "sessions": on(&["s3"]), "reviews": [] }, { "project": "g/app", "iid": 4, "title": "Four", "sessions": on(&["s4", "s3"]), "reviews": [] },
+                { "project": "g/app", "iid": 5, "title": "Five", "sessions": on(&["s5"]), "reviews": [{ "url": "https://h/g/app/pull/9", "why": "closes" }] }, { "project": "g/app", "iid": 6, "title": "Six", "sessions": [], "reviews": [] }],
+            "reviews": [
+                { "kind": "pr", "url": "https://h/g/app/pull/9", "project": "g/app", "branch": "r-branch", "created": iso(now - 26.0 * H), "reviewed": false, "issues": [{ "project": "g/app", "iid": 5, "why": "closes" }] },
+                { "kind": "mr", "url": "https://h/g/web/-/merge_requests/3", "project": "g/web", "branch": "x", "created": iso(now - 30.0 * H), "reviewed": true, "issues": [] },
+                { "kind": "pr", "url": "https://h/g/app/pull/10", "project": "g/app", "branch": "y", "created": iso(now - H), "reviewed": false, "issues": [] },
+                { "kind": "pr", "url": "https://h/g/app/pull/11", "project": "g/app", "branch": "z", "created": null, "reviewed": false, "issues": [] }],
+            "branches": branches,
+        });
+        let got = stuck(&model, &sessions, &json!({}), now);
+        let kinds: Vec<(String, String)> = got.iter().map(|x| (x["kind"].as_str().unwrap().into(), if x["iid"].is_null() { x["title"].as_str().unwrap().into() } else { x["iid"].to_string() })).collect();
+        assert_eq!(kinds, [("nopr", "1"), ("noreview", "5"), ("branch", "feat/cache"), ("idle", "3")].map(|(a, b)| (a.to_string(), b.to_string())).to_vec(), "{got:?}");
+        assert_eq!((got[0]["branch"].as_str(), got[0]["session"].as_str(), got[0]["limit"].as_f64(), got[0]["ms"].as_f64()), (Some("1-cart"), Some("s1"), Some(2.0), Some(3.0 * H)));
+        assert_eq!((got[1]["url"].as_str(), got[1]["review"].as_str(), got[2]["commits"].as_f64(), got[3]["session"].as_str()), (Some("https://h/g/app/pull/9"), Some("pr"), Some(4.0), Some("s3")));
+        assert!(stuck(&model, &sessions, &json!({ "stuckOn": false }), now).is_empty());
+        let longer = stuck(&model, &sessions, &json!({ "stuckNoPr": 4, "stuckNoReview": 48, "stuckBranch": 5, "stuckIdle": 6 }), now);
+        assert_eq!(longer.iter().map(|x| (x["kind"].as_str().unwrap(), x["title"].as_str().unwrap())).collect::<Vec<_>>(), [("branch", "feat/cache"), ("branch", "1-cart")]);
+        assert!(stuck(&Value::Null, &sessions, &json!({}), now).is_empty());
+        assert!(got.iter().all(|x| x["old"] == false) && got[0]["at"].as_f64() == Some(now - 3.0 * H));
+    }
+
+    #[test]
+    fn quiet_work_is_old_and_a_skip_lasts_until_it_moves() {
+        const H: f64 = 3_600_000.0;
+        const D: f64 = 24.0 * H;
+        let now = parse_iso("2026-11-09T10:00:00Z").unwrap();
+        let fmt = |t: f64| { let s = (t / 1000.0).floor() as i64; let d = s.div_euclid(86400); let r = s.rem_euclid(86400); let z = d + 719468; let era = z.div_euclid(146097); let doe = z - era * 146097; let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); let mp = (5 * doy + 2) / 153; let dd = doy - (153 * mp + 2) / 5 + 1; let mm = if mp < 10 { mp + 3 } else { mp - 9 }; let yy = yoe + era * 400 + if mm <= 2 { 1 } else { 0 }; format!("{yy:04}-{mm:02}-{dd:02}T{:02}:{:02}:{:02}Z", r / 3600, r % 3600 / 60, r % 60) };
+        let mut sessions = vec![sess("s1", "done", now - 3.0 * H, now - 3.0 * H, Value::Null), sess("o1", "idle", now - 30.0 * D, now - 30.0 * D, json!({ "branch": "feat/old", "own": 2, "last": { "t": now - 31.0 * D } }))];
+        let model = json!({
+            "issues": [{ "project": "g/a", "iid": 1, "title": "New", "sessions": [{ "id": "s1" }], "reviews": [] }],
+            "reviews": [{ "kind": "pr", "url": "u/pull/1", "project": "g/a", "branch": "x", "created": fmt(now - 532.0 * D), "updated": fmt(now - 470.0 * D), "reviewed": false, "issues": [] },
+                { "kind": "pr", "url": "u/pull/2", "project": "g/a", "branch": "y", "created": fmt(now - 40.0 * D), "updated": fmt(now - 2.0 * D), "reviewed": false, "issues": [] }],
+            "branches": [{ "project": "g/a", "name": "feat/old", "issue": null, "sessions": ["o1"], "reviews": [] }],
+        });
+        let pick = |v: &[Value]| v.iter().map(|x| (x["id"].as_str().unwrap().to_string(), x["old"] == true)).collect::<Vec<_>>();
+        let all = stuck(&model, &sessions, &json!({}), now);
+        assert_eq!(pick(&all), [("nopr:g/a#1", false), ("noreview:u/pull/1", true), ("noreview:u/pull/2", false), ("branch:g/a:feat/old", true)].map(|(a, b)| (a.to_string(), b)).to_vec(), "quiet for over 14 days (by its last change, not its age): old");
+        let old60: Vec<String> = pick(&stuck(&model, &sessions, &json!({ "stuckMaxAge": 60 }), now)).into_iter().filter(|x| x.1).map(|x| x.0).collect();
+        assert_eq!(old60, ["noreview:u/pull/1"], "the limit is a setting (days)");
+        let at_of = |id: &str| all.iter().find(|x| x["id"] == id).unwrap()["at"].as_f64().unwrap();
+        let skipped = json!({ "nopr:g/a#1": at_of("nopr:g/a#1"), "noreview:u/pull/2": at_of("noreview:u/pull/2") - 1.0 });
+        let ids: Vec<String> = stuck(&model, &sessions, &json!({ "stuckSkipped": skipped }), now).iter().map(|x| x["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(ids, ["noreview:u/pull/1", "noreview:u/pull/2", "branch:g/a:feat/old"], "skipped: gone while nothing moved; one that changed since comes back");
+        sessions[0]["updated"] = json!(now);
+        assert!(stuck(&model, &sessions, &json!({ "stuckSkipped": skipped, "stuckNoPr": 0 }), now).iter().any(|x| x["id"] == "nopr:g/a#1"));
+    }
+
+    #[test]
+    fn each_issue_in_one_stage_of_the_day() {
+        let now = parse_iso("2026-11-08T17:00:00Z").unwrap();
+        let day = |t: f64| format!("{}", (t / 86_400_000.0).floor()); // a UTC day is enough for the test
+        let mk = |iid: i64, extra: Value| { let mut v = json!({ "iid": iid, "title": format!("t{iid}"), "url": format!("u{iid}"), "sessions": [], "labels": [] }); for (k, x) in extra.as_object().unwrap() { v[k] = x.clone(); } v };
+        let work = json!({ "status": "ok",
+            "local": [{ "path": "g/app", "dir": "/src/app", "issues": [mk(1, json!({ "sessions": ["a", "gone"], "stage": "doing" })), mk(2, json!({ "sessions": ["b"], "stage": "verify" })), mk(3, json!({ "stage": "todo" })), mk(4, json!({ "sessions": ["c"], "stage": "doing" }))] }],
+            "away": [{ "path": "g/web", "issues": [mk(5, json!({ "stage": "todo" }))] }],
+            "closed": [{ "iid": 7, "project": "g/app", "closedAt": "2026-11-08T16:00:00Z" }, { "iid": 8, "project": "g/web", "closedAt": "2026-11-07T23:00:00Z" }, { "iid": 7, "project": "g/app", "closedAt": "2026-11-08T16:59:00Z" }, { "iid": 9, "project": "g/new", "closedAt": "2026-11-08T17:00:00Z" }] });
+        let ss = vec![json!({ "id": "a", "st": "working", "since": 5 }), json!({ "id": "b", "st": "done", "since": 6 }), json!({ "id": "c", "st": "waiting", "since": 1 }), json!({ "id": "z", "st": "idle", "since": 1 })];
+        let out = stages(&work, &ss, now, &day);
+        let ids = |k: &str| out[k].as_array().unwrap().iter().map(|x| x[0]["iid"].as_i64().unwrap()).collect::<Vec<_>>();
+        assert_eq!((ids("todo"), ids("doing"), ids("verify"), ids("done")), (vec![3, 5], vec![4, 1], vec![2], vec![7, 9]), "each in the stage the model gave it; most urgent first; closed today only, once");
+        assert_eq!(out["doing"][1][2], json!(["a"]), "a session that is gone does not count");
+        assert_eq!(out["done"][1][1], "g/new", "a project with no open issue still names its group");
+        assert_eq!(stages(&json!({ "status": "off" }), &ss, now, &day), json!({ "todo": [], "doing": [], "verify": [], "done": [] }));
+    }
+
+    #[test]
+    fn iso_dates_and_the_local_day() {
+        assert_eq!(parse_iso("1970-01-01T00:00:00Z"), Some(0.0));
+        assert_eq!(parse_iso("2026-11-09T10:00:00.500+02:00"), Some(parse_iso("2026-11-09T08:00:00Z").unwrap() + 500.0));
+        assert_eq!(parse_iso("2026-11-09"), parse_iso("2026-11-09T00:00:00Z"));
+        assert_eq!(parse_iso("not a date"), None);
+        assert_eq!(parse_iso(""), None);
+        let d = local_day(parse_iso("2026-11-09T12:00:00Z").unwrap());
+        assert!(d == "2026-11-09" || d == "2026-11-10" || d == "2026-11-08", "{d}");
     }
 }

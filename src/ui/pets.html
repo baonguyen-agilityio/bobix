@@ -185,7 +185,7 @@ function sayText(p, st, now) {
 }
 
 // Allow / Deny while a permission request waits for Bobix (seconds left, then the terminal asks; Infinity: no countdown).
-const left = (s, now) => (!s.answer ? 0 : s.answer.until == null ? Infinity : Math.max(0, Math.ceil((s.answer.until - now) / 1000)));
+const left = (s, now) => (!s.answer || s.answer.kind === 'question' ? 0 : s.answer.until == null ? Infinity : Math.max(0, Math.ceil((s.answer.until - now) / 1000)));
 function answerButtons(s, now) {
   const n = left(s, now);
   if (!n || !bridge) return `<span class="where">${T(approveWhere(s))}</span>${bridge ? `<button class="btn sm pri" type="button" data-open aria-label="${esc(T('pane.approve') + ': ' + (s.title || s.name))}">${T('pane.approve')}</button>` : ''}`; // Bobix can't answer it: say where it can be, and open it

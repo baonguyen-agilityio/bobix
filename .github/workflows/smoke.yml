@@ -29,7 +29,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            crates/bobix-link
+            relay
       - name: Linux libraries
         if: runner.os == 'Linux'
         timeout-minutes: 8
@@ -79,6 +82,12 @@ jobs:
       - name: Build
         working-directory: src-tauri
         run: cargo build
+      - name: Build the fake phone (cached with the crate's build folder, reused by every run)
+        working-directory: crates/bobix-link
+        run: cargo build --example fake-phone
+      - name: Build the relay (cached with its own build folder, reused by every run)
+        working-directory: relay
+        run: cargo build
       - name: Start a virtual display (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -86,7 +95,7 @@ jobs:
           for i in $(seq 1 50); do DISPLAY=:99 xdotool getdisplaygeometry > /dev/null 2>&1 && break; sleep 0.2; done # ready before the app starts
           echo "DISPLAY=:99" >> "$GITHUB_ENV"
       - name: Smoke
-        timeout-minutes: 4
+        timeout-minutes: 7
         shell: bash
         env:
           BOBIX_SMOKE: smoke-out
@@ -95,8 +104,17 @@ jobs:
           export BOBIX_DATA_DIR="$RUNNER_TEMP/bobix-data" BOBIX_HOME="$RUNNER_TEMP/bobix-home"
           # Linux: take the path of an Ubuntu Wayland desktop (XWayland).
           if [ "$RUNNER_OS" = Linux ]; then export XDG_SESSION_TYPE=wayland; fi
+          # Phone access: the app is driven through pairing, answering and revoking by the fake phone, against `relay --dev`
+          # (plain ws on loopback). Keys go to a file in BOBIX_DATA_DIR, never the OS keychain.
+          EX="$(cd crates/bobix-link/target/debug/examples && pwd)"; RX="$(cd relay/target/debug && pwd)"; EXT=""
+          if [ "$RUNNER_OS" = Windows ]; then EX="$(cygpath -m "$EX")"; EXT=".exe"; fi
+          RELAY_ADDR=127.0.0.1:8787 "$RX/bobix-relay$EXT" --dev > relay.log 2>&1 &
+          RELAY_PID=$!
+          for i in $(seq 1 50); do grep -q listening relay.log && break; sleep 0.2; done
+          export BOBIX_SMOKE_PHONES="ws://127.0.0.1:8787|$EX/fake-phone$EXT"
           ./src-tauri/target/debug/bobix > smoke.log 2>&1 &
-          for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done
+          for i in $(seq 1 240); do [ -f smoke-out/done ] && break; sleep 1; done
+          kill $RELAY_PID > /dev/null 2>&1 || true
           if [ "$RUNNER_OS" = Windows ]; then taskkill //F //IM bobix.exe > /dev/null 2>&1 || true; else pkill -9 -f target/debug/bobix || true; fi
           grep "\[bobix\]" smoke.log || grep -m1 -A3 panicked smoke.log || tail -40 smoke.log
           node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.pass ? 0 : 1)"

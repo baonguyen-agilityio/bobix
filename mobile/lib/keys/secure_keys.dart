@@ -16,6 +16,9 @@ abstract interface class SecureKeys {
   Future<Uint8List?> secret(String name);
   Future<void> deleteSecret(String name);
 
+  /// What the biometrics the signing key needs are like on this phone. Pairing checks it first.
+  Future<Biometry> biometry();
+
   /// Makes the signing key, replacing any earlier one, and returns its public key (X9.63, 65 bytes).
   Future<Uint8List> createSigningKey();
 
@@ -31,6 +34,10 @@ abstract interface class SecureKeys {
   /// Removes every key (disconnecting, or a `revoked` from the computer).
   Future<void> eraseAll();
 }
+
+/// Whether Face ID or the fingerprint can be used: [available], [lockedOut] (enrolled, locked after too many failed
+/// matches: the passcode unlocks them) or [none] (not enrolled, or turned off for this app).
+enum Biometry { available, lockedOut, none }
 
 sealed class SignResult {
   const SignResult();

@@ -2,6 +2,7 @@ import Flutter
 import Foundation
 import LocalAuthentication
 import Security
+import UIKit
 
 /// The three keys of the app.
 ///
@@ -48,11 +49,27 @@ final class KeyStore {
     if software { throw KeyError(message: "the software key is not available in a release build") }
     #endif
     self.service = service
-    self.signTag = Data("\(service).sign".utf8)
+    // The debug-only software key has a tag of its own, so a Release build never finds one a Debug build left, and
+    // never signs with it.
+    self.signTag = KeyStore.signTag(service: service, software: software)
     self.software = software
     self.group = group
     self.markerURL = try markerURL ?? KeyStore.defaultMarkerURL()
     try eraseIfFreshInstall()
+    // Only a debug build may hold a software key: any other launch erases one that a debug build left on this device.
+    if !software { SecItemDelete(KeyStore.signQuery(tag: KeyStore.signTag(service: service, software: true)) as CFDictionary) }
+  }
+
+  static func signTag(service: String, software: Bool) -> Data {
+    Data("\(service).sign\(software ? ".software" : "")".utf8)
+  }
+
+  static func signQuery(tag: Data) -> [String: Any] {
+    [
+      kSecClass as String: kSecClassKey,
+      kSecAttrApplicationTag as String: tag,
+      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+    ]
   }
 
   private static func defaultMarkerURL() throws -> URL {
@@ -104,12 +121,24 @@ final class KeyStore {
     if status != errSecSuccess { throw KeyError(message: "keychain write failed (\(status))") }
   }
 
-  func secret(_ name: String) -> Data? {
+  /// What a Keychain read status means: found (true), definitely not there (false), or "could not read" (throws). A locked
+  /// device or "interaction not allowed" (the app started before the first unlock) is not "no key".
+  static func readOutcome(_ status: OSStatus) throws -> Bool {
+    switch status {
+    case errSecSuccess: return true
+    case errSecItemNotFound: return false
+    default: throw KeyError(message: "keychain read failed (\(status))")
+    }
+  }
+
+  /// The secret, nil when it is definitely not there; throws when the Keychain cannot be read right now.
+  func secret(_ name: String) throws -> Data? {
     var query = secretQuery(name)
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var out: CFTypeRef?
-    return SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
+    let status = SecItemCopyMatching(query as CFDictionary, &out)
+    return try KeyStore.readOutcome(status) ? out as? Data : nil
   }
 
   func deleteSecret(_ name: String) {
@@ -118,13 +147,7 @@ final class KeyStore {
 
   // MARK: sign
 
-  private var keyQuery: [String: Any] {
-    [
-      kSecClass as String: kSecClassKey,
-      kSecAttrApplicationTag as String: signTag,
-      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-    ]
-  }
+  private var keyQuery: [String: Any] { KeyStore.signQuery(tag: signTag) }
 
   /// Makes the signing key (replacing any earlier one) and returns its public key in X9.63 form.
   func createSigningKey() throws -> Data {
@@ -174,10 +197,20 @@ final class KeyStore {
     return context.evaluatedPolicyDomainState
   }
 
-  /// True only when the key was made under a biometric set that is no longer the current one (or none is left).
+  /// Whether the biometric set a key was made under is gone. A current state that differs says so. No current state at
+  /// all is "unknown" (Face ID turned off for the app reports none), not "gone", unless nothing is enrolled any more, which
+  /// does invalidate a key bound to the current set.
+  static func setChanged(stored: Data, current: Data?, notEnrolled: Bool) -> Bool {
+    if let current { return current != stored }
+    return notEnrolled
+  }
+
   private func biometricSetChanged() -> Bool {
-    guard let stored = secret(KeyStore.domainStateName) else { return false } // a software key records none
-    return currentDomainState() != stored
+    guard let stored = try? secret(KeyStore.domainStateName) else { return false } // a software key records none
+    let context = LAContext()
+    var error: NSError?
+    _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    return KeyStore.setChanged(stored: stored, current: context.evaluatedPolicyDomainState, notEnrolled: error?.code == LAError.biometryNotEnrolled.rawValue)
   }
 
   func signingPublicKey() -> Data? {
@@ -240,6 +273,21 @@ final class KeyStore {
     return .failed(message ?? "unknown")
   }
 
+  /// What the biometrics a signing key needs are like on this phone: "available", "lockedOut" (enrolled, but locked after
+  /// too many failed matches: the passcode unlocks them) or "none" (not enrolled, or turned off). The software key has no
+  /// such need.
+  static func biometry(canEvaluate: Bool, errorCode: Int?) -> String {
+    if canEvaluate { return "available" }
+    return errorCode == LAError.biometryLockout.rawValue ? "lockedOut" : "none"
+  }
+
+  func biometry() -> String {
+    if software { return "available" }
+    var error: NSError?
+    let can = LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    return KeyStore.biometry(canEvaluate: can, errorCode: error?.code)
+  }
+
   func deleteSigningKey() {
     SecItemDelete(keyQuery as CFDictionary)
   }
@@ -275,16 +323,22 @@ final class SecureKeysChannel {
       }
       return
     }
+    if call.method == "openSettings" {
+      if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+      result(nil)
+      return
+    }
     guard let store else { return result(FlutterError(code: "not_open", message: "call open first", details: nil)) }
     func name() -> String { args["name"] as? String ?? "" }
     func bytes(_ key: String) -> Data { (args[key] as? FlutterStandardTypedData)?.data ?? Data() }
     do {
       switch call.method {
       case "putSecret": try store.putSecret(name(), bytes("data")); result(nil)
-      case "secret": result(store.secret(name()).map { FlutterStandardTypedData(bytes: $0) })
+      case "secret": result(try store.secret(name()).map { FlutterStandardTypedData(bytes: $0) })
       case "deleteSecret": store.deleteSecret(name()); result(nil)
       case "createSigningKey": result(FlutterStandardTypedData(bytes: try store.createSigningKey()))
       case "signingPublicKey": result(store.signingPublicKey().map { FlutterStandardTypedData(bytes: $0) })
+      case "biometry": result(store.biometry())
       case "deleteSigningKey": store.deleteSigningKey(); result(nil)
       case "eraseAll": store.eraseAll(); result(nil)
       case "sign":

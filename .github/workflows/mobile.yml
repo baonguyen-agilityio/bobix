@@ -31,13 +31,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: filter
-        # Not a pull request (push, manual run): always run. A pull request: only when the app, the shared crate it builds,
+        # Not a pull request (push, manual run): always run. A pull request: only when the app, the shared crate and the relay it builds,
         # the strings or the pets it generates from, or this file changed.
         env:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.base_ref }}
         run: |
-          if [ "$EVENT" != "pull_request" ] || git diff --name-only "origin/$BASE"...HEAD | grep -qE '^(mobile/|crates/bobix-link/|src/ui/i18n\.js|src/ui/creature\.js|test/creature-fixtures\.js|\.github/workflows/mobile\.yml)'; then
+          if [ "$EVENT" != "pull_request" ] || git diff --name-only "origin/$BASE"...HEAD | grep -qE '^(mobile/|crates/bobix-link/|relay/|src/ui/i18n\.js|src/ui/creature\.js|test/creature-fixtures\.js|\.github/workflows/mobile\.yml)'; then
             echo "mobile=true" >> "$GITHUB_OUTPUT"
           else
             echo "mobile=false" >> "$GITHUB_OUTPUT"
@@ -86,8 +86,13 @@ jobs:
         run: |
           cargo clippy --locked --manifest-path rust/Cargo.toml -- -D warnings
           cargo build --locked --manifest-path rust/Cargo.toml
+          cargo test --locked --manifest-path rust/Cargo.toml
+      - name: The development relay and the crate's fake desktop (the link tests run the real programs)
+        run: |
+          cargo build --locked --manifest-path ../relay/Cargo.toml
+          cargo build --locked --manifest-path ../crates/bobix-link/Cargo.toml --example fake-desktop
       - run: flutter analyze
-      - name: Dart tests (the shared crate's test vectors through the bridge, on this computer)
+      - name: Dart tests (the crate's test vectors through the bridge; pairing and the link against relay --dev and fake-desktop)
         run: flutter test
 
       - name: Pick a simulator
