@@ -17,7 +17,7 @@ Download the installer for your computer (the links give the newest stable relea
 | Ubuntu / Debian (amd64) | [bobix-linux-amd64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-amd64.deb) |
 | Ubuntu / Debian (ARM64) | [bobix-linux-arm64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-arm64.deb) |
 
-**Phone access (test builds only).** A test build (`-rc` in its name) has **Settings → Phones**, where Bobix can send what waits for you to a phone you pair and take its answers (off until you switch it on; [what it sends](privacy.md)). A stable release does not contain that section. You enter the address of a relay there (Bobix has no built-in one): a relay may accept invited computers only, and [relay/README.md](../relay/README.md) explains hosting your own.
+**Phone access (test builds only).** A test build (`-rc` in its name) has **Settings → Phones**, where Bobix can send what waits for you to a phone you pair and take its answers (off until you switch it on; [what it sends](privacy.md)). A stable release does not contain that section. Going from a test build to a stable release: the stable one never reads phone access's keys or files and never connects, so a phone you paired keeps showing the computer as offline. Before you switch, disconnect each phone and turn phone access off in the test build, so the phones are told. You enter the address of a relay there (Bobix has no built-in one): a relay may accept invited computers only, and [relay/README.md](../relay/README.md) explains hosting your own.
 
 Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 

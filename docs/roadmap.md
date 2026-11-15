@@ -14,6 +14,7 @@ On the integration branch `feat/phone-access` (not on `develop`): **phone access
   - Windows and Linux: the keychain (Credential Manager, Secret Service), the input time (`GetLastInputInfo` on Windows; on Linux only `xprintidle`, so none on most Wayland sessions, where Settings asks instead), keep awake, Stop, Start with the screen locked, and the hook path without Node.js (watch only).
   - macOS: the input time with the screen locked, the tokio wait across a real sleep, and the sleep notice (macOS only; elsewhere the relay's ping shows the computer offline).
   - Sessions opened by the Claude desktop app (Stop, interrupt).
+  - Windows: the hint that a command approved at the computer has started (a new child of the Claude process) does not work yet, because `procs::children` lists nothing there ([#253](https://github.com/baonguyen-agilityio/bobix/issues/253)); a phone's answer to such a request is told `ok` until the command ends. The hint is advisory and never closes a request.
   - A real phone: the phone app, push through Apple and Google, and the relay deployed on its own domain with `relay-health.yml` watching it (set the repository variable `RELAY_URL`).
   - The independent security review of the trust boundary and the whole acceptance list on three OSes are the open part of #252.
 
