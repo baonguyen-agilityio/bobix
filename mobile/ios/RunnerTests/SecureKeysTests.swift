@@ -28,6 +28,10 @@ final class SecureKeysTests: XCTestCase {
     return s
   }
 
+  func testStrongBiometricsAreNotNeededByTheSoftwareKey() throws {
+    XCTAssertTrue(try makeStore(software: true).strongBiometrics())
+  }
+
   func testSecretsRoundTripOverwriteAndDelete() throws {
     let s = try makeStore()
     XCTAssertNil(s.secret("auth"))
