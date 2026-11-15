@@ -43,7 +43,6 @@ class SessionRow extends StatelessWidget {
         excludeSemantics: true,
         child: Glass(
           tint: tint,
-          border: needsYou ? t.accent.withValues(alpha: .35) : null,
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: onTap,
@@ -58,6 +57,7 @@ class SessionRow extends StatelessWidget {
                       color: petColor,
                       state: petState,
                       size: 44,
+                      halo: needsYou,
                     ),
                     const SizedBox(width: 12),
                     Expanded(

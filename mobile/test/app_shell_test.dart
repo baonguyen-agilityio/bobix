@@ -172,11 +172,11 @@ void main() {
   );
 
   testWidgets(
-    'only the floating surfaces blur: the tab bar, Start and the computer chip',
+    'only the floating surfaces blur: the tab bar and the computer chip (Start is solid)',
     (tester) async {
       await tester.pumpWidget(app());
       await tester.pump();
-      expect(find.byType(BackdropFilter), findsNWidgets(3));
+      expect(find.byType(BackdropFilter), findsNWidgets(2));
     },
   );
 

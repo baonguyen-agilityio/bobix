@@ -109,16 +109,40 @@ class GlassTabBar extends StatelessWidget {
             excludeSemantics: true,
             child: InkResponse(
               onTap: () => onSelect(startIndex),
-              child: Glass(
-                blur: true,
-                radius: 25,
-                child: SizedBox(
-                  width: 50,
-                  height: 50,
-                  child: Icon(
-                    start.icon,
-                    size: 24,
-                    color: index == startIndex ? t.accentInk : t.ink2,
+              // Solid accent like a primary button, with a glass sheen and a soft accent shadow; the icon is the
+              // token's on-accent (light in light mode, dark in dark mode).
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: t.accentSolid,
+                  boxShadow: [
+                    BoxShadow(
+                      color: t.accent.withValues(alpha: .30),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                    const BoxShadow(
+                      color: Color(0x14000000),
+                      blurRadius: 2,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
+                ),
+                // A gradient replaces the colour in a BoxDecoration, so the sheen is its own layer over the solid fill.
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x38FFFFFF), Color(0x00FFFFFF)],
+                      stops: [0, .55],
+                    ),
+                  ),
+                  child: SizedBox(
+                    width: 50,
+                    height: 50,
+                    child: Icon(start.icon, size: 24, color: t.onAccent),
                   ),
                 ),
               ),
