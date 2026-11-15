@@ -46,13 +46,14 @@ class SurfacesHost extends ConsumerStatefulWidget {
   ConsumerState<SurfacesHost> createState() => _SurfacesHostState();
 }
 
-class _SurfacesHostState extends ConsumerState<SurfacesHost> {
+class _SurfacesHostState extends ConsumerState<SurfacesHost> with WidgetsBindingObserver {
   final _subs = <StreamSubscription<Object?>>[];
   Timer? _beat;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     try {
       final p = ref.read(surfacesPlatformProvider);
       final reg = ref.read(pushRegistrationProvider);
@@ -76,11 +77,17 @@ class _SurfacesHostState extends ConsumerState<SurfacesHost> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _beat?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    ref.read(surfacesSyncProvider).visible = state == AppLifecycleState.resumed;
   }
 
   @override

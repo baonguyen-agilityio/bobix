@@ -29,6 +29,10 @@ class SurfacesSync {
   final PetRenderer _renderPet;
   final _petsWritten = <String>{};
   HomeData? _last;
+
+  /// The app is on the screen. While it is not (paused or hidden) the heartbeat writes nothing, so the last list ages into
+  /// stale on its own, and still says what the computer last said (`online`): leaving the app is not the computer going away.
+  bool visible = true;
   DateTime? _builtAt;
 
   Future<void> sync(
@@ -59,7 +63,7 @@ class SurfacesSync {
   /// computer is gone, the data is left to age into stale). The seconds a request still has count down from when it was built.
   Future<void> again({required String computerId, required bool canStart}) async {
     final h = _last;
-    if (h == null || h.conn != ConnState.ok) return;
+    if (!visible || h == null || h.conn != ConnState.ok) return;
     await sync(h, computerId: computerId, canStart: canStart, again: true);
   }
 

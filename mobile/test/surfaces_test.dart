@@ -205,6 +205,16 @@ void main() {
       final after = p.lists.length;
       await beating.again(computerId: 'c1', canStart: true);
       expect(p.lists, hasLength(after), reason: 'an unreachable computer is left to age into stale');
+      beating.visible = false;
+      await beating.sync(held, computerId: 'c1', canStart: true);
+      final hidden = p.lists.length;
+      clock = clock.add(const Duration(minutes: 5));
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(hidden), reason: 'nothing is rewritten while the app is hidden');
+      expect(p.lists.last['computerState'], 'online', reason: 'leaving the app is not the computer going away');
+      beating.visible = true;
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(hidden + 1));
     });
 
   });

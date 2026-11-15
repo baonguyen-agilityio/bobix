@@ -172,10 +172,6 @@ class ComputerLink {
   /// The app left the foreground: close the connection and stop trying.
   Future<void> pause() async {
     _running = false;
-    // Not reachable from here any more: surfaces outside the app must age this data into stale, not keep rewriting it.
-    if (status.conn == ConnState.ok) {
-      _set(status.copyWith(conn: ConnState.relayDown));
-    }
     _wake?.complete();
     await _session?.close();
   }
