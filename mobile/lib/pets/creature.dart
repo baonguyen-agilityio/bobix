@@ -456,6 +456,9 @@ String flatSvg(
   String state,
   Pose pose, {
   bool withBadge = true,
+
+  /// The coral ring behind a waiting pet; a pet that wears the halo instead is drawn without it.
+  bool ring = true,
 }) {
   final p = _flat[design] ?? _flat['default']!;
   final c = petColors[colorIndex % petColors.length];
@@ -479,7 +482,7 @@ String flatSvg(
     '<defs><linearGradient id="$id" x1="0" y1="0" x2="${p.across ? 1 : 0}" y2="${p.across ? 0 : 1}"><stop offset="0" stop-color="$g0"/><stop offset="1" stop-color="$g1"/></linearGradient></defs>'
     '<ellipse cx="18" cy="31.7" rx="${_n(9 * o.shadow)}" ry="1.3" fill="#000" fill-opacity=".22"/>',
   );
-  if (withBadge) s.write(_statusMarks(status, f));
+  if (withBadge && ring) s.write(_statusMarks(status, f));
   s.write(
     '<g transform="translate(0 ${_s(-o.lift)})">$feet<g transform="$t">${p.body('url(#$id)', c)}${p.face(o, state)}$hands</g>${withBadge ? _badge(status) : ''}</g>',
   );

@@ -80,9 +80,6 @@ class PetsScreen extends ConsumerWidget {
                               t.surface,
                             )
                           : null,
-                      border: x.needsYou
-                          ? t.accent.withValues(alpha: .35)
-                          : null,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(20),
                         onTap: () => openSession(context, x),
@@ -95,6 +92,7 @@ class PetsScreen extends ConsumerWidget {
                                 color: x.petColor,
                                 state: x.petState,
                                 size: 72,
+                                halo: x.needsYou,
                               ),
                               const SizedBox(height: 4),
                               Text(
