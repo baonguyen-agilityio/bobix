@@ -14,6 +14,17 @@ flutter_rust_bridge = "=2.13.0"
 bobix-link = { path = "../../crates/bobix-link" }
 crypto_box = { version = "0.9", default-features = false, features = ["alloc", "chacha20"] }
 serde_json = "1"
+# The Android push service calls `push_opener` through UniFFI, from the same library the app loads for the bridge.
+uniffi = "0.32"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[features]
+# Only for `uniffi-bindgen` (regenerates the Kotlin binding, see docs/development.md); a normal build never needs it.
+uniffi-cli = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["uniffi-cli"]
