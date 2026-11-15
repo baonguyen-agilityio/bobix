@@ -54,7 +54,7 @@ How a change gets made, by people and by Claude Code sessions alike. The working
 | `site/` | The project's web page (published by `.github/workflows/pages.yml`) |
 | `crates/bobix-link/` | The link crate: the wire format and the crypto that the desktop, the phone-access relay and the phone app will share (see [The link crate](#the-link-crate)). Not used by `src-tauri` yet |
 | `relay/` | The relay for phone access: forwards sealed packets between a desktop and its phones, holds one for an offline device for at most 10 minutes, tells each side who is online, sends pushes. Holds no key that opens a packet (see [The relay](#the-relay)). Not used by `src-tauri` yet |
-| `.github/` | Workflows (`smoke.yml`, `release.yml`, `claude-review.yml`, `pages.yml`, `link.yml`, `relay.yml`), `dependabot.yml`, the pull request template |
+| `.github/` | Workflows (`smoke.yml`, `release.yml`, `claude-review.yml`, `pages.yml`, `link.yml`, `relay.yml`, `relay-health.yml`), `dependabot.yml`, the pull request template |
 | `CLAUDE.md`, `.claude/settings.json` | The working rules and shared permissions for Claude Code sessions in this repository |
 
 ## Build installers
@@ -113,6 +113,16 @@ It exits by itself and `report.json` must say `"pass": true` with empty `pageErr
 
 [The release workflow](../.github/workflows/release.yml) builds the installers, installs each (over the last Electron-based release on Windows and Linux) and runs the same check on the installed app.
 
+### Phone access is a compile switch
+
+Settings → Phones, the ten `phones_*` Tauri commands and the relay link exist only in a build with the Cargo feature `phones` (`src-tauri/Cargo.toml`; on by default, so `cargo run`, a develop build and a pull request's smoke run have it). `release.yml` asks [`.github/scripts/build-kind.mjs`](../.github/scripts/build-kind.mjs) about the ref it runs on: a branch (develop, or a run by hand) and a `-rc.N` tag keep the feature; a stable `vX.Y.Z` tag builds with `--no-default-features`; any other tag (a malformed one, `-beta.1`) also builds without it and the run warns. Without the feature the section is not listed, the commands are not registered, not granted to the pages and not declared in `build.rs`, and `phones::init` returns first, so no thread, key, file or relay connection is made (the module's code is still in the binary; nothing starts it). The app's `state` carries `phones: true|false` for the panel. The smoke run's `phoneSwitch` step checks that the section and `phones_log` follow the build, and the release workflow additionally compares `phoneSwitch.compiled` with the tag kind. Try a stable-style build by hand:
+
+```bash
+cd src-tauri && cargo build --no-default-features   # the smoke command above then reports phoneSwitch.compiled false
+```
+
+The `command_list_tests` test keeps the handler, `COMMANDS` plus `PHONE_COMMANDS`, and `build.rs` in step in both configurations (run `cargo test` and `cargo test --no-default-features`). Taking the switch out for the public release means deleting the feature, the `cfg` attributes and `build-kind.mjs`; it is not part of the phone-access work.
+
 ## The link crate
 
 `crates/bobix-link` holds the protocol and the crypto for phone access in one place: keys, the sealed packet, counters, messages, signed commands, the pairing code and the frames spoken to the relay. Every primitive comes from an audited RustCrypto crate; the crate decides only how they combine. It is a path dependency, not part of a Cargo workspace (`src-tauri` keeps its own `target`), and it does no file or network I/O, so the same code can sit behind the phone app's bindings. Nothing in `src-tauri` calls it yet.
@@ -151,6 +161,8 @@ cargo run -- --dev          # plain ws on 127.0.0.1:8787, recording push fake, G
 - `--dev` also serves the socket on `/`, because the fake tools of the link crate connect to exactly the address they are given: `fake-desktop --relay ws://127.0.0.1:8787`. A real client connects to `/v1/ws`.
 - Logs hold device ids and counts, never a body or a token (`tests/push.rs` checks this).
 - Deploy: [`relay/README.md`](../relay/README.md) covers what the relay can see, self-hosting, every setting and the Railway steps; `relay/Dockerfile` is built from the repository root (`docker build -f relay/Dockerfile .`). Not done yet: the deploy itself.
+
+`GET /healthz` answers `200 ok`, or `503` with `invitation file missing or unreadable` / `gateway keys file missing or unreadable` when `INVITE_FILE` or `GATEWAY_KEYS_FILE` is set and cannot be read (never the path). [`relay-health.yml`](../.github/workflows/relay-health.yml) calls it every 15 minutes at the repository variable `RELAY_URL` and fails the run (which GitHub mails) when it does not answer `ok`; without the variable it does nothing.
 
 [The relay workflow](../.github/workflows/relay.yml) mirrors the link workflow: it skips its jobs when nothing under `relay/` or `crates/bobix-link/` changed; jobs `relay` (clippy and tests on macOS and Ubuntu), `audit` (cargo-deny) and `relay-ok`, the one check to require.
 
