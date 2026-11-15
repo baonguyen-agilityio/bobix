@@ -45,6 +45,15 @@ class Glass extends StatelessWidget {
     final body = DecoratedBox(
       decoration: BoxDecoration(
         color: fill,
+        // The prototype's specular sheen: bright at the top edge, gone by the middle.
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: t.isDark
+              ? const [Color(0x0DFFFFFF), Color(0x00FFFFFF)]
+              : const [Color(0xBFFFFFFF), Color(0x1FFFFFFF), Color(0x00FFFFFF)],
+          stops: t.isDark ? const [0, .48] : const [0, .42, .6],
+        ),
         borderRadius: shape,
         border: Border.all(
           width: .5,
@@ -125,7 +134,7 @@ class SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
+      padding: const EdgeInsets.fromLTRB(0, 10, 0, 8),
       child: Row(
         children: [
           Flexible(

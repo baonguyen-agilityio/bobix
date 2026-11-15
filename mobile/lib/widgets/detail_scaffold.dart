@@ -155,36 +155,54 @@ class PillButton extends StatelessWidget {
             ? t.accentSolid
             : (t.isDark ? t.surface2 : const Color(0xB3FFFFFF)),
         shape: shape,
+        elevation: 0,
+        shadowColor: t.accent,
         child: InkWell(
           customBorder: shape,
           onTap: onPressed,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minHeight: compact ? minTouch : 50,
-              minWidth: minTouch,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              gradient: primary
+                  ? const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x38FFFFFF), Color(0x00FFFFFF)],
+                      stops: [0, .55],
+                    )
+                  : null,
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (icon != null) ...[
-                    Icon(icon, size: 18, color: fg),
-                    const SizedBox(width: 8),
-                  ],
-                  Flexible(
-                    child: Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: compact ? 14 : 16,
-                        fontWeight: FontWeight.w600,
-                        color: fg,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: compact ? minTouch : 50,
+                minWidth: minTouch,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (icon != null) ...[
+                      Icon(icon, size: 18, color: fg),
+                      const SizedBox(width: 8),
+                    ],
+                    Flexible(
+                      child: Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: compact ? 14 : 16,
+                          fontWeight: FontWeight.w600,
+                          color: fg,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

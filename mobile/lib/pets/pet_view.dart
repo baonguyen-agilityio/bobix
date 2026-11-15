@@ -98,13 +98,7 @@ class _PetViewState extends State<PetView> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final svg = SvgPicture.string(
-      flatSvg(
-        widget.design,
-        widget.color,
-        widget.state,
-        _pose,
-        ring: !widget.halo,
-      ),
+      flatSvg(widget.design, widget.color, widget.state, _pose, ring: false),
       width: widget.size,
       height: widget.size,
     );

@@ -94,6 +94,7 @@ class ActionSessionCard extends ConsumerWidget {
       petDesign: x?.petDesign ?? 'default',
       petColor: x?.petColor ?? 0,
       petState: x?.petState ?? 'waiting',
+      halo: (x?.petState ?? 'waiting') == 'waiting',
       title: title,
       subtitle: place == null || place.isEmpty ? on : '$place · $on',
       chip: chip,

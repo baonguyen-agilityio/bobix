@@ -378,7 +378,7 @@ class _Title extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(0, 6, 0, 12),
+    padding: const EdgeInsets.fromLTRB(0, 0, 0, 0),
     child: Semantics(
       header: true,
       child: Text(

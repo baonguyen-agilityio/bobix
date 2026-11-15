@@ -382,10 +382,9 @@ class _DetailsState extends ConsumerState<_Details> {
                   if (n != _rightNames.first)
                     Divider(height: .5, thickness: .5, color: t.line),
                   SwitchListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 2,
-                    ),
+                    visualDensity: VisualDensity.compact,
+                    minVerticalPadding: 6,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14),
                     title: Text(
                       s('phone.pair.may.$n'),
                       style: TextStyle(

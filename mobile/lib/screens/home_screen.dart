@@ -140,7 +140,7 @@ class HomeScreen extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(0, 6, 0, 8),
+          padding: const EdgeInsets.fromLTRB(0, 0, 0, 16),
           child: Row(
             children: [
               Expanded(
