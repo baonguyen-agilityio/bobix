@@ -1177,7 +1177,7 @@ test('phones: every string in both languages, and every one the panel uses exist
   for (const w of ['answer', 'plan', 'question', 'start', 'stop', 'activity']) used.add('phones.right.' + w);
   for (const w of ['Keychain', 'FileDataDir', 'FileNoKeychain']) used.add('phones.storage.' + w);
   for (const k of used) assert.ok(I18N.STR.en[k], `missing ${k}`);
-  for (const k of keys) if (!/^phoness\.(note|err)\./.test(k)) assert.ok(used.has(k), `unused ${k}`);
+  for (const k of keys) if (!/^phones\.(note|err)\./.test(k)) assert.ok(used.has(k), `unused ${k}`);
 });
 
 test('a plan approval reads "Approve the plan", not ExitPlanMode; other tools keep their own name', () => {

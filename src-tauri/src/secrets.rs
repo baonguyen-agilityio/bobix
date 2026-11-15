@@ -35,10 +35,10 @@ pub struct Secrets { backend: Box<dyn Backend>, storage: Storage, fell_back: Opt
 
 impl Secrets {
     // The app's: a file inside BOBIX_DATA_DIR when that is set, else the OS keychain (a file only where there is none).
-    // Under `cargo test` it is always a file in a folder of this process: no test can reach the OS keychain through it (a
+    // Under `cargo test` it is always a file in one fixed folder of the temp folder (no folder per run is left behind): no test can reach the OS keychain through it (a
     // test that wants the real keychain says so, like `real_keychain_round_trip`, which is ignored by default).
     #[cfg(test)]
-    pub fn open() -> Secrets { Self::choose(Some(std::env::temp_dir().join(format!("bobix-test-secrets-{}", std::process::id()))), Box::new(Os { fallback: File { dir: PathBuf::new() } })) }
+    pub fn open() -> Secrets { Self::choose(Some(std::env::temp_dir().join("bobix-test-secrets")), Box::new(Os { fallback: File { dir: PathBuf::new() } })) }
     #[cfg(not(test))]
     pub fn open() -> Secrets { Self::choose(std::env::var_os("BOBIX_DATA_DIR").map(PathBuf::from), Box::new(Os { fallback: File { dir: crate::paths::data_dir().join("secrets") } })) }
     fn choose(data_dir: Option<PathBuf>, os: Box<dyn Backend>) -> Secrets {
