@@ -12,8 +12,11 @@ import UserNotifications
 final class PushBridge {
   private var channel: FlutterMethodChannel?
   private var token: String?
-  /// A tap that arrived while nobody could receive it yet (cold start); Dart takes it once with `initialTap`.
+  /// A tap that arrived before Dart was listening (the app was started by it); Dart takes it once with `initialTap`.
+  /// Dart's first `initialTap` call is also its "I am listening" signal: until then no tap goes over the channel, where
+  /// nothing would handle it and it would be lost.
   private var pendingTap: [String: String]?
+  private var dartListening = false
 
   /// What the system says about the app's APNs environment: `development` or `production` in the provisioning profile.
   /// A build without a profile is a simulator build (sandbox) or an App Store / TestFlight build (production).
@@ -59,9 +62,20 @@ final class PushBridge {
   }
 
   func didTap(_ response: UNNotificationResponse) {
-    guard let r = PushRoute.parse(response.notification.request.content.userInfo) else { return }
+    didTap(userInfo: response.notification.request.content.userInfo)
+  }
+
+  func didTap(userInfo: [AnyHashable: Any]) {
+    guard let r = PushRoute.parse(userInfo) else { return }
     let tap = ["computer": r.computer, "ref": r.ref, "kind": r.kind]
-    if let channel { channel.invokeMethod("tap", arguments: tap) } else { pendingTap = tap }
+    if dartListening, let channel { channel.invokeMethod("tap", arguments: tap) } else { pendingTap = tap }
+  }
+
+  /// What Dart's `initialTap` takes: the tap that started the app, once. Calling it means Dart now listens for `tap`.
+  func takeInitialTap() -> [String: String]? {
+    dartListening = true
+    defer { pendingTap = nil }
+    return pendingTap
   }
 
   // MARK: calls from Dart
@@ -74,7 +88,7 @@ final class PushBridge {
     guard let path = PushPaths.storePath() else {
       // No App Group (a build without the capability): only the permission calls make sense.
       switch call.method {
-      case "permissionStatus", "requestPermission", "register", "token", "environment", "initialTap", "openSettings": break
+      case "permissionStatus", "requestPermission", "register", "token", "environment", "initialTap", "openSettings", "grant": break
       default: return result(FlutterError(code: "no_app_group", message: "the app group is not available", details: nil))
       }
       return handleSystem(call, result, args)
@@ -102,15 +116,6 @@ final class PushBridge {
       catch PushError.Version { result(["error": "version"]) }
       catch PushError.Unreadable { result(["error": "unreadable"]) }
       catch { fail(error) }
-    case "grant":
-      // `auth` never leaves this process: Dart gets the signed grant, not the key.
-      guard let store = try? KeyStore(), let auth = store.secret("auth"), let box = store.secret("box") else {
-        return result(FlutterError(code: "no_key", message: "the device keys are not there", details: nil))
-      }
-      do {
-        let g = try makeGrant(authSeed: auth, boxSecret: box, token: str("token"), relayId: str("relayId"), expiresUnixMs: UInt64(args["expiresMs"] as? Int ?? 0))
-        result(g)
-      } catch { fail(error) }
     default: handleSystem(call, result, args)
     }
   }
@@ -138,14 +143,21 @@ final class PushBridge {
       // Safe to repeat: APNs hands back the same token, and a new one when the system changed it.
       UIApplication.shared.registerForRemoteNotifications()
       result(nil)
+    case "grant":
+      func str(_ k: String) -> String { args[k] as? String ?? "" }
+      // `auth` never leaves this process: Dart gets the signed grant, not the key.
+      guard let store = try? KeyStore(), let auth = store.secret("auth"), let box = store.secret("box") else {
+        return result(FlutterError(code: "no_key", message: "the device keys are not there", details: nil))
+      }
+      do {
+        let g = try makeGrant(authSeed: auth, boxSecret: box, token: str("token"), relayId: str("relayId"), expiresUnixMs: UInt64(args["expiresMs"] as? Int ?? 0))
+        result(g)
+      } catch { result(FlutterError(code: "push_error", message: String(describing: error), details: nil)) }
     case "token": result(token)
     case "environment":
       let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision")
       result(PushBridge.apsEnvironment(profile: url.flatMap { try? Data(contentsOf: $0) }))
-    case "initialTap":
-      let t = pendingTap
-      pendingTap = nil
-      result(t)
+    case "initialTap": result(takeInitialTap())
     case "openSettings":
       if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
       result(nil)

@@ -226,4 +226,20 @@ final class PushOpenerTests: XCTestCase {
     XCTAssertEqual([r?.computer, r?.ref, r?.kind], ["c", "r", "waiting"])
     XCTAssertNil(PushRoute.parse(["other": 1]))
   }
+
+  // MARK: taps
+
+  func testATapBeforeDartListensWaitsForInitialTapAndIsTakenOnce() {
+    let bridge = PushBridge()
+    let info = PushRoute.userInfo(computer: "c", ref: "r1", kind: "waiting")
+    bridge.didTap(userInfo: info)
+    XCTAssertEqual(bridge.takeInitialTap(), ["computer": "c", "ref": "r1", "kind": "waiting"])
+    XCTAssertNil(bridge.takeInitialTap(), "taken once")
+  }
+
+  func testATapWithoutARouteIsIgnored() {
+    let bridge = PushBridge()
+    bridge.didTap(userInfo: ["aps": ["alert": "x"]])
+    XCTAssertNil(bridge.takeInitialTap())
+  }
 }
