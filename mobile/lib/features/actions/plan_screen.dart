@@ -7,6 +7,7 @@ import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
 import '../../widgets/status_banner.dart';
+import 'action_screen_parts.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
@@ -122,48 +123,41 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
         final long = lines > planCollapseLines;
         final collapsed = long && !_open;
         final c = source.computerName;
+        final conn = ref.watch(connProvider);
         return ActionPage(
           title: s('phone.pl.title'),
-          actions: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: ActionButton(
-                      s('phone.pl.back'),
-                      onPressed: !canSend
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => PlanNoteScreen(plan: p),
-                              ),
-                            ),
+          onLog: taskLogOpener(context, ref, p.id),
+          actions: ActionButtons(
+            secondary: ActionButton(
+              s('phone.pl.back'),
+              icon: Icons.edit_note_outlined,
+              onPressed: !canSend
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => PlanNoteScreen(plan: p),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ActionButton(
-                      s('phone.pl.approve'),
-                      kind: BtnKind.primary,
-                      icon: Icons.lock_outline,
-                      onPressed: !canSend || p.cut
-                          ? null
-                          : () => runCommand(
-                              context,
-                              ref,
-                              kind: CommandKind.approve,
-                              target: p.id,
-                              shown: p.shownHash,
-                              reason: s('phone.un.approve', {'c': c}),
-                            ),
+            ),
+            primary: ActionButton(
+              s('phone.pl.approve'),
+              kind: BtnKind.primary,
+              icon: Icons.lock_outline,
+              onPressed: !canSend || p.cut
+                  ? null
+                  : () => runCommand(
+                      context,
+                      ref,
+                      kind: CommandKind.approve,
+                      target: p.id,
+                      shown: p.shownHash,
+                      reason: s('phone.un.approve', {'c': c}),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              FinePrint(p.cut ? s('phone.pl.cut.s') : s('phone.pl.auto')),
-            ],
+            ),
+            lock: !p.cut,
+            fine: p.cut
+                ? s('phone.pl.cut.s')
+                : '${s('phone.rq.unlock', {'os': bioName(s)})} · ${sendNote(s, conn, c)}',
           ),
           children: [
             const SendOffBanner(),
@@ -174,12 +168,8 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
                 title: s('phone.pl.cut'),
                 body: s('phone.pl.cut.d'),
               ),
-            TitleCard(
-              title: s('phone.ask.plan.h'),
-              subtitle: p.sessionName,
-              icon: Icons.fact_check_outlined,
-            ),
-            const SizedBox(height: 12),
+            ActionSessionCard(id: p.id, name: p.sessionName),
+            ScreenHeading(s('phone.pl.h')),
             Glass(
               padding: const EdgeInsets.all(14),
               child: collapsed
@@ -207,8 +197,10 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
                   ),
                 ),
               ),
-            const SizedBox(height: 6),
-            FinePrint(s('phone.pl.text'), align: TextAlign.left),
+            const SizedBox(height: 10),
+            ShieldNote(s('phone.pl.text')),
+            const SizedBox(height: 10),
+            ShieldNote(s('phone.pl.auto')),
           ],
         );
       },

@@ -7,6 +7,10 @@ import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
 import '../../widgets/status_banner.dart';
+import '../../data/phone_data.dart';
+import '../../screens/app_log_screen.dart';
+import '../../screens/task_log_screen.dart';
+import 'action_screen_parts.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
@@ -129,6 +133,17 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
               onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
             ),
           ),
+          if (!held && !lost && o.kind != OutcomeKind.clock) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ActionButton(
+                s('phone.res.seelog'),
+                icon: Icons.format_list_bulleted,
+                onPressed: () => _openLog(context),
+              ),
+            ),
+          ],
           if (!canSend && (held || lost)) ...[
             const SizedBox(height: 8),
             FinePrint(s('phone.sn.nonet')),
@@ -195,7 +210,11 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
               children: [
                 _kv(context, s('phone.res.k.what'), _what(s, widget.command)),
                 _kv(context, s('phone.res.k.to'), c),
-                _kv(context, s('phone.res.k.by'), bioName(s)),
+                _kv(
+                  context,
+                  s('phone.res.k.by'),
+                  [?ref.watch(phoneNameProvider), bioName(s)].join(' · '),
+                ),
                 _kv(
                   context,
                   s('phone.res.k.log'),
@@ -205,6 +224,21 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
             ),
           ),
       ],
+    );
+  }
+
+  /// The task's log, or the app log for a command that belongs to no task yet (a ticket).
+  void _openLog(BuildContext context) {
+    final cmd = widget.command;
+    final id = cmd.kind == CommandKind.start
+        ? null
+        : sessionFor(ref.read(homeProvider).value, cmd.target)?.id ??
+              cmd.target;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            id == null ? const AppLogScreen() : TaskLogScreen(sessionId: id),
+      ),
     );
   }
 
