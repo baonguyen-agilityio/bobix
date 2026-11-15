@@ -1,0 +1,4 @@
+// The notification service extension takes the Apple team (and the build number) the app takes, nothing else of the
+// app's configuration: it must not link Flutter or the pods.
+#include "../Flutter/Generated.xcconfig"
+#include? "../Flutter/Local.xcconfig"

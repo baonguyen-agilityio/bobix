@@ -28,6 +28,8 @@
 	<string>Bobix asks for Face ID to confirm each command you send from this phone.</string>
 	<key>BobixKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
+	<key>BobixAppGroup</key>
+	<string>$(BOBIX_APP_GROUP)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

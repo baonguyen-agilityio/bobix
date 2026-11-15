@@ -650,6 +650,13 @@
       'phone.start.title': 'Start', 'phone.start.soon': 'Starting tickets from the phone comes in a later version.',
       'phone.settings.title': 'Settings', 'phone.settings.soon': 'Computers, safety and language settings come with pairing.',
       'phone.faceid.usage': 'Bobix asks for Face ID to confirm each command you send from this phone.',
+      'phone.push.generic.title': 'A session needs you', 'phone.push.generic.body': 'Open Bobix to see what it needs.',
+      'phone.push.closed': 'Answered at the computer',
+      'phone.push.done.generic.title': 'A session is done', 'phone.push.done.generic.body': 'Open Bobix to see the result.',
+      'phone.push.ask.title': 'Know when a session needs you', 'phone.push.ask.reason': 'Bobix sends a notification when Claude waits for your answer, so you can reply from your phone. Notifications are sealed: only this phone can read them.',
+      'phone.push.ask.allow': 'Turn on notifications', 'phone.push.ask.later': 'Not now',
+      'phone.push.denied': 'Notifications are off for Bobix.', 'phone.push.denied.open': 'Open iOS Settings',
+      'phone.push.hide.title': 'Hide details', 'phone.push.hide.hint': 'Notifications say only that a session needs you: no project name, no command.',
     },
     vi: {
       'app.name': 'Bobix',
@@ -1301,6 +1308,13 @@
       'phone.start.title': 'Bắt đầu', 'phone.start.soon': 'Bắt đầu ticket từ điện thoại sẽ có ở phiên bản sau.',
       'phone.settings.title': 'Cài đặt', 'phone.settings.soon': 'Máy tính, an toàn và ngôn ngữ sẽ có cùng với việc kết nối.',
       'phone.faceid.usage': 'Bobix dùng Face ID để xác nhận từng lệnh bạn gửi từ điện thoại này.',
+      'phone.push.generic.title': 'Một phiên cần bạn', 'phone.push.generic.body': 'Mở Bobix để xem phiên cần gì.',
+      'phone.push.closed': 'Đã trả lời trên máy tính',
+      'phone.push.done.generic.title': 'Một phiên đã xong', 'phone.push.done.generic.body': 'Mở Bobix để xem kết quả.',
+      'phone.push.ask.title': 'Biết ngay khi một phiên cần bạn', 'phone.push.ask.reason': 'Bobix gửi thông báo khi Claude chờ câu trả lời của bạn, để bạn trả lời ngay trên điện thoại. Thông báo được niêm phong: chỉ điện thoại này đọc được.',
+      'phone.push.ask.allow': 'Bật thông báo', 'phone.push.ask.later': 'Để sau',
+      'phone.push.denied': 'Thông báo của Bobix đang tắt.', 'phone.push.denied.open': 'Mở Cài đặt iOS',
+      'phone.push.hide.title': 'Ẩn chi tiết', 'phone.push.hide.hint': 'Thông báo chỉ cho biết có phiên cần bạn: không tên dự án, không lệnh.',
     },
   };
 

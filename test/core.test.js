@@ -1229,6 +1229,12 @@ test('phone strings: every phone.* key has EN and VI with the same {names}, and 
   assert.throws(() => renderInfoPlist({ en: { 'phone.faceid.usage': 'x' }, vi: {} }, 'vi'), /no vi text/);
   assert.ok(renderInfoPlist({ en: { 'phone.faceid.usage': 'say "hi"' } }, 'en').includes('"say \\"hi\\"";'), 'quotes are escaped');
   assert.throws(() => render({ en: { 'phone.a': 'A {n}' }, vi: { 'phone.a': 'B' } }), /different \{placeholders\}/);
+  // The relay names these two keys in every alert push (relay/src/push.rs): the app must resolve them in both languages.
+  const { renderLocalizable } = await import(require('url').pathToFileURL(gen).href);
+  for (const lang of ['en', 'vi']) {
+    const table = renderLocalizable(I18N.STR, lang);
+    assert.ok(table.includes('"bobix.push.title" = ') && table.includes('"bobix.push.body" = '), `${lang} table names the relay's loc-keys`);
+  }
   assert.ok(render({ en: { 'phone.a': "it's $5" }, vi: { 'phone.a': 'x' } }).includes("'it\\'s \\$5'"));
 });
 
