@@ -7,6 +7,7 @@
 // ignore_for_file: argument_type_not_assignable
 
 import 'api/core.dart';
+import 'api/messages.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -52,13 +53,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  CommandInput dco_decode_box_autoadd_command_input(dynamic raw);
+
+  @protected
+  PhoneRights dco_decode_box_autoadd_phone_rights(dynamic raw);
+
+  @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  CommandInput dco_decode_command_input(dynamic raw);
 
   @protected
   CoreError dco_decode_core_error(dynamic raw);
 
   @protected
   CounterTake dco_decode_counter_take(dynamic raw);
+
+  @protected
+  DesktopMessage dco_decode_desktop_message(dynamic raw);
 
   @protected
   DeviceIdentity dco_decode_device_identity(dynamic raw);
@@ -100,7 +113,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PairingInfo dco_decode_pairing_info(dynamic raw);
 
   @protected
+  PhoneRights dco_decode_phone_rights(dynamic raw);
+
+  @protected
+  PreparedCommand dco_decode_prepared_command(dynamic raw);
+
+  @protected
   ShownQuestion dco_decode_shown_question(dynamic raw);
+
+  @protected
+  StartMode dco_decode_start_mode(dynamic raw);
 
   @protected
   BigInt dco_decode_u_64(dynamic raw);
@@ -139,13 +161,27 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  CommandInput sse_decode_box_autoadd_command_input(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PhoneRights sse_decode_box_autoadd_phone_rights(SseDeserializer deserializer);
+
+  @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  CommandInput sse_decode_command_input(SseDeserializer deserializer);
 
   @protected
   CoreError sse_decode_core_error(SseDeserializer deserializer);
 
   @protected
   CounterTake sse_decode_counter_take(SseDeserializer deserializer);
+
+  @protected
+  DesktopMessage sse_decode_desktop_message(SseDeserializer deserializer);
 
   @protected
   DeviceIdentity sse_decode_device_identity(SseDeserializer deserializer);
@@ -189,7 +225,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PairingInfo sse_decode_pairing_info(SseDeserializer deserializer);
 
   @protected
+  PhoneRights sse_decode_phone_rights(SseDeserializer deserializer);
+
+  @protected
+  PreparedCommand sse_decode_prepared_command(SseDeserializer deserializer);
+
+  @protected
   ShownQuestion sse_decode_shown_question(SseDeserializer deserializer);
+
+  @protected
+  StartMode sse_decode_start_mode(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_u_64(SseDeserializer deserializer);
@@ -231,13 +276,34 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_command_input(
+    CommandInput self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_phone_rights(
+    PhoneRights self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_command_input(CommandInput self, SseSerializer serializer);
 
   @protected
   void sse_encode_core_error(CoreError self, SseSerializer serializer);
 
   @protected
   void sse_encode_counter_take(CounterTake self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_desktop_message(
+    DesktopMessage self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_device_identity(
@@ -291,7 +357,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_pairing_info(PairingInfo self, SseSerializer serializer);
 
   @protected
+  void sse_encode_phone_rights(PhoneRights self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_prepared_command(
+    PreparedCommand self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_shown_question(ShownQuestion self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_start_mode(StartMode self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_64(BigInt self, SseSerializer serializer);

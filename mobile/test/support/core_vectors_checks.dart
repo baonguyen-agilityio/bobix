@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/src/rust/api/core.dart';
+import 'package:phone/src/rust/api/messages.dart';
 
 Uint8List unhex(String s) => Uint8List.fromList([
   for (var i = 0; i < s.length; i += 2)
@@ -416,5 +417,424 @@ Future<void> checkVectors(Map<String, dynamic> v) async {
   await expectCoreError(
     () => checkVersion(min: 2, max: 3, version: 1),
     CoreError.peerMustUpdate, // an older packet: the peer is the old one
+  );
+  await checkMessages(v);
+}
+
+PhoneRights rightsOf(Map<String, dynamic> r) => PhoneRights(
+  answer: r['answer'],
+  plan: r['plan'],
+  question: r['question'],
+  start: r['start'],
+  stop: r['stop'],
+  activity: r['activity'],
+);
+
+/// The hello of pairing, commands in two steps, the messages the phone sends and parses, and the hashes.
+Future<void> checkMessages(Map<String, dynamic> v) async {
+  final desktop = v['desktop'] as Map<String, dynamic>,
+      phone = v['phone'] as Map<String, dynamic>;
+  final protocol = v['protocol'] as Map<String, dynamic>;
+  final desktopBoxSecret = unhex(desktop['boxSecret']),
+      phoneBoxPublic = unhex(phone['boxPublic']);
+  final signPublic = unhex(phone['signPublicSec1']);
+  final hello = protocol['hello'] as Map<String, dynamic>;
+  final rights = rightsOf(hello['rights']);
+
+  // The MAC input and the whole hello are the committed ones (the MAC is deterministic; only the sealing nonce is random).
+  expect(
+    hex(
+      await helloMacInput(
+        pairingUri: protocol['pairingUri'],
+        phoneAuthPublic: unhex(phone['authPublic']),
+        phoneBoxPublic: phoneBoxPublic,
+        signPublicKey: signPublic,
+        name: hello['name'],
+        rights: rights,
+      ),
+    ),
+    protocol['helloMacInput'],
+  );
+  final body = await buildHelloBody(
+    pairingUri: protocol['pairingUri'],
+    authSeed: unhex(phone['authSeed']),
+    boxSecret: unhex(phone['boxSecret']),
+    signPublicKey: signPublic,
+    name: hello['name'],
+    rights: rights,
+    versionMin: 1,
+    versionMax: 1,
+    counter: BigInt.from(11),
+  );
+  expect(
+    hex(body.sublist(0, 32)),
+    phone['boxPublic'],
+    reason: 'the body starts with the phone box key',
+  );
+  final opened = jsonDecode(
+    utf8.decode(
+      await openPacket(
+        receiverBoxSecret: desktopBoxSecret,
+        senderBoxPublic: phoneBoxPublic,
+        packet: Uint8List.fromList(body.sublist(32)),
+      ),
+    ),
+  );
+  expect(opened['kind'], 'hello');
+  expect(Map<String, dynamic>.of(opened)..remove('kind'), hello);
+  final h = await peekPacket(
+    receiverSends: LinkDirection.toPhone,
+    packet: Uint8List.fromList(body.sublist(32)),
+  );
+  expect(
+    (h.direction, h.stream, h.counter),
+    (LinkDirection.toDesktop, LinkStream.event, BigInt.from(11)),
+  );
+  // The committed hello body opens to the same hello.
+  final committed = unhex((protocol['helloBody'] as Map)['body']);
+  final fromVector = jsonDecode(
+    utf8.decode(
+      await openPacket(
+        receiverBoxSecret: desktopBoxSecret,
+        senderBoxPublic: phoneBoxPublic,
+        packet: Uint8List.fromList(committed.sublist(32)),
+      ),
+    ),
+  );
+  expect(Map<String, dynamic>.of(fromVector)..remove('kind'), hello);
+  expect(rights, rightsOf(hello['rights']));
+  // A name that is not plain text, an empty one, a bad code or a bad key are refused.
+  Future<Object?> hello2(String name, {String? uri, List<int>? seed}) =>
+      buildHelloBody(
+        pairingUri: uri ?? protocol['pairingUri'],
+        authSeed: seed ?? unhex(phone['authSeed']),
+        boxSecret: unhex(phone['boxSecret']),
+        signPublicKey: signPublic,
+        name: name,
+        rights: rights,
+        versionMin: 1,
+        versionMax: 1,
+        counter: BigInt.one,
+      );
+  await expectCoreError(() => hello2(''), CoreError.hello);
+  await expectCoreError(
+    () => hello2('a\u202eb'),
+    CoreError.hello,
+    reason: 'a bidirectional control',
+  );
+  await expectCoreError(
+    () => hello2('x' * 65),
+    CoreError.hello,
+    reason: 'longer than 64 bytes',
+  );
+  await expectCoreError(() => hello2('ok', uri: 'nope'), CoreError.malformed);
+  await expectCoreError(
+    () => hello2('ok', seed: Uint8List(3)),
+    CoreError.invalidKey,
+  );
+
+  // Text and hashes.
+  expect(await isPlainText(text: 'Sam\'s phone', max: BigInt.from(64)), isTrue);
+  expect(
+    await isPlainText(text: 'two\nlines', max: BigInt.from(64)),
+    isTrue,
+    reason: 'a newline is allowed here (the hello refuses it itself)',
+  );
+  expect(
+    await isPlainText(text: 'a\u200bb', max: BigInt.from(64)),
+    isFalse,
+    reason: 'a zero-width character',
+  );
+  expect(await isPlainText(text: 'abc', max: BigInt.from(2)), isFalse);
+  final ph = protocol['promptHash'] as Map<String, dynamic>;
+  expect(await promptHash(prompt: ph['prompt']), ph['hash']);
+  expect(await promptHash(prompt: '${ph['prompt']}!'), isNot(ph['hash']));
+
+  // The auth key signs what the relay asks (Ed25519: the same bytes every time).
+  expect(
+    hex(
+      await signWithAuth(
+        authSeed: unhex(desktop['authSeed']),
+        boxSecret: desktopBoxSecret,
+        message: unhex(protocol['authBytes']),
+      ),
+    ),
+    protocol['authSignature'],
+  );
+  final authVec = v['authSignature'] as Map<String, dynamic>;
+  expect(
+    hex(
+      await signWithAuth(
+        authSeed: unhex(desktop['authSeed']),
+        boxSecret: desktopBoxSecret,
+        message: unhex(authVec['message']),
+      ),
+    ),
+    authVec['signature'],
+  );
+  // ... and the phone's own signature verifies under its own public key, and swapping the two secrets does not.
+  final mine = await signWithAuth(
+    authSeed: unhex(phone['authSeed']),
+    boxSecret: phoneBoxPublic.isEmpty
+        ? Uint8List(32)
+        : unhex(phone['boxSecret']),
+    message: unhex('00'),
+  );
+  expect(
+    await verifyAuthSignature(
+      authPublic: unhex(phone['authPublic']),
+      message: unhex('00'),
+      signature: mine,
+    ),
+    isTrue,
+  );
+  final swapped = await signWithAuth(
+    authSeed: unhex(phone['boxSecret']),
+    boxSecret: unhex(phone['authSeed']),
+    message: unhex('00'),
+  );
+  expect(
+    await verifyAuthSignature(
+      authPublic: unhex(phone['authPublic']),
+      message: unhex('00'),
+      signature: swapped,
+    ),
+    isFalse,
+  );
+
+  // A command in two steps: the bytes to sign, then the message with the hardware's signature.
+  final command = protocol['command'] as Map<String, dynamic>;
+  final bodyJson = jsonDecode(protocol['commandBody']) as Map<String, dynamic>;
+  final input = CommandInput.answer(
+    id: bodyJson['id'],
+    allow: bodyJson['choice'] == 'allow',
+    shown: bodyJson['shown'],
+  );
+  final prepared = await prepareCommand(
+    input: input,
+    phoneId: phone['deviceId'],
+    computerId: desktop['deviceId'],
+    counter: BigInt.from(protocol['commandCounter']),
+    issuedAt: BigInt.from(protocol['issuedAt']),
+  );
+  expect((prepared.kind, prepared.target), ('answer', 'req1'));
+  expect(prepared.cid.length, 32);
+  expect(
+    hex(prepared.bytesToSign),
+    hex(
+      await commandBytes(
+        version: 1,
+        phoneId: phone['deviceId'],
+        computerId: desktop['deviceId'],
+        kind: 'answer',
+        target: 'req1',
+        cid: prepared.cid,
+        counter: BigInt.from(protocol['commandCounter']),
+        issuedAt: BigInt.from(protocol['issuedAt']),
+        body: protocol['commandBody'],
+      ),
+    ),
+  );
+  expect(
+    (await prepareCommand(
+      input: input,
+      phoneId: phone['deviceId'],
+      computerId: desktop['deviceId'],
+      counter: BigInt.one,
+      issuedAt: BigInt.one,
+    )).cid,
+    isNot(prepared.cid),
+    reason: 'a fresh id each time',
+  );
+  final message = await finishCommand(
+    input: input,
+    cid: protocol['cid'],
+    phoneId: phone['deviceId'],
+    computerId: desktop['deviceId'],
+    counter: BigInt.from(protocol['commandCounter']),
+    issuedAt: BigInt.from(protocol['issuedAt']),
+    signatureDer: b64(command['sig']),
+  );
+  expect(jsonDecode(utf8.decode(message)), <String, dynamic>{
+    'kind': 'cmd',
+    ...command,
+  });
+  // Every kind of command builds, and the rights decide which are allowed (Stop needs the Answer right too).
+  final inputs = <CommandInput>[
+    input,
+    const CommandInput.plan(
+      id: 'p1',
+      approve: false,
+      note: 'smaller',
+      shown: 'h',
+    ),
+    const CommandInput.question(id: 'q1', answers: ['SQLite'], shown: 'h'),
+    CommandInput.start(
+      project: 'shop',
+      iid: '41',
+      mode: StartMode.quick,
+      promptHash: ph['hash'],
+    ),
+    const CommandInput.stop(session: 's1', request: 'r1'),
+  ];
+  for (final c in inputs) {
+    final p = await prepareCommand(
+      input: c,
+      phoneId: phone['deviceId'],
+      computerId: desktop['deviceId'],
+      counter: BigInt.two,
+      issuedAt: BigInt.from(5),
+    );
+    expect(p.bytesToSign, isNotEmpty);
+    expect(
+      jsonDecode(
+        utf8.decode(
+          await finishCommand(
+            input: c,
+            cid: p.cid,
+            phoneId: phone['deviceId'],
+            computerId: desktop['deviceId'],
+            counter: BigInt.two,
+            issuedAt: BigInt.from(5),
+            signatureDer: Uint8List.fromList([1, 2, 3]),
+          ),
+        ),
+      )['kind'],
+      'cmd',
+    );
+  }
+  const none = PhoneRights(
+    answer: false,
+    plan: false,
+    question: false,
+    start: false,
+    stop: false,
+    activity: false,
+  );
+  const stopOnly = PhoneRights(
+    answer: false,
+    plan: false,
+    question: false,
+    start: false,
+    stop: true,
+    activity: false,
+  );
+  const stopAndAnswer = PhoneRights(
+    answer: true,
+    plan: false,
+    question: false,
+    start: false,
+    stop: true,
+    activity: false,
+  );
+  expect([
+    for (final c in inputs) await rightsAllow(rights: none, input: c),
+  ], everyElement(isFalse));
+  expect(
+    await rightsAllow(rights: stopOnly, input: inputs.last),
+    isFalse,
+    reason: 'stop denies a held request, so it needs answer too',
+  );
+  expect(await rightsAllow(rights: stopAndAnswer, input: inputs.last), isTrue);
+  expect(await rightsAllow(rights: rights, input: inputs[1]), isTrue);
+  expect(
+    await rightsAllow(rights: rights, input: inputs[3]),
+    isFalse,
+    reason: 'the vector phone was not given the start right',
+  );
+  await expectCoreError(
+    () => prepareCommand(
+      input: CommandInput.plan(
+        id: 'p1',
+        approve: false,
+        note: 'n' * 1001,
+        shown: 'h',
+      ),
+      phoneId: phone['deviceId'],
+      computerId: desktop['deviceId'],
+      counter: BigInt.one,
+      issuedAt: BigInt.one,
+    ),
+    CoreError.limit,
+    reason: 'a note over 1000 bytes',
+  );
+
+  // The other messages the phone sends.
+  expect(utf8.decode(await pairedAckMessage()), '{"kind":"pairedAck"}');
+  expect(
+    jsonDecode(
+      utf8.decode(
+        await syncMessage(waiting: ['a', 'b'], versionMin: 1, versionMax: 1),
+      ),
+    ),
+    {
+      'kind': 'sync',
+      'waiting': ['a', 'b'],
+      'versions': {'min': 1, 'max': 1},
+    },
+  );
+  expect(jsonDecode(utf8.decode(await detailRequestMessage(id: 'r1'))), {
+    'kind': 'detail',
+    'id': 'r1',
+  });
+  expect(
+    jsonDecode(
+      utf8.decode(
+        await startPreviewMessage(
+          project: 'shop',
+          iid: '41',
+          mode: StartMode.full,
+        ),
+      ),
+    ),
+    {'kind': 'startPreview', 'project': 'shop', 'iid': '41', 'mode': 'full'},
+  );
+  expect(
+    jsonDecode(
+      utf8.decode(
+        await byeMessage(signature: Uint8List.fromList([251, 255, 254])),
+      ),
+    ),
+    {'kind': 'bye', 'sig': '-__-'},
+  );
+  await expectCoreError(
+    () => syncMessage(
+      waiting: List.generate(1001, (i) => '$i'),
+      versionMin: 1,
+      versionMax: 1,
+    ),
+    CoreError.limit,
+  );
+
+  // What the computer sends is parsed and checked by the crate; the stream follows the kind.
+  final revoked = await parseDesktopMessage(
+    bytes: utf8.encode('{"kind":"revoked","why":"removed"}'),
+  );
+  expect((revoked.kind, revoked.stream), ('revoked', LinkStream.event));
+  expect(jsonDecode(revoked.json), {'kind': 'revoked', 'why': 'removed'});
+  expect(
+    (await parseDesktopMessage(
+      bytes: utf8.encode('{"kind":"relayMoved","url":"wss://r.example"}'),
+    )).kind,
+    'relayMoved',
+  );
+  expect(
+    (await parseDesktopMessage(
+      bytes: utf8.encode('{"kind":"error","code":"stale"}'),
+    )).kind,
+    'error',
+  );
+  await expectCoreError(
+    () => parseDesktopMessage(bytes: utf8.encode('{"kind":"nonsense"}')),
+    CoreError.malformed,
+  );
+  await expectCoreError(
+    () => parseDesktopMessage(bytes: utf8.encode('{"kind":"home"}')),
+    CoreError.malformed,
+    reason: 'a home without its fields',
+  );
+  await expectCoreError(
+    () => parseDesktopMessage(bytes: Uint8List.fromList([0xff, 0xfe])),
+    CoreError.malformed,
   );
 }

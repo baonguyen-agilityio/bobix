@@ -4,6 +4,7 @@
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
 import 'api/core.dart';
+import 'api/messages.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -67,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 529164969;
+  int get rustContentHash => -907647130;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -91,12 +92,26 @@ abstract class RustLibApi extends BaseApi {
     required String challenge,
   });
 
+  Future<Uint8List> crateApiMessagesBuildHelloBody({
+    required String pairingUri,
+    required List<int> authSeed,
+    required List<int> boxSecret,
+    required List<int> signPublicKey,
+    required String name,
+    required PhoneRights rights,
+    required int versionMin,
+    required int versionMax,
+    required BigInt counter,
+  });
+
   Future<Uint8List> crateApiCoreByeBytes({
     required int version,
     required String phoneId,
     required String computerId,
     required BigInt counter,
   });
+
+  Future<Uint8List> crateApiMessagesByeMessage({required List<int> signature});
 
   Future<void> crateApiCoreCheckVersion({
     required int min,
@@ -120,13 +135,39 @@ abstract class RustLibApi extends BaseApi {
     required List<int> publicKey,
   });
 
+  Future<Uint8List> crateApiMessagesDetailRequestMessage({required String id});
+
   Future<String> crateApiCoreDeviceId({required List<int> authPublic});
 
+  Future<Uint8List> crateApiMessagesFinishCommand({
+    required CommandInput input,
+    required String cid,
+    required String phoneId,
+    required String computerId,
+    required BigInt counter,
+    required BigInt issuedAt,
+    required List<int> signatureDer,
+  });
+
   Future<DeviceIdentity> crateApiCoreGenerateIdentity();
+
+  Future<Uint8List> crateApiMessagesHelloMacInput({
+    required String pairingUri,
+    required List<int> phoneAuthPublic,
+    required List<int> phoneBoxPublic,
+    required List<int> signPublicKey,
+    required String name,
+    required PhoneRights rights,
+  });
 
   Future<DeviceIdentity> crateApiCoreIdentityFromSecrets({
     required List<int> authSeed,
     required List<int> boxSecret,
+  });
+
+  Future<bool> crateApiMessagesIsPlainText({
+    required String text,
+    required BigInt max,
   });
 
   Future<String> crateApiCoreNewCommandId();
@@ -139,12 +180,28 @@ abstract class RustLibApi extends BaseApi {
     required List<int> packet,
   });
 
+  Future<Uint8List> crateApiMessagesPairedAckMessage();
+
+  Future<DesktopMessage> crateApiMessagesParseDesktopMessage({
+    required List<int> bytes,
+  });
+
   Future<PairingInfo> crateApiCoreParsePairingCode({required String uri});
 
   Future<PacketHeader> crateApiCorePeekPacket({
     required LinkDirection receiverSends,
     required List<int> packet,
   });
+
+  Future<PreparedCommand> crateApiMessagesPrepareCommand({
+    required CommandInput input,
+    required String phoneId,
+    required String computerId,
+    required BigInt counter,
+    required BigInt issuedAt,
+  });
+
+  Future<String> crateApiMessagesPromptHash({required String prompt});
 
   Future<bool> crateApiCoreRecvCheck({
     required String state,
@@ -161,6 +218,11 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiCoreRecvStateNew();
 
   Future<bool> crateApiCoreRelayUrlOk({required String url});
+
+  Future<bool> crateApiMessagesRightsAllow({
+    required PhoneRights rights,
+    required CommandInput input,
+  });
 
   Future<Uint8List> crateApiCoreSealPacket({
     required int version,
@@ -182,6 +244,18 @@ abstract class RustLibApi extends BaseApi {
     required List<int> authSeed,
     required List<int> boxSecret,
     required List<int> message,
+  });
+
+  Future<Uint8List> crateApiMessagesStartPreviewMessage({
+    required String project,
+    required String iid,
+    required StartMode mode,
+  });
+
+  Future<Uint8List> crateApiMessagesSyncMessage({
+    required List<String> waiting,
+    required int versionMin,
+    required int versionMax,
   });
 
   Future<bool> crateApiCoreVerifyAuthSignature({
@@ -305,6 +379,75 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<Uint8List> crateApiMessagesBuildHelloBody({
+    required String pairingUri,
+    required List<int> authSeed,
+    required List<int> boxSecret,
+    required List<int> signPublicKey,
+    required String name,
+    required PhoneRights rights,
+    required int versionMin,
+    required int versionMax,
+    required BigInt counter,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(pairingUri, serializer);
+          sse_encode_list_prim_u_8_loose(authSeed, serializer);
+          sse_encode_list_prim_u_8_loose(boxSecret, serializer);
+          sse_encode_list_prim_u_8_loose(signPublicKey, serializer);
+          sse_encode_String(name, serializer);
+          sse_encode_box_autoadd_phone_rights(rights, serializer);
+          sse_encode_u_8(versionMin, serializer);
+          sse_encode_u_8(versionMax, serializer);
+          sse_encode_u_64(counter, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_core_error,
+        ),
+        constMeta: kCrateApiMessagesBuildHelloBodyConstMeta,
+        argValues: [
+          pairingUri,
+          authSeed,
+          boxSecret,
+          signPublicKey,
+          name,
+          rights,
+          versionMin,
+          versionMax,
+          counter,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesBuildHelloBodyConstMeta =>
+      const TaskConstMeta(
+        debugName: "build_hello_body",
+        argNames: [
+          "pairingUri",
+          "authSeed",
+          "boxSecret",
+          "signPublicKey",
+          "name",
+          "rights",
+          "versionMin",
+          "versionMax",
+          "counter",
+        ],
+      );
+
+  @override
   Future<Uint8List> crateApiCoreByeBytes({
     required int version,
     required String phoneId,
@@ -322,7 +465,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 5,
             port: port_,
           );
         },
@@ -343,6 +486,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<Uint8List> crateApiMessagesByeMessage({required List<int> signature}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(signature, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiMessagesByeMessageConstMeta,
+        argValues: [signature],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesByeMessageConstMeta =>
+      const TaskConstMeta(debugName: "bye_message", argNames: ["signature"]);
+
+  @override
   Future<void> crateApiCoreCheckVersion({
     required int min,
     required int max,
@@ -358,7 +529,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 7,
             port: port_,
           );
         },
@@ -406,7 +577,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 8,
             port: port_,
           );
         },
@@ -458,7 +629,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 9,
             port: port_,
           );
         },
@@ -480,6 +651,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<Uint8List> crateApiMessagesDetailRequestMessage({required String id}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(id, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiMessagesDetailRequestMessageConstMeta,
+        argValues: [id],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesDetailRequestMessageConstMeta =>
+      const TaskConstMeta(
+        debugName: "detail_request_message",
+        argNames: ["id"],
+      );
+
+  @override
   Future<String> crateApiCoreDeviceId({required List<int> authPublic}) {
     return handler.executeNormal(
       NormalTask(
@@ -489,7 +691,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 11,
             port: port_,
           );
         },
@@ -508,6 +710,67 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "device_id", argNames: ["authPublic"]);
 
   @override
+  Future<Uint8List> crateApiMessagesFinishCommand({
+    required CommandInput input,
+    required String cid,
+    required String phoneId,
+    required String computerId,
+    required BigInt counter,
+    required BigInt issuedAt,
+    required List<int> signatureDer,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_command_input(input, serializer);
+          sse_encode_String(cid, serializer);
+          sse_encode_String(phoneId, serializer);
+          sse_encode_String(computerId, serializer);
+          sse_encode_u_64(counter, serializer);
+          sse_encode_u_64(issuedAt, serializer);
+          sse_encode_list_prim_u_8_loose(signatureDer, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 12,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_core_error,
+        ),
+        constMeta: kCrateApiMessagesFinishCommandConstMeta,
+        argValues: [
+          input,
+          cid,
+          phoneId,
+          computerId,
+          counter,
+          issuedAt,
+          signatureDer,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesFinishCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: "finish_command",
+        argNames: [
+          "input",
+          "cid",
+          "phoneId",
+          "computerId",
+          "counter",
+          "issuedAt",
+          "signatureDer",
+        ],
+      );
+
+  @override
   Future<DeviceIdentity> crateApiCoreGenerateIdentity() {
     return handler.executeNormal(
       NormalTask(
@@ -516,7 +779,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 13,
             port: port_,
           );
         },
@@ -535,6 +798,63 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "generate_identity", argNames: []);
 
   @override
+  Future<Uint8List> crateApiMessagesHelloMacInput({
+    required String pairingUri,
+    required List<int> phoneAuthPublic,
+    required List<int> phoneBoxPublic,
+    required List<int> signPublicKey,
+    required String name,
+    required PhoneRights rights,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(pairingUri, serializer);
+          sse_encode_list_prim_u_8_loose(phoneAuthPublic, serializer);
+          sse_encode_list_prim_u_8_loose(phoneBoxPublic, serializer);
+          sse_encode_list_prim_u_8_loose(signPublicKey, serializer);
+          sse_encode_String(name, serializer);
+          sse_encode_box_autoadd_phone_rights(rights, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_core_error,
+        ),
+        constMeta: kCrateApiMessagesHelloMacInputConstMeta,
+        argValues: [
+          pairingUri,
+          phoneAuthPublic,
+          phoneBoxPublic,
+          signPublicKey,
+          name,
+          rights,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesHelloMacInputConstMeta =>
+      const TaskConstMeta(
+        debugName: "hello_mac_input",
+        argNames: [
+          "pairingUri",
+          "phoneAuthPublic",
+          "phoneBoxPublic",
+          "signPublicKey",
+          "name",
+          "rights",
+        ],
+      );
+
+  @override
   Future<DeviceIdentity> crateApiCoreIdentityFromSecrets({
     required List<int> authSeed,
     required List<int> boxSecret,
@@ -548,7 +868,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 15,
             port: port_,
           );
         },
@@ -570,6 +890,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<bool> crateApiMessagesIsPlainText({
+    required String text,
+    required BigInt max,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(text, serializer);
+          sse_encode_usize(max, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiMessagesIsPlainTextConstMeta,
+        argValues: [text, max],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesIsPlainTextConstMeta =>
+      const TaskConstMeta(
+        debugName: "is_plain_text",
+        argNames: ["text", "max"],
+      );
+
+  @override
   Future<String> crateApiCoreNewCommandId() {
     return handler.executeNormal(
       NormalTask(
@@ -578,7 +933,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 17,
             port: port_,
           );
         },
@@ -606,7 +961,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 18,
             port: port_,
           );
         },
@@ -640,7 +995,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 19,
             port: port_,
           );
         },
@@ -661,6 +1016,66 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<Uint8List> crateApiMessagesPairedAckMessage() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 20,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiMessagesPairedAckMessageConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesPairedAckMessageConstMeta =>
+      const TaskConstMeta(debugName: "paired_ack_message", argNames: []);
+
+  @override
+  Future<DesktopMessage> crateApiMessagesParseDesktopMessage({
+    required List<int> bytes,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(bytes, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 21,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_desktop_message,
+          decodeErrorData: sse_decode_core_error,
+        ),
+        constMeta: kCrateApiMessagesParseDesktopMessageConstMeta,
+        argValues: [bytes],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesParseDesktopMessageConstMeta =>
+      const TaskConstMeta(
+        debugName: "parse_desktop_message",
+        argNames: ["bytes"],
+      );
+
+  @override
   Future<PairingInfo> crateApiCoreParsePairingCode({required String uri}) {
     return handler.executeNormal(
       NormalTask(
@@ -670,7 +1085,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 22,
             port: port_,
           );
         },
@@ -702,7 +1117,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 23,
             port: port_,
           );
         },
@@ -723,6 +1138,75 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<PreparedCommand> crateApiMessagesPrepareCommand({
+    required CommandInput input,
+    required String phoneId,
+    required String computerId,
+    required BigInt counter,
+    required BigInt issuedAt,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_command_input(input, serializer);
+          sse_encode_String(phoneId, serializer);
+          sse_encode_String(computerId, serializer);
+          sse_encode_u_64(counter, serializer);
+          sse_encode_u_64(issuedAt, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 24,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_prepared_command,
+          decodeErrorData: sse_decode_core_error,
+        ),
+        constMeta: kCrateApiMessagesPrepareCommandConstMeta,
+        argValues: [input, phoneId, computerId, counter, issuedAt],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesPrepareCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: "prepare_command",
+        argNames: ["input", "phoneId", "computerId", "counter", "issuedAt"],
+      );
+
+  @override
+  Future<String> crateApiMessagesPromptHash({required String prompt}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(prompt, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 25,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiMessagesPromptHashConstMeta,
+        argValues: [prompt],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesPromptHashConstMeta =>
+      const TaskConstMeta(debugName: "prompt_hash", argNames: ["prompt"]);
+
+  @override
   Future<bool> crateApiCoreRecvCheck({
     required String state,
     required LinkStream stream,
@@ -738,7 +1222,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 26,
             port: port_,
           );
         },
@@ -774,7 +1258,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 27,
             port: port_,
           );
         },
@@ -803,7 +1287,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 28,
             port: port_,
           );
         },
@@ -831,7 +1315,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 29,
             port: port_,
           );
         },
@@ -848,6 +1332,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCoreRelayUrlOkConstMeta =>
       const TaskConstMeta(debugName: "relay_url_ok", argNames: ["url"]);
+
+  @override
+  Future<bool> crateApiMessagesRightsAllow({
+    required PhoneRights rights,
+    required CommandInput input,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_phone_rights(rights, serializer);
+          sse_encode_box_autoadd_command_input(input, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 30,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiMessagesRightsAllowConstMeta,
+        argValues: [rights, input],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesRightsAllowConstMeta =>
+      const TaskConstMeta(
+        debugName: "rights_allow",
+        argNames: ["rights", "input"],
+      );
 
   @override
   Future<Uint8List> crateApiCoreSealPacket({
@@ -873,7 +1392,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 31,
             port: port_,
           );
         },
@@ -925,7 +1444,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 32,
             port: port_,
           );
         },
@@ -961,7 +1480,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 33,
             port: port_,
           );
         },
@@ -982,6 +1501,80 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<Uint8List> crateApiMessagesStartPreviewMessage({
+    required String project,
+    required String iid,
+    required StartMode mode,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(project, serializer);
+          sse_encode_String(iid, serializer);
+          sse_encode_start_mode(mode, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 34,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiMessagesStartPreviewMessageConstMeta,
+        argValues: [project, iid, mode],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesStartPreviewMessageConstMeta =>
+      const TaskConstMeta(
+        debugName: "start_preview_message",
+        argNames: ["project", "iid", "mode"],
+      );
+
+  @override
+  Future<Uint8List> crateApiMessagesSyncMessage({
+    required List<String> waiting,
+    required int versionMin,
+    required int versionMax,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_String(waiting, serializer);
+          sse_encode_u_8(versionMin, serializer);
+          sse_encode_u_8(versionMax, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 35,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_core_error,
+        ),
+        constMeta: kCrateApiMessagesSyncMessageConstMeta,
+        argValues: [waiting, versionMin, versionMax],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiMessagesSyncMessageConstMeta =>
+      const TaskConstMeta(
+        debugName: "sync_message",
+        argNames: ["waiting", "versionMin", "versionMax"],
+      );
+
+  @override
   Future<bool> crateApiCoreVerifyAuthSignature({
     required List<int> authPublic,
     required List<int> message,
@@ -997,7 +1590,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1034,7 +1627,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1102,9 +1695,61 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CommandInput dco_decode_box_autoadd_command_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_command_input(raw);
+  }
+
+  @protected
+  PhoneRights dco_decode_box_autoadd_phone_rights(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_phone_rights(raw);
+  }
+
+  @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_u_64(raw);
+  }
+
+  @protected
+  CommandInput dco_decode_command_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return CommandInput_Answer(
+          id: dco_decode_String(raw[1]),
+          allow: dco_decode_bool(raw[2]),
+          shown: dco_decode_String(raw[3]),
+        );
+      case 1:
+        return CommandInput_Plan(
+          id: dco_decode_String(raw[1]),
+          approve: dco_decode_bool(raw[2]),
+          note: dco_decode_opt_String(raw[3]),
+          shown: dco_decode_String(raw[4]),
+        );
+      case 2:
+        return CommandInput_Question(
+          id: dco_decode_String(raw[1]),
+          answers: dco_decode_list_String(raw[2]),
+          shown: dco_decode_String(raw[3]),
+        );
+      case 3:
+        return CommandInput_Start(
+          project: dco_decode_String(raw[1]),
+          iid: dco_decode_String(raw[2]),
+          mode: dco_decode_start_mode(raw[3]),
+          promptHash: dco_decode_String(raw[4]),
+        );
+      case 4:
+        return CommandInput_Stop(
+          session: dco_decode_String(raw[1]),
+          request: dco_decode_String(raw[2]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
   }
 
   @protected
@@ -1122,6 +1767,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return CounterTake(
       counter: dco_decode_u_64(arr[0]),
       reserve: dco_decode_opt_box_autoadd_u_64(arr[1]),
+    );
+  }
+
+  @protected
+  DesktopMessage dco_decode_desktop_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return DesktopMessage(
+      kind: dco_decode_String(arr[0]),
+      json: dco_decode_String(arr[1]),
+      stream: dco_decode_link_stream(arr[2]),
     );
   }
 
@@ -1231,6 +1889,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PhoneRights dco_decode_phone_rights(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return PhoneRights(
+      answer: dco_decode_bool(arr[0]),
+      plan: dco_decode_bool(arr[1]),
+      question: dco_decode_bool(arr[2]),
+      start: dco_decode_bool(arr[3]),
+      stop: dco_decode_bool(arr[4]),
+      activity: dco_decode_bool(arr[5]),
+    );
+  }
+
+  @protected
+  PreparedCommand dco_decode_prepared_command(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return PreparedCommand(
+      cid: dco_decode_String(arr[0]),
+      kind: dco_decode_String(arr[1]),
+      target: dco_decode_String(arr[2]),
+      bytesToSign: dco_decode_list_prim_u_8_strict(arr[3]),
+    );
+  }
+
+  @protected
   ShownQuestion dco_decode_shown_question(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1241,6 +1929,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       options: dco_decode_list_String(arr[1]),
       multiSelect: dco_decode_bool(arr[2]),
     );
+  }
+
+  @protected
+  StartMode dco_decode_start_mode(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return StartMode.values[raw as int];
   }
 
   @protected
@@ -1317,9 +2011,80 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CommandInput sse_decode_box_autoadd_command_input(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_command_input(deserializer));
+  }
+
+  @protected
+  PhoneRights sse_decode_box_autoadd_phone_rights(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_phone_rights(deserializer));
+  }
+
+  @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_u_64(deserializer));
+  }
+
+  @protected
+  CommandInput sse_decode_command_input(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_id = sse_decode_String(deserializer);
+        var var_allow = sse_decode_bool(deserializer);
+        var var_shown = sse_decode_String(deserializer);
+        return CommandInput_Answer(
+          id: var_id,
+          allow: var_allow,
+          shown: var_shown,
+        );
+      case 1:
+        var var_id = sse_decode_String(deserializer);
+        var var_approve = sse_decode_bool(deserializer);
+        var var_note = sse_decode_opt_String(deserializer);
+        var var_shown = sse_decode_String(deserializer);
+        return CommandInput_Plan(
+          id: var_id,
+          approve: var_approve,
+          note: var_note,
+          shown: var_shown,
+        );
+      case 2:
+        var var_id = sse_decode_String(deserializer);
+        var var_answers = sse_decode_list_String(deserializer);
+        var var_shown = sse_decode_String(deserializer);
+        return CommandInput_Question(
+          id: var_id,
+          answers: var_answers,
+          shown: var_shown,
+        );
+      case 3:
+        var var_project = sse_decode_String(deserializer);
+        var var_iid = sse_decode_String(deserializer);
+        var var_mode = sse_decode_start_mode(deserializer);
+        var var_promptHash = sse_decode_String(deserializer);
+        return CommandInput_Start(
+          project: var_project,
+          iid: var_iid,
+          mode: var_mode,
+          promptHash: var_promptHash,
+        );
+      case 4:
+        var var_session = sse_decode_String(deserializer);
+        var var_request = sse_decode_String(deserializer);
+        return CommandInput_Stop(session: var_session, request: var_request);
+      default:
+        throw UnimplementedError('');
+    }
   }
 
   @protected
@@ -1335,6 +2100,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_counter = sse_decode_u_64(deserializer);
     var var_reserve = sse_decode_opt_box_autoadd_u_64(deserializer);
     return CounterTake(counter: var_counter, reserve: var_reserve);
+  }
+
+  @protected
+  DesktopMessage sse_decode_desktop_message(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_kind = sse_decode_String(deserializer);
+    var var_json = sse_decode_String(deserializer);
+    var var_stream = sse_decode_link_stream(deserializer);
+    return DesktopMessage(kind: var_kind, json: var_json, stream: var_stream);
   }
 
   @protected
@@ -1482,6 +2256,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PhoneRights sse_decode_phone_rights(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_answer = sse_decode_bool(deserializer);
+    var var_plan = sse_decode_bool(deserializer);
+    var var_question = sse_decode_bool(deserializer);
+    var var_start = sse_decode_bool(deserializer);
+    var var_stop = sse_decode_bool(deserializer);
+    var var_activity = sse_decode_bool(deserializer);
+    return PhoneRights(
+      answer: var_answer,
+      plan: var_plan,
+      question: var_question,
+      start: var_start,
+      stop: var_stop,
+      activity: var_activity,
+    );
+  }
+
+  @protected
+  PreparedCommand sse_decode_prepared_command(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_cid = sse_decode_String(deserializer);
+    var var_kind = sse_decode_String(deserializer);
+    var var_target = sse_decode_String(deserializer);
+    var var_bytesToSign = sse_decode_list_prim_u_8_strict(deserializer);
+    return PreparedCommand(
+      cid: var_cid,
+      kind: var_kind,
+      target: var_target,
+      bytesToSign: var_bytesToSign,
+    );
+  }
+
+  @protected
   ShownQuestion sse_decode_shown_question(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_text = sse_decode_String(deserializer);
@@ -1492,6 +2300,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       options: var_options,
       multiSelect: var_multiSelect,
     );
+  }
+
+  @protected
+  StartMode sse_decode_start_mode(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return StartMode.values[inner];
   }
 
   @protected
@@ -1569,9 +2384,78 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_command_input(
+    CommandInput self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_command_input(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_phone_rights(
+    PhoneRights self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_phone_rights(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_command_input(CommandInput self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case CommandInput_Answer(
+        id: final id,
+        allow: final allow,
+        shown: final shown,
+      ):
+        sse_encode_i_32(0, serializer);
+        sse_encode_String(id, serializer);
+        sse_encode_bool(allow, serializer);
+        sse_encode_String(shown, serializer);
+      case CommandInput_Plan(
+        id: final id,
+        approve: final approve,
+        note: final note,
+        shown: final shown,
+      ):
+        sse_encode_i_32(1, serializer);
+        sse_encode_String(id, serializer);
+        sse_encode_bool(approve, serializer);
+        sse_encode_opt_String(note, serializer);
+        sse_encode_String(shown, serializer);
+      case CommandInput_Question(
+        id: final id,
+        answers: final answers,
+        shown: final shown,
+      ):
+        sse_encode_i_32(2, serializer);
+        sse_encode_String(id, serializer);
+        sse_encode_list_String(answers, serializer);
+        sse_encode_String(shown, serializer);
+      case CommandInput_Start(
+        project: final project,
+        iid: final iid,
+        mode: final mode,
+        promptHash: final promptHash,
+      ):
+        sse_encode_i_32(3, serializer);
+        sse_encode_String(project, serializer);
+        sse_encode_String(iid, serializer);
+        sse_encode_start_mode(mode, serializer);
+        sse_encode_String(promptHash, serializer);
+      case CommandInput_Stop(session: final session, request: final request):
+        sse_encode_i_32(4, serializer);
+        sse_encode_String(session, serializer);
+        sse_encode_String(request, serializer);
+    }
   }
 
   @protected
@@ -1585,6 +2469,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_64(self.counter, serializer);
     sse_encode_opt_box_autoadd_u_64(self.reserve, serializer);
+  }
+
+  @protected
+  void sse_encode_desktop_message(
+    DesktopMessage self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.kind, serializer);
+    sse_encode_String(self.json, serializer);
+    sse_encode_link_stream(self.stream, serializer);
   }
 
   @protected
@@ -1715,11 +2610,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_phone_rights(PhoneRights self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.answer, serializer);
+    sse_encode_bool(self.plan, serializer);
+    sse_encode_bool(self.question, serializer);
+    sse_encode_bool(self.start, serializer);
+    sse_encode_bool(self.stop, serializer);
+    sse_encode_bool(self.activity, serializer);
+  }
+
+  @protected
+  void sse_encode_prepared_command(
+    PreparedCommand self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.cid, serializer);
+    sse_encode_String(self.kind, serializer);
+    sse_encode_String(self.target, serializer);
+    sse_encode_list_prim_u_8_strict(self.bytesToSign, serializer);
+  }
+
+  @protected
   void sse_encode_shown_question(ShownQuestion self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.text, serializer);
     sse_encode_list_String(self.options, serializer);
     sse_encode_bool(self.multiSelect, serializer);
+  }
+
+  @protected
+  void sse_encode_start_mode(StartMode self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
   }
 
   @protected

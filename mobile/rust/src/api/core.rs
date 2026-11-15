@@ -31,6 +31,8 @@ pub enum CoreError {
     Reflected,
     /// A counter that breaks the rule of its stream (replayed, too old).
     Dropped,
+    /// A field is longer than the protocol allows.
+    Limit,
     /// The packet's version is outside what this app understands, and the peer is the one to update.
     PeerMustUpdate,
     /// The packet's version is outside what this app understands, and this app is the one to update.

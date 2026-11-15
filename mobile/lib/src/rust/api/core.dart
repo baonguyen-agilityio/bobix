@@ -254,6 +254,9 @@ enum CoreError {
   /// A counter that breaks the rule of its stream (replayed, too old).
   dropped,
 
+  /// A field is longer than the protocol allows.
+  limit,
+
   /// The packet's version is outside what this app understands, and the peer is the one to update.
   peerMustUpdate,
 
