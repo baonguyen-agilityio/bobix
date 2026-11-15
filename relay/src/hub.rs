@@ -162,7 +162,12 @@ impl Hub {
     }
 
     fn err(&self, to: &str, code: ErrorCode, who: Option<Who>) {
-        self.send_to(to, Frame::Error { code, who });
+        self.send_to(to, Frame::Error { code, who, peer: None });
+    }
+
+    /// `error { grant }`: `phone` is the phone whose push grant ended.
+    fn grant_err(&self, to: &str, phone: &str) {
+        self.send_to(to, Frame::Error { code: ErrorCode::Grant, who: Some(Who::Phone), peer: Some(phone.to_owned()) });
     }
 
     /// A notice for a sender: now if it is connected, otherwise when it returns (for as long as a packet can live).
@@ -454,7 +459,7 @@ impl Hub {
             _ => false,
         };
         if !own_key {
-            return self.err(me, ErrorCode::Grant, Some(Who::Phone));
+            return self.grant_err(me, me);
         }
         let list = self.tokens.entry(me.to_owned()).or_default();
         list.retain(|t| !(t.kind == reg.kind && t.r#ref == reg.r#ref));
@@ -473,7 +478,7 @@ impl Hub {
         let Some(reg) = self.tokens.get(to).and_then(|l| l.iter().rev().find(|t| t.kind == kind)).cloned() else { return vec![] };
         if reg.expires_ms <= now {
             // The grant ended: say so to the sender (the error follows the `queued` of this very packet).
-            self.err(from, ErrorCode::Grant, Some(Who::Phone));
+            self.grant_err(from, to);
             return vec![];
         }
         let sender_key = format!("sender:{from}");

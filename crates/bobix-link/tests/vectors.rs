@@ -5,7 +5,7 @@
 
 use bobix_link::command;
 use bobix_link::envelope::{seal_with_tail, Direction, Lane, Stream, VersionRange};
-use bobix_link::messages::{prompt_hash, shown_hash, Choice, CommandBody, Question};
+use bobix_link::messages::{prompt_hash, shown_hash, Choice, CommandBody, Question, MAX_NOTE};
 use bobix_link::pairing::{normalize_relay_url, hello_body, hello_mac_input, Hello, PairingCode, Rights};
 use bobix_link::messages::PhoneMsg;
 use bobix_link::keys::{soft::SoftSigner, Identity, SignPublic};
@@ -102,6 +102,7 @@ pub fn build() -> Value {
                   "note": "the text is the displayed form: hidden characters are already visible escapes" },
             ],
             "shownNote": "shown = hex SHA-256 of Fields(\"bobix-shown-v1\", text, cut as u64, number of questions, then per question: text, multiSelect as u64, number of options, each option); numbers are u64 big endian as 8-byte fields; every field has a u32 big endian length prefix",
+            "limits": { "maxNote": MAX_NOTE, "note": "the longest plan note and the longest answer to a question, in UTF-8 bytes" },
             "promptHash": { "prompt": "Implement ticket 12.", "hash": prompt_hash("Implement ticket 12.") },
             "authBytesRelayUrl": "wss://relay.example", "authChallenge": "challenge-1",
             "authSignature": hex(&desktop.sign_auth(&command::auth_bytes("wss://relay.example", "challenge-1").unwrap())),
@@ -231,6 +232,7 @@ fn committed_negative_vectors_are_refused_or_accepted_as_stated() {
         let qs: Vec<Question> = serde_json::from_value(e["questions"].clone()).unwrap();
         assert_eq!(shown_hash(e["text"].as_str().unwrap(), e["cut"].as_bool().unwrap(), &qs), e["shown"].as_str().unwrap());
     }
+    assert_eq!(p["limits"]["maxNote"], MAX_NOTE);
     assert_eq!(prompt_hash(p["promptHash"]["prompt"].as_str().unwrap()), p["promptHash"]["hash"].as_str().unwrap());
     // the relay address normalisation and the bytes the auth frame signs
     for pair in p["relayUrlNormalisation"].as_array().unwrap() {

@@ -67,7 +67,7 @@ pub enum ErrorCode {
     /// The default relay serves invited computers only.
     Invite,
     Update,
-    /// A push was asked for a phone whose grant has ended.
+    /// A push was asked for a phone whose grant has ended; the frame's `peer` names that phone.
     Grant,
     Auth,
     Malformed,
@@ -129,6 +129,9 @@ pub enum Frame {
         code: ErrorCode,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         who: Option<Who>,
+        /// For `grant`: the id of the phone whose push grant ended (the desktop asks that phone for a new one).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        peer: Option<String>,
     },
 }
 
