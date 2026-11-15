@@ -46,6 +46,8 @@ pub struct Config {
     /// that have not authenticated, and sockets open at all. An IPv6 address counts by its /64.
     pub max_open_per_ip: usize,
     pub max_unauth_total: usize,
+    /// Unauthenticated sockets one IPv6 /48 may hold (so one site cannot fill `max_unauth_total`).
+    pub max_unauth_per_net48: usize,
     pub max_open_total: usize,
     /// With invitations on, how long a guest has to name an invited computer in `peers` before the socket is closed.
     pub guest_within: Duration,
@@ -117,6 +119,7 @@ impl Config {
             conns_per_ip_per_min: 120,
             max_open_per_ip: 32,
             max_unauth_total: 256,
+            max_unauth_per_net48: 32,
             max_open_total: 4096,
             guest_within: Duration::from_secs(30),
             state_keep: Duration::from_secs(3600),

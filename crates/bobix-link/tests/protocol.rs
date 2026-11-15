@@ -454,7 +454,12 @@ fn a_different_phone_after_the_confirmation_is_reported_and_changes_nothing() {
     assert_eq!(offer(&mut s, &first, &w.phone.device_id(), NOW + 2000), Ok(Offer::Duplicate), "the confirmed phone saying it again");
     assert_eq!(s.status(NOW + 2000), PairStatus::Confirmed, "still confirmed, waiting for its acknowledgement");
     assert!(s.ack(NOW + 3000));
-    assert_eq!(offer(&mut s, &h2, &second.phone.device_id(), NOW + 4000), Err(PairError::Expired), "once done, nothing is answered");
+    assert!(!s.finished(NOW + 3500), "done, but a late phone is still listened for");
+    assert_eq!(offer(&mut s, &h2, &second.phone.device_id(), NOW + 4000), Ok(Offer::Late), "also after the acknowledgement");
+    assert_eq!(offer(&mut s, &first, &w.phone.device_id(), NOW + 4000), Ok(Offer::Duplicate));
+    let over = NOW + 1000 + bobix_link::pairing::ACK_LIFETIME_MS + 1;
+    assert_eq!(offer(&mut s, &h2, &second.phone.device_id(), over), Err(PairError::Expired), "once the time is over, nothing is answered");
+    assert!(s.finished(over));
 }
 
 #[test]
@@ -730,7 +735,7 @@ fn a_signature_made_for_relay_a_is_refused_by_relay_b() {
 fn invisible_letters_and_variation_selectors_are_hidden_characters_too() {
     // not `Cf`, so only a list catches them: Hangul fillers, the combining grapheme joiner, variation selectors (both blocks), the
     // Mongolian free variation selectors, and the format characters the desktop's own list had that the crate's lacked
-    for c in ['\u{115F}', '\u{1160}', '\u{3164}', '\u{FFA0}', '\u{034F}', '\u{FE00}', '\u{FE0F}', '\u{E0100}', '\u{E01EF}', '\u{180B}', '\u{180D}', '\u{180F}',
+    for c in ['\u{115F}', '\u{1160}', '\u{3164}', '\u{FFA0}', '\u{034F}', '\u{FE00}', '\u{FE0D}', '\u{E0100}', '\u{E01EF}', '\u{180B}', '\u{180D}', '\u{180F}',
               '\u{2028}', '\u{0600}', '\u{110BD}', '\u{1D173}'] {
         assert!(bobix_link::messages::is_odd_char(c), "{:x}", c as u32);
         let (shown, odd) = bobix_link::messages::visible_escapes(&format!("const {{ a,{c} }} = q; exec({c})"));
@@ -739,4 +744,20 @@ fn invisible_letters_and_variation_selectors_are_hidden_characters_too() {
     for c in ['a', 'é', '한', ' ', '\u{1F600}', '中'] {
         assert!(!bobix_link::messages::is_odd_char(c), "{c:?}");
     }
+}
+
+#[test]
+fn emoji_presentation_selectors_pass_after_a_visible_character_and_are_hidden_anywhere_else() {
+    use bobix_link::messages::{has_odd, is_plain_text, odd_flags, visible_escapes};
+    for ok in ["\u{26A0}\u{FE0F} careful", "done \u{2705}\u{FE0F}", "\u{2764}\u{FE0E}", "a\u{FE0F}", "Bao's \u{260E}\u{FE0F}"] {
+        assert!(!has_odd(ok), "{ok:?}");
+        assert!(is_plain_text(ok, 64) && !visible_escapes(ok).1, "{ok:?}");
+    }
+    for bad in ["\u{FE0F}", "x \u{FE0F}", "x\n\u{FE0F}", "\u{26A0}\u{FE0F}\u{FE0F}", "\u{26A0}\u{FE0F}\u{FE0E}", "a\u{200B}\u{FE0F}", "a\u{FE00}"] {
+        assert!(has_odd(bad), "{bad:?}");
+        assert!(!is_plain_text(bad, 64), "{bad:?}");
+    }
+    assert_eq!(odd_flags("a\u{FE0F}\u{FE0F}"), vec![false, false, true], "only the stacked one is hidden");
+    let (shown, odd) = visible_escapes("ok \u{26A0}\u{FE0F} then \u{FE0F}x");
+    assert!(odd && shown.contains("\u{26A0}\u{FE0F}") && shown.contains("\\u{fe0f}x"), "{shown}");
 }

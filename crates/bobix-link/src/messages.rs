@@ -41,14 +41,40 @@ fn within(field: &'static str, s: &str, max: usize) -> Result<(), LimitError> {
 /// characters, tags, the byte order mark, the other `Cf` characters), and for the characters that are not format characters
 /// but draw nothing or change nothing visible: the combining grapheme joiner, the Hangul fillers (letters that render
 /// blank, usable as an invisible name) and the variation selectors. The one list: the desktop's escaper and the previews
-/// use it too, so a request, a plan and a name are judged by the same rule.
+/// use it too, so a request, a plan and a name are judged by the same rule. It judges one character alone, so it leaves out
+/// the two presentation selectors, which depend on what precedes them: use [`odd_flags`] on text.
 pub fn is_odd_char(c: char) -> bool {
     c.is_control()
         || matches!(c as u32,
             0x00AD | 0x034F | 0x0600..=0x0605 | 0x061C | 0x06DD | 0x070F | 0x08E2 | 0x115F | 0x1160
             | 0x180B..=0x180F | 0x200B..=0x200F | 0x2028..=0x202E | 0x2060..=0x2064 | 0x2066..=0x206F
-            | 0x3164 | 0xFE00..=0xFE0F | 0xFEFF | 0xFFA0 | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD | 0x13430..=0x1343F
+            | 0x3164 | 0xFE00..=0xFE0D | 0xFEFF | 0xFFA0 | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD | 0x13430..=0x1343F
             | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A | 0xE0000..=0xE007F | 0xE0100..=0xE01EF)
+}
+
+/// U+FE0E and U+FE0F, the text and emoji presentation selectors (`⚠️`, `✅`): not odd by themselves, see [`odd_flags`].
+pub fn is_presentation_selector(c: char) -> bool {
+    matches!(c as u32, 0xFE0E | 0xFE0F)
+}
+
+/// For each character of `text`, whether it is hidden. The same as [`is_odd_char`], except that a presentation selector
+/// (U+FE0E, U+FE0F) is allowed directly after a visible character, which is how emoji are written, and is hidden when it
+/// stands first, follows white space, a control or another hidden character, or is stacked on another selector: there it
+/// can only carry something, not select how a character looks.
+pub fn odd_flags(text: &str) -> Vec<bool> {
+    let mut prev_visible = false;
+    text.chars()
+        .map(|c| {
+            let odd = if is_presentation_selector(c) { !prev_visible } else { is_odd_char(c) };
+            prev_visible = !odd && !c.is_whitespace() && !is_presentation_selector(c);
+            odd
+        })
+        .collect()
+}
+
+/// Whether `text` holds a hidden character (see [`odd_flags`]); newline and tab count, as they do for [`is_odd_char`].
+pub fn has_odd(text: &str) -> bool {
+    odd_flags(text).contains(&true)
 }
 
 /// `text` with every odd character replaced by a visible escape (`\u{202e}`), and whether any was found.
@@ -57,8 +83,9 @@ pub fn visible_escapes(text: &str) -> (String, bool) {
     let mut odd = false;
     let out = text
         .chars()
-        .map(|c| {
-            if is_odd_char(c) && c != '\n' && c != '\t' {
+        .zip(odd_flags(text))
+        .map(|(c, hidden)| {
+            if hidden && c != '\n' && c != '\t' {
                 odd = true;
                 format!("\\u{{{:x}}}", c as u32)
             } else {
@@ -90,7 +117,7 @@ pub fn prompt_hash(prompt: &str) -> String {
 
 /// Text a phone sends (a name, a note) must be plain: no control or format characters.
 pub fn is_plain_text(s: &str, max: usize) -> bool {
-    s.len() <= max && !s.chars().any(|c| is_odd_char(c) && c != '\n')
+    s.len() <= max && !s.chars().zip(odd_flags(s)).any(|(c, odd)| odd && c != '\n')
 }
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -24,7 +24,7 @@ pub fn pet_of(project: &str, id: &str) -> Pet {
 // One line of at most `max` bytes: secrets replaced, hidden characters dropped, whitespace folded.
 pub fn preview(text: &str, max: usize) -> String {
     // hidden characters go first: one inside a token must not hide it from the redactor, and then join it back together
-    let clean: String = text.chars().filter(|c| !is_odd_char(*c) || c.is_whitespace()).collect();
+    let clean: String = text.chars().zip(odd_flags(text)).filter(|(c, odd)| !odd || c.is_whitespace()).map(|(c, _)| c).collect();
     let (red, _) = room::redact(&clean);
     let line: String = red.split_whitespace().collect::<Vec<_>>().join(" ");
     cut_bytes(&line, max)
@@ -130,7 +130,7 @@ pub fn session_detail(sessions: &Sessions, id: &str, rights: Rights) -> Result<D
     if !rights.activity { return Err("right"); }
     let mut text = s.log.iter().filter(|l| l.kind != "prompt" && l.kind != "system").map(|l| {
         let line = if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) };
-        room::redact(&line.chars().filter(|c| !is_odd_char(*c) || *c == '\n' || *c == '\t').collect::<String>()).0.replace('\n', " ")
+        room::redact(&line.chars().zip(odd_flags(&line)).filter(|(c, odd)| !odd || *c == '\n' || *c == '\t').map(|(c, _)| c).collect::<String>()).0.replace('\n', " ")
     }).collect::<Vec<_>>().join("\n");
     let cut = text.len() > MAX_TOOL_INPUT;
     if cut { text = cut_bytes(&text, MAX_TOOL_INPUT / 2); } // escapes of hidden characters may grow it; half is safe for what remains

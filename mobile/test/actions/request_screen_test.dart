@@ -26,6 +26,12 @@ void main() {
       expect(parts.map((p) => p.text).join(), contains('b'));
       expect(hasHiddenChars('plain text\nwith a tab\t'), isFalse);
       expect(hasHiddenChars('x\u2066y'), isTrue);
+      for (final ok in ['\u26A0\uFE0F careful', 'done \u2705\uFE0F', 'a\uFE0F']) {
+        expect(hasHiddenChars(ok), isFalse, reason: ok);
+      }
+      for (final bad in ['\uFE0F', 'x \uFE0F', '\u26A0\uFE0F\uFE0F', 'a\u3164b', 'a\uFE00', 'a\u{E0100}']) {
+        expect(hasHiddenChars(bad), isTrue, reason: bad);
+      }
     });
   });
 

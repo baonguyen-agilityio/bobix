@@ -83,18 +83,52 @@ async fn session(b: &Arc<Bobix>, rx: &mut UnboundedReceiver<Out>) -> Ended {
 
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-// The relay closes a socket that sends over 100 frames in a second: stay well under it (a burst waits for the next second).
-const FRAMES_PER_SEC: u32 = 60;
-struct Pace { from: tokio::time::Instant, n: u32 }
+// The relay closes a socket that sends over 100 frames in a second, counted in its own windows that this side cannot see:
+// so no 1-second span may hold more than FRAMES_PER_SEC (a sliding window, not a fixed one: two bursts at the edge of
+// two fixed windows would still be 2 x the limit inside one of the relay's). A burst waits.
+const FRAMES_PER_SEC: usize = 45;
+struct Pace { sent: std::collections::VecDeque<std::time::Instant> }
 impl Pace {
-    fn new() -> Pace { Pace { from: tokio::time::Instant::now(), n: 0 } }
+    fn new() -> Pace { Pace { sent: Default::default() } }
+    // How long a frame must wait if it is to go out at `now`.
+    fn delay(&mut self, now: std::time::Instant) -> Duration {
+        while self.sent.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(1)) { self.sent.pop_front(); }
+        if self.sent.len() < FRAMES_PER_SEC { return Duration::ZERO; }
+        (self.sent[self.sent.len() - FRAMES_PER_SEC] + Duration::from_secs(1)).saturating_duration_since(now)
+    }
+    fn record(&mut self, at: std::time::Instant) { self.sent.push_back(at); }
     async fn turn(&mut self) {
-        if self.from.elapsed() >= Duration::from_secs(1) { *self = Pace::new(); }
-        if self.n >= FRAMES_PER_SEC {
-            tokio::time::sleep_until(self.from + Duration::from_secs(1)).await;
-            *self = Pace::new();
+        let d = self.delay(std::time::Instant::now());
+        if !d.is_zero() { tokio::time::sleep(d).await; }
+        self.record(std::time::Instant::now());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_second_holds_more_frames_than_the_limit_however_the_bursts_fall() {
+        let mut pace = Pace::new();
+        let start = std::time::Instant::now();
+        let mut now = start;
+        let mut at = vec![];
+        // 5 bursts of 120 frames, 700 ms apart: two of them would fit in two fixed one-second windows
+        for burst in 0..5 {
+            now = now.max(start + Duration::from_millis(700 * burst));
+            for _ in 0..120 {
+                now += pace.delay(now);
+                pace.record(now);
+                at.push(now);
+            }
         }
-        self.n += 1;
+        for (i, t) in at.iter().enumerate() {
+            let n = at[i..].iter().take_while(|u| u.duration_since(*t) < Duration::from_secs(1)).count();
+            assert!(n <= FRAMES_PER_SEC, "{n} frames in the second after frame {i}");
+        }
+        assert!(at.len() == 600 && at.last().unwrap().duration_since(start) > Duration::from_secs(10), "all of them go, only later");
+        assert_eq!(Pace::new().delay(start), Duration::ZERO, "an idle link never waits");
     }
 }
 

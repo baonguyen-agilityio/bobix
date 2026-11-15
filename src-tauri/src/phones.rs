@@ -83,6 +83,9 @@ pub struct State {
     dir: PathBuf,
     pub cfg: Config,
     pub store: Store,
+    /// Another phone used the pairing code (a second one before the confirmation, or a different one after it): shown in
+    /// Settings until the owner dismisses it, whatever happens to the pairing session.
+    pair_warning: bool,
     /// The list of phones is safe to change: it was opened, or there never was one. False while a stored list could not be
     /// opened (a keychain that did not answer, a key that is gone): then nothing may overwrite it or make a new key.
     loaded: bool,
@@ -301,7 +304,7 @@ impl State {
 
 // ---------- validation of what a phone sends ----------
 // A name is 1 to 40 characters with no control or format character (it arrives before the owner confirms, and the panel builds HTML).
-pub fn valid_name(s: &str) -> bool { !s.is_empty() && s.chars().count() <= MAX_PHONE_NAME && !s.chars().any(is_odd_char) }
+pub fn valid_name(s: &str) -> bool { !s.is_empty() && s.chars().count() <= MAX_PHONE_NAME && !bobix_link::messages::has_odd(s) }
 
 // ---------- startup ----------
 // Bobix is closing: held requests go back to Claude's own prompt and are recorded as released ("restart").
@@ -323,6 +326,8 @@ fn watch_loop(b: Arc<Bobix>) {
         // what to look at, off the core's lock (pgrep takes a moment)
         let targets: Vec<(String, u32)> = {
             let mut c = b.core.lock().unwrap();
+            // A list of phones that could not be opened (a keychain locked at start): tried again as it unlocks, not only when Settings looks.
+            if !c.phones.loaded && now() > c.phones.retry_at + 10_000 { c.phones.load_store(); }
             let busy = c.sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
             let want = c.phones.cfg.awake && c.phones.cfg.on && busy;
             c.phones.awake.set(want);
@@ -431,7 +436,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     let mut c = b.core.lock().unwrap();
     let t = now();
     let crate::Core { phones: st, pending, sessions, work, settings, .. } = &mut *c;
-    if st.pairing.as_ref().is_some_and(|p| matches!(p.session.status(t), PairStatus::Expired | PairStatus::Done)) { st.pairing = None; }
+    if st.pairing.as_ref().is_some_and(|p| p.session.finished(t)) { st.pairing = None; }
     if st.revoking.as_ref().is_some_and(|r| r.pids.is_empty() || t > r.since + MOVE_WAIT_MS) {
         st.revoking = None;
         if !st.cfg.on { st.send_close(); }
@@ -554,6 +559,13 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
 
 // A packet from a phone that is not paired: a `hello` for the open pairing, else nothing.
 fn on_hello(st: &mut State, from: &str, body: &[u8]) -> bool {
+    let mut late = false;
+    let changed = on_hello_in(st, from, body, &mut late);
+    if late { st.pair_warning = true; }
+    changed
+}
+
+fn on_hello_in(st: &mut State, from: &str, body: &[u8], late: &mut bool) -> bool {
     let (Some(p), Some(id)) = (st.pairing.as_mut(), st.identity.as_ref()) else { return false };
     let Some((phone_box, packet)) = split_hello_body(body) else { return false };
     let mut link = Link::new(Direction::ToPhone, *id.box_secret(), phone_box, CURRENT_VERSION, VersionRange::current(), [0; 3], now(), RecvState::default());
@@ -563,8 +575,8 @@ fn on_hello(st: &mut State, from: &str, body: &[u8]) -> bool {
     if !valid_name(&hello.name) { return false; }
     match p.session.on_hello(&hello, &phone_box, from, now()) {
         Ok(Offer::New { phone, sign, name, rights, .. }) if valid_name(&name) => { p.offer = Some(Offered { phone, sign, name, rights, from: from.into(), link }); true }
-        Ok(Offer::Cancelled) => { p.warning = true; p.offer = None; true }
-        Ok(Offer::Late) => { p.warning = true; true }
+        Ok(Offer::Cancelled) => { p.offer = None; *late = true; true }
+        Ok(Offer::Late) => { *late = true; true }
         _ => false, // a bad MAC, a duplicate, a name that is not plain text
     }
 }
@@ -583,7 +595,8 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
     let mut out = vec![];
     match msg {
         PhoneMsg::PairedAck => {
-            if let Some(p) = st.pairing.as_mut() { if p.session.ack(now()) { st.pairing = None; } }
+            // The session stays (until `tick` finds it finished): a different phone with the code is still reported.
+            if let Some(p) = st.pairing.as_mut() { p.session.ack(now()); }
             st.home_now.insert(from.into());
         }
         PhoneMsg::Bye { sig } => {
@@ -861,13 +874,13 @@ pub fn view(b: &Arc<Bobix>) -> Value {
     // A list that could not be opened is tried again when Settings looks (the keychain may be unlocked by now).
     if !st.loaded && t > st.retry_at + 10_000 { st.load_store(); }
     let pairing = match st.pairing.as_ref() {
-        None => json!({ "state": "none" }),
+        None => json!({ "state": "none", "warning": st.pair_warning }),
         Some(p) => {
             let s = p.session.status(t);
             json!({ "state": match s { PairStatus::Open => "open", PairStatus::Offered => "offered", PairStatus::Confirmed => "confirmed", PairStatus::Cancelled => "cancelled", _ => "none" },
                 "uri": if s == PairStatus::Open { json!(p.session.code().to_uri()) } else { Value::Null },
                 "qr": if s == PairStatus::Open { json!(qr_svg(&p.session.code().to_uri())) } else { Value::Null },
-                "name": p.offer.as_ref().map(|o| &o.name), "asked": p.offer.as_ref().map(|o| o.rights), "warning": p.warning })
+                "name": p.offer.as_ref().map(|o| &o.name), "asked": p.offer.as_ref().map(|o| o.rights), "warning": p.warning || st.pair_warning })
         }
     };
     json!({ "unreadable": !st.loaded, "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
@@ -900,6 +913,7 @@ pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
             for id in ids { out.extend(st.disconnect(&id, "phone access was turned off")); }
             st.cfg.on = false;
             st.pairing = None;
+            st.pair_warning = false;
             st.awake.release();
             st.status = "off".into();
             if st.revoking.is_none() { st.send_close(); }
@@ -946,13 +960,15 @@ pub fn pair_start(b: &Arc<Bobix>) -> Result<Value, String> {
         let keys = st.identity.as_ref().ok_or("identity")?.public();
         let code = PairingCode::new(&st.cfg.relay, keys).map_err(|_| "relay".to_string())?;
         let frame = Frame::PairOpen { relay_token_hash: b64(&code.relay_token_hash()), ttl: 120 };
+        st.pair_warning = false;
         st.pairing = Some(Pairing { session: PairingSession::new(code, now()), offer: None, warning: false, opened: st.status == "online" });
         if st.status == "online" { st.send(frame); }
     }
     b.broadcast();
     Ok(view(b))
 }
-pub fn pair_cancel(b: &Arc<Bobix>) -> Value { b.core.lock().unwrap().phones.pairing = None; b.broadcast(); view(b) }
+// Also what dismisses the warning that another phone used the code.
+pub fn pair_cancel(b: &Arc<Bobix>) -> Value { { let mut c = b.core.lock().unwrap(); c.phones.pairing = None; c.phones.pair_warning = false; } b.broadcast(); view(b) }
 
 // The owner confirms what the phone asked for, minus what they unticked. Accepted only for the pairing opened in this run.
 pub fn pair_confirm(b: &Arc<Bobix>, granted: Rights) -> Result<Value, String> {
@@ -1115,6 +1131,8 @@ mod tests {
     fn names_are_plain_and_short() {
         assert!(valid_name("Bao's iPhone") && valid_name(&"é".repeat(40)));
         for bad in ["", &"a".repeat(41), "x\u{202e}y", "a\nb", "a\u{7}", "zero\u{200b}width", "tag\u{e0041}"] { assert!(!valid_name(bad), "{bad:?}"); }
+        assert!(valid_name("Bao's \u{260E}\u{FE0F}") && valid_name("\u{2705}\u{FE0F} work"), "emoji with a presentation selector");
+        for bad in ["\u{FE0F}", "x \u{FE0F}", "\u{26A0}\u{FE0F}\u{FE0F}"] { assert!(!valid_name(bad), "{bad:?}"); }
         assert!(valid_name("<b>x</b>"), "markup is plain text here; the panel sets it with textContent");
     }
 

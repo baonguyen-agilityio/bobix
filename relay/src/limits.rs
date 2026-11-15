@@ -67,6 +67,8 @@ pub fn client_ip(headers: &HeaderMap, peer: SocketAddr, header: &Option<String>)
 /// The totals hold when an attacker owns many addresses (an IPv6 /64 is counted as one, but many networks are not).
 pub struct Ips {
     unauth: HashMap<String, usize>,
+    unauth_net: HashMap<String, usize>,
+    max_unauth_net: usize,
     open: HashMap<String, usize>,
     opened: RateLimit,
     max_unauth: usize,
@@ -84,13 +86,24 @@ pub struct IpLimits {
     pub open_per_ip: usize,
     pub unauth_total: usize,
     pub open_total: usize,
+    /// Unauthenticated sockets one IPv6 /48 (a whole site, 65536 /64s) may hold.
+    pub unauth_per_net48: usize,
     pub per_min: u32,
+}
+
+/// The /48 an IPv6 key (`a:b:c:d::/64`) belongs to; none for an IPv4 or other key.
+fn net48(key: &str) -> Option<String> {
+    let rest = key.strip_suffix("::/64")?;
+    let mut g = rest.split(':');
+    Some(format!("{}:{}:{}::/48", g.next()?, g.next()?, g.next()?))
 }
 
 impl Ips {
     pub fn new(l: IpLimits) -> Ips {
         Ips {
             unauth: HashMap::new(),
+            unauth_net: HashMap::new(),
+            max_unauth_net: l.unauth_per_net48,
             open: HashMap::new(),
             opened: RateLimit::new(l.per_min, Duration::from_secs(60)),
             max_unauth: l.unauth_per_ip,
@@ -114,6 +127,12 @@ impl Ips {
         if self.unauth.get(ip).copied().unwrap_or(0) >= self.max_unauth || self.open.get(ip).copied().unwrap_or(0) >= self.max_open {
             return false;
         }
+        if let Some(n) = net48(ip) {
+            if self.unauth_net.get(&n).copied().unwrap_or(0) >= self.max_unauth_net {
+                return false;
+            }
+            *self.unauth_net.entry(n).or_insert(0) += 1;
+        }
         *self.unauth.entry(ip.to_owned()).or_insert(0) += 1;
         *self.open.entry(ip.to_owned()).or_insert(0) += 1;
         self.unauth_total += 1;
@@ -125,6 +144,9 @@ impl Ips {
     pub fn authenticated(&mut self, ip: &str) {
         if Self::dec(&mut self.unauth, ip) {
             self.unauth_total -= 1;
+            if let Some(n) = net48(ip) {
+                Self::dec(&mut self.unauth_net, &n);
+            }
         }
     }
 
@@ -160,7 +182,7 @@ mod tests {
     }
 
     fn lim() -> IpLimits {
-        IpLimits { unauth_per_ip: 2, open_per_ip: 3, unauth_total: 4, open_total: 5, per_min: 100 }
+        IpLimits { unauth_per_ip: 2, open_per_ip: 3, unauth_total: 4, open_total: 5, unauth_per_net48: 3, per_min: 100 }
     }
 
     #[test]
@@ -193,6 +215,21 @@ mod tests {
         assert!(!i.admit("e"), "four unauthenticated sockets from four addresses");
         i.authenticated("a");
         assert!(i.admit("e"));
+    }
+
+    #[test]
+    fn one_ipv6_48_cannot_fill_the_total_of_unauthenticated_sockets() {
+        let mut i = Ips::new(IpLimits { unauth_per_ip: 8, open_per_ip: 32, unauth_total: 100, open_total: 100, unauth_per_net48: 3, per_min: 1000 });
+        let k = |n: u16| ip_key(format!("2001:db8:7:{n}::1").parse().unwrap());
+        assert!(i.admit(&k(1)) && i.admit(&k(2)) && i.admit(&k(3)));
+        assert!(!i.admit(&k(4)), "a fourth /64 of the same /48, each with room of its own");
+        assert!(i.admit(&ip_key("2001:db8:8::1".parse().unwrap())), "another /48 is not affected");
+        assert!(i.admit("192.0.2.1"), "nor an IPv4 address");
+        i.authenticated(&k(2));
+        assert!(i.admit(&k(4)), "a slot came back");
+        i.release(&k(1), false);
+        i.release(&k(3), false);
+        assert!(i.admit(&k(5)) && i.admit(&k(6)));
     }
 
     #[test]

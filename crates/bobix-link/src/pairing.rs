@@ -421,7 +421,10 @@ impl PairingSession {
     /// phone box key.
     pub fn on_hello(&mut self, hello: &Hello, outer_box: &[u8; 32], from_id: &str, now_ms: u64) -> Result<Offer, PairError> {
         let status = self.status(now_ms);
-        if matches!(status, PairStatus::Expired | PairStatus::Cancelled | PairStatus::Done) {
+        // After the confirmation a hello is still read for [ACK_LIFETIME_MS], also once the phone acknowledged (which is
+        // within a second): a different phone with the code is exactly the one the owner must hear about.
+        let late = status == PairStatus::Confirmed || (status == PairStatus::Done && self.late_window(now_ms));
+        if !late && matches!(status, PairStatus::Expired | PairStatus::Cancelled | PairStatus::Done) {
             return Err(PairError::Expired);
         }
         let (phone, sign) = hello.verify(&self.code)?;
@@ -429,7 +432,7 @@ impl PairingSession {
             return Err(PairError::Hello);
         }
         // Confirmed and not yet acknowledged: nothing changes, but a different phone that also holds the code is told.
-        if status == PairStatus::Confirmed {
+        if late {
             return Ok(if self.first == Some(phone) { Offer::Duplicate } else { Offer::Late });
         }
         match self.first {
@@ -443,6 +446,20 @@ impl PairingSession {
                 self.cancelled = true;
                 Ok(Offer::Cancelled)
             }
+        }
+    }
+
+    fn late_window(&self, now_ms: u64) -> bool {
+        self.confirmed_ms.is_some_and(|c| now_ms <= c + ACK_LIFETIME_MS)
+    }
+
+    /// Nothing more can happen in this session, so the caller may drop it: it ran out, or it is done and the time in which a
+    /// late second phone is still reported is over. (A cancelled one stays until the owner dismisses the warning.)
+    pub fn finished(&self, now_ms: u64) -> bool {
+        match self.status(now_ms) {
+            PairStatus::Expired => true,
+            PairStatus::Done => !self.late_window(now_ms),
+            _ => false,
         }
     }
 
