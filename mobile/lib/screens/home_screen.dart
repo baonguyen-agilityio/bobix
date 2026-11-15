@@ -8,6 +8,7 @@ import '../theme/tokens.dart';
 import '../widgets/glass.dart';
 import '../widgets/session_row.dart';
 import '../widgets/status_banner.dart';
+import 'computers_sheet.dart';
 import '../features/actions/plan_screen.dart';
 import '../features/actions/question_screen.dart';
 import '../features/actions/request_screen.dart';
@@ -139,33 +140,45 @@ class HomeScreen extends ConsumerWidget {
                   ),
                 ),
               ),
-              Glass(
-                blur: true,
-                radius: 22,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: SizedBox(
-                  height: 44,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: conn == ConnState.ok ? t.ok : t.warn,
-                          shape: BoxShape.circle,
-                        ),
+              Semantics(
+                button: true,
+                label: computer,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(22),
+                  onTap: () => showComputersSheet(
+                    context,
+                    computer: computer,
+                    waiting: need.length,
+                  ),
+                  child: Glass(
+                    blur: true,
+                    radius: 22,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: SizedBox(
+                      height: 44,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: conn == ConnState.ok ? t.ok : t.warn,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            computer,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: t.ink,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        computer,
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: t.ink,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),

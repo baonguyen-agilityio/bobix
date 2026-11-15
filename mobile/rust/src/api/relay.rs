@@ -9,7 +9,7 @@ use bobix_link::counters::RecvState;
 use bobix_link::envelope::{Direction, OpenError, Update, VersionRange, CURRENT_VERSION};
 use bobix_link::keys::Identity;
 use bobix_link::link::Link;
-use bobix_link::messages::{DesktopMsg, Who};
+use bobix_link::messages::{DesktopMsg, PhoneMsg, Who};
 use bobix_link::pairing::PairingCode;
 use bobix_link::relay_frames::{ErrorCode, Frame, PresenceState};
 use bobix_link::{b64, b64_decode, hex, random};
@@ -216,7 +216,7 @@ pub struct SealedPacket {
 }
 
 /// What opening a packet from the computer came to.
-pub enum OpenedPacket {
+pub enum ReceivedPacket {
     Message(DesktopMessage),
     /// Late, replayed, reflected, forged or unreadable: no reply, nothing changes.
     Dropped,
@@ -270,13 +270,28 @@ impl PhoneLink {
         self.0.seal_with(bobix_link::envelope::Stream::Event, counter, &plaintext).map_err(|_| CoreError::InvalidKey)
     }
 
+    /// The goodbye to this computer, signed with the `auth` key over the bytes the crate defines (they carry the packet's
+    /// counter), sealed with that counter.
     #[flutter_rust_bridge::frb(sync)]
-    pub fn open(&mut self, packet: Vec<u8>) -> OpenedPacket {
+    pub fn bye(&mut self, auth_seed: Vec<u8>, box_secret: Vec<u8>, phone_id: String, computer_id: String) -> Result<SealedPacket, CoreError> {
+        let id = Identity::from_secrets(
+            auth_seed.as_slice().try_into().map_err(|_| CoreError::InvalidKey)?,
+            box_secret.as_slice().try_into().map_err(|_| CoreError::InvalidKey)?,
+        );
+        let (counter, reserve) = self.0.reserve_counter(bobix_link::envelope::Stream::Event);
+        let sig = id.sign_auth(&command::bye_bytes(CURRENT_VERSION, &phone_id, &computer_id, counter));
+        let message = PhoneMsg::Bye { sig: b64(&sig) }.to_json();
+        let packet = self.0.seal_with(bobix_link::envelope::Stream::Event, counter, &message).map_err(|_| CoreError::InvalidKey)?;
+        Ok(SealedPacket { packet, reserve: reserve.map(|(_, v)| v) })
+    }
+
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn open(&mut self, packet: Vec<u8>) -> ReceivedPacket {
         match self.0.open(&packet) {
-            Ok(o) => parse_desktop_message(o.plaintext).map(OpenedPacket::Message).unwrap_or(OpenedPacket::Dropped),
-            Err(OpenError::Version(Update::Peer)) => OpenedPacket::PeerMustUpdate,
-            Err(OpenError::Version(Update::Us)) => OpenedPacket::WeMustUpdate,
-            Err(_) => OpenedPacket::Dropped,
+            Ok(o) => parse_desktop_message(o.plaintext).map(ReceivedPacket::Message).unwrap_or(ReceivedPacket::Dropped),
+            Err(OpenError::Version(Update::Peer)) => ReceivedPacket::PeerMustUpdate,
+            Err(OpenError::Version(Update::Us)) => ReceivedPacket::WeMustUpdate,
+            Err(_) => ReceivedPacket::Dropped,
         }
     }
 
@@ -355,16 +370,16 @@ mod tests {
         let mut from_desktop = desktop_link(&desktop, &phone, bobix_link::envelope::CURRENT_VERSION);
         let mut link = phone_link(&desktop, &phone);
         let packet = from_desktop.seal(Stream::Event, &error_message()).unwrap().packet;
-        assert!(matches!(link.open(packet.clone()), OpenedPacket::Message(m) if m.kind == "error"));
-        assert!(matches!(link.open(packet), OpenedPacket::Dropped), "a replay");
-        assert!(matches!(link.open(vec![0; 10]), OpenedPacket::Dropped), "too short");
+        assert!(matches!(link.open(packet.clone()), ReceivedPacket::Message(m) if m.kind == "error"));
+        assert!(matches!(link.open(packet), ReceivedPacket::Dropped), "a replay");
+        assert!(matches!(link.open(vec![0; 10]), ReceivedPacket::Dropped), "too short");
         let state = link.recv_state();
         assert!(state.contains("event"));
         // A phone that restarts with the stored state still refuses the replay.
         let mut again = PhoneLink::create(phone.box_secret().to_vec(), desktop.public().boxk.to_vec(), 0, 1_000, state).unwrap();
         let replay = from_desktop.seal(Stream::Event, &error_message()).unwrap().packet;
-        assert!(matches!(again.open(replay.clone()), OpenedPacket::Message(_)));
-        assert!(matches!(again.open(replay), OpenedPacket::Dropped));
+        assert!(matches!(again.open(replay.clone()), ReceivedPacket::Message(_)));
+        assert!(matches!(again.open(replay), ReceivedPacket::Dropped));
     }
 
     #[test]
@@ -372,12 +387,12 @@ mod tests {
         let (desktop, phone) = (Identity::generate(), Identity::generate());
         let mut link = phone_link(&desktop, &phone);
         let newer = desktop_link(&desktop, &phone, 9).seal(Stream::Event, &error_message()).unwrap().packet;
-        assert!(matches!(link.open(newer), OpenedPacket::WeMustUpdate));
+        assert!(matches!(link.open(newer), ReceivedPacket::WeMustUpdate));
         let older = desktop_link(&desktop, &phone, 0).seal(Stream::Event, &error_message()).unwrap().packet;
-        assert!(matches!(link.open(older), OpenedPacket::PeerMustUpdate));
+        assert!(matches!(link.open(older), ReceivedPacket::PeerMustUpdate));
         let forged = Identity::generate();
         let by_stranger = desktop_link(&forged, &phone, 9).seal(Stream::Event, &error_message()).unwrap().packet;
-        assert!(matches!(link.open(by_stranger), OpenedPacket::Dropped), "an unauthenticated version byte says nothing");
+        assert!(matches!(link.open(by_stranger), ReceivedPacket::Dropped), "an unauthenticated version byte says nothing");
     }
 
     #[test]
@@ -406,5 +421,19 @@ mod tests {
         assert_eq!(pairing_answer(json(DesktopMsg::Error { code: "pairingRefused".into(), who: None })), PairingAnswer::Refused);
         assert_eq!(pairing_answer(json(DesktopMsg::Error { code: "right".into(), who: None })), PairingAnswer::NotAnAnswer);
         assert_eq!(pairing_answer("nonsense".into()), PairingAnswer::NotAnAnswer);
+    }
+
+    #[test]
+    fn a_goodbye_is_signed_with_the_auth_key_and_verifies_at_the_computer() {
+        let (desktop, phone) = (Identity::generate(), Identity::generate());
+        let mut link = phone_link(&desktop, &phone);
+        let sealed = link.bye(phone.auth_seed().to_vec(), phone.box_secret().to_vec(), phone.device_id(), desktop.device_id()).unwrap();
+        assert!(sealed.reserve.is_some());
+        // The desktop's side: the crate's own `Link` opens it, and the signature is over the bytes with that counter.
+        let mut at_desktop = desktop_link(&desktop, &phone, CURRENT_VERSION);
+        let opened = at_desktop.open(&sealed.packet).unwrap();
+        let PhoneMsg::Bye { sig } = PhoneMsg::from_json(&opened.plaintext).unwrap() else { panic!("not a bye") };
+        let bytes = command::bye_bytes(CURRENT_VERSION, &phone.device_id(), &desktop.device_id(), opened.counter);
+        assert!(bobix_link::keys::verify_auth(&phone.public().auth, &bytes, &b64_decode(&sig).unwrap()));
     }
 }

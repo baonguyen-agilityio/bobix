@@ -72,17 +72,34 @@ class ComputerChannel {
   Uint8List sealWith(BigInt counter, Uint8List plaintext) =>
       _link.sealWith(counter: counter, plaintext: plaintext);
 
+  /// The goodbye to the computer, signed by the crate with the `auth` key; its counter reservation is stored first.
+  Future<Uint8List> bye({
+    required Uint8List authSeed,
+    required Uint8List boxSecret,
+    required String phoneId,
+    required String computerId,
+  }) async {
+    final sealed = _link.bye(
+      authSeed: authSeed,
+      boxSecret: boxSecret,
+      phoneId: phoneId,
+      computerId: computerId,
+    );
+    await _store(sealed.reserve);
+    return sealed.packet;
+  }
+
   Future<Opened> open(Uint8List packet) async {
     switch (_link.open(packet: packet)) {
-      case OpenedPacket_Message(:final field0):
+      case ReceivedPacket_Message(:final field0):
         recvState = _link.recvState();
         await onChange();
         return OpenedMessage(field0);
-      case OpenedPacket_PeerMustUpdate():
+      case ReceivedPacket_PeerMustUpdate():
         return const OpenedVersion(phoneMustUpdate: false);
-      case OpenedPacket_WeMustUpdate():
+      case ReceivedPacket_WeMustUpdate():
         return const OpenedVersion(phoneMustUpdate: true);
-      case OpenedPacket_Dropped():
+      case ReceivedPacket_Dropped():
         return const OpenedDropped();
     }
   }

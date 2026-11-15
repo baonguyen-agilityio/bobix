@@ -19,6 +19,10 @@ abstract interface class SecureKeys {
   /// What the biometrics the signing key needs are like on this phone. Pairing checks it first.
   Future<Biometry> biometry();
 
+  /// Asks for Face ID or the fingerprint to open the app (the app lock). Nothing is signed. [AppAuth.unavailable] when the
+  /// phone has nothing to ask with (no passcode, no biometrics): the app then cannot lock and opens.
+  Future<AppAuth> authenticate({required String reason});
+
   /// Makes the signing key, replacing any earlier one, and returns its public key (X9.63, 65 bytes).
   Future<Uint8List> createSigningKey();
 
@@ -38,6 +42,9 @@ abstract interface class SecureKeys {
 /// Whether Face ID or the fingerprint can be used: [available], [lockedOut] (enrolled, locked after too many failed
 /// matches: the passcode unlocks them) or [none] (not enrolled, or turned off for this app).
 enum Biometry { available, lockedOut, none }
+
+/// How the app-lock check ended.
+enum AppAuth { ok, cancelled, unavailable, failed }
 
 sealed class SignResult {
   const SignResult();
