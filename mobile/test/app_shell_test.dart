@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/app.dart';
@@ -237,14 +236,10 @@ void main() {
       await tester.pump();
       expect(find.text('Start Full'), findsOneWidget);
       expect(
-        tester
-            .getSemantics(
-              find.bySemanticsLabel(
-                RegExp('^Update the sign-up email, shop #35'),
-              ),
-            )
-            .hasFlag(SemanticsFlag.isChecked),
-        isTrue,
+        tester.getSemantics(
+          find.bySemanticsLabel(RegExp('^Update the sign-up email, shop #35')),
+        ),
+        containsSemantics(isChecked: true),
       );
       semantics.dispose();
     },
@@ -308,9 +303,10 @@ void main() {
       await tester.pump();
       await tester.tap(find.bySemanticsLabel('Start'));
       await tester.pump();
-      bool checked(String label) => tester
-          .getSemantics(find.bySemanticsLabel(RegExp('^$label')))
-          .hasFlag(SemanticsFlag.isChecked);
+      bool checked(String label) => containsSemantics(isChecked: true).matches(
+        tester.getSemantics(find.bySemanticsLabel(RegExp('^$label'))),
+        <dynamic, dynamic>{},
+      );
       expect(checked('Fix the cart total rounding, shop #38'), isTrue);
       expect(checked('Full, '), isTrue);
       expect(checked('Quick, '), isFalse);
