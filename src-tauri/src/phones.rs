@@ -101,6 +101,7 @@ pub struct State {
     notified: HashSet<String>,
     awake: crate::awake::Awake,
     asleep: bool,                               // the computer is going to sleep (or sleeps): phones are told, with how much is unfinished
+    inflight: HashSet<String>,                  // `from:cid` of starts still running: a repeat of one gets no answer yet
     starting: HashSet<String>,                  // issues a start from a phone is running for: one at a time
     last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
     deferred: Vec<(String, String, u64)>, // (pid of a `revoked` message, phone id, when): the relay is told to revoke once the phone has it
@@ -278,7 +279,19 @@ pub fn save_on_exit(b: &Bobix) {
     c.phones.save_results(&c.closed);
 }
 
+// Keeps the awake inhibitor in step with the work, on its own clock (the relay link may be down).
+fn awake_loop(b: Arc<Bobix>) {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let mut c = b.core.lock().unwrap();
+        let busy = c.sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
+        let want = c.phones.cfg.awake && c.phones.cfg.on && busy;
+        c.phones.awake.set(want);
+    }
+}
+
 pub fn init(b: &Arc<Bobix>) {
+    { let b2 = b.clone(); std::thread::spawn(move || awake_loop(b2)); }
     let dir = crate::paths::data_dir();
     let read = |f: PathBuf| std::fs::read(f).ok();
     let cfg: Config = read(cfg_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -373,8 +386,6 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         st.send_close(); // the link reconnects to the new address
     }
     st.results.retain(|_, r| t < r.1 + RESULT_KEEP_MS);
-    let busy = sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
-    st.awake.set(st.cfg.awake && st.cfg.on && busy);
     let mut flushed = st.flush_revokes(None, t);
     // a request held only for the phones: the first input at the computer marks it released (no more pushes; still answerable)
     if pending.values().any(|p| p.for_phones && !p.released) {
@@ -559,6 +570,7 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, counter: u64, cmd
     use crate::answers::By;
     let key = format!("{from}:{}", cmd.cid);
     if let Some(stored) = c.phones.results.get(&key) { return Some(stored.0.clone()); }
+    if c.phones.inflight.contains(&key) { return None; } // its start is still running: the result comes when it is done
     let t = now();
     let Some(phone) = c.phones.store.phones.iter().find(|p| p.id == from).cloned() else { return Some(CmdResult::refused(&cmd.cid, "unknown")) };
     let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return Some(CmdResult::refused(&cmd.cid, "encoding")) };
@@ -670,6 +682,7 @@ fn begin_start(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, name: &str, cid:
     let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
     if issue_has_session(&view, project, n) { return Some(CmdResult::refused(cid, "exists")); }
     c.phones.starting.insert(key.clone());
+    c.phones.inflight.insert(format!("{from}:{cid}"));
     let (b2, from, name, cid, project, hash) = (b.clone(), from.to_string(), name.to_string(), cid.to_string(), project.to_string(), hash.to_string());
     std::thread::spawn(move || {
         let result = finish_start(&cid, start_plan(&b2, &project, n, mode), &hash, |p| match &p.full {
@@ -678,6 +691,7 @@ fn begin_start(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, name: &str, cid:
         });
         let mut c = b2.core.lock().unwrap();
         c.phones.starting.remove(&key);
+        c.phones.inflight.remove(&format!("{from}:{cid}"));
         let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
         c.phones.push_log(&name, &format!("start {project}#{n}"), &if let Some(w) = &result.why { format!("{word} ({w})") } else { word });
         c.phones.results.insert(format!("{from}:{cid}"), (result.clone(), now()));
@@ -1191,5 +1205,13 @@ mod tests {
         assert!(st.starting.insert("team/shop#7".into()));
         assert!(!st.starting.insert("team/shop#7".into()));
         assert!(st.starting.insert("team/shop#8".into()), "another issue is free");
+    }
+
+    #[test]
+    fn a_repeated_cid_of_a_running_start_gets_no_refusal() {
+        // the in-flight set holds `phone:cid`; on_command answers nothing while the key is in it
+        let mut st = State::default();
+        assert!(st.inflight.insert("p:c1".into()));
+        assert!(st.inflight.contains("p:c1") && !st.inflight.contains("p:c2"));
     }
 }

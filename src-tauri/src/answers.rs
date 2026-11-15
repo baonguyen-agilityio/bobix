@@ -9,7 +9,7 @@ use tokio::sync::oneshot;
 // plan: a ticket flow's plan (ExitPlanMode), held until answered; approving it puts that one session in auto mode.
 // raw: the request's text as it arrives (what a phone is shown, escaped by phone_view); until: when it stops waiting, if it does.
 // released: someone is at the computer, so the phones get no more pushes for it; it can still be answered.
-pub struct Pending { pub sid: String, pub plan: bool, pub questions: Vec<bobix_link::messages::Question>, pub input: Option<Value>, tx: oneshot::Sender<Option<Value>>, pub raw: String, pub cut: bool, pub risky: bool, pub until: Option<u64>, pub released: bool,
+pub struct Pending { pub sid: String, pub tool: String, pub tool_input: Value, pub plan: bool, pub questions: Vec<bobix_link::messages::Question>, pub input: Option<Value>, tx: oneshot::Sender<Option<Value>>, pub raw: String, pub cut: bool, pub risky: bool, pub until: Option<u64>, pub released: bool,
     // held for the phones only (the pets were hidden or paused, nobody at the computer): a settings change does not hand it back
     pub for_phones: bool, pub held_at: u64 }
 
@@ -21,7 +21,7 @@ impl Pending {
     pub fn kind(&self) -> Kind { if self.plan { Kind::Plan } else if self.input.is_some() { Kind::Question } else { Kind::Request } }
     #[cfg(test)]
     pub fn for_test(sid: &str, plan: bool, tx: oneshot::Sender<Option<Value>>, raw: &str, cut: bool) -> Pending {
-        Pending { sid: sid.into(), plan, questions: vec![], input: None, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0 }
+        Pending { sid: sid.into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0 }
     }
 }
 
@@ -251,7 +251,7 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
         "risky": risky, "cut": cut, "odd": odd(&e["tool_input"]), "full": if is_question { escaped(&question_text(&questions)) } else { full_text(e) }, "plan": plan,
         "kind": if is_question { "question" } else if plan { "plan" } else { "request" },
         "questions": questions.iter().map(|q| json!({ "question": escaped(&q.text), "options": q.options.iter().map(|o| escaped(o)).collect::<Vec<_>>(), "multi": q.multi_select })).collect::<Vec<_>>() }));
-    pending.insert(id.clone(), Pending { sid: s.id.clone(), plan, input: is_question.then(|| e["tool_input"].clone()), raw: if is_question { question_text(&questions) } else { raw_text(e) }, questions, tx, cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now });
+    pending.insert(id.clone(), Pending { sid: s.id.clone(), tool: e["tool_name"].as_str().unwrap_or("").into(), tool_input: e["tool_input"].clone(), plan, input: is_question.then(|| e["tool_input"].clone()), raw: if is_question { question_text(&questions) } else { raw_text(e) }, questions, tx, cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now });
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
     let (b1, id1) = (b.clone(), id.clone());
     tauri::async_runtime::spawn(async move {
@@ -331,6 +331,17 @@ pub fn release_unseen(b: &Arc<Bobix>) {
     let ids = unseen_ids(&b.core.lock().unwrap());
     for id in ids { done(b, &id, None, End::Released("settings")); }
 }
+// Held items the session itself has moved past: Claude took an answer given in its own prompt (the hook's request stays open
+// even then, spike 1), so the tool reports finished with the very input that was held, or the session starts a new prompt,
+// stops or ends. Matching the input keeps a parallel tool call that finishes from closing another one.
+pub fn moved_ids(pending: &HashMap<String, Pending>, sid: &str, event: &str, tool: &str, input: &Value) -> Vec<String> {
+    pending.iter().filter(|(_, p)| p.sid == sid && match event {
+        "PostToolUse" => p.tool == tool && !tool.is_empty() && (!p.questions.is_empty() || p.tool_input == *input), // a question's input may come back with the answers in it
+        "UserPromptSubmit" | "Stop" | "SessionEnd" => true,
+        _ => false,
+    }).map(|(id, _)| id.clone()).collect()
+}
+
 // The held requests a settings change hands back: those whose pet is no longer shown, except a plan, one held only for
 // the phones, and one already sent to a phone.
 fn unseen_ids(c: &crate::Core) -> Vec<String> {
@@ -400,7 +411,7 @@ mod tests {
 
     fn pending(c: &mut crate::Core, id: &str, plan: bool) -> oneshot::Receiver<Option<Value>> {
         let (tx, rx) = oneshot::channel();
-        c.pending.insert(id.into(), Pending { sid: "s1".into(), plan, questions: vec![], input: None, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0 });
+        c.pending.insert(id.into(), Pending { sid: "s1".into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0 });
         rx
     }
 
@@ -506,5 +517,29 @@ mod tests {
         assert!(questions_of(&json!({ "questions": [q("a", 1), q("a", 1)] })).is_none(), "the same text twice: answers are keyed by it");
         assert!(questions_of(&json!({ "questions": [q(&"x".repeat(2001), 1)] })).is_none(), "a text over 2 000 bytes");
         assert!(questions_of(&json!({})).is_none());
+    }
+
+    #[test]
+    fn a_request_answered_in_claudes_own_prompt_is_closed_when_the_session_moves_on() {
+        let mut c = crate::Core::default();
+        let _ = pending(&mut c, "a", false);
+        c.pending.get_mut("a").unwrap().tool = "Bash".into();
+        c.pending.get_mut("a").unwrap().tool_input = json!({ "command": "ls" });
+        assert!(moved_ids(&c.pending, "s1", "PostToolUse", "Bash", &json!({ "command": "pwd" })).is_empty(), "another call finished: this one is still held");
+        assert!(moved_ids(&c.pending, "s2", "PostToolUse", "Bash", &json!({ "command": "ls" })).is_empty(), "another session");
+        assert!(moved_ids(&c.pending, "s1", "PreToolUse", "Bash", &json!({ "command": "ls" })).is_empty());
+        assert_eq!(moved_ids(&c.pending, "s1", "PostToolUse", "Bash", &json!({ "command": "ls" })), ["a"]);
+        assert_eq!(moved_ids(&c.pending, "s1", "UserPromptSubmit", "", &Value::Null), ["a"]);
+        // closing it as answered at the computer makes a later phone answer or stop late, not ok
+        let mut rx = pending(&mut c, "b", false);
+        close(&mut c, "b", None, End::Computer, 5);
+        assert!(rx.try_recv().unwrap().is_none(), "the waiting hook is answered with nothing, so its process ends");
+        assert_eq!(late(&c, "b", Some(Kind::Request)), Answered::LatePc);
+        assert_eq!(stop_session(&mut c, "s1", "b", By::Phone, 6), Err("not-held"), "a stop for it finds nothing held");
+        let mut c2 = crate::Core::default();
+        let _ = pending(&mut c2, "q", false);
+        c2.pending.get_mut("q").unwrap().input = Some(json!({}));
+        close(&mut c2, "q", None, End::Computer, 5);
+        assert_eq!(answer_question(&mut c2, "q", &["x".into()], By::Phone, 6), Answered::LatePc);
     }
 }

@@ -118,7 +118,7 @@ fn built(id: &str, p: &Pending) -> Detail {
 pub fn session_detail(sessions: &Sessions, id: &str, rights: Rights) -> Result<Detail, &'static str> {
     let s = sessions.get(id).ok_or("unknown")?;
     if !rights.activity { return Err("right"); }
-    let mut text = s.log.iter().filter(|l| l.kind != "prompt").map(|l| {
+    let mut text = s.log.iter().filter(|l| l.kind != "prompt" && l.kind != "system").map(|l| {
         let line = if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) };
         room::redact(&line.chars().filter(|c| !is_odd_char(*c) || *c == '\n' || *c == '\t').collect::<String>()).0.replace('\n', " ")
     }).collect::<Vec<_>>().join("\n");

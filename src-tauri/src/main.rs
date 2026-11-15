@@ -235,6 +235,7 @@ impl Bobix {
             thread::spawn(move || { thread::sleep(Duration::from_secs(3)); read_claude_list(&b); b.broadcast(); });
         }
         let is_stop = ev == "Stop";
+        let (ev2, tool2, input2) = (ev.to_string(), e["tool_name"].as_str().unwrap_or("").to_string(), e["tool_input"].clone());
         let b = self.clone();
         let finish = move || {
             let stale = {
@@ -250,6 +251,9 @@ impl Bobix {
                     None => is_stop,
                 }
             };
+            // a held item the session went on from (answered in Claude's own prompt, first): closed as answered at the computer
+            let moved = id.as_deref().map(|sid| answers::moved_ids(&b.core.lock().unwrap().pending, sid, &ev2, &tool2, &input2)).unwrap_or_default();
+            for hid in moved { answers::done(&b, &hid, None, answers::End::Computer); }
             b.broadcast();
             if let Some(n) = notice.filter(|_| !stale) { phones::on_notify(&b, n.kind, &n.id); b.notify(n.kind, &n.id); }
         };

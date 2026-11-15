@@ -132,6 +132,18 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     until(10, || !b.core.lock().unwrap().pending.contains_key(&r5));
     fake.say(&format!("answer {r5} allow"));
     r["latePcTerminal"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 2));
+    // Answered in Claude's own prompt, and Claude then ran the command (its PostToolUse): the desktop notices, the waiting
+    // hook ends by itself, and a phone that answers after is told it was late
+    let cmd7 = json!({ "command": "echo ran in the terminal" });
+    let (mut child7, r7) = hold_child(b, "ph11", "echo ran in the terminal");
+    fake.say(&format!("detail {r7}"));
+    until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("ran in the terminal") && l.contains("\"kind\":\"detail\"")));
+    let post = json!({ "session_id": "ph11", "cwd": "/tmp/demo-app", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": cmd7 }).to_string();
+    crate::smoke::run_hook_out(&crate::hooks::hook_target(&crate::paths::home()), b.port, &post);
+    r["notedTerminal"] = json!(until(10, || !b.core.lock().unwrap().pending.contains_key(&r7)) && until(10, || child7.try_wait().ok().flatten().is_some()));
+    fake.say(&format!("answer {r7} allow"));
+    r["latePcNoted"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 3));
+    let _ = child7.kill();
     r["logged"] = json!(phones::log(b).as_array().is_some_and(|a| a.len() >= 3 && a.iter().all(|l| !l["what"].as_str().unwrap_or("").contains("ghp_"))));
     // Claude's questions: an option and free text come back to Claude in the shape the spike recorded
     let q = |n: &str| json!({ "questions": [{ "question": n, "header": "H", "options": [{ "label": "SQLite", "description": "d" }, { "label": "Postgres", "description": "d" }], "multiSelect": false }] });
@@ -187,6 +199,6 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     let busy = b.core.lock().unwrap().sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
     r["awakeHeld"] = json!(!busy || (until(10, || v()["awakeHeld"] == true) && (!cfg!(target_os = "macos") || until(5, caff))));
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }
