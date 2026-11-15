@@ -61,11 +61,32 @@ class SurfaceResourcesTest {
     }
 
     @Test
+    fun eachWidgetSizeIsItsOwnClassAndReadsTheListInsideTheComposition() {
+        val w = kotlin("surfaces/widgets/BobixWidget.kt")
+        for (n in listOf("Small", "Wide", "Large")) {
+            assertTrue("class ${n}Widget", w.contains("class ${n}Widget : BobixWidget(WidgetSize.${n.uppercase()})"))
+            assertTrue("${n}WidgetReceiver uses ${n}Widget()", w.contains("override val glanceAppWidget: GlanceAppWidget = ${n}Widget()"))
+        }
+        // A running Glance session is not re-run by updateAll: the list is read in the composition, keyed on a counter.
+        assertTrue(w.contains("SurfaceTick.version.collectAsState()") && w.contains("remember(tick)"))
+        assertTrue(kotlin("surfaces/Surfaces.kt").contains("SurfaceTick.bump()"))
+    }
+
+    @Test
+    fun theStaleAlarmIsSetAgainAfterABootAndByTheSurfacesThemselves() {
+        val manifest = File(main, "AndroidManifest.xml").readText()
+        assertTrue(manifest.contains("android.permission.RECEIVE_BOOT_COMPLETED") && manifest.contains("android.intent.action.BOOT_COMPLETED"))
+        assertTrue(kotlin("surfaces/widgets/BobixWidget.kt").contains("Surfaces.scheduleStale(context)"))
+        assertTrue(kotlin("surfaces/Tiles.kt").contains("Surfaces.scheduleStale(this)"))
+        assertTrue(kotlin("surfaces/LiveUpdate.kt").split("setTimeoutAfter").size == 3)
+    }
+
+    @Test
     fun hideDetailsRedrawsEverySurfaceAtOnce() {
         assertTrue(kotlin("push/PushChannel.kt").contains("prefs.hideDetails = call.argument<Boolean>(\"hide\") ?: false"))
         assertTrue(kotlin("push/PushChannel.kt").contains("Surfaces.refresh(activity.applicationContext)"))
         val refresh = kotlin("surfaces/Surfaces.kt")
-        for (part in listOf("BobixWidget(", "LiveUpdate.apply", "requestListeningState")) assertTrue("refresh covers $part", refresh.contains(part))
+        for (part in listOf("SmallWidget()", "WideWidget()", "LargeWidget()", "LiveUpdate.apply", "requestListeningState")) assertTrue("refresh covers $part", refresh.contains(part))
         for (file in listOf("surfaces/LiveUpdate.kt", "surfaces/Tiles.kt", "surfaces/widgets/BobixWidget.kt")) {
             assertTrue("$file reads the switch through the shared view", kotlin(file).contains("Surfaces.view") || kotlin(file).contains("v.hidden") || kotlin(file).contains("SurfaceView"))
         }

@@ -8,11 +8,15 @@ import android.content.Intent
 import android.service.quicksettings.TileService
 import dev.bobix.phone.MainActivity
 import dev.bobix.phone.push.PushPrefs
+import dev.bobix.phone.surfaces.widgets.LargeWidget
 import dev.bobix.phone.surfaces.widgets.LargeWidgetReceiver
+import dev.bobix.phone.surfaces.widgets.SmallWidget
 import dev.bobix.phone.surfaces.widgets.SmallWidgetReceiver
+import dev.bobix.phone.surfaces.widgets.WideWidget
 import dev.bobix.phone.surfaces.widgets.WideWidgetReceiver
 import androidx.glance.appwidget.updateAll
 import java.io.File
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -60,10 +64,11 @@ object Surfaces {
     fun refresh(context: Context) {
         val app = context.applicationContext
         val v = view(app)
+        SurfaceTick.bump()
         runBlocking {
-            runCatching { dev.bobix.phone.surfaces.widgets.BobixWidget(dev.bobix.phone.surfaces.widgets.WidgetSize.SMALL).updateAll(app) }
-            runCatching { dev.bobix.phone.surfaces.widgets.BobixWidget(dev.bobix.phone.surfaces.widgets.WidgetSize.WIDE).updateAll(app) }
-            runCatching { dev.bobix.phone.surfaces.widgets.BobixWidget(dev.bobix.phone.surfaces.widgets.WidgetSize.LARGE).updateAll(app) }
+            runCatching { SmallWidget().updateAll(app) }
+            runCatching { WideWidget().updateAll(app) }
+            runCatching { LargeWidget().updateAll(app) }
         }
         LiveUpdate.apply(app, v)
         for (tile in listOf(BobixTile::class.java, StartTile::class.java)) {
@@ -74,28 +79,38 @@ object Surfaces {
 
     /** After a push: the list changes by the notice, then every surface follows. */
     fun onNotice(context: Context, computerId: String, what: String, ref: String) {
-        val store = store(context)
         val now = System.currentTimeMillis()
-        val list = store.read() ?: SurfaceList(now, computerId, "", true, 0, emptyList(), emptyList())
-        store.write(list.withNotice(computerId, what, ref, now).toJson())
+        // Nothing paired (no list yet): a notice has nothing to change and must not make a list out of nothing.
+        store(context).update { it?.withNotice(computerId, what, ref, now) }
         refresh(context)
     }
 
-    /** The alarm that redraws everything at the moment the list turns stale (inexact: a few minutes late is fine). */
-    private fun scheduleStale(context: Context) {
+    /**
+     * The alarm that redraws everything at the moment the list turns stale. Inexact on purpose (`set`, not an exact alarm: no
+     * special permission, and the system may deliver it a few minutes late; the surfaces judge staleness from the clock
+     * whenever they draw, so a late alarm only delays the redraw). It does not survive a reboot or an app update by itself:
+     * [StaleReceiver] sets it again at boot, and every widget update and every tile listen sets it too.
+     */
+    fun scheduleStale(context: Context) {
         val alarms = context.getSystemService(AlarmManager::class.java) ?: return
         val pi = PendingIntent.getBroadcast(
             context, 7, Intent(context, StaleReceiver::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val list = store(context).read()
-        val at = list?.let { SurfaceModel.staleAt(it) }
-        if (at == null || at <= System.currentTimeMillis()) alarms.cancel(pi) else alarms.set(AlarmManager.RTC, at + 1000, pi)
+        val at = list?.let { SurfaceModel.staleAt(it, System.currentTimeMillis()) }
+        if (at == null) alarms.cancel(pi) else alarms.set(AlarmManager.RTC, at + 1000, pi)
     }
 
     fun widgetReceivers() = listOf(SmallWidgetReceiver::class.java, WideWidgetReceiver::class.java, LargeWidgetReceiver::class.java)
 }
 
-/** Redraws every surface when the list has become stale. */
+/** A counter the widgets observe: a running Glance session is recomposed by it, since `updateAll` does not re-run `provideGlance` there. */
+object SurfaceTick {
+    val version = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    fun bump() = version.update { it + 1 }
+}
+
+/** Redraws every surface when the list has become stale, and after a reboot (the alarm is gone then, so this sets it again). */
 class StaleReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pending = goAsync()

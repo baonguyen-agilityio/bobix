@@ -10,7 +10,10 @@ import dev.bobix.phone.R
 
 /** The "Bobix" tile: the count, and a tap that opens the first waiting request (Home when nothing waits). Never answers. */
 class BobixTile : TileService() {
-    override fun onStartListening() = draw()
+    override fun onStartListening() {
+        Surfaces.scheduleStale(this)
+        draw()
+    }
 
     override fun onClick() {
         val v = Surfaces.view(this)

@@ -7,7 +7,13 @@ Map<String, Object?> surfaceListJson(
   HomeData data, {
   required int nowMs,
   String computerId = '',
+  int? builtAtMs,
 }) {
+  // `HomeData` was made at [builtAtMs]; the seconds a request still has are counted from then, so a list written again later
+  // (the heartbeat) takes the time since off them.
+  int? left(int? s) => s == null || builtAtMs == null
+      ? s
+      : (s - (nowMs - builtAtMs) ~/ 1000).clamp(0, s);
   Map<String, Object?>? pet(Session s) => {
     'design': s.petDesign,
     'color': s.petColor,
@@ -27,7 +33,7 @@ Map<String, Object?> surfaceListJson(
           },
           'name': s.name,
           'waitMinutes': s.waitingMinutes,
-          'leftSeconds': s.waitingLeftSeconds,
+          'leftSeconds': left(s.waitingLeftSeconds),
           'pet': pet(s),
         },
   ];

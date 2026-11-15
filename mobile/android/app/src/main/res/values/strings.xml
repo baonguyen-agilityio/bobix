@@ -19,7 +19,7 @@
     <string name="phone_widget_desc">How many sessions wait for you</string>
     <string name="phone_widget_hidden">Details are hidden</string>
     <string name="phone_live_channel">Waiting requests</string>
-    <string name="phone_live_channel_d">Stays while a session waits for you; shows no details on the lock screen</string>
+    <string name="phone_live_channel_d">Stays while a session waits for you; the lock screen only says one waits, with no details</string>
     <string name="phone_tile_bobix_label">Bobix</string>
     <string name="phone_tab_start">Start</string>
     <string name="phone_min">%1$s min</string>

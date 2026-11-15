@@ -49,41 +49,43 @@ object SurfaceModel {
      * whenever the computer says something and every few minutes while the computer is reachable, so a reachable computer
      * does not go stale while the app runs; a phone that cannot reach it, or an app that is not running, does.
      */
-    fun staleAfter(list: SurfaceList): Long {
-        val own = list.waiting.mapNotNull { it.leftSeconds }.minOrNull()?.let { it * 1000L }
-        return minOf(own ?: Long.MAX_VALUE, MAX_AGE_MS).coerceAtLeast(0)
+    fun staleAfter(w: SurfaceList.Waiting): Long = minOf(w.leftSeconds?.let { it * 1000L } ?: Long.MAX_VALUE, MAX_AGE_MS).coerceAtLeast(0)
+
+    /** An item is stale when it was confirmed longer ago than [staleAfter]; the list's "nothing waits" when it was written longer ago than [MAX_AGE_MS]. */
+    private fun fresh(list: SurfaceList, w: SurfaceList.Waiting, now: Long) = now - list.confirmedAt(w) <= staleAfter(w)
+
+    /** The next moment something in the list turns stale (the alarm's time), or null when nothing will. */
+    fun staleAt(list: SurfaceList, now: Long): Long? {
+        val items = list.waiting.map { list.confirmedAt(it) + staleAfter(it) }
+        val all = if (list.waiting.isEmpty()) items + (list.writtenAt + MAX_AGE_MS) else items
+        return all.filter { it >= now }.minOrNull()
     }
-
-    fun isStale(list: SurfaceList, now: Long) = now - list.writtenAt > staleAfter(list)
-
-    /** The moment the list turns stale. */
-    fun staleAt(list: SurfaceList): Long = list.writtenAt + staleAfter(list)
 
     fun clock(at: Long, zone: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault()): String =
         SimpleDateFormat("HH:mm", locale).apply { timeZone = zone }.format(Date(at))
 
     fun of(list: SurfaceList?, now: Long, hideDetails: Boolean, zone: TimeZone = TimeZone.getDefault()): SurfaceView {
         if (list == null) return SurfaceView(SurfaceState.UNPAIRED, 0, emptyList(), emptyList(), "", "", hideDetails, null)
-        val stale = isStale(list, now)
+        val live = list.waiting.filter { fresh(list, it, now) }
         val state = when {
-            stale -> SurfaceState.STALE
-            list.waiting.isNotEmpty() -> SurfaceState.NEEDS_YOU
-            else -> SurfaceState.NOTHING
+            live.isNotEmpty() -> SurfaceState.NEEDS_YOU
+            list.waiting.isEmpty() && now - list.writtenAt <= MAX_AGE_MS -> SurfaceState.NOTHING
+            else -> SurfaceState.STALE
         }
         val rows = if (state == SurfaceState.NEEDS_YOU && !hideDetails) {
-            list.waiting.map { SurfaceView.Row(it.name.ifEmpty { null }, it.waitMinutes, it.pet) }
+            live.map { SurfaceView.Row(it.name.ifEmpty { null }, it.waitMinutes, it.pet) }
         } else {
             emptyList()
         }
         return SurfaceView(
             state = state,
-            count = if (state == SurfaceState.NEEDS_YOU) list.waiting.size else 0,
+            count = if (state == SurfaceState.NEEDS_YOU) live.size else 0,
             rows = rows,
             others = if (hideDetails || state == SurfaceState.STALE) emptyList() else list.sessions,
-            updatedAt = clock(list.writtenAt, zone),
+            updatedAt = clock(maxOf(list.writtenAt, list.waiting.maxOfOrNull { list.confirmedAt(it) } ?: 0L), zone),
             computer = if (hideDetails) "" else list.computer,
             hidden = hideDetails,
-            first = list.waiting.firstOrNull().takeIf { state == SurfaceState.NEEDS_YOU },
+            first = live.firstOrNull().takeIf { state == SurfaceState.NEEDS_YOU },
         )
     }
 }

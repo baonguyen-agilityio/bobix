@@ -58,7 +58,7 @@ class SurfaceModelTest {
             val l = list(online = online, waiting = listOf(waits()))
             assertEquals(SurfaceState.NEEDS_YOU, SurfaceModel.of(l, t0 + 14 * min, false, utc).state)
             assertEquals("online=$online", SurfaceState.STALE, SurfaceModel.of(l, t0 + 16 * min, false, utc).state)
-            assertEquals(t0 + 15 * min, SurfaceModel.staleAt(l))
+            assertEquals(t0 + 15 * min, SurfaceModel.staleAt(l, t0))
         }
         assertEquals("nothing waiting is stale too", SurfaceState.STALE, SurfaceModel.of(list(), t0 + 16 * min, false, utc).state)
     }
@@ -69,9 +69,9 @@ class SurfaceModelTest {
         assertEquals(SurfaceState.NEEDS_YOU, SurfaceModel.of(l, t0 + 90_000, false, utc).state)
         val stale = SurfaceModel.of(l, t0 + 130_000, false, utc)
         assertEquals(SurfaceState.STALE, stale.state)
-        assertEquals(t0 + 120_000, SurfaceModel.staleAt(l))
+        assertEquals(t0 + 120_000, SurfaceModel.staleAt(l, t0))
         // The earliest of the two wins: a long wait still dims at fifteen minutes.
-        assertEquals(t0 + 15 * min, SurfaceModel.staleAt(list(waiting = listOf(waits(left = 3600)))))
+        assertEquals(t0 + 15 * min, SurfaceModel.staleAt(list(waiting = listOf(waits(left = 3600))), t0))
     }
 
     @Test
@@ -130,7 +130,39 @@ class SurfaceModelTest {
         assertEquals("a second waiting for the same ref replaces it", 2, more.withNotice("c1", "waiting", "r2", t0).waiting.size)
         assertEquals(listOf("r2"), more.withNotice("c1", "closed", "r1", t0).waiting.map { it.id })
         assertEquals(l.toJson(), l.withNotice("c1", "done", "r1", t0 + 5).toJson())
-        assertEquals(t0 + 1000, more.writtenAt)
+        assertEquals("a notice does not make the list newer", t0, more.writtenAt)
+        assertEquals(t0 + 1000, more.waiting.first { it.id == "r2" }.at)
+    }
+
+    @Test
+    fun aNoticeDoesNotRefreshTheAgeOfTheRestOfTheList() {
+        val old = list(waiting = listOf(waits()))
+        val withNew = old.withNotice("c1", "waiting", "r2", t0 + 14 * min)
+        val at16 = SurfaceModel.of(withNew, t0 + 16 * min, false)
+        assertEquals(SurfaceState.NEEDS_YOU, at16.state)
+        assertEquals("only the item the notice named is fresh", 1, at16.count)
+        assertEquals("r2", at16.first!!.id)
+        assertEquals(SurfaceState.STALE, SurfaceModel.of(withNew, t0 + 30 * min, false).state)
+        assertEquals("the alarm is for the next item to turn stale", t0 + 15 * min, SurfaceModel.staleAt(withNew, t0 + min))
+        val roundTrip = SurfaceList.parse(withNew.toJson())!!
+        assertEquals(t0 + 14 * min, roundTrip.waiting.first { it.id == "r2" }.at)
+    }
+
+    @Test
+    fun twoWritersLeaveBothChangesAndNoTempFile() {
+        val dir = Files.createTempDirectory("surfaces").toFile()
+        try {
+            val store = SurfaceStore(dir)
+            store.write(list().toJson())
+            val threads = (1..8).map { n -> Thread { repeat(5) { k -> store.update { it!!.withNotice("c1", "waiting", "r$n-$k", t0 + n) } } } }
+            threads.forEach { it.start() }
+            threads.forEach { it.join() }
+            assertEquals(40, store.read()!!.waiting.size)
+            assertEquals(emptyList<String>(), dir.list()!!.filter { it.endsWith(".tmp") })
+            assertFalse("nothing to update, nothing written", SurfaceStore(Files.createTempDirectory("none").toFile()).update { it })
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     @Test

@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 16: the waiting-requests notification asks to be shown as a Live Update. -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- Sets the "this has turned stale" alarm again after a reboot (an alarm does not survive one). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:label="Bobix"
@@ -59,7 +61,9 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_large" />
         </receiver>
-        <receiver android:name=".surfaces.StaleReceiver" android:exported="false" />
+        <receiver android:name=".surfaces.StaleReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+        </receiver>
         <service
             android:name=".surfaces.BobixTile"
             android:exported="true"

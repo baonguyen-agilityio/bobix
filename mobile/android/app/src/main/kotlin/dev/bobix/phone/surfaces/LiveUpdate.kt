@@ -19,7 +19,7 @@ object LiveUpdate {
     const val CHANNEL = "live_update"
     const val ID = 4521
 
-    fun apply(context: Context, v: SurfaceView) {
+    fun apply(context: Context, v: SurfaceView, store: SurfaceList? = Surfaces.store(context).read()) {
         val manager = NotificationManagerCompat.from(context)
         if (v.state != SurfaceState.NEEDS_YOU || !manager.areNotificationsEnabled()) {
             manager.cancel(ID)
@@ -35,8 +35,10 @@ object LiveUpdate {
             .setContentText(context.getString(R.string.phone_push_generic_body))
             .build()
         val action = context.getString(R.string.phone_widget_open)
+        // It goes away by itself when the data turns stale, even if nothing redraws then.
+        val timeout = store?.let { SurfaceModel.staleAt(it, System.currentTimeMillis()) }?.let { (it - System.currentTimeMillis()).coerceAtLeast(1000) } ?: 0L
         val notification: Notification = if (Build.VERSION.SDK_INT >= 36) {
-            promoted(context, title, detail, publicVersion, open, action, v.count)
+            promoted(context, title, detail, publicVersion, open, action, v.count, timeout)
         } else {
             NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_notification)
@@ -50,6 +52,7 @@ object LiveUpdate {
                 .setCategory(NotificationCompat.CATEGORY_STATUS)
                 .setContentIntent(open)
                 .addAction(0, action, open)
+                .setTimeoutAfter(timeout)
                 .build()
         }
         manager.notify(ID, notification)
@@ -64,6 +67,7 @@ object LiveUpdate {
         open: android.app.PendingIntent,
         action: String,
         count: Int,
+        timeout: Long,
     ): Notification = Notification.Builder(context, CHANNEL)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(title)
@@ -79,6 +83,7 @@ object LiveUpdate {
         .setCategory(Notification.CATEGORY_STATUS)
         .setContentIntent(open)
         .addAction(Notification.Action.Builder(null, action, open).build())
+        .setTimeoutAfter(timeout)
         .build()
 
     private fun ensureChannel(context: Context) {

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'data/models.dart';
 import 'data/phone_data.dart';
 import 'l10n/l10n.dart';
 import 'features/actions/start_screen.dart';
@@ -86,16 +85,29 @@ class _AppShellState extends ConsumerState<AppShell> {
         WidgetsBinding.instance.addPostFrameCallback((_) => _surfaceOpen(o));
       }
     }, fireImmediately: true);
+    // A request tap that started the app: the computer has not said anything yet, so it waits for the first `home`.
+    ref.listenManual(homeProvider, (_, next) {
+      final held = _held;
+      if (held != null && next.value != null) {
+        _held = null;
+        _surfaceOpen(held);
+      }
+    });
   }
+
+  SurfaceOpen? _held;
 
   void _surfaceOpen(SurfaceOpen o) {
     if (!mounted) return;
     ref.read(surfaceOpenProvider.notifier).clear();
     setState(() => _index = o.target == 'start' ? _start : _home);
     if (o.target != 'request') return;
-    final sessions =
-        ref.read(homeProvider).value?.sessions ?? const <Session>[];
-    final hit = sessions.where((x) => x.waitingId == o.id);
+    final home = ref.read(homeProvider).value;
+    if (home == null) {
+      _held = o;
+      return;
+    }
+    final hit = home.sessions.where((x) => x.waitingId == o.id);
     if (hit.isNotEmpty) openSession(context, hit.first);
   }
 

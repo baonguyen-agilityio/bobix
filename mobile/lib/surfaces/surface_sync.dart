@@ -39,6 +39,7 @@ final surfaceSyncProvider = Provider<void>((ref) {
   final written = <String>{};
   var queue = Future<void>.value();
   HomeData? last;
+  var lastBuiltAt = 0;
 
   Future<void> write(Map<String, Object?> list) async {
     for (final (design, color, state) in petsOf(list)) {
@@ -55,9 +56,18 @@ final surfaceSyncProvider = Provider<void>((ref) {
     await sink.writeList(jsonEncode(list));
   }
 
-  void push(HomeData data) {
-    last = data;
-    final list = surfaceListJson(data, nowMs: now().millisecondsSinceEpoch);
+  void push(HomeData data, {bool again = false}) {
+    final at = now().millisecondsSinceEpoch;
+    if (!again) {
+      last = data;
+      lastBuiltAt = at;
+    }
+    final list = surfaceListJson(
+      data,
+      nowMs: at,
+      builtAtMs: lastBuiltAt,
+      computerId: ref.read(pairedComputerProvider)?.id ?? '',
+    );
     queue = queue.then((_) => write(list)).catchError((Object _) {});
   }
 
@@ -69,7 +79,7 @@ final surfaceSyncProvider = Provider<void>((ref) {
   // time on a stale surface is when this was last written). Not while it is not reachable: that must age into stale.
   final heartbeat = Timer.periodic(ref.watch(surfaceHeartbeatProvider), (_) {
     final data = last;
-    if (data != null && data.conn == ConnState.ok) push(data);
+    if (data != null && data.conn == ConnState.ok) push(data, again: true);
   });
   ref.onDispose(heartbeat.cancel);
   ref.listen(linkControllerProvider, (_, next) {

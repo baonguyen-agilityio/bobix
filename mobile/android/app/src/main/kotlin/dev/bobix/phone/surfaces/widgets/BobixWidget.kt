@@ -1,7 +1,11 @@
 package dev.bobix.phone.surfaces.widgets
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,6 +39,7 @@ import androidx.glance.unit.ColorProvider
 import dev.bobix.phone.R
 import dev.bobix.phone.surfaces.SurfaceList
 import dev.bobix.phone.surfaces.SurfaceState
+import dev.bobix.phone.surfaces.SurfaceTick
 import dev.bobix.phone.surfaces.SurfaceView
 import dev.bobix.phone.surfaces.Surfaces
 import dev.bobix.phone.surfaces.tileText
@@ -52,20 +57,38 @@ object Palette {
 }
 
 /**
- * One widget class for the three sizes; it only draws a [SurfaceView] (what each state shows is decided in SurfaceModel).
- * Every tap opens the app: the first waiting request when something waits, Home otherwise. Nothing answers.
+ * One widget class per size (Glance maps a widget id to its class, so a shared class would draw the small layout on the large
+ * widget). The list is read inside the composition, keyed on [SurfaceTick]: a widget whose session is running redraws when
+ * [Surfaces.refresh] bumps the tick, and one without a session reads afresh in `provideGlance`. Every tap opens the app
+ * (the first waiting request when something waits, Home otherwise). Nothing answers.
  */
-class BobixWidget(private val size: WidgetSize) : GlanceAppWidget() {
+abstract class BobixWidget(private val size: WidgetSize) : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val view = Surfaces.view(context)
-        val open = actionStartActivity(Surfaces.openFirst(context, view))
-        val pets = view.rows.take(size.rows).mapNotNull { it.pet }.associate { it.petFile to petBitmap(context, it) }
-        val first = view.first?.let { f -> view.rows.firstOrNull()?.pet?.let { petBitmap(context, it) } }
-        provideContent { WidgetContent(context, view, size, open, pets, first) }
+        provideContent {
+            val tick by SurfaceTick.version.collectAsState()
+            val drawn = remember(tick) { Drawn.read(context, size) }
+            WidgetContent(context, drawn.view, size, actionStartActivity(drawn.open), drawn.pets, drawn.first)
+        }
     }
+}
 
-    private fun petBitmap(context: Context, pet: SurfaceList.Pet): ImageProvider? =
-        Surfaces.store(context).petFile(pet.petFile)?.let { f -> BitmapFactory.decodeFile(f.path)?.let { ImageProvider(it) } }
+class SmallWidget : BobixWidget(WidgetSize.SMALL)
+class WideWidget : BobixWidget(WidgetSize.WIDE)
+class LargeWidget : BobixWidget(WidgetSize.LARGE)
+
+/** What one draw needs, read together so a redraw never mixes two versions of the list. */
+private class Drawn(val view: SurfaceView, val open: Intent, val pets: Map<String, ImageProvider?>, val first: ImageProvider?) {
+    companion object {
+        fun read(context: Context, size: WidgetSize): Drawn {
+            val view = Surfaces.view(context)
+            val pets = view.rows.take(size.rows).mapNotNull { it.pet }.associate { it.petFile to bitmap(context, it) }
+            val first = view.rows.firstOrNull()?.pet?.let { bitmap(context, it) }
+            return Drawn(view, Surfaces.openFirst(context, view), pets, first)
+        }
+
+        private fun bitmap(context: Context, pet: SurfaceList.Pet): ImageProvider? =
+            Surfaces.store(context).petFile(pet.petFile)?.let { f -> BitmapFactory.decodeFile(f.path)?.let { ImageProvider(it) } }
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -151,14 +174,22 @@ private fun Rows(context: Context, v: SurfaceView, size: WidgetSize, pets: Map<S
     }
 }
 
-class SmallWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = BobixWidget(WidgetSize.SMALL)
+/** Every widget update also sets the stale alarm again: it is lost at a reboot, and a widget on the screen is the reason to have it. */
+abstract class SurfaceWidgetReceiver : GlanceAppWidgetReceiver() {
+    override fun onUpdate(context: Context, appWidgetManager: android.appwidget.AppWidgetManager, appWidgetIds: IntArray) {
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
+        Surfaces.scheduleStale(context)
+    }
 }
 
-class WideWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = BobixWidget(WidgetSize.WIDE)
+class SmallWidgetReceiver : SurfaceWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = SmallWidget()
 }
 
-class LargeWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = BobixWidget(WidgetSize.LARGE)
+class WideWidgetReceiver : SurfaceWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = WideWidget()
+}
+
+class LargeWidgetReceiver : SurfaceWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = LargeWidget()
 }

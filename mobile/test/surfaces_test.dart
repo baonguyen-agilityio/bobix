@@ -206,6 +206,52 @@ void main() {
     }
   });
 
+  test(
+    'once the link leaves reachable (the app is paused) the rewriting stops',
+    () async {
+      final sink = FakeSink();
+      final controller = StreamController<HomeData>();
+      final container = ProviderContainer(
+        overrides: [
+          surfaceSinkProvider.overrideWithValue(sink),
+          surfaceHeartbeatProvider.overrideWithValue(
+            const Duration(milliseconds: 30),
+          ),
+          petPngProvider.overrideWithValue((d, c, s) async => Uint8List(4)),
+          phoneDataProvider.overrideWithValue(_Data(controller.stream)),
+        ],
+      );
+      addTearDown(() {
+        container.dispose();
+        controller.close();
+      });
+      container.listen(surfaceSyncProvider, (_, _) {});
+      container.listen(homeProvider, (_, _) {});
+      controller.add(home());
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(sink.calls.where((c) => c == 'list').length, greaterThan(1));
+      controller.add(home(conn: ConnState.relayDown));
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      final after = sink.calls.where((c) => c == 'list').length;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(sink.calls.where((c) => c == 'list').length, after);
+    },
+  );
+
+  test('a list written again later counts the seconds a request still has down from when it was built', () {
+    final data = home();
+    final first = surfaceListJson(data, nowMs: 1000000, builtAtMs: 1000000);
+    final later = surfaceListJson(
+      data,
+      nowMs: 1000000 + 120000,
+      builtAtMs: 1000000,
+    );
+    int? left(Map<String, Object?> l) =>
+        ((l['waiting']! as List).first as Map)['leftSeconds'] as int?;
+    expect(left(first), 240);
+    expect(left(later), 120);
+  });
+
   test('a tap from a surface is handled only inside the app shell, behind the gate', () {
     // The pairing, the "pair again" screen and (when built) the app lock all come before `AppShell`: a surface can only ask,
     // and the shell is what opens a screen, and nothing answers from there.

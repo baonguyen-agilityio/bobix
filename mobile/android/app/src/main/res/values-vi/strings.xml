@@ -16,10 +16,10 @@
     <string name="phone_widget_refresh">Mở Bobix để làm mới</string>
     <string name="phone_widget_unpaired">Mở Bobix để kết nối máy tính</string>
     <string name="phone_widget_open">Mở để xem</string>
-    <string name="phone_widget_desc">Có bao nhiêu phiên đang chờ bạn</string>
+    <string name="phone_widget_desc">Số phiên đang chờ bạn</string>
     <string name="phone_widget_hidden">Chi tiết đã được ẩn</string>
     <string name="phone_live_channel">Yêu cầu đang chờ</string>
-    <string name="phone_live_channel_d">Hiện khi có phiên chờ bạn; không hiện chi tiết trên màn hình khoá</string>
+    <string name="phone_live_channel_d">Hiện khi có phiên chờ bạn; trên màn hình khoá chỉ báo có phiên chờ, không kèm chi tiết</string>
     <string name="phone_tile_bobix_label">Bobix</string>
     <string name="phone_tab_start">Bắt đầu</string>
     <string name="phone_min">%1$s phút</string>
