@@ -37,7 +37,7 @@ docker run --rm -p 8787:8787 -v bobix-relay-data:/data \
 ```
 
 The image holds the binary only (no shell), runs as a non-root user (uid 65532) and keeps its state under `/data`.
-`GET /healthz` answers `ok`; the image has no `HEALTHCHECK` because it has no shell or curl, so point your platform's
+`GET /healthz` answers `ok` (or `503` and the words `invitation file missing or unreadable` / `gateway keys file missing or unreadable` when `INVITE_FILE` or `GATEWAY_KEYS_FILE` is set and cannot be read, so a monitor catches a lost file too; the repository's `relay-health.yml` workflow polls it from the variable `RELAY_URL`); the image has no `HEALTHCHECK` because it has no shell or curl, so point your platform's
 check at that path.
 
 Without Docker: `cd relay && cargo build --release`, then run `target/release/bobix-relay` with the same variables.
