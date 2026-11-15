@@ -650,6 +650,10 @@
       'phone.start.title': 'Start', 'phone.start.soon': 'Starting tickets from the phone comes in a later version.',
       'phone.settings.title': 'Settings', 'phone.settings.soon': 'Computers, safety and language settings come with pairing.',
       'phone.faceid.usage': 'Bobix asks for Face ID to confirm each command you send from this phone.',
+      'phone.push.channel.needs': 'Needs you', 'phone.push.channel.needs.d': 'Sessions that are waiting for your answer',
+      'phone.push.channel.done': 'Finished', 'phone.push.channel.done.d': 'Sessions that have finished',
+      'phone.push.generic': 'A session needs you', 'phone.push.generic.body': 'Open Bobix to see it', 'phone.push.done.generic': 'A session has finished',
+      'phone.biometric.title': 'Confirm this command', 'phone.biometric.cancel': 'Cancel',
     },
     vi: {
       'app.name': 'Bobix',
@@ -1301,6 +1305,10 @@
       'phone.start.title': 'Bắt đầu', 'phone.start.soon': 'Bắt đầu ticket từ điện thoại sẽ có ở phiên bản sau.',
       'phone.settings.title': 'Cài đặt', 'phone.settings.soon': 'Máy tính, an toàn và ngôn ngữ sẽ có cùng với việc kết nối.',
       'phone.faceid.usage': 'Bobix dùng Face ID để xác nhận từng lệnh bạn gửi từ điện thoại này.',
+      'phone.push.channel.needs': 'Cần bạn', 'phone.push.channel.needs.d': 'Các phiên đang chờ bạn trả lời',
+      'phone.push.channel.done': 'Đã xong', 'phone.push.channel.done.d': 'Các phiên đã chạy xong',
+      'phone.push.generic': 'Một phiên cần bạn', 'phone.push.generic.body': 'Mở Bobix để xem', 'phone.push.done.generic': 'Một phiên đã xong',
+      'phone.biometric.title': 'Xác nhận lệnh này', 'phone.biometric.cancel': 'Hủy',
     },
   };
 
