@@ -28,6 +28,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    # A copy of crates/bobix-link/tests/vectors.json for the simulator test; test/core_vectors_test.dart keeps it equal.
-    - assets/vectors.json

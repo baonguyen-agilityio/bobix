@@ -10,9 +10,13 @@ String translate(
   String key, [
   Map<String, Object> vars = const {},
 ]) {
-  var s = phoneStrings[lang]?[key] ?? phoneStrings['en']![key] ?? key;
-  vars.forEach((k, v) => s = s.replaceAll('{$k}', '$v'));
-  return s;
+  final s = phoneStrings[lang]?[key] ?? phoneStrings['en']![key] ?? key;
+  // One pass over the template: a value that itself holds `{name}` (a computer's name comes from the desktop) is never
+  // read as a placeholder. A name without a value stays as written.
+  return s.replaceAllMapped(
+    RegExp(r'\{(\w+)\}'),
+    (m) => vars.containsKey(m[1]) ? '${vars[m[1]]}' : m[0]!,
+  );
 }
 
 class Lang extends Notifier<String> {
