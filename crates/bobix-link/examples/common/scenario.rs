@@ -23,9 +23,10 @@ pub enum Scenario {
     RelayMoved,
     UnknownCommand,
     Released,
+    RightsChanged,
 }
 
-pub const ALL: [(&str, Scenario); 20] = [
+pub const ALL: [(&str, Scenario); 21] = [
     ("normal", Scenario::Normal),
     ("asleep", Scenario::Asleep),
     ("offline", Scenario::Offline),
@@ -46,6 +47,7 @@ pub const ALL: [(&str, Scenario); 20] = [
     ("relay-moved", Scenario::RelayMoved),
     ("unknown-command", Scenario::UnknownCommand),
     ("released", Scenario::Released),
+    ("rights-changed", Scenario::RightsChanged),
 ];
 
 impl Scenario {

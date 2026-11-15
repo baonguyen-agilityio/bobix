@@ -225,7 +225,7 @@ impl Desktop {
         let _ = self.conn.send(&Frame::Send { pid: pid(), to: phone.into(), ttl: 600, collapse: None, push, body: b64(packet) }).await;
     }
 
-    fn home(&self, state: ComputerState) -> DesktopMsg {
+    fn home(&self, state: ComputerState, rights: Option<Rights>) -> DesktopMsg {
         let mut waiting: Vec<Waiting> = self
             .items
             .iter()
@@ -252,14 +252,25 @@ impl Desktop {
             sessions: vec![SessionInfo { id: "s1".into(), title: "Fix the login retry".into(), project: "demo-app".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 2 }, can_stop: true }],
             groups: vec![Group { group: GroupKind::NeedsYou, ids: waiting.iter().map(|w| w.id.clone()).collect() }],
             waiting,
+            rights,
         })
     }
 
     async fn after_pairing(&mut self, phone: &str) {
         let state = if self.scenario == Scenario::Asleep { ComputerState::Asleep } else { ComputerState::Online };
-        let home = self.home(state);
+        let rights = self.phones.get(phone).map(|k| k.rights);
+        let home = self.home(state, rights);
         self.tell(phone, &home).await;
         match self.scenario {
+            Scenario::RightsChanged => {
+                // The owner takes everything but Answer away on the computer: the next home says so.
+                let now = Rights { answer: true, ..Rights::default() };
+                if let Some(k) = self.phones.get_mut(phone) {
+                    k.rights = now;
+                }
+                let home = self.home(state, Some(now));
+                self.tell(phone, &home).await;
+            }
             Scenario::Asleep => {
                 let _ = self.conn.send(&Frame::State { asleep: true }).await;
             }
@@ -302,7 +313,8 @@ impl Desktop {
         for _ in 0..11 {
             k.link.reserve_counter(Stream::State);
         }
-        let home = self.home(ComputerState::Online).to_json();
+        let rights = self.phones.get(phone).map(|k| k.rights);
+        let home = self.home(ComputerState::Online, rights).to_json();
         let k = self.phones.get_mut(phone).unwrap();
         packets.push(k.link.seal_with(Stream::State, s + 10, &home).expect("a peer key of low order was refused earlier"));
         packets.push(k.link.seal_with(Stream::State, s + 5, &home).expect("a peer key of low order was refused earlier")); // older home after a newer one

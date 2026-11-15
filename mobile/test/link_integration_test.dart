@@ -394,6 +394,26 @@ void main() {
     );
 
     test(
+      'rights changed on the computer reach the phone in a home and are kept',
+      () async {
+        final d = await desktop('rights-changed');
+        final phone = TestPhone(tmp);
+        final c = await phone.pair(d.qr);
+        expect(c.rights.stop, isTrue, reason: 'what the pairing granted');
+        final link = await started(phone, c);
+        await until(
+          () => c.rights.stop ? null : true,
+          what: 'the narrower rights',
+        );
+        expect(c.rights.answer, isTrue);
+        expect(c.rights.start || c.rights.plan || c.rights.activity, isFalse);
+        final kept = (await phone.store.load())!.rights;
+        expect(kept.answer && !kept.stop && !kept.plan, isTrue);
+        expect(link.status.revokedByComputer, isFalse);
+      },
+    );
+
+    test(
       'relayMoved: the new relay is used after the old one acknowledged',
       () async {
         final d = await desktop('relay-moved');

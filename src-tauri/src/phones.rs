@@ -947,6 +947,7 @@ pub fn set_rights(b: &Arc<Bobix>, id: &str, r: Rights) -> Result<Value, String> 
         let p = st.store.phones.iter_mut().find(|p| p.id == id).ok_or("unknown")?;
         p.rights = r;
         st.save_store();
+        st.home_now.insert(id.to_string()); // the phone hears it at the next tick
     }
     b.broadcast();
     Ok(view(b))

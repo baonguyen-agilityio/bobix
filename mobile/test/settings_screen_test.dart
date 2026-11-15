@@ -209,6 +209,30 @@ void main() {
     expect(find.byIcon(Icons.close), findsNothing);
   });
 
+  testWidgets('a change of rights made on the computer redraws both screens', (
+    tester,
+  ) async {
+    final paired = computer();
+    await pump(tester, paired: paired);
+    expect(find.text('3 of 6 allowed on Studio Mac (demo)'), findsOneWidget);
+    await openPermissions(tester);
+    expect(find.byIcon(Icons.check), findsNWidgets(3));
+    paired.rights = const PhoneRights(
+      answer: true,
+      plan: true,
+      question: true,
+      start: true,
+      stop: true,
+      activity: true,
+    );
+    await tester.pump();
+    expect(find.text('6/6'), findsOneWidget);
+    expect(find.text('Not allowed'), findsNothing);
+    await tester.tap(find.text('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('6 of 6 allowed on Studio Mac (demo)'), findsOneWidget);
+  });
+
   testWidgets('nothing allowed: says so, and lists all six as not allowed', (
     tester,
   ) async {

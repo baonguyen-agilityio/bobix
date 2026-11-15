@@ -131,6 +131,17 @@ async fn a_changed_shown_hash_is_stale_and_a_wrong_clock_is_refused() {
 }
 
 #[tokio::test]
+async fn every_home_carries_the_rights_and_a_change_on_the_computer_reaches_the_phone() {
+    let mut r = run(Scenario::RightsChanged).await;
+    r.phone.settle(Duration::from_millis(500)).await;
+    let rights: Vec<Rights> = r.phone.log.iter().filter_map(|(_, m)| if let DesktopMsg::Home(h) = m { h.rights } else { None }).collect();
+    assert_eq!(rights.len(), 2, "{rights:?}");
+    assert!(rights[0].stop && rights[0].start, "the first home has what the owner granted: {:?}", rights[0]);
+    assert_eq!(rights[1], Rights { answer: true, ..Rights::default() });
+    r.finish().await;
+}
+
+#[tokio::test]
 async fn scenario_asleep() {
     let mut r = run(Scenario::Asleep).await;
     let Some(DesktopMsg::Home(h)) = r.phone.wait_for(WAIT, |m| matches!(m, DesktopMsg::Home(_))).await else { panic!() };
@@ -382,7 +393,7 @@ async fn scenario_unknown_command() {
 
 #[tokio::test]
 async fn every_scenario_name_is_known_and_an_unknown_one_lists_them() {
-    assert_eq!(ALL.len(), 20);
+    assert_eq!(ALL.len(), 21);
     for (name, s) in ALL {
         assert_eq!(Scenario::parse(name), Ok(s));
     }
