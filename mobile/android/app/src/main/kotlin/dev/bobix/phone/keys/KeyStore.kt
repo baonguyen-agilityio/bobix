@@ -257,12 +257,15 @@ class KeyStore(
     }
 
     /**
-     * The app lock: a strong biometric check to open the app, nothing signed. [done] gets "ok", "cancelled", "unavailable"
-     * (nothing enrolled: the app cannot lock itself and opens) or "failed". Called on the main thread; [done] runs on it.
+     * The app lock: a biometric or device-credential check to open the app, nothing signed. [done] gets "ok", "cancelled",
+     * "unavailable" (only when the phone has no screen lock at all: the app cannot lock itself and opens) or "failed"
+     * (every other state, a busy or locked-out sensor included, so the app stays locked). Called on the main thread;
+     * [done] runs on it.
      */
     fun authenticate(activity: FragmentActivity, reason: String, done: (String) -> Unit) {
         if (software) return done("ok")
-        if (strongBiometrics() != "ready") return done("unavailable")
+        val keyguard = activity.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        if (!keyguard.isDeviceSecure) return done("unavailable")
         if (prompting) return done("failed")
         prompting = true
         val callback = object : BiometricPrompt.AuthenticationCallback() {
@@ -284,8 +287,11 @@ class KeyStore(
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle(activity.getString(R.string.phone_biometric_title))
             .setSubtitle(reason)
-            .setNegativeButtonText(activity.getString(R.string.phone_biometric_cancel))
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            // The screen-lock PIN is allowed as the fallback (so a busy sensor never opens the app); API 29 takes no STRONG here.
+            .setAllowedAuthenticators(
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) BiometricManager.Authenticators.BIOMETRIC_STRONG
+                else BiometricManager.Authenticators.BIOMETRIC_WEAK) or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+            )
             .setConfirmationRequired(false)
             .build()
         BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), callback).authenticate(info)

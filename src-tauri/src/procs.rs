@@ -124,11 +124,36 @@ pub fn process_names(pids: &[u32]) -> Vec<String> {
 }
 
 // claude → shell → … → terminal / IDE / app. Walked when a pet is clicked (the hook only sends the claude pid).
-// The processes a process started (direct children), through pgrep; empty where it cannot tell (Windows).
+// The processes a process started (direct children): pgrep on macOS and Linux, a ToolHelp snapshot on Windows. Empty when
+// it cannot tell. A caller that compares two lists should read its base while the thing it watches is already running:
+// Windows reuses process ids, so an id seen long ago can name a different process now.
 pub fn children(pid: u32) -> Vec<u32> {
-    if cfg!(windows) { return vec![]; }
-    let r = exec("pgrep", &["-P", &pid.to_string()], 3, &[]);
-    r.out.lines().filter_map(|l| l.trim().parse().ok()).collect()
+    #[cfg(windows)]
+    { children_win(pid) }
+    #[cfg(not(windows))]
+    {
+        let r = exec("pgrep", &["-P", &pid.to_string()], 3, &[]);
+        r.out.lines().filter_map(|l| l.trim().parse().ok()).collect()
+    }
+}
+#[cfg(windows)]
+fn children_win(pid: u32) -> Vec<u32> {
+    use windows_sys::Win32::{Foundation::{CloseHandle, INVALID_HANDLE_VALUE}, System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS}};
+    let mut out = vec![];
+    // SAFETY: the snapshot handle is checked and closed; `e` is a PROCESSENTRY32W with its size set, as the API requires.
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap == INVALID_HANDLE_VALUE { return out; }
+        let mut e: PROCESSENTRY32W = std::mem::zeroed();
+        e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut more = Process32FirstW(snap, &mut e);
+        while more != 0 {
+            if e.th32ParentProcessID == pid { out.push(e.th32ProcessID); }
+            more = Process32NextW(snap, &mut e);
+        }
+        CloseHandle(snap);
+    }
+    out
 }
 
 pub fn ancestors(pid: u32) -> Vec<u32> {
@@ -247,10 +272,11 @@ mod tests {
         assert_ne!(n[0], "?");
     }
 
-    #[cfg(unix)]
     #[test]
-    fn a_started_child_is_listed_and_where_it_cannot_be_listed_nothing_is() {
-        let mut child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+    fn a_started_child_is_listed_and_a_missing_process_has_none() {
+        // a short-lived child of this test process: sleep, or ping on Windows
+        let mut cmd = if cfg!(windows) { let mut c = std::process::Command::new("ping"); c.args(["-n", "6", "127.0.0.1"]); c } else { let mut c = std::process::Command::new("sleep"); c.arg("5"); c };
+        let mut child = cmd.stdout(std::process::Stdio::null()).spawn().unwrap();
         let kids = super::children(std::process::id());
         let _ = child.kill();
         let _ = child.wait();

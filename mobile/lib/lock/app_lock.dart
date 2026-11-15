@@ -15,8 +15,8 @@ import '../widgets/detail_scaffold.dart';
 /// The app lock and the cover.
 ///
 /// - **Lock.** With "Require Face ID / fingerprint to open" on (the default) and a computer paired, the app asks when it
-///   comes to the foreground, before any content is drawn: while locked only [LockScreen] is built, so nothing of the
-///   child exists. It locks again when the app leaves the foreground. Reconnecting asks nothing (the link runs on its
+///   comes to the foreground, before any content is drawn: while locked the child stays mounted (so the person comes back
+///   to the screen they left) but is not painted, and [LockScreen] is shown. It locks again when the app leaves the foreground. Reconnecting asks nothing (the link runs on its
 ///   own), and every command still asks, as before.
 /// - **Cover.** While the app is not active (the app switcher takes a picture of it, a system dialog is up) a plain
 ///   screen covers the content.
@@ -35,6 +35,9 @@ class _AppLockState extends ConsumerState<AppLock> {
   bool _covered = false;
   bool _asking = false;
 
+  /// Raised each time the app is hidden: an answer to a check that began before is stale and never unlocks.
+  int _generation = 0;
+
   /// The check was already asked for since the app was locked: it is not asked again by itself (the button does).
   bool _askedThisLock = false;
   AppAuth? _lastAnswer;
@@ -51,6 +54,7 @@ class _AppLockState extends ConsumerState<AppLock> {
         _covered = true;
         _locked = true;
         _askedThisLock = false;
+        _generation++;
       }),
       onResume: () {
         setState(() => _covered = false);
@@ -83,11 +87,17 @@ class _AppLockState extends ConsumerState<AppLock> {
     _asking = true;
     _askedThisLock = true;
     final reason = ref.read(stringsProvider)('phone.lock.reason');
+    final generation = _generation;
     final answer = await ref
         .read(secureKeysProvider)
         .authenticate(reason: reason);
     _asking = false;
     if (!mounted) return;
+    if (generation != _generation) {
+      // The app went to the background while the check was up: this answer is not for the next visit.
+      _askIfNeeded();
+      return;
+    }
     setState(() {
       _lastAnswer = answer;
       // A phone with nothing to ask with (no passcode, no biometrics) cannot lock: the app opens.
@@ -109,14 +119,30 @@ class _AppLockState extends ConsumerState<AppLock> {
     return Stack(
       textDirection: TextDirection.ltr,
       children: [
+        // The app stays mounted under the lock (its screens, a half-typed answer, the route the person was on) but is not
+        // painted, animated, focusable or read out while locked.
         Positioned.fill(
-          child: locked
-              ? LockScreen(
-                  failed: _lastAnswer == AppAuth.failed,
-                  onUnlock: _ask,
-                )
-              : widget.child,
+          child: Offstage(
+            offstage: locked,
+            child: TickerMode(
+              enabled: !locked,
+              child: ExcludeFocus(
+                excluding: locked,
+                child: ExcludeSemantics(
+                  excluding: locked,
+                  child: widget.child,
+                ),
+              ),
+            ),
+          ),
         ),
+        if (locked)
+          Positioned.fill(
+            child: LockScreen(
+              failed: _lastAnswer == AppAuth.failed,
+              onUnlock: _ask,
+            ),
+          ),
         if (_covered) const Positioned.fill(child: CoverScreen()),
       ],
     );

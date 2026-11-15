@@ -1,4 +1,5 @@
 // Settings, the computers sheet on Home, and the disconnect sheet. Everything here is made up.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,7 +9,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/data/models.dart';
+import 'package:phone/keys/platform_secure_keys.dart';
+import 'package:phone/keys/secure_keys.dart';
 import 'package:phone/l10n/l10n.dart';
+import 'package:phone/push/push_providers.dart';
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
@@ -16,6 +20,9 @@ import 'package:phone/screens/computers_sheet.dart';
 import 'package:phone/screens/settings_screen.dart';
 import 'package:phone/src/rust/api/messages.dart';
 import 'package:phone/theme/theme.dart';
+
+import 'support/fake_push_platform.dart';
+import 'support/memory_secure_keys.dart';
 
 class _Lang extends Lang {
   _Lang(this.value);
@@ -26,10 +33,18 @@ class _Lang extends Lang {
 
 class _FakeLink extends LinkController {
   int disconnected = 0;
+
+  /// When set, [disconnect] waits for it; when [failWith] is set it throws that.
+  Completer<void>? hold;
+  Object? failWith;
   @override
   Future<AppPhase> build() async => const Unpaired();
   @override
-  Future<void> disconnect() async => disconnected++;
+  Future<void> disconnect() async {
+    disconnected++;
+    await hold?.future;
+    if (failWith != null) throw failWith!;
+  }
 }
 
 PairedComputer computer({PhoneRights? rights, int? pairedAt}) => PairedComputer(
@@ -65,7 +80,11 @@ Future<void> realWait(WidgetTester tester) async {
 
 void main() {
   late Directory tmp;
-  setUp(() => tmp = Directory.systemTemp.createTempSync('bobix-settings-'));
+  late MemorySecureKeys keys;
+  setUp(() {
+    tmp = Directory.systemTemp.createTempSync('bobix-settings-');
+    keys = MemorySecureKeys();
+  });
   tearDown(() => tmp.deleteSync(recursive: true));
 
   Future<_FakeLink> pump(
@@ -87,6 +106,8 @@ void main() {
         (ref) => Stream.value(LinkStatus(conn: conn)),
       ),
       linkControllerProvider.overrideWith(() => link),
+      secureKeysProvider.overrideWithValue(keys),
+      pushPlatformProvider.overrideWithValue(FakePushPlatform()),
     ];
     await tester.pumpWidget(
       ProviderScope(
@@ -183,14 +204,89 @@ void main() {
   });
 
   testWidgets(
+    'Disconnect waits for the result: the button is off meanwhile, and the sheet closes once it is done',
+    (tester) async {
+      final link = await pump(tester, paired: computer());
+      link.hold = Completer<void>();
+      await tester.tap(find.text('Disconnect'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Disconnect and erase'));
+      await tester.pump();
+      await tester.tap(find.text('Disconnect and erase'), warnIfMissed: false);
+      await tester.tap(find.text('Cancel'), warnIfMissed: false);
+      await tester.pump();
+      expect(link.disconnected, 1, reason: 'a second press does nothing');
+      expect(find.text('Disconnect from Studio Mac (demo)?'), findsOneWidget);
+      link.hold!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Disconnect from Studio Mac (demo)?'), findsNothing);
+    },
+  );
+
+  testWidgets('a key that cannot be erased is said, and the person can retry', (
+    tester,
+  ) async {
+    final link = await pump(tester, paired: computer());
+    link.failWith = StateError('keychain refused');
+    await tester.tap(find.text('Disconnect'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Disconnect and erase'));
+    await tester.pumpAndSettle();
+    expect(find.text('Could not erase the keys. Try again.'), findsOneWidget);
+    link.failWith = null;
+    await tester.tap(find.text('Disconnect and erase'));
+    await tester.pumpAndSettle();
+    expect(link.disconnected, 2);
+    expect(find.text('Disconnect from Studio Mac (demo)?'), findsNothing);
+  });
+
+  testWidgets('the Safety group has the Hide details switch', (tester) async {
+    await pump(tester, paired: computer());
+    expect(find.text('Hide details'), findsOneWidget);
+  });
+
+  testWidgets(
+    'turning the lock off asks first: a cancelled check leaves it on, a passed one switches it off',
+    (tester) async {
+      await pump(tester, paired: computer());
+      keys.authAnswer = AppAuth.cancelled;
+      await tester.tap(find.byKey(const Key('lock-switch')));
+      await tester.pump();
+      await realWait(tester);
+      expect(keys.authReasons, ['to turn the lock off']);
+      expect(
+        tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value,
+        isTrue,
+      );
+      keys.authAnswer = AppAuth.ok;
+      await tester.tap(find.byKey(const Key('lock-switch')));
+      await tester.pump();
+      await realWait(tester);
+      expect(
+        tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value,
+        isFalse,
+      );
+      // Turning it back on asks nothing.
+      await tester.tap(find.byKey(const Key('lock-switch')));
+      await tester.pump();
+      await realWait(tester);
+      expect(keys.authReasons, hasLength(2));
+      expect(
+        tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value,
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets(
     'the lock is on by default, and the choice is kept in the settings file',
     (tester) async {
       await pump(tester, paired: computer());
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
-      await tester.tap(find.byType(Switch));
+      expect(tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value, isTrue);
+      await tester.tap(find.byKey(const Key('lock-switch')));
       await tester.pump();
       await realWait(tester);
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+      expect(tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value, isFalse);
       final saved = jsonDecode(
         File('${tmp.path}/app-settings.json').readAsStringSync(),
       ) as Map;
@@ -229,7 +325,7 @@ void main() {
     await pump(tester, paired: computer());
     await realWait(tester);
     expect(find.text('Máy tính'), findsOneWidget);
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+    expect(tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value, isFalse);
   });
 
   testWidgets(
@@ -237,7 +333,7 @@ void main() {
     (tester) async {
       File('${tmp.path}/app-settings.json').writeAsStringSync('{ nope');
       await pump(tester, paired: computer());
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value, isTrue);
     },
   );
 

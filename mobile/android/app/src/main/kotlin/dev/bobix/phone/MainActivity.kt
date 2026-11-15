@@ -1,6 +1,7 @@
 package dev.bobix.phone
 
 import android.content.Intent
+import android.os.Build
 import android.view.WindowManager
 import dev.bobix.phone.keys.SecureKeysChannel
 import dev.bobix.phone.push.PushChannel
@@ -15,6 +16,12 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : FlutterFragmentActivity() {
     private var push: PushChannel? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        // The Recents picture shows nothing of the app (screenshots stay possible); API 29-32 rely on the screens' FLAG_SECURE.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(false)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

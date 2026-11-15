@@ -1,4 +1,5 @@
 // The app lock and the cover. A fake for the platform's Face ID check; the lifecycle is driven by the test binding.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -187,6 +188,83 @@ void main() {
       expect(find.byType(CoverScreen), findsNothing);
       expect(find.text('the app content'), findsOneWidget);
       expect(keys.authReasons, hasLength(1));
+    },
+  );
+
+  testWidgets(
+    'a page the person pushed survives a lock and an unlock, with what they typed',
+    (tester) async {
+      await pump(tester);
+      final nav = tester.state<NavigatorState>(find.byType(Navigator));
+      nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: TextField(key: Key('draft'))),
+        ),
+      );
+      await settle(tester);
+      await tester.enterText(find.byKey(const Key('draft')), 'half an answer');
+      keys.authAnswer = AppAuth.cancelled;
+      for (final s in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(s);
+        await tester.pump();
+      }
+      await settle(tester);
+      expect(find.text('Bobix is locked'), findsOneWidget);
+      expect(
+        find.byKey(const Key('draft')),
+        findsNothing,
+        reason: 'mounted but not painted',
+      );
+      expect(find.byKey(const Key('draft'), skipOffstage: false), findsOneWidget);
+      keys.authAnswer = AppAuth.ok;
+      await tester.tap(find.textContaining('Unlock with'));
+      await settle(tester);
+      expect(find.byKey(const Key('draft')), findsOneWidget);
+      expect(find.text('half an answer'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'an ok that arrives after the app went to the background does not unlock it',
+    (tester) async {
+      keys.authHold = Completer<AppAuth>();
+      await pump(tester);
+      expect(keys.authReasons, hasLength(1), reason: 'the check is up');
+      for (final s in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(s);
+        await tester.pump();
+      }
+      keys.authHold!.complete(AppAuth.ok);
+      await settle(tester);
+      keys.authHold = null;
+      keys.authAnswer = AppAuth.cancelled;
+      for (final s in [
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(s);
+        await tester.pump();
+      }
+      await settle(tester);
+      expect(find.text('the app content'), findsNothing);
+      expect(find.text('Bobix is locked'), findsOneWidget);
+      expect(
+        keys.authReasons,
+        hasLength(2),
+        reason: 'the next visit asks again',
+      );
     },
   );
 

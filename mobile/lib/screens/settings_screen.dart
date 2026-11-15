@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/models.dart';
 import '../features/actions/action_widgets.dart' show bioName;
+import '../keys/platform_secure_keys.dart';
+import '../keys/secure_keys.dart';
 import '../l10n/l10n.dart';
+import '../push/hide_details.dart';
 import '../link/link_providers.dart';
 import '../link/link_state.dart';
 import '../settings/app_settings.dart';
@@ -78,16 +81,15 @@ class SettingsScreen extends ConsumerWidget {
               title: s('phone.settings.open', {'os': bioName(s)}),
               subtitle: s('phone.settings.open.d'),
               trailing: Switch(
+                key: const Key('lock-switch'),
                 value: settings.requireUnlock,
-                onChanged: (v) =>
-                    ref.read(settingsProvider.notifier).setRequireUnlock(v),
+                onChanged: (v) => _setLock(ref, s, v),
               ),
               toggle: true,
               toggled: settings.requireUnlock,
-              onTap: () => ref
-                  .read(settingsProvider.notifier)
-                  .setRequireUnlock(!settings.requireUnlock),
+              onTap: () => _setLock(ref, s, !settings.requireUnlock),
             ),
+            const HideDetailsSwitch(),
             _Row(
               icon: Icons.shield_outlined,
               title: s('phone.settings.never'),
@@ -160,6 +162,18 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  /// Turning the lock on needs nothing; turning it off asks first, so whoever holds the open phone cannot drop it.
+  Future<void> _setLock(WidgetRef ref, Strings s, bool on) async {
+    if (!on) {
+      final answer = await ref
+          .read(secureKeysProvider)
+          .authenticate(reason: s('phone.settings.off.reason'));
+      // A phone with nothing to ask with has no lock to protect.
+      if (answer != AppAuth.ok && answer != AppAuth.unavailable) return;
+    }
+    await ref.read(settingsProvider.notifier).setRequireUnlock(on);
   }
 
   /// The rights the computer granted this phone, in the order Settings lists them.
@@ -352,12 +366,40 @@ class _DisconnectButton extends ConsumerWidget {
 }
 
 /// "Disconnect from {computer}?": says what happens, and the Erase that wipes the keys and the log.
-class _DisconnectSheet extends ConsumerWidget {
+class _DisconnectSheet extends ConsumerStatefulWidget {
   const _DisconnectSheet({required this.computer});
   final String computer;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DisconnectSheet> createState() => _DisconnectSheetState();
+}
+
+class _DisconnectSheetState extends ConsumerState<_DisconnectSheet> {
+  bool _busy = false;
+  bool _failed = false;
+
+  Future<void> _go() async {
+    setState(() {
+      _busy = true;
+      _failed = false;
+    });
+    try {
+      await ref.read(linkControllerProvider.notifier).disconnect();
+      if (mounted) Navigator.of(context).pop();
+    } on Object {
+      // The keys could not be erased (the Keychain refused): say so, and let the person try again.
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _failed = true;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final computer = widget.computer;
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     return SafeArea(
@@ -391,6 +433,15 @@ class _DisconnectSheet extends ConsumerWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, height: 1.4, color: t.ink2),
               ),
+              if (_failed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    s('phone.settings.disc.err'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: t.err),
+                  ),
+                ),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -398,10 +449,7 @@ class _DisconnectSheet extends ConsumerWidget {
                   label: s('phone.settings.disc.go'),
                   danger: true,
                   primary: false,
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    ref.read(linkControllerProvider.notifier).disconnect();
-                  },
+                  onPressed: _busy ? null : _go,
                 ),
               ),
               const SizedBox(height: 8),
@@ -409,7 +457,7 @@ class _DisconnectSheet extends ConsumerWidget {
                 width: double.infinity,
                 child: PillButton(
                   label: s('phone.a.cancel'),
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: _busy ? null : () => Navigator.of(context).pop(),
                 ),
               ),
             ],

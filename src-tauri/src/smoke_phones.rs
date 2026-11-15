@@ -149,9 +149,8 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     let (mut child12, r12) = hold_child(b, "ph12", "sleep 30");
     { let mut c = b.core.lock().unwrap(); if let Some(s) = c.sessions.get_mut("ph12") { s.pid_is_claude = s.claude_pid; } }
     r["watchBase"] = json!(until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.child_base.is_some())));
-    let mut sleeper = Command::new("sleep").arg("30").spawn().expect("sleep");
-    // Windows cannot list a process's children (procs::children is empty there), so this hint is not asserted on it
-    r["startedNoticed"] = json!(cfg!(windows) || until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.released))
+    let mut sleeper = if cfg!(windows) { let mut c = Command::new("ping"); c.args(["-n", "30", "127.0.0.1"]); c } else { let mut c = Command::new("sleep"); c.arg("30"); c }.stdout(Stdio::null()).spawn().expect("a child process");
+    r["startedNoticed"] = json!(until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.released))
         && until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains(&r12) && l.contains("\"atComputer\":true"))));
     let _ = sleeper.kill();
     let _ = sleeper.wait();
