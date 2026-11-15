@@ -81,6 +81,8 @@ struct PushShaped {
   let content: UNNotificationContent
   /// Set for `waiting` and `closed`: an earlier notification of the same computer and request is removed.
   let supersedes: (computer: String, ref: String)?
+  /// The notice that opened, for the widgets' list: its kind, the request's id, the computer and the redacted title.
+  var notice: (kind: String, ref: String, computer: String, title: String)? = nil
 }
 
 struct PushOpener {
@@ -145,7 +147,8 @@ struct PushOpener {
       out.body = hide ? strings.genericBody : notice.body
     }
     let supersedes = notice.what == "done" ? nil : (computer: notice.computerId, ref: notice.reference)
-    return PushShaped(content: out, supersedes: supersedes)
+    return PushShaped(
+      content: out, supersedes: supersedes, notice: (notice.what, notice.reference, notice.computerId, notice.title))
   }
 }
 
@@ -165,6 +168,25 @@ enum PushDelivered {
       }.map(\.request.identifier)
       if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
       done()
+    }
+  }
+}
+
+/// The links the widgets, the Live Activity and the controls open: `bobix://request?computer=&ref=`, `bobix://home`,
+/// `bobix://start`. Any app can open one, so a link only ever picks a screen: it never answers anything.
+enum SurfaceLink {
+  static func tap(_ url: URL) -> [String: String]? {
+    guard url.scheme == "bobix", let host = url.host else { return nil }
+    let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    func v(_ n: String) -> String { String((q.first { $0.name == n }?.value ?? "").prefix(256)) }
+    switch host {
+    case "request":
+      let c = v("computer"), r = v("ref")
+      return c.isEmpty || r.isEmpty ? nil : ["computer": c, "ref": r, "kind": "waiting"]
+    case "home", "start":
+      return ["computer": "", "ref": "", "kind": host]
+    default:
+      return nil
     }
   }
 }

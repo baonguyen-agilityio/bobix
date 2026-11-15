@@ -17,6 +17,8 @@ class PushTap {
   static PushTap? tryParse(Object? raw) {
     if (raw is! Map) return null;
     final c = raw['computer'], r = raw['ref'], k = raw['kind'];
+    // `start` and `home` come from a widget or a control: they pick a tab and carry no computer or request.
+    if (k == 'start' || k == 'home') return PushTap(computerId: '', ref: '', kind: '$k');
     if (c is! String || r is! String || k is! String) return null;
     if (c.isEmpty || r.isEmpty || c.length > 128 || r.length > 256) return null;
     if (k != 'waiting' && k != 'closed' && k != 'done') return null;
@@ -26,7 +28,7 @@ class PushTap {
   final String computerId;
   final String ref;
 
-  /// `waiting`, `closed` or `done`.
+  /// `waiting`, `closed` or `done` from a notification; `start` or `home` from a widget or a control.
   final String kind;
 
   @override

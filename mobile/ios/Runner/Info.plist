@@ -34,6 +34,23 @@
 	<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
 	<key>BobixAppGroup</key>
 	<string>$(BOBIX_APP_GROUP)</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.bobix.phone</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>bobix</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

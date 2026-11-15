@@ -20,6 +20,7 @@ class Session {
     this.waitingId,
     this.waitingKind,
     this.waitingMinutes = 0,
+    this.holdSecs,
     this.tool,
     this.pullRequest,
     this.petDesign = 'default',
@@ -49,6 +50,9 @@ class Session {
   final String? waitingId;
   final WaitingKind? waitingKind;
   final int waitingMinutes;
+
+  /// Seconds the computer still holds the waiting request for phones when `home` came; null when it waits for ever.
+  final int? holdSecs;
   final String? tool;
   final int? pullRequest;
   final String petDesign;

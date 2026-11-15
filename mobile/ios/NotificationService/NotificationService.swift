@@ -1,4 +1,5 @@
 import UserNotifications
+import WidgetKit
 
 /// Opens the sealed notice of an alert push and writes its text. One decryption, no network, no signing key.
 final class NotificationService: UNNotificationServiceExtension {
@@ -16,6 +17,12 @@ final class NotificationService: UNNotificationServiceExtension {
     handler = contentHandler
     original = request.content
     let shaped = PushOpener.live().shape(request.content)
+    // The widgets and the Live Activity follow the notice: a request waits, or it was answered.
+    if let n = shaped.notice {
+      if (try? SharedListStore.update { $0.apply(kind: n.kind, ref: n.ref, computer: n.computer, title: n.title) }) != nil {
+        WidgetCenter.shared.reloadAllTimelines()
+      }
+    }
     PushDelivered.removeSuperseded(shaped.supersedes, current: request.identifier) { [weak self] in
       self?.finish(shaped.content)
     }

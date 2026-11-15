@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +8,9 @@ import 'l10n/l10n.dart';
 import 'features/actions/start_screen.dart';
 import 'link/computer_link.dart';
 import 'link/link_providers.dart';
+import 'push/push_platform.dart';
+import 'push/push_providers.dart';
+import 'surfaces/surfaces_host.dart';
 import 'lock/app_lock.dart';
 import 'settings/app_settings.dart';
 import 'screens/home_screen.dart';
@@ -48,12 +53,13 @@ class RootGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final phase = ref.watch(linkControllerProvider);
+    ref.watch(surfacesClearProvider);
     return switch (phase.value) {
       null when phase.hasError => const UnavailableScreen(),
       null => const Scaffold(body: Center(child: CircularProgressIndicator())),
       Unpaired() => const PairingFlow(),
       Unavailable() => const UnavailableScreen(),
-      Paired() => const AppShell(),
+      final Paired p => SurfacesHost(link: p.link, child: const AppShell()),
       final PairAgain a => PairAgainScreen(phase: a),
     };
   }
@@ -71,11 +77,57 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   int _index = _home;
+  StreamSubscription<PushTap>? _taps;
+  PushTap? _pending;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_listenForTaps());
+  }
+
+  @override
+  void dispose() {
+    _taps?.cancel();
+    super.dispose();
+  }
+
+  /// A notification, a widget, the Live Activity or a control opened the app: listen first, then take the one that
+  /// started it (the platform holds a tap until this first `initialTap` call).
+  Future<void> _listenForTaps() async {
+    try {
+      final p = ref.read(pushPlatformProvider);
+      _taps = p.taps.listen(_onTap);
+      final first = await p.initialTap();
+      if (first != null) _onTap(first);
+    } catch (_) {
+      // No platform (a test): nothing opens the app but the person.
+    }
+  }
+
+  void _onTap(PushTap t) {
+    if (!mounted) return;
+    if (t.kind == 'start') return setState(() => _index = _start);
+    if (t.kind == 'home') return setState(() => _index = _home);
+    final home = ref.read(homeProvider).value;
+    if (home == null) {
+      _pending = t; // cold start: the first `home` has not arrived yet
+      return;
+    }
+    setState(() => _index = _home);
+    final match = home.sessions.where((x) => x.waitingId == t.ref);
+    if (match.isNotEmpty) openSession(context, match.first);
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
+    final pending = _pending;
+    if (pending != null && ref.watch(homeProvider).value != null) {
+      _pending = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onTap(pending));
+    }
     final need =
         ref
             .watch(homeProvider)
