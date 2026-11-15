@@ -27,3 +27,46 @@ crates/*/fuzz/artifacts/
 mobile/rust/target/
 # Phone app: per-developer iOS settings (the Apple team), see mobile/ios/Flutter/Local.xcconfig.example
 mobile/ios/Flutter/Local.xcconfig
+# Phone app: Flutter, Xcode, Gradle and Cargo build output. The nested .gitignore files Flutter writes are not tracked
+# (a global ignore often hides them), so the rules live here.
+mobile/.dart_tool/
+mobile/.flutter-plugins-dependencies
+mobile/.flutter-plugins
+mobile/.packages
+mobile/.pub/
+mobile/.pub-cache/
+mobile/build/
+mobile/.idea/
+mobile/**/*.iml
+mobile/.widget_preview/
+mobile/**/doc/api/
+mobile/app.*.symbols
+mobile/app.*.map.json
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/ephemeral/
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/ios/Flutter/Flutter.podspec
+mobile/ios/Flutter/App.framework
+mobile/ios/Flutter/Flutter.framework
+mobile/ios/Flutter/.last_build_id
+mobile/ios/Flutter/flutter_assets/
+mobile/ios/Runner/GeneratedPluginRegistrant.*
+mobile/ios/**/xcuserdata/
+mobile/ios/**/DerivedData/
+mobile/ios/ServiceDefinitions.json
+mobile/android/.gradle/
+mobile/android/.cxx/
+mobile/android/captures/
+mobile/android/local.properties
+mobile/android/gradlew
+mobile/android/gradlew.bat
+mobile/android/gradle/wrapper/gradle-wrapper.jar
+mobile/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+mobile/android/app/debug/
+mobile/android/app/profile/
+mobile/android/app/release/
+mobile/rust_builder/**/.dart_tool/
+mobile/rust_builder/**/.gradle/
+mobile/rust_builder/**/build/

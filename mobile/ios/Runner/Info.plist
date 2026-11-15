@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Bobix asks for Face ID to confirm each command you send from this phone.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Bobix reads the pairing code on your computer with the camera. It keeps no picture.</string>
 	<key>BobixKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
 	<key>LSRequiresIPhoneOS</key>
