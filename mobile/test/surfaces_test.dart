@@ -14,7 +14,9 @@ import 'package:phone/push/push_registration.dart';
 import 'package:phone/surfaces/pet_png.dart';
 import 'package:phone/surfaces/shared_list.dart';
 import 'package:phone/surfaces/surfaces_platform.dart';
+import 'package:phone/surfaces/surfaces_host.dart';
 import 'package:phone/surfaces/surfaces_sync.dart';
+import 'package:phone/link/link_providers.dart';
 
 import 'support/fake_push_platform.dart';
 import 'support/fixture_phone_data.dart';
@@ -47,6 +49,10 @@ class FakeSurfaces implements SurfacesPlatform {
     return (active: startWorks && s['waiting'] != 0, id: 'act1');
   }
 
+  int clears = 0;
+  @override
+  Future<void> clear() async => clears++;
+
   final ended = StreamController<String>.broadcast();
   @override
   Stream<String> get activityEnded => ended.stream;
@@ -78,6 +84,14 @@ HomeData home({int waiting = 1, ConnState conn = ConnState.ok}) => HomeData(
     const Session(id: 't', name: 'Todo item', project: 'blog', stage: Stage.todo),
   ],
 );
+
+class _Controller extends LinkController {
+  _Controller(this.first);
+  final AppPhase first;
+  @override
+  Future<AppPhase> build() async => first;
+  void go(AppPhase p) => state = AsyncData(p);
+}
 
 void main() {
   final now = DateTime.utc(2026, 11, 15, 10);
@@ -191,6 +205,27 @@ void main() {
       expect(sent.where((f) => f['kind'] == 'activity'), isEmpty, reason: 'an ended activity\'s token is not used again');
       expect(sent.where((f) => f['kind'] == 'pushToStart'), hasLength(1));
       reg.dispose();
+    });
+  });
+
+  group('when the pairing ends', () {
+    test('every surface is cleared once, on entering not paired or pair again', () async {
+      final p = FakeSurfaces();
+      final c = _Controller(const Unavailable());
+      final container = ProviderContainer(
+        overrides: [surfacesPlatformProvider.overrideWithValue(p), linkControllerProvider.overrideWith(() => c)],
+      );
+      addTearDown(container.dispose);
+      container.listen(surfacesClearProvider, (_, _) {});
+      await container.read(linkControllerProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 0, reason: 'a Keychain that is locked for now erases nothing');
+      c.go(const PairAgain(computer: 'Studio Mac', removedByComputer: true));
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 1, reason: 'a sealed revoked, or an erase');
+      c.go(const Unpaired());
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 1, reason: 'already cleared');
     });
   });
 

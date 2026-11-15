@@ -42,18 +42,17 @@ struct ActivityBody: Codable, Equatable {
 
 extension BobixActivityAttributes.ContentState {
   /// The content to draw. A sealed blob is opened through the push core (the `activity` stream, where a repeated counter
-  /// opens again because the system may draw the same content more than once). Without a sealed blob the shared list is
-  /// drawn. A sealed blob that does not open is not drawn as anything but "nothing needs you": no relay-supplied text.
+  /// opens again because the system may draw the same content more than once). Without one, or when it does not open,
+  /// the shared list is drawn as it is (stale if it has aged): only the app and the notification extension write it. No
+  /// text from the push's content state is ever drawn.
   func resolved(storePath: String?, boxSecret: Data?, file: SharedList, now: Date = Date()) -> (list: SharedList, fromSealed: Bool) {
-    guard let sealed else { return (file, false) }
-    if let storePath, let boxSecret, let packet = Data(urlSafeBase64: sealed),
+    if let sealed, let storePath, let boxSecret, let packet = Data(urlSafeBase64: sealed),
       let opened = try? openPacket(storePath: storePath, boxSecret: boxSecret, packet: packet), opened.stream == "activity",
       let body = try? JSONDecoder().decode(ActivityBody.self, from: opened.plaintext)
     {
       return (body.list, true)
     }
-    let none = SharedList(written: Int64(now.timeIntervalSince1970 * 1000), computerName: "", computerState: "online", todo: 0, canStart: false, rows: [])
-    return (none, false)
+    return (file, false)
   }
 }
 

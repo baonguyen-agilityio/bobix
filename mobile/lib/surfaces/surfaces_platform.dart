@@ -20,6 +20,9 @@ abstract interface class SurfacesPlatform {
   /// plus 15 minutes.
   Future<({bool active, String? id})> syncActivity(Map<String, Object?> state);
 
+  /// The pairing ended: empty the shared list, delete the pets' images, end every activity and reload the surfaces.
+  Future<void> clear();
+
   /// A token of the running activity (its own push token), and the token that lets a push start one.
   Stream<({String id, String token})> get activityTokens;
   Stream<String> get pushToStartTokens;
@@ -77,6 +80,9 @@ class ChannelSurfacesPlatform implements SurfacesPlatform {
         'state': state,
         'png': png,
       });
+
+  @override
+  Future<void> clear() => _channel.invokeMethod<void>('clearSurfaces');
 
   @override
   Future<({bool active, String? id})> syncActivity(

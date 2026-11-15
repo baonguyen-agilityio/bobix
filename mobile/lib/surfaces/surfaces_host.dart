@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/phone_data.dart';
 import '../link/computer_link.dart';
+import '../link/link_providers.dart';
 import '../push/push_providers.dart';
 import 'surfaces_platform.dart';
 import 'surfaces_sync.dart';
@@ -16,6 +17,18 @@ final surfacesPlatformProvider = Provider<SurfacesPlatform>(
 final surfacesSyncProvider = Provider<SurfacesSync>(
   (ref) => SurfacesSync(ref.watch(surfacesPlatformProvider)),
 );
+
+/// Nothing of a computer stays on the widgets, the Lock Screen or in the Dynamic Island once the pairing is gone
+/// (Disconnect, Erase and pair again, a `revoked` from the computer): entering "not paired" or "pair again" clears them.
+/// Watched from the root of the app, which stays mounted when the paired screens go.
+final surfacesClearProvider = Provider<void>((ref) {
+  ref.listen(linkControllerProvider, (prev, next) {
+    bool gone(AppPhase? p) => p is Unpaired || p is PairAgain;
+    if (gone(next.value) && !gone(prev?.value)) {
+      unawaited(ref.read(surfacesPlatformProvider).clear().catchError((Object _) {}));
+    }
+  });
+});
 
 /// Around the app while a computer is paired: every `home` goes to the widgets, the controls and the Live Activity, and
 /// the activity's tokens go to the relay.

@@ -116,17 +116,31 @@ final class SurfacesTests: XCTestCase {
     XCTAssertEqual(l.waiting.first?.name, "Add a dark mode switch")
   }
 
-  func testASealedBlobThatDoesNotOpenDrawsNothingNeedsYouAndNoRelaySuppliedText() throws {
+  func testASealedBlobThatDoesNotOpenDrawsTheSharedListAsItIsAndNoRelaySuppliedText() throws {
     // A relay puts what it likes in a content state: names and a computer it made up are never drawn.
     let json = #"{"sealed":"AAAA","waiting":5,"names":["Approve: deploy to production"],"computerName":"Your bank"}"#
     let s = try JSONDecoder().decode(BobixActivityAttributes.ContentState.self, from: Data(json.utf8))
-    let (l, fromSealed) = s.resolved(storePath: nil, boxSecret: nil, file: list(waiting: 2), now: now)
+    let old = list(waiting: 2, ageMinutes: 30)
+    let (l, fromSealed) = s.resolved(storePath: nil, boxSecret: nil, file: old, now: now)
     XCTAssertFalse(fromSealed)
-    XCTAssertTrue(l.waiting.isEmpty)
-    XCTAssertEqual(l.computerName, "")
-    let m = SurfaceModel(list: l, hide: false, now: now, text: .table(["phone.wg.none": "Nothing needs you"]), petDir: nil)
-    XCTAssertEqual(m.mode, .none)
-    XCTAssertEqual(m.headline, "Nothing needs you")
+    XCTAssertEqual(l, old, "the list the app wrote, stale as it is: not a fresh \"nothing needs you\"")
+    XCTAssertFalse(l.waiting.map(\.name).contains("Approve: deploy to production"))
+    XCTAssertNotEqual(l.computerName, "Your bank")
+    let m = SurfaceModel(list: l, hide: false, now: now, text: .table(["phone.wg.updated": "Updated {tm}"]), petDir: nil)
+    XCTAssertEqual(m.mode, .stale)
+  }
+
+  func testWhenThePairingEndsNothingOfTheComputerStaysForTheWidgets() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("surfaces-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try SharedListStore.save(list(waiting: 3), to: dir)
+    let pet = try XCTUnwrap(SharedListStore.petURL(design: "nota", color: 1, state: "waiting", in: dir))
+    try FileManager.default.createDirectory(at: pet.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data([1, 2, 3]).write(to: pet)
+    SurfacesBridge.clear(in: dir, endActivities: false)
+    XCTAssertEqual(SharedListStore.load(from: dir), .empty, "no session name, no project, no computer name")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: pet.path), "the pets' images are gone")
+    XCTAssertTrue(SharedListStore.load(from: dir).isStale(at: now.addingTimeInterval(20 * 60)) || SharedListStore.load(from: dir).waiting.isEmpty)
   }
 
   func testTheSystemsStaleFlagDrawsTheActivityStaleWhateverTheListSays() throws {

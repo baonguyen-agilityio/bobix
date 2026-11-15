@@ -139,9 +139,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ShownQuestion> dco_decode_list_shown_question(dynamic raw);
 
   @protected
-  OpenedPacket dco_decode_opened_packet(dynamic raw);
-
-  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -181,6 +178,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProtocolVersions dco_decode_protocol_versions(dynamic raw);
+
+  @protected
+  ReceivedPacket dco_decode_received_packet(dynamic raw);
 
   @protected
   RelayError dco_decode_relay_error(dynamic raw);
@@ -334,9 +334,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  OpenedPacket sse_decode_opened_packet(SseDeserializer deserializer);
-
-  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
@@ -378,6 +375,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProtocolVersions sse_decode_protocol_versions(SseDeserializer deserializer);
+
+  @protected
+  ReceivedPacket sse_decode_received_packet(SseDeserializer deserializer);
 
   @protected
   RelayError sse_decode_relay_error(SseDeserializer deserializer);
@@ -558,9 +558,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_opened_packet(OpenedPacket self, SseSerializer serializer);
-
-  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
@@ -611,6 +608,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_protocol_versions(
     ProtocolVersions self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_received_packet(
+    ReceivedPacket self,
     SseSerializer serializer,
   );
 

@@ -17,6 +17,7 @@ import 'link_actions_source.dart';
 import 'link_phone_data.dart';
 import 'link_state.dart';
 import 'relay_session.dart';
+import '../push/push_providers.dart';
 
 /// Where the app keeps its private state. App Support is not backed up on iOS (the keys' marker file lives there too).
 final supportDirectoryProvider = FutureProvider<Directory>(
@@ -152,6 +153,20 @@ class LinkController extends AsyncNotifier<AppPhase> {
     );
   }
 
+  /// "Disconnect": the computer is told (a signed goodbye, when the phone is connected), then every key and everything kept
+  /// about it is erased, and the phone is back to pairing.
+  Future<void> disconnect() async {
+    final current = state.value;
+    if (current is Paired) {
+      try {
+        await current.link.sayGoodbye();
+      } on Object {
+        // Not connected or the goodbye could not be sent: the phone leaves anyway.
+      }
+    }
+    await eraseAndPairAgain();
+  }
+
   /// A pairing just ended well: start the link to the new computer.
   Future<void> paired(PairedComputer computer) async {
     final keys = ref.read(secureKeysProvider);
@@ -168,6 +183,16 @@ class LinkController extends AsyncNotifier<AppPhase> {
   /// "Erase and pair again": every key and everything kept about the computer goes.
   Future<void> eraseAndPairAgain() async {
     final current = state.value;
+    // The notification extension keeps its own copy of the computer's public key: it goes too, or it could still open
+    // that computer's notices after an Erase.
+    final id = ref.read(pairedComputerProvider)?.id;
+    if (id != null) {
+      try {
+        await ref.read(pushLinkStoreProvider).removeComputer(id);
+      } on Object {
+        // Push is not set up (no channel, nothing registered): nothing to remove.
+      }
+    }
     if (current is Paired) await current.link.dispose();
     await _status?.cancel();
     await _forget(await _store(), ref.read(secureKeysProvider));
@@ -213,3 +238,9 @@ final linkActionOverrides = [
   actionsSourceProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
   biometricGateProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
 ];
+
+/// The computer this phone is paired with, or null.
+final pairedComputerProvider = Provider<PairedComputer?>((ref) {
+  final phase = ref.watch(linkControllerProvider).value;
+  return phase is Paired ? phase.link.computer : null;
+});

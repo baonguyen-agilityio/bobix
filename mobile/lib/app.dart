@@ -11,12 +11,14 @@ import 'link/link_providers.dart';
 import 'push/push_platform.dart';
 import 'push/push_providers.dart';
 import 'surfaces/surfaces_host.dart';
+import 'lock/app_lock.dart';
+import 'settings/app_settings.dart';
 import 'screens/home_screen.dart';
 import 'screens/pair_again_screen.dart';
 import 'screens/unavailable_screen.dart';
 import 'screens/pairing_screens.dart';
 import 'screens/pets_screen.dart';
-import 'screens/placeholder_screen.dart';
+import 'screens/settings_screen.dart';
 import 'theme/theme.dart';
 import 'theme/tokens.dart';
 import 'widgets/glass_tab_bar.dart';
@@ -35,6 +37,10 @@ class BobixApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: bobixTheme(Brightness.light),
       darkTheme: bobixTheme(Brightness.dark),
+      themeMode:
+          ref.watch(settingsProvider).value?.themeMode ?? ThemeMode.system,
+      // The lock and the cover sit over everything, the pairing flow included once a computer is paired.
+      builder: (context, child) => AppLock(child: child ?? const SizedBox()),
       home: home,
     );
   }
@@ -47,6 +53,7 @@ class RootGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final phase = ref.watch(linkControllerProvider);
+    ref.watch(surfacesClearProvider);
     return switch (phase.value) {
       null when phase.hasError => const UnavailableScreen(),
       null => const Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -142,10 +149,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   HomeScreen(),
                   PetsScreen(),
                   StartScreen(),
-                  PlaceholderScreen(
-                    titleKey: 'phone.settings.title',
-                    bodyKey: 'phone.settings.soon',
-                  ),
+                  SettingsScreen(),
                 ],
               ),
             ),

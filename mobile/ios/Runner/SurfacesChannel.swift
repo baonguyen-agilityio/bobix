@@ -57,6 +57,20 @@ final class SurfacesBridge {
     ControlCenter.shared.reloadAllControls()
   }
 
+  /// The pairing ended (Disconnect, Erase, a `revoked` from the computer): nothing of the computer stays on the Home
+  /// Screen, the Lock Screen or in the Dynamic Island. The list is emptied, the pets' images are deleted, every activity
+  /// ends and the surfaces reload.
+  static func clear(in dir: URL? = SharedListStore.directory(), endActivities: Bool = true) {
+    if let dir {
+      try? SharedListStore.update(in: dir) { $0 = .empty }
+      try? FileManager.default.removeItem(at: dir.appendingPathComponent("pets"))
+    }
+    if endActivities {
+      Task { for a in Activity<BobixActivityAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) } }
+    }
+    reloadSurfaces()
+  }
+
   /// Draws every running activity again (a setting such as Hide details changed what it shows).
   static func refreshActivities() {
     Task { for a in Activity<BobixActivityAttributes>.activities { await a.update(a.content) } }
@@ -130,6 +144,7 @@ final class SurfacesBridge {
         result(nil)
       } catch { fail("\(error)") }
     case "syncActivity": syncActivity(args, result)
+    case "clearSurfaces": SurfacesBridge.clear(); result(nil)
     default: result(FlutterMethodNotImplemented)
     }
   }
