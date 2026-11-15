@@ -22,6 +22,7 @@ const exposed = {
   'peekPacket',
   'openPacket',
   'checkVersion',
+  'protocolVersions',
   'recvStateNew',
   'recvCheck',
   'recvCommit',
@@ -32,6 +33,19 @@ const exposed = {
   'shownHash',
   'resume', // SendCounter
   'take', // SendCounter
+  // relay.rs
+  'parseRelayFrame',
+  'relayAuthFrame',
+  'relayPeersFrame',
+  'relayPairSendFrame',
+  'relaySendFrame',
+  'relayAckFrame',
+  'pairingAnswer',
+  'create', // PhoneLink
+  'takeCounter', // PhoneLink
+  'seal', // PhoneLink
+  'open', // PhoneLink
+  'recvState', // PhoneLink
   // messages.rs
   'promptHash',
   'isPlainText',

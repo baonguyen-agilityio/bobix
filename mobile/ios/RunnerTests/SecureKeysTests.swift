@@ -28,18 +28,29 @@ final class SecureKeysTests: XCTestCase {
     return s
   }
 
+  func testTheSoftwareKeyNeedsNoBiometrics() throws {
+    XCTAssertEqual(try makeStore(software: true).biometry(), "available")
+  }
+
+  func testALockoutIsNotNoBiometrics() {
+    XCTAssertEqual(KeyStore.biometry(canEvaluate: true, errorCode: nil), "available")
+    XCTAssertEqual(KeyStore.biometry(canEvaluate: false, errorCode: LAError.biometryLockout.rawValue), "lockedOut")
+    XCTAssertEqual(KeyStore.biometry(canEvaluate: false, errorCode: LAError.biometryNotEnrolled.rawValue), "none")
+    XCTAssertEqual(KeyStore.biometry(canEvaluate: false, errorCode: LAError.biometryNotAvailable.rawValue), "none")
+  }
+
   func testSecretsRoundTripOverwriteAndDelete() throws {
     let s = try makeStore()
-    XCTAssertNil(s.secret("auth"))
+    XCTAssertNil(try s.secret("auth"))
     try s.putSecret("auth", Data([1, 2, 3]))
     try s.putSecret("box", Data([9]))
-    XCTAssertEqual(s.secret("auth"), Data([1, 2, 3]))
+    XCTAssertEqual(try s.secret("auth"), Data([1, 2, 3]))
     try s.putSecret("auth", Data([4]))
-    XCTAssertEqual(s.secret("auth"), Data([4]))
-    XCTAssertEqual(s.secret("box"), Data([9]))
+    XCTAssertEqual(try s.secret("auth"), Data([4]))
+    XCTAssertEqual(try s.secret("box"), Data([9]))
     s.deleteSecret("auth")
-    XCTAssertNil(s.secret("auth"))
-    XCTAssertEqual(s.secret("box"), Data([9]))
+    XCTAssertNil(try s.secret("auth"))
+    XCTAssertEqual(try s.secret("box"), Data([9]))
   }
 
   func testSecretsStayOnThisDeviceAndOutOfBackups() throws {
@@ -92,7 +103,7 @@ final class SecureKeysTests: XCTestCase {
     try s.putSecret("box", Data([8]))
     try FileManager.default.removeItem(at: marker)
     let again = try makeStore() // a fresh install: erases everything first
-    XCTAssertNil(again.secret("box"))
+    XCTAssertNil(try again.secret("box"))
     var out: CFTypeRef?
     let anyGroup: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "auth"]
     XCTAssertEqual(SecItemCopyMatching(anyGroup as CFDictionary, &out), errSecItemNotFound, "the old item is gone too")
@@ -154,6 +165,34 @@ final class SecureKeysTests: XCTestCase {
     XCTAssertEqual(status(errSecMissingEntitlement, true), .failed("keychain (\(errSecMissingEntitlement))"))
   }
 
+  func testADebugSoftwareKeyIsNeitherFoundNorKeptByAnotherBuild() throws {
+    let debug = try makeStore(software: true)
+    _ = try debug.createSigningKey()
+    XCTAssertNotNil(debug.signingPublicKey())
+    // A launch that is not the software mode (a Release build) neither finds that key nor leaves it on the device.
+    let release = try makeStore(software: false)
+    XCTAssertNil(release.signingPublicKey(), "a Release build never matches the software key")
+    XCTAssertEqual(release.sign(Data([1]), reason: "x"), .invalidated, "and says there is no key")
+    XCTAssertNil(try makeStore(software: true).signingPublicKey(), "it was erased on that launch")
+  }
+
+  func testOnlyANotFoundReadMeansNoKey() throws {
+    XCTAssertTrue(try KeyStore.readOutcome(errSecSuccess))
+    XCTAssertFalse(try KeyStore.readOutcome(errSecItemNotFound), "definitely not there")
+    // A locked device or any other failure is "could not read": never "no key".
+    for status in [errSecInteractionNotAllowed, errSecAuthFailed, errSecNotAvailable, errSecIO, errSecMissingEntitlement] {
+      XCTAssertThrowsError(try KeyStore.readOutcome(status), "status \(status)")
+    }
+  }
+
+  func testNoBiometricStateIsNotALostKey() {
+    let stored = Data([1, 2, 3])
+    XCTAssertFalse(KeyStore.setChanged(stored: stored, current: stored, notEnrolled: false), "same set")
+    XCTAssertTrue(KeyStore.setChanged(stored: stored, current: Data([9]), notEnrolled: false), "another set")
+    XCTAssertFalse(KeyStore.setChanged(stored: stored, current: nil, notEnrolled: false), "Face ID off for the app: unknown, not gone")
+    XCTAssertTrue(KeyStore.setChanged(stored: stored, current: nil, notEnrolled: true), "nothing enrolled any more")
+  }
+
   func testAFreshInstallErasesEveryOldKey() throws {
     let s = try makeStore()
     try s.putSecret("auth", Data([1]))
@@ -162,7 +201,7 @@ final class SecureKeysTests: XCTestCase {
     try FileManager.default.removeItem(at: marker)
 
     let again = try makeStore()
-    XCTAssertNil(again.secret("auth"), "an old key never comes back")
+    XCTAssertNil(try again.secret("auth"), "an old key never comes back")
     XCTAssertNil(again.signingPublicKey())
     XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
   }
@@ -172,7 +211,7 @@ final class SecureKeysTests: XCTestCase {
     try s.putSecret("auth", Data([1]))
     let publicData = try s.createSigningKey()
     let again = try makeStore()
-    XCTAssertEqual(again.secret("auth"), Data([1]))
+    XCTAssertEqual(try again.secret("auth"), Data([1]))
     XCTAssertEqual(again.signingPublicKey(), publicData)
   }
 
@@ -182,8 +221,8 @@ final class SecureKeysTests: XCTestCase {
     try s.putSecret("box", Data([2]))
     _ = try s.createSigningKey()
     s.eraseAll()
-    XCTAssertNil(s.secret("auth"))
-    XCTAssertNil(s.secret("box"))
+    XCTAssertNil(try s.secret("auth"))
+    XCTAssertNil(try s.secret("box"))
     XCTAssertNil(s.signingPublicKey())
   }
 }

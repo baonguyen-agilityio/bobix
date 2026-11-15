@@ -725,12 +725,29 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   const { e, token: sent, wait } = got[0];
   assert.equal(sent, token);
   assert.equal(wait, undefined, 'only a permission request asks the app to wait');
-  assert.deepEqual(e.tool_input, { file_path: '/a.txt' });
+  assert.deepEqual(e.tool_input, { file_path: '/a.txt', content: 'x'.repeat(5000) }, 'a Write arrives whole');
+  assert.equal(e.bobix_cut, undefined);
   assert.equal(e.tool_response, undefined);
   assert.equal(e.bobix_claude_pid, 4242);
   assert.equal(e.bobix_host_session, 'local_test-1');
   await run({ session_id: 's7', hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: '[scope] Negative results?', options: [{ label: 'Yes' }] }, { question: 'second' }] } });
-  assert.deepEqual(got[got.length - 1].e.tool_input, { questions: [{ question: '[scope] Negative results?' }] }, 'a question reaches the app, only its text');
+  assert.equal(got[got.length - 1].e.tool_input.questions[0].question, '[scope] Negative results?', 'a question reaches the app');
+  const last = () => got[got.length - 1].e;
+  await run({ session_id: 's8', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'a'.repeat(5000), description: 'd' } });
+  assert.equal(last().tool_input.command.length, 5000, 'a 5 000-byte command is whole');
+  assert.equal(last().bobix_cut, undefined, 'and not marked cut');
+  await run({ session_id: 's8', hook_event_name: 'PermissionRequest', tool_name: 'mcp__db__query', tool_input: { table: 'users', where: { id: 1 }, n: 3 } });
+  assert.deepEqual(last().tool_input, { table: 'users', where: { id: 1 }, n: 3 }, 'an MCP call arrives with its arguments');
+  await run({ session_id: 's8', hook_event_name: 'PermissionRequest', tool_name: 'Write', tool_input: { file_path: '/b', content: 'y'.repeat(30000), mode: 'w' } });
+  assert.equal(last().bobix_cut, true, 'over 20 000 bytes is marked cut');
+  assert.equal(last().tool_input.file_path, '/b');
+  assert.ok(Buffer.byteLength(JSON.stringify(last().tool_input)) <= 20000, 'and fits the limit');
+  assert.equal(last().tool_input.mode, undefined, 'a key that did not fit is gone, which the mark says');
+  await run({ session_id: 's8', hook_event_name: 'PermissionRequest', tool_name: 'Write', tool_input: { content: '日'.repeat(9000) } });
+  const cutText = last().tool_input.content;
+  assert.ok(last().bobix_cut && Buffer.byteLength(JSON.stringify(last().tool_input)) <= 20000 && cutText === '日'.repeat(cutText.length), 'multi-byte text is cut at a character, counted in bytes');
+  await run({ session_id: 's8', hook_event_name: 'PermissionRequest', tool_name: 'Write', tool_input: { content: '😀'.repeat(6000) } });
+  assert.ok(last().bobix_cut && last().tool_input.content === '😀'.repeat(last().tool_input.content.length / 2), 'never between the halves of one character');
   assert.deepEqual(JSON.parse(await run({ session_id: 's5', hook_event_name: 'SessionStart', source: 'startup' })), titled, 'a session title reaches Claude Code');
   assert.deepEqual(JSON.parse(await run({ session_id: 's6', hook_event_name: 'UserPromptSubmit', prompt: '#401 Checkout rounds totals wrong' })), byPrompt, 'and one given by the first prompt (#184)');
   srv.close();
@@ -1148,6 +1165,33 @@ test('room: every string in both languages, and every one the panel uses exists'
   for (const k of keys) if (!k.startsWith('rm.why.') && !k.startsWith('rm.ev.') && !k.startsWith('rm.state.')) assert.ok(html.includes(`'${k}'`), `unused ${k}`);
 });
 
+test('phones: every string in both languages, and every one the panel uses exists', () => {
+  const I18N = require('../src/ui/i18n');
+  const vars = s => (s.match(/\{\w+\}/g) || []).sort().join();
+  const keys = Object.keys(I18N.STR.en).filter(k => k.startsWith('phones.'));
+  for (const k of keys) assert.equal(vars(I18N.STR.vi[k] || '-'), vars(I18N.STR.en[k]), `vi ${k}`);
+  for (const k of Object.keys(I18N.STR.vi).filter(k => k.startsWith('phones.'))) assert.ok(I18N.STR.en[k], `en ${k}`);
+  const html = require('fs').readFileSync(require('path').join(__dirname, '../src/ui/panel.html'), 'utf8');
+  const used = new Set([...html.matchAll(/T\('(phones\.[\w.]*\w)'/g)].map(m => m[1]));
+  for (const w of ['off', 'connecting', 'online', 'invite', 'update', 'url', 'auth']) used.add('phones.status.' + w);
+  for (const w of ['answer', 'plan', 'question', 'start', 'stop', 'activity']) used.add('phones.right.' + w);
+  for (const w of ['Keychain', 'FileDataDir', 'FileNoKeychain']) used.add('phones.storage.' + w);
+  for (const k of used) assert.ok(I18N.STR.en[k], `missing ${k}`);
+  for (const k of keys) if (!/^phones\.(note|err)\./.test(k)) assert.ok(used.has(k), `unused ${k}`);
+});
+
+test('board: the brief a ticket starts with (the same literals as work.rs asserts)', () => {
+  const B = require('../src/ui/board');
+  assert.equal(B.brief({ iid: 7, title: 'Fix it', url: 'https://x/7' }, '  Body text \n'), '#7 Fix it\n\nBody text\n\nhttps://x/7');
+  assert.equal(B.brief({ iid: 7, title: 'Fix it' }, '  '), '#7 Fix it');
+});
+
+test('board: the flow prompt (the same literals as work.rs asserts)', () => {
+  const B = require('../src/ui/board');
+  assert.equal(B.flowPrompt({ iid: 7, title: 'Fix' }, '', ' models ', '\nrules\n'), '#7 Fix\n\nmodels\n\nrules');
+  assert.equal(B.flowPrompt({ iid: 7, title: 'Fix' }, '', '', ''), '#7 Fix');
+});
+
 test('a plan approval reads "Approve the plan", not ExitPlanMode; other tools keep their own name', () => {
   const I18N = require('../src/ui/i18n');
   assert.equal(I18N.askLabel('en', 'ExitPlanMode'), 'Approve the plan');
@@ -1227,7 +1271,8 @@ test('phone strings: every phone.* key has EN and VI with the same {names}, and 
   const { render, renderInfoPlist } = await import(require('url').pathToFileURL(gen).href); // a Windows path is not a valid import specifier
   assert.throws(() => render({ en: { 'phone.a': 'A' }, vi: {} }), /phone\.a has no vi text/);
   assert.throws(() => renderInfoPlist({ en: { 'phone.faceid.usage': 'x' }, vi: {} }, 'vi'), /no vi text/);
-  assert.ok(renderInfoPlist({ en: { 'phone.faceid.usage': 'say "hi"' } }, 'en').includes('"say \\"hi\\"";'), 'quotes are escaped');
+  assert.throws(() => renderInfoPlist({ en: { 'phone.faceid.usage': 'x' } }, 'en'), /phone\.camera\.usage has no en text/);
+  assert.ok(renderInfoPlist({ en: { 'phone.faceid.usage': 'say "hi"', 'phone.camera.usage': 'cam' } }, 'en').includes('"say \\"hi\\"";'), 'quotes are escaped');
   assert.throws(() => render({ en: { 'phone.a': 'A {n}' }, vi: { 'phone.a': 'B' } }), /different \{placeholders\}/);
   // The relay names these two keys in every alert push (relay/src/push.rs): the app must resolve them in both languages.
   const { renderLocalizable } = await import(require('url').pathToFileURL(gen).href);

@@ -5,6 +5,7 @@
 
 mod answers;
 mod autostart;
+mod awake;
 mod clones;
 mod effects;
 mod feedback;
@@ -12,6 +13,7 @@ mod hooks;
 mod i18n;
 mod js;
 mod habits;
+mod link;
 mod links;
 mod model;
 mod notify;
@@ -19,6 +21,9 @@ mod overlay;
 mod panel;
 mod paths;
 mod petstore;
+mod presence;
+mod phone_view;
+mod phones;
 mod procs;
 mod process;
 mod project;
@@ -27,8 +32,11 @@ mod settings;
 mod skill_audit;
 mod habit_skills;
 mod room;
+mod secrets;
 mod skills;
+mod sleepwatch;
 mod smoke;
+mod smoke_phones;
 mod state;
 mod tickets;
 mod tray;
@@ -55,6 +63,7 @@ fn remember_ended(ended: &mut Vec<Ended>, s: &state::Session) {
     if ended.len() > ENDED_KEEP { ended.remove(0); }
 }
 
+#[derive(Default)]
 pub struct Core {
     pub sessions: Sessions,
     pub settings: Value,
@@ -63,6 +72,7 @@ pub struct Core {
     pub last_event_at: Option<u64>,
     pub page_errors: Vec<String>,
     pub pending: std::collections::HashMap<String, answers::Pending>, // held permission requests by answer id
+    pub closed: std::collections::HashMap<String, answers::Closed>,   // how the last ones ended (memory only)
     pub node_path: Option<String>,
     pub work: work::Work,
     pub update: update::Ui,               // a newer version, and where an update stands (update.rs)
@@ -73,6 +83,7 @@ pub struct Core {
     pub waits: Vec<state::Wait>,           // times Claude waited for your answer, the last 36 h (memory only)
     pub ended: Vec<Ended>,                 // the last sessions that ended, so a click on a stale Open can still reopen them (memory only)
     pub tickets: tickets::Flows,           // the ticket flow (#112): kept in the data folder, this machine only
+    pub phones: phones::State,             // phone access (phones.rs)
     pub usage: Value,                      // usage::Store::meta: the price table's date, how many past sessions make the normal
 }
 
@@ -84,6 +95,7 @@ pub struct Bobix {
     pub app: std::sync::OnceLock<AppHandle>,
     pub usage: Mutex<usage::Store>,        // per-session usage tallies (their own lock: reading a transcript never holds the core)
     pub dirty: std::sync::atomic::AtomicBool, // the pages' state changed since it was last sent (see send_loop)
+    pub phones_dirty: std::sync::atomic::AtomicBool, // the same for the phones' home (phones::tick)
 }
 
 // What the pages get on /events: the same JSON as snapshot() in the 0.1 (Electron) app's main.js.
@@ -121,6 +133,7 @@ impl Bobix {
     // The pages' state changed: marked here, sent by send_loop (a burst of hook events is one update, not one each).
     pub fn broadcast(self: &Arc<Self>) {
         self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.phones_dirty.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(app) = self.app.get() { overlay::wake(app, self); tray::badge(app, self, false); }
     }
     // At most every SEND_MS: when marked, the state is built once and sent to the pages, unless it is what they have.
@@ -146,7 +159,7 @@ impl Bobix {
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
-            let Core { sessions, pending, settings, work, waits, ended, habits: mem, tickets: flows, .. } = &mut *c;
+            let Core { sessions, pending, closed, phones, settings, work, waits, ended, habits: mem, tickets: flows, .. } = &mut *c;
             let gitlab = work::any_on(settings);
             let remember = habits::on(settings);
             let before = if remember { habits::before(sessions, &e) } else { None };
@@ -184,8 +197,8 @@ impl Bobix {
                         if start && f.place.is_empty() && f.status != "starting" { follow = Some((f.key.clone(), id.clone(), s.cwd.clone())); }
                     }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
-                    // AskUserQuestion is never held: an "Allow" from Bobix would skip the question; Claude asks in its own window
-                    let reply = if wait && ev == "PermissionRequest" && tool != "AskUserQuestion" { answers::wait(self, pending, settings, s, &e, plan) }
+                    // AskUserQuestion is held as a question (answered with its answers, never with a bare Allow), whole or not at all
+                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, closed, phones, settings, s, &e, plan) }
                         // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
                         // way /rename names it; one that has a name keeps it. One new where a start waits is named by its
                         // first prompt, once that names the issue (Work::claim): not one you opened there yourself.
@@ -222,6 +235,7 @@ impl Bobix {
             thread::spawn(move || { thread::sleep(Duration::from_secs(3)); read_claude_list(&b); b.broadcast(); });
         }
         let is_stop = ev == "Stop";
+        let (ev2, tool2, input2) = (ev.to_string(), e["tool_name"].as_str().unwrap_or("").to_string(), e["tool_input"].clone());
         let b = self.clone();
         let finish = move || {
             let stale = {
@@ -237,8 +251,11 @@ impl Bobix {
                     None => is_stop,
                 }
             };
+            // a held item the session went on from (answered in Claude's own prompt, first): closed as answered at the computer
+            let moved = id.as_deref().map(|sid| answers::moved_ids(&b.core.lock().unwrap().pending, sid, &ev2, &tool2, &input2)).unwrap_or_default();
+            for hid in moved { answers::done(&b, &hid, None, answers::End::Computer); }
             b.broadcast();
-            if let Some(n) = notice.filter(|_| !stale) { b.notify(n.kind, &n.id); }
+            if let Some(n) = notice.filter(|_| !stale) { phones::on_notify(&b, n.kind, &n.id); b.notify(n.kind, &n.id); }
         };
         if is_stop {
             // let Claude flush the final answer to the transcript first
@@ -1321,16 +1338,18 @@ fn code_of(path: &str, code: Option<String>) -> String { code.map(|c| c.trim().t
 #[tauri::command]
 async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let code = code_of(&path, code);
-        let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
+    tauri::async_runtime::spawn_blocking(move || prep_issue(&b, &path, iid, code)).await.map_err(|_| ())
+}
+// What the ticket flow needs before a start: the repository, worktree and branch, the rules and models text, the free space.
+pub fn prep_issue(b: &Arc<Bobix>, path: &str, iid: i64, code: Option<String>) -> Value {
+        let code = code_of(path, code);
+        let (repo, _, wt, branch) = match ticket_place(b, path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
-        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
+        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(path, iid, &code)).is_some_and(|f| !f.cleaned);
         // where new work starts from: the branches the remote has right now, and the one remembered for this repository
         let remembered = b.core.lock().unwrap().settings["workBase"][&code].as_str().map(String::from);
         let from = match tickets::branches(&repo) { Ok(l) => json!({ "ok": true, "branches": l }), Err(e) => json!({ "ok": false, "kind": e.kind, "detail": e.detail }) };
         json!({ "ok": true, "code": code, "from": from, "remembered": remembered, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
-    }).await.map_err(|_| ())
 }
 
 // Why a start from a picked branch stopped, as the page reads it: { ok: false, reason: base-<kind>, detail, branch }.
@@ -1344,7 +1363,12 @@ fn base_failed(e: tickets::BaseErr, branch: &str) -> Value { json!({ "ok": false
 #[tauri::command]
 async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, base: Option<String>, keep: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || start_flow(&b, &path, iid, code, &prompt, models, &how, anyway, base, keep)).await.map_err(|_| ())
+}
+// Start: see the comment above ticket_start. Called by the panel's command and by a Full start from a phone.
+#[allow(clippy::too_many_arguments)]
+pub fn start_flow(b: &Arc<Bobix>, path: &str, iid: i64, code: Option<String>, prompt: &str, models: Value, how: &str, anyway: Option<bool>, base: Option<String>, keep: Option<bool>) -> Value {
+    let (path, how, prompt) = (path.to_string(), how.to_string(), prompt.to_string());
         let code = code_of(&path, code);
         let (repo, i, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let key = tickets::flow_key(&path, iid, &code);
@@ -1388,7 +1412,6 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
             Ok(_) => json!({ "ok": true, "mode": "new", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
             Err(e) => json!({ "ok": false, "mode": "new", "key": key, "reason": e, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
         }
-    }).await.map_err(|_| ())
 }
 
 // Only on your click: Haiku classifies the ticket through your own `claude -p` (no tools, no hooks). { ok, size, why, steps } | { ok: false, error }
@@ -1926,10 +1949,40 @@ fn pet_reset(id: String, b: B) -> Value {
     json!({ "ok": true })
 }
 
+// ---------- phone access (phones.rs) ----------
+#[tauri::command]
+fn question_answer(id: String, answers: Vec<String>, b: B) -> bool { answers::answer_question_now(&b, &id, &answers) }
+#[tauri::command]
+fn phones_state(b: B) -> Value { phones::view(&b) }
+// on: the switch; hold: "phone" | "computer" (when the pets are hidden or paused). Either may be left out.
+#[tauri::command]
+fn phones_enable(on: Option<bool>, hold: Option<String>, awake: Option<bool>, b: B) -> Result<Value, String> {
+    if let Some(h) = hold { phones::set_hold(&b, &h); }
+    if let Some(a) = awake { phones::set_awake(&b, a); }
+    match on { Some(on) => phones::enable(&b, on), None => Ok(phones::view(&b)) }
+}
+#[tauri::command]
+fn phones_relay(url: String, b: B) -> Result<Value, String> { phones::set_relay(&b, &url) }
+#[tauri::command]
+fn phones_pair_start(b: B) -> Result<Value, String> { phones::pair_start(&b) }
+#[tauri::command]
+fn phones_pair_cancel(b: B) -> Value { phones::pair_cancel(&b) }
+#[tauri::command]
+fn phones_pair_confirm(rights: Value, b: B) -> Result<Value, String> { phones::pair_confirm(&b, phones::rights_of(&rights)) }
+#[tauri::command]
+fn phones_rights(id: String, rights: Value, b: B) -> Result<Value, String> { phones::set_rights(&b, &id, phones::rights_of(&rights)) }
+#[tauri::command]
+fn phones_disconnect(id: String, b: B) -> Result<Value, String> { phones::disconnect(&b, &id) }
+#[tauri::command]
+fn phones_new_identity(b: B) -> Result<Value, String> { phones::new_identity(&b) }
+#[tauri::command]
+fn phones_log(b: B) -> Value { phones::log(&b) }
+
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
-    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act"];
+    "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act",
+    "question_answer", "phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -2025,9 +2078,9 @@ fn main() {
     let token = paths::ensure_token().unwrap_or_else(|e| fail(format!("token: {e}")));
     let (tx, _) = broadcast::channel(4); // the pages only need the newest state (a page that lags gets the next one whole)
     let b = Arc::new(Bobix {
-        core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
+        core: Mutex::new(Core { sessions: Sessions::new(), settings, rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), phones: Default::default(),
             node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: tickets::Flows::load(paths::data_dir().join("tickets.json")), usage: Value::Null }),
-        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(),
+        tx, token: token.clone(), port, app: Default::default(), usage: Mutex::new(usage::Store::new(paths::data_dir())), dirty: Default::default(), phones_dirty: Default::default(),
     });
     {
         // Full starts whose session had not come when Bobix last closed wait for it again
@@ -2036,13 +2089,16 @@ fn main() {
         for f in tickets.waiting() { work.wait_for(&f.dir, &f.repo, &f.path, f.iid, &json!(f.title), &json!(f.url)); }
     }
 
+    phones::init(&b);
+    sleepwatch::start(&b);
     let rb = b.clone();
     tauri::Builder::default()
         .manage(b.clone())
         .invoke_handler(tauri::generate_handler![state, rects, pet_click, pet_set, answer, test_event, page_error, smoke_page, install_hooks, uninstall_hooks, open_session,
             settings_set, update_act, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove, usage_effects,
-            pet_choose, pet_original, pet_save, pet_reset])
+            pet_choose, pet_original, pet_save, pet_reset,
+            question_answer, phones_state, phones_enable, phones_relay, phones_pair_start, phones_pair_cancel, phones_pair_confirm, phones_rights, phones_disconnect, phones_new_identity, phones_log])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement
@@ -2121,7 +2177,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             RunEvent::Reopen { .. } => panel::show(app, &rb, None, None, None),
             RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(), // keep running in the tray
-            RunEvent::Exit => save_now(&rb),
+            RunEvent::Exit => { phones::save_on_exit(&rb); save_now(&rb) }
             _ => { let _ = app; }
         });
 }
@@ -2205,7 +2261,7 @@ mod snapshot_tests {
         ];
         work.wait_for("/src/shop", "/src/shop", "team/shop", 32, &json!("t32"), &Value::Null);
         Core { sessions, settings: json!({ "gitlab": true, "github": true, "workKeys": { "acme/app": "APP" }, "petImages": {} }), rects: vec![], interactive: false,
-            last_event_at: None, page_errors: vec![], pending: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
+            last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), phones: Default::default(), node_path: None, work, update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null }
     }
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test/fixtures/work-snapshot.json");
@@ -2325,9 +2381,9 @@ mod open_tests {
 
     fn bobix() -> Arc<Bobix> {
         let (tx, _) = broadcast::channel(4);
-        let core = Core { sessions: Sessions::new(), settings: json!({}), rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(),
+        let core = Core { sessions: Sessions::new(), settings: json!({}), rects: vec![], interactive: false, last_event_at: None, page_errors: vec![], pending: Default::default(), closed: Default::default(), phones: Default::default(),
             node_path: None, work: Default::default(), update: Default::default(), update_told: None, main_errors: vec![], save_gen: 0, waits: vec![], ended: vec![], habits: Default::default(), tickets: Default::default(), usage: Value::Null };
-        Arc::new(Bobix { core: Mutex::new(core), tx, token: "t".into(), port: 0, app: Default::default(), usage: Mutex::new(usage::Store::new(std::env::temp_dir().join("bobix-open-test"))), dirty: Default::default() })
+        Arc::new(Bobix { core: Mutex::new(core), tx, token: "t".into(), port: 0, app: Default::default(), usage: Mutex::new(usage::Store::new(std::env::temp_dir().join("bobix-open-test"))), dirty: Default::default(), phones_dirty: Default::default() })
     }
     fn session(id: &str, host: Option<&str>) -> state::Session {
         let mut s = state::Session::default();

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-phones-pair-cancel"
+description = "Enables the phones_pair_cancel command without any pre-configured scope."
+commands.allow = ["phones_pair_cancel"]
+
+[[permission]]
+identifier = "deny-phones-pair-cancel"
+description = "Denies the phones_pair_cancel command without any pre-configured scope."
+commands.deny = ["phones_pair_cancel"]

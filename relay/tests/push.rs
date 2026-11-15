@@ -119,7 +119,8 @@ async fn a_push_for_a_phone_whose_grant_has_ended_is_answered_with_a_grant_error
     tokio::time::sleep(Duration::from_millis(2200)).await;
     d.send(&with_push(&p.id(), "late", PushKind::Alert, None, "X")).await;
     d.expect(|f| matches!(f, Frame::Queued { .. }), 1000).await;
-    d.expect(|f| matches!(f, Frame::Error { code: ErrorCode::Grant, who: Some(Who::Phone) }), 1000).await;
+    let phone = p.id();
+    d.expect(|f| matches!(f, Frame::Error { code: ErrorCode::Grant, who: Some(Who::Phone), peer: Some(x) } if *x == phone), 1000).await;
     p.expect(|f| matches!(f, Frame::Msg { .. }), 1000).await;
     assert!(sent(&s).is_empty());
 }

@@ -56,6 +56,14 @@ class PlatformSecureKeys implements SecureKeys {
       _call<void>('deleteSecret', {'name': name});
 
   @override
+  Future<Biometry> biometry() async =>
+      switch (await _call<String>('biometry')) {
+        'available' => Biometry.available,
+        'lockedOut' => Biometry.lockedOut,
+        _ => Biometry.none,
+      };
+
+  @override
   Future<Uint8List> createSigningKey() async =>
       await _call<Uint8List>('createSigningKey') ??
       (throw const SecureKeysException('no public key returned'));
@@ -89,6 +97,18 @@ class PlatformSecureKeys implements SecureKeys {
 
   @override
   Future<void> eraseAll() => _call<void>('eraseAll');
+}
+
+/// Opens this app's page in the system Settings (to allow the camera again).
+Future<void> openAppSettings() async {
+  try {
+    await const MethodChannel('dev.bobix.phone/secure_keys')
+        .invokeMethod<void>('openSettings');
+  } on PlatformException {
+    // Nothing more to do: the person opens Settings by hand.
+  } on MissingPluginException {
+    // Same.
+  }
 }
 
 final secureKeysProvider = Provider<SecureKeys>((ref) => PlatformSecureKeys());

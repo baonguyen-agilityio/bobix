@@ -67,7 +67,7 @@ fn patterns() -> &'static [(fancy_regex::Regex, &'static str)] {
     static P: OnceLock<Vec<(fancy_regex::Regex, &'static str)>> = OnceLock::new();
     P.get_or_init(|| [
         (r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)", "[redacted]"),
-        (r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_\-]{20,}|xox[abprs]-[A-Za-z0-9\-]{10,}|sk-(?:ant-)?[A-Za-z0-9_\-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_\-]{35})", "[redacted]"),
+        (r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_\-]{20,}|xox[abprs]-[A-Za-z0-9\-]{10,}|sk-(?:ant-)?[A-Za-z0-9_\-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_\-]{35}|gl(?:ptt|dt|rt)-[A-Za-z0-9_\-]{20,}|lin_api_[A-Za-z0-9]{20,}|ATATT[A-Za-z0-9_\-=]{20,}|npm_[A-Za-z0-9]{30,}|[sr]k_(?:live|test)_[A-Za-z0-9]{16,}|ya29\.[A-Za-z0-9_\-]{20,}|AccountKey=[A-Za-z0-9+/=]{20,})", "[redacted]"),
         (r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}", "[redacted]"),
         (r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._\-~+/]{16,}=*", "$1 [redacted]"),
         (r"(?i)\b([a-z][a-z0-9+.\-]*://)[^\s/:@]+:[^\s/@]+@", "$1[redacted]@"),
