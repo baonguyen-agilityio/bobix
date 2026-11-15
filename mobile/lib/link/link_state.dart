@@ -40,6 +40,7 @@ class PairedComputer {
     required this.eventReservation,
     this.home,
     this.homeAt,
+    this.pairedAt,
     Set<String>? pending,
   }) : pending = pending ?? {};
 
@@ -66,6 +67,9 @@ class PairedComputer {
   String? home;
   int? homeAt;
 
+  /// When the pairing was made (Unix ms); null for a pairing made before this was kept.
+  final int? pairedAt;
+
   /// The ids of commands sent whose results have not come (ids only, never what they asked): the next `sync` names them.
   final Set<String> pending;
 
@@ -80,6 +84,7 @@ class PairedComputer {
     'eventReservation': eventReservation.toString(),
     'home': home,
     'homeAt': homeAt,
+    'pairedAt': pairedAt,
     'pending': pending.toList(),
   };
 
@@ -94,6 +99,7 @@ class PairedComputer {
     eventReservation: BigInt.parse(j['eventReservation'] as String),
     home: j['home'] as String?,
     homeAt: j['homeAt'] as int?,
+    pairedAt: j['pairedAt'] as int?,
     pending: {...?(j['pending'] as List?)?.cast<String>()},
   );
 }

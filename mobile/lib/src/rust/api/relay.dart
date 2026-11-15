@@ -75,6 +75,15 @@ Future<PairingAnswer> pairingAnswer({required String messageJson}) =>
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<PhoneLink>>
 abstract class PhoneLink implements RustOpaqueInterface {
+  /// The goodbye to this computer, signed with the `auth` key over the bytes the crate defines (they carry the packet's
+  /// counter), sealed with that counter.
+  SealedPacket bye({
+    required List<int> authSeed,
+    required List<int> boxSecret,
+    required String phoneId,
+    required String computerId,
+  });
+
   /// `event_reservation` is the last value a send asked to store, `recv_state` the stored receive state (`recv_state_new`
   /// when none), `now_unix_ms` the clock.
   static PhoneLink create({
@@ -91,7 +100,7 @@ abstract class PhoneLink implements RustOpaqueInterface {
     recvState: recvState,
   );
 
-  OpenedPacket open({required List<int> packet});
+  ReceivedPacket open({required List<int> packet});
 
   /// The receive state as JSON, to be stored after a packet was accepted.
   String recvState();
@@ -104,23 +113,6 @@ abstract class PhoneLink implements RustOpaqueInterface {
 
   /// The next counter of the `event` stream, for a message that carries its own (the pairing `hello`).
   CounterTake takeCounter();
-}
-
-@freezed
-sealed class OpenedPacket with _$OpenedPacket {
-  const OpenedPacket._();
-
-  const factory OpenedPacket.message(DesktopMessage field0) =
-      OpenedPacket_Message;
-
-  /// Late, replayed, reflected, forged or unreadable: no reply, nothing changes.
-  const factory OpenedPacket.dropped() = OpenedPacket_Dropped;
-
-  /// The packet's version is outside what this app understands, and the computer is the one to update.
-  const factory OpenedPacket.peerMustUpdate() = OpenedPacket_PeerMustUpdate;
-
-  /// ... and this app is the one to update.
-  const factory OpenedPacket.weMustUpdate() = OpenedPacket_WeMustUpdate;
 }
 
 /// A frame to send, and the id the relay's `delivered` / `queued` / `dropped` will name.
@@ -163,6 +155,23 @@ sealed class PairingAnswer with _$PairingAnswer {
 }
 
 enum PeerState { online, offline, asleep }
+
+@freezed
+sealed class ReceivedPacket with _$ReceivedPacket {
+  const ReceivedPacket._();
+
+  const factory ReceivedPacket.message(DesktopMessage field0) =
+      ReceivedPacket_Message;
+
+  /// Late, replayed, reflected, forged or unreadable: no reply, nothing changes.
+  const factory ReceivedPacket.dropped() = ReceivedPacket_Dropped;
+
+  /// The packet's version is outside what this app understands, and the computer is the one to update.
+  const factory ReceivedPacket.peerMustUpdate() = ReceivedPacket_PeerMustUpdate;
+
+  /// ... and this app is the one to update.
+  const factory ReceivedPacket.weMustUpdate() = ReceivedPacket_WeMustUpdate;
+}
 
 /// Why the relay refused or ended something (`error` frames).
 enum RelayError {

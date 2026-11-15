@@ -8,6 +8,7 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
 import '../../data/models.dart';
+import '../../lock/secure_scope.dart';
 import 'actions_source.dart';
 import '../../widgets/status_banner.dart';
 import 'hidden_chars.dart';
@@ -40,81 +41,84 @@ class ActionPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
-    return Scaffold(
-      backgroundColor: t.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            SizedBox(
-              height: 52,
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 96,
-                    child: showBack
-                        ? Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Semantics(
-                                button: true,
-                                label: s('phone.a.back'),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(22),
-                                  onTap: () => Navigator.of(context).maybePop(),
-                                  child: Glass(
-                                    radius: 22,
-                                    child: const SizedBox(
-                                      width: minTouch,
-                                      height: minTouch,
-                                      child: Icon(
-                                        Icons.arrow_back_ios_new,
-                                        size: 18,
+    return SecureScope(
+      child: Scaffold(
+        backgroundColor: t.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              SizedBox(
+                height: 52,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 96,
+                      child: showBack
+                          ? Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Semantics(
+                                  button: true,
+                                  label: s('phone.a.back'),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(22),
+                                    onTap: () =>
+                                        Navigator.of(context).maybePop(),
+                                    child: Glass(
+                                      radius: 22,
+                                      child: const SizedBox(
+                                        width: minTouch,
+                                        height: minTouch,
+                                        child: Icon(
+                                          Icons.arrow_back_ios_new,
+                                          size: 18,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          )
-                        : null,
-                  ),
-                  Expanded(
-                    child: Semantics(
-                      header: true,
-                      child: Text(
-                        title,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          color: t.ink,
+                            )
+                          : null,
+                    ),
+                    Expanded(
+                      child: Semantics(
+                        header: true,
+                        child: Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: t.ink,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 96),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-                children: children,
-              ),
-            ),
-            if (actions != null)
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                decoration: BoxDecoration(
-                  color: t.surface.withValues(alpha: .86),
-                  border: Border(top: BorderSide(width: .5, color: t.line)),
+                    const SizedBox(width: 96),
+                  ],
                 ),
-                child: actions,
               ),
-          ],
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                  children: children,
+                ),
+              ),
+              if (actions != null)
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  decoration: BoxDecoration(
+                    color: t.surface.withValues(alpha: .86),
+                    border: Border(top: BorderSide(width: .5, color: t.line)),
+                  ),
+                  child: actions,
+                ),
+            ],
+          ),
         ),
       ),
     );

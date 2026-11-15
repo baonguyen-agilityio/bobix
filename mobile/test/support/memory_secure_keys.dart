@@ -43,6 +43,16 @@ class MemorySecureKeys implements SecureKeys {
   @override
   Future<void> deleteSecret(String name) async => secrets.remove(name);
 
+  /// What [authenticate] answers, and the reasons it was asked with.
+  AppAuth authAnswer = AppAuth.ok;
+  final authReasons = <String>[];
+
+  @override
+  Future<AppAuth> authenticate({required String reason}) async {
+    authReasons.add(reason);
+    return authAnswer;
+  }
+
   @override
   Future<Biometry> biometry() async => lockedOut
       ? Biometry.lockedOut

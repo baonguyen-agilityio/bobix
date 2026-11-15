@@ -445,6 +445,44 @@ class ComputerLink {
     }
   }
 
+  /// Tells the computer this phone is leaving (a signed goodbye), and waits until the relay says it has it or [within] is over.
+  /// Best effort: a phone that is offline just leaves, and the computer can still remove it there.
+  Future<void> sayGoodbye({
+    Duration within = const Duration(seconds: 4),
+  }) async {
+    final session = _session;
+    if (session == null) return;
+    final packet = await channel.bye(
+      authSeed: identity.authSeed,
+      boxSecret: identity.boxSecret,
+      phoneId: identity.deviceId,
+      computerId: computer.id,
+    );
+    final out = await relaySendFrame(
+      to: computer.id,
+      packet: packet,
+      ttlSeconds: 600,
+    );
+    final done = Completer<void>();
+    final sub = relayEvents.listen((f) {
+      final ours = switch (f) {
+        RelayFrame_Queued(:final pid) ||
+        RelayFrame_Delivered(:final pid) ||
+        RelayFrame_Dropped(:final pid) => pid == out.pid,
+        _ => false,
+      };
+      if (ours && !done.isCompleted) done.complete();
+    });
+    session.send(out.text);
+    try {
+      await done.future.timeout(within);
+    } on TimeoutException {
+      // The goodbye is on its way; the phone leaves either way.
+    } finally {
+      await sub.cancel();
+    }
+  }
+
   /// The person erases this phone's pairing (Pair again, or a disconnect): keys, state, everything.
   Future<void> erase() => _eraseEverything();
 }

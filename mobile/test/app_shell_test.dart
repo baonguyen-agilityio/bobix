@@ -57,10 +57,8 @@ void main() {
 
     await tester.tap(find.bySemanticsLabel('Settings'));
     await tester.pump();
-    expect(
-      find.text('Computers, safety and language settings come with pairing.'),
-      findsOneWidget,
-    );
+    expect(find.text('Safety'), findsOneWidget);
+    expect(find.text('Send feedback'), findsOneWidget);
   });
 
   testWidgets('Vietnamese strings are used when the language is vi', (

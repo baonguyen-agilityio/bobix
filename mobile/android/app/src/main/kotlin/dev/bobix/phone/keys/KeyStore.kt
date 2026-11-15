@@ -256,6 +256,41 @@ class KeyStore(
         BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), callback).authenticate(info, BiometricPrompt.CryptoObject(signature))
     }
 
+    /**
+     * The app lock: a strong biometric check to open the app, nothing signed. [done] gets "ok", "cancelled", "unavailable"
+     * (nothing enrolled: the app cannot lock itself and opens) or "failed". Called on the main thread; [done] runs on it.
+     */
+    fun authenticate(activity: FragmentActivity, reason: String, done: (String) -> Unit) {
+        if (software) return done("ok")
+        if (strongBiometrics() != "ready") return done("unavailable")
+        if (prompting) return done("failed")
+        prompting = true
+        val callback = object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                prompting = false
+                done("ok")
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                prompting = false
+                done(
+                    when (errorCode) {
+                        BiometricPrompt.ERROR_USER_CANCELED, BiometricPrompt.ERROR_NEGATIVE_BUTTON, BiometricPrompt.ERROR_CANCELED -> "cancelled"
+                        else -> "failed"
+                    },
+                )
+            }
+        }
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(activity.getString(R.string.phone_biometric_title))
+            .setSubtitle(reason)
+            .setNegativeButtonText(activity.getString(R.string.phone_biometric_cancel))
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .setConfirmationRequired(false)
+            .build()
+        BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), callback).authenticate(info)
+    }
+
     fun deleteSigningKey() {
         val ks = keystore()
         if (ks.containsAlias(SIGN_ALIAS)) ks.deleteEntry(SIGN_ALIAS)

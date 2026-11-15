@@ -46,6 +46,7 @@ const exposed = {
   'takeCounter', // PhoneLink
   'seal', // PhoneLink
   'sealWith', // PhoneLink
+  'bye', // PhoneLink
   'open', // PhoneLink
   'recvState', // PhoneLink
   // messages.rs
