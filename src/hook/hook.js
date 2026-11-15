@@ -8,6 +8,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// How long to wait for the app's answer: the number of seconds it announced (its own wait setting), 0 for none. 'forever' is
+// handled by the caller. Not capped here: the app's setting is the one limit.
+function waitSecs(header) { const n = Number(header); return n > 0 && Number.isFinite(n) ? n : 0; }
+if (require.main !== module) { module.exports = { waitSecs }; return; }
+
 const port = Number(process.argv[2]) || 4747;
 const MAX_INPUT = 20000; // bytes of the serialized tool input the app gets; more is cut and marked (bobix_cut)
 let token = '';
@@ -73,7 +78,7 @@ process.stdin.on('end', () => {
   }, res => {
     // The app replies at once with how long it will wait for an answer ('forever': until answered); never wait longer.
     // A closed request tells the app that Claude moved on, so the wait ends with the hook process.
-    const wait = res.headers['x-bobix-wait'], secs = Math.min(300, Number(wait) || 0);
+    const wait = res.headers['x-bobix-wait'], secs = waitSecs(wait);
     if (wait === 'forever') req.setTimeout(0);
     else if (secs) { req.setTimeout(0); setTimeout(() => req.destroy(), (secs + 3) * 1000).unref(); } // unref: exit as soon as the answer is in
     let out = '';

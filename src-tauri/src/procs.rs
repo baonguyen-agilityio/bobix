@@ -124,6 +124,13 @@ pub fn process_names(pids: &[u32]) -> Vec<String> {
 }
 
 // claude → shell → … → terminal / IDE / app. Walked when a pet is clicked (the hook only sends the claude pid).
+// The processes a process started (direct children), through pgrep; empty where it cannot tell (Windows).
+pub fn children(pid: u32) -> Vec<u32> {
+    if cfg!(windows) { return vec![]; }
+    let r = exec("pgrep", &["-P", &pid.to_string()], 3, &[]);
+    r.out.lines().filter_map(|l| l.trim().parse().ok()).collect()
+}
+
 pub fn ancestors(pid: u32) -> Vec<u32> {
     let mut chain = vec![];
     if pid <= 1 { return chain; }

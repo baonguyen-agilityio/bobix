@@ -279,19 +279,45 @@ pub fn save_on_exit(b: &Bobix) {
     c.phones.save_results(&c.closed);
 }
 
-// Keeps the awake inhibitor in step with the work, on its own clock (the relay link may be down).
-fn awake_loop(b: Arc<Bobix>) {
+// On its own clock (the relay link may be down), once a second: keeps the awake inhibitor in step with the work, and
+// notices a held request whose command has started. A request approved in Claude's own prompt tells Bobix only when the
+// command ends (its PostToolUse); but the command starts right away, as a new child of the Claude process. So a new child
+// since the watch first looked marks the request "may be answered at the computer" (released: no more pushes, the phone
+// says so, and it can still answer). It is a hint, never a close: Claude starts other helpers too.
+fn watch_loop(b: Arc<Bobix>) {
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        // what to look at, off the core's lock (pgrep takes a moment)
+        let targets: Vec<(String, u32)> = {
+            let mut c = b.core.lock().unwrap();
+            let busy = c.sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
+            let want = c.phones.cfg.awake && c.phones.cfg.on && busy;
+            c.phones.awake.set(want);
+            if !c.phones.cfg.on || c.phones.store.phones.is_empty() { continue; }
+            c.pending.iter().filter(|(_, p)| p.kind() == crate::answers::Kind::Request && !p.released)
+                .filter_map(|(id, p)| { let s = c.sessions.get(&p.sid)?; let pid = s.claude_pid.filter(|p| s.pid_is_claude == Some(*p))?; Some((id.clone(), pid)) }).collect()
+        };
+        if targets.is_empty() { continue; }
+        let kids: Vec<(String, Vec<u32>)> = targets.into_iter().map(|(id, pid)| (id, crate::procs::children(pid))).collect();
         let mut c = b.core.lock().unwrap();
-        let busy = c.sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
-        let want = c.phones.cfg.awake && c.phones.cfg.on && busy;
-        c.phones.awake.set(want);
+        let mut changed = false;
+        for (id, now_kids) in kids {
+            let Some(p) = c.pending.get_mut(&id) else { continue };
+            match &p.child_base {
+                None => p.child_base = Some(now_kids),
+                Some(base) if started_since(base, &now_kids) => { p.released = true; changed = true; }
+                _ => {}
+            }
+        }
+        drop(c);
+        if changed { b.broadcast(); }
     }
 }
+// A child that was not there when the watch first looked.
+pub fn started_since(base: &[u32], now: &[u32]) -> bool { now.iter().any(|p| !base.contains(p)) }
 
 pub fn init(b: &Arc<Bobix>) {
-    { let b2 = b.clone(); std::thread::spawn(move || awake_loop(b2)); }
+    { let b2 = b.clone(); std::thread::spawn(move || watch_loop(b2)); }
     let dir = crate::paths::data_dir();
     let read = |f: PathBuf| std::fs::read(f).ok();
     let cfg: Config = read(cfg_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -1213,5 +1239,13 @@ mod tests {
         let mut st = State::default();
         assert!(st.inflight.insert("p:c1".into()));
         assert!(st.inflight.contains("p:c1") && !st.inflight.contains("p:c2"));
+    }
+
+    #[test]
+    fn a_new_child_of_the_claude_process_means_the_command_started() {
+        assert!(!started_since(&[1, 2], &[1, 2]));
+        assert!(!started_since(&[1, 2], &[2]), "a helper that ended is not a start");
+        assert!(started_since(&[1, 2], &[1, 2, 3]));
+        assert!(started_since(&[], &[7]));
     }
 }

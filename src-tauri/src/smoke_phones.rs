@@ -144,6 +144,18 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     fake.say(&format!("answer {r7} allow"));
     r["latePcNoted"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 3));
     let _ = child7.kill();
+    // A long command approved in Claude's own prompt starts at once: a new child of the Claude process marks the request as
+    // maybe answered at the computer, long before its PostToolUse (here the "Claude process" is Bobix itself)
+    let (mut child12, r12) = hold_child(b, "ph12", "sleep 30");
+    { let mut c = b.core.lock().unwrap(); if let Some(s) = c.sessions.get_mut("ph12") { s.pid_is_claude = s.claude_pid; } }
+    r["watchBase"] = json!(until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.child_base.is_some())));
+    let mut sleeper = Command::new("sleep").arg("30").spawn().expect("sleep");
+    r["startedNoticed"] = json!(until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.released))
+        && until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains(&r12) && l.contains("\"atComputer\":true"))));
+    let _ = sleeper.kill();
+    let _ = sleeper.wait();
+    crate::answers::answer(b, &r12, "deny");
+    let _ = child12.wait();
     r["logged"] = json!(phones::log(b).as_array().is_some_and(|a| a.len() >= 3 && a.iter().all(|l| !l["what"].as_str().unwrap_or("").contains("ghp_"))));
     // Claude's questions: an option and free text come back to Claude in the shape the spike recorded
     let q = |n: &str| json!({ "questions": [{ "question": n, "header": "H", "options": [{ "label": "SQLite", "description": "d" }, { "label": "Postgres", "description": "d" }], "multiSelect": false }] });
@@ -199,6 +211,6 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     let busy = b.core.lock().unwrap().sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
     r["awakeHeld"] = json!(!busy || (until(10, || v()["awakeHeld"] == true) && (!cfg!(target_os = "macos") || until(5, caff))));
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "watchBase", "startedNoticed", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }
