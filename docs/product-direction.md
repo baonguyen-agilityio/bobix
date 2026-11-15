@@ -192,7 +192,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 - **Off by default, and a closed beta first.** Settings → Phones exists only in `-rc` test builds and `develop` builds (the Cargo feature `phones`); a stable release contains no section, no command and opens no connection. Removing that switch is part of the later public release.
 - **Outbound only, through a relay, sealed on this computer for each paired phone.** The relay forwards packets and cannot read them. No inbound port, no LAN path.
 - **Rights per phone, chosen when you confirm the pairing:** answer a request, approve a plan, answer a question, start a ticket, stop a waiting session, see session activity. Starting and stopping start unticked.
-- **What a phone does:** answers what Claude asks (requests, plans, questions), starts a ticket the computer already knows, and stops a session that waits on a held request (the CLI offers no clean stop for a running turn). The first answer, at the computer or on a phone, wins.
+- **What a phone does:** answers what Claude asks (requests, plans, questions), starts a ticket the computer already knows, and stops a session that waits on a held request, only for a phone with both the Stop and the Answer right (the CLI offers no clean stop for a running turn). The first answer, at the computer or on a phone, wins.
 - **While the pets are hidden or paused,** a request is held for the phones when nobody is at the computer (10 seconds without input), unless Settings says to let Claude ask at the computer.
 
 **Out of scope**
