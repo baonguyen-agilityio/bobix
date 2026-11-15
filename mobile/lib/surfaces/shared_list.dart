@@ -8,8 +8,8 @@ import '../pets/creature.dart';
 class SharedListJson {
   SharedListJson._();
 
-  /// How long the computer holds a request for phones, in seconds, when the computer does not say.
-  static const holdSecs = 600;
+  /// The longest a request counts as current, in seconds: surfaces fade on age (15 minutes) whatever the computer says.
+  static const holdSecs = 900;
 
   static String build(
     HomeData home, {
@@ -47,7 +47,9 @@ class SharedListJson {
           // A request answered at the computer or held there is not one to open from a surface.
           'ref': s.needsYou && !s.answerAtComputer ? (s.waitingId ?? '') : '',
           'computer': computerId,
-          'holdSecs': holdSecs,
+          // What is left of the request's wait when this `home` came; none when the computer waits for ever.
+          'holdSecs': (s.holdSecs ?? holdSecs).clamp(1, holdSecs),
+          'at': now.millisecondsSinceEpoch,
         },
     ],
   };

@@ -45,6 +45,15 @@ import UserNotifications
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
 
+  /// A push without an alert (`closed` is sent that way) wakes the app when iOS allows it, which is not always: then the
+  /// surfaces dim by age instead.
+  override func application(
+    _ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    completionHandler(SurfacesBridge.applyPush(userInfo) ? .newData : .noData)
+  }
+
   /// A notification that arrives while the app is open still shows: the person may be on another screen.
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification,

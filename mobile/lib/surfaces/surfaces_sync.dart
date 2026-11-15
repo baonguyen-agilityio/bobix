@@ -13,7 +13,7 @@ typedef PetRenderer = Future<Uint8List> Function(String design, int color, Strin
 /// pets' images, and starts, updates or ends the activity.
 ///
 /// Which Live Activity path runs: the activity is started HERE, when the app has data (the plan's fallback: counts and
-/// states only), and updated by push afterwards through its own token. Starting one by push needs a relay payload with
+/// states only), and may be updated by push through its own token. Starting one by push needs a relay payload with
 /// `event: start` and the attributes type, which the relay does not send yet, so the push-to-start token is registered
 /// but nothing can use it until it does. Nothing was shown on a real iPhone.
 class SurfacesSync {
@@ -28,7 +28,6 @@ class SurfacesSync {
   final DateTime Function() _now;
   final PetRenderer _renderPet;
   final _petsWritten = <String>{};
-  bool _active = false;
 
   Future<void> sync(
     HomeData home, {
@@ -46,7 +45,7 @@ class SurfacesSync {
     } catch (_) {
       // A surface that is not refreshed goes stale on its own; the app goes on.
     }
-    await _activity(home, now);
+    await _activity(home, now, computerId);
   }
 
   Future<void> _pet(String design, int color, String state) async {
@@ -60,27 +59,17 @@ class SurfacesSync {
     }
   }
 
-  Future<void> _activity(HomeData home, DateTime now) async {
+  Future<void> _activity(HomeData home, DateTime now, String computerId) async {
     try {
       if (!await _platform.liveActivities()) return;
-      final waiting = home.sessions
-          .where((s) => s.needsYou && !s.answerAtComputer && !s.answeredAtComputer)
-          .toList();
-      final state = <String, Object?>{
-        'waiting': waiting.length,
-        'names': [for (final s in waiting.take(3)) s.name],
+      final waiting = SharedListJson.waiting(home);
+      // The platform keeps one activity: it ends it when nothing waits, updates the one that exists (also one from an
+      // earlier run of the app) and starts one otherwise. No name goes into it: it draws the shared list.
+      await _platform.syncActivity({
+        'waiting': waiting,
         'written': now.millisecondsSinceEpoch,
-        'computerName': home.computer,
-        'computerState': home.conn == ConnState.ok ? 'online' : 'offline',
-      };
-      if (waiting.isNotEmpty && !_active) {
-        _active = (await _platform.startActivity(state)).started;
-      } else if (waiting.isNotEmpty) {
-        await _platform.updateActivity(state);
-      } else if (_active) {
-        await _platform.endActivity();
-        _active = false;
-      }
+        'computerId': computerId,
+      });
     } catch (_) {
       // No Live Activity is not a reason to stop the app.
     }

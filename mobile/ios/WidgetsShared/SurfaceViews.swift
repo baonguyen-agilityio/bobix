@@ -9,9 +9,11 @@ struct SurfaceModel {
   var now: Date
   var text: SurfaceText
   var petDir: URL?
+  /// The system says the content is stale (a Live Activity's `isStale`): drawn stale whatever the list says.
+  var forceStale = false
 
   enum Mode { case needs, none, stale }
-  var mode: Mode { list.isStale(at: now) ? .stale : (list.waiting.isEmpty ? .none : .needs) }
+  var mode: Mode { forceStale || list.isStale(at: now) ? .stale : (list.waiting.isEmpty ? .none : .needs) }
   var count: Int { list.waiting.count }
   var dim: Bool { mode == .stale }
   var updated: String { text("phone.wg.updated", ["tm": SurfaceText.clock(list.writtenDate)]) }
@@ -101,7 +103,7 @@ struct HomeMediumView: View {
           HStack(spacing: 8) {
             PetImage(model: model, row: r, size: 28)
             VStack(alignment: .leading, spacing: 0) {
-              Text(r.name).font(.footnote.weight(.semibold)).lineLimit(1)
+              Text(r.name).font(.footnote.weight(.semibold)).lineLimit(1).privacySensitive()
               if !r.project.isEmpty { Text(r.project).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
             }
           }
@@ -128,7 +130,7 @@ struct HomeLargeView: View {
         HStack(spacing: 10) {
           PetImage(model: model, row: r, size: 32)
           VStack(alignment: .leading, spacing: 0) {
-            Text(r.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+            Text(r.name).font(.subheadline.weight(.semibold)).lineLimit(1).privacySensitive()
             Text(r.project).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
           }
           Spacer()
@@ -177,7 +179,7 @@ struct LockRectangularView: View {
     VStack(alignment: .leading, spacing: 1) {
       Text("Bobix").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
       Text(model.headline).font(.headline).lineLimit(1).minimumScaleFactor(0.7)
-      if let r = model.rows(1).first { Text(r.name).font(.caption).lineLimit(1) }
+      if let r = model.rows(1).first { Text(r.name).font(.caption).lineLimit(1).privacySensitive() }
       else if model.mode == .needs { Text(model.text("phone.wg.hidden")).font(.caption).lineLimit(1) }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,7 +197,7 @@ struct ActivityBannerView: View {
       PetImage(model: model, row: model.list.waiting.first, size: 40)
       VStack(alignment: .leading, spacing: 2) {
         Text(model.headline).font(.system(.headline, design: .rounded)).foregroundStyle(model.mode == .needs ? SurfaceStyle.accent : .primary)
-        if let r = model.rows(1).first { Text(r.name).font(.subheadline).lineLimit(1) }
+        if let r = model.rows(1).first { Text(r.name).font(.subheadline).lineLimit(1).privacySensitive() }
         Text(model.computerLine).font(.caption2).foregroundStyle(.secondary)
       }
       Spacer()

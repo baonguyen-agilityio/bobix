@@ -32,6 +32,10 @@
 	<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
 	<key>BobixAppGroup</key>
 	<string>$(BOBIX_APP_GROUP)</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>CFBundleURLTypes</key>

@@ -43,6 +43,9 @@ class _SurfacesHostState extends ConsumerState<SurfacesHost> {
         ),
       );
       _subs.add(
+        p.activityEnded.listen((id) => reg.clearExtra('activity', ref: id)),
+      );
+      _subs.add(
         p.pushToStartTokens.listen(
           (t) => unawaited(reg.registerExtra(kind: 'pushToStart', token: t)),
         ),

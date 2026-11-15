@@ -15,13 +15,17 @@ abstract interface class SurfacesPlatform {
   /// Writes the image of one pet: a design, a colour index and a state.
   Future<void> writePet(String design, int color, String state, Uint8List png);
 
-  Future<({bool started, String? id})> startActivity(Map<String, Object?> state);
-  Future<void> updateActivity(Map<String, Object?> state);
-  Future<void> endActivity();
+  /// Keeps one Live Activity in step with [state] (`waiting`, `written`, `computerId`): none when nothing waits, the one
+  /// that exists (this run's or an earlier run's) updated, or one started. Never two. Its stale date is the last update
+  /// plus 15 minutes.
+  Future<({bool active, String? id})> syncActivity(Map<String, Object?> state);
 
   /// A token of the running activity (its own push token), and the token that lets a push start one.
   Stream<({String id, String token})> get activityTokens;
   Stream<String> get pushToStartTokens;
+
+  /// An activity ended (by the app, by the system or by the person): its token is not registered again.
+  Stream<String> get activityEnded;
 }
 
 class ChannelSurfacesPlatform implements SurfacesPlatform {
@@ -34,6 +38,8 @@ class ChannelSurfacesPlatform implements SurfacesPlatform {
           _activity.add((id: '${m['id']}', token: '${m['token']}'));
         case 'pushToStartToken':
           _start.add('${call.arguments}');
+        case 'activityEnded':
+          _ended.add('${call.arguments}');
       }
       return null;
     });
@@ -42,12 +48,16 @@ class ChannelSurfacesPlatform implements SurfacesPlatform {
   final MethodChannel _channel;
   final _activity = StreamController<({String id, String token})>.broadcast();
   final _start = StreamController<String>.broadcast();
+  final _ended = StreamController<String>.broadcast();
 
   @override
   Stream<({String id, String token})> get activityTokens => _activity.stream;
 
   @override
   Stream<String> get pushToStartTokens => _start.stream;
+
+  @override
+  Stream<String> get activityEnded => _ended.stream;
 
   @override
   Future<bool> liveActivities() async {
@@ -69,20 +79,13 @@ class ChannelSurfacesPlatform implements SurfacesPlatform {
       });
 
   @override
-  Future<({bool started, String? id})> startActivity(
+  Future<({bool active, String? id})> syncActivity(
     Map<String, Object?> state,
   ) async {
     final m = await _channel.invokeMethod<Map<Object?, Object?>>(
-      'startActivity',
+      'syncActivity',
       state,
     );
-    return (started: m?['started'] == true, id: m?['id'] as String?);
+    return (active: m?['active'] == true, id: m?['id'] as String?);
   }
-
-  @override
-  Future<void> updateActivity(Map<String, Object?> state) =>
-      _channel.invokeMethod<void>('updateActivity', state);
-
-  @override
-  Future<void> endActivity() => _channel.invokeMethod<void>('endActivity');
 }

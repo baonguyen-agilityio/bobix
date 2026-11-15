@@ -114,7 +114,13 @@ final class PushBridge {
     case "removeComputer":
       do { try storeRemoveComputer(storePath: path, computerId: str("id")); result(nil) } catch { fail(error) }
     case "setHideDetails":
-      do { try storeSetHideDetails(storePath: path, hide: args["hide"] as? Bool ?? false); result(nil) } catch { fail(error) }
+      do {
+        try storeSetHideDetails(storePath: path, hide: args["hide"] as? Bool ?? false)
+        // The widgets and the Live Activity read the switch when they draw: draw them again now, not at the next write.
+        SurfacesBridge.reloadSurfaces()
+        SurfacesBridge.refreshActivities()
+        result(nil)
+      } catch { fail(error) }
     case "hideDetails":
       do { result(try storeHideDetails(storePath: path)) } catch { fail(error) }
     case "openPacket":

@@ -39,16 +39,17 @@ class FakeSurfaces implements SurfacesPlatform {
 
   @override
   Future<void> writePet(String d, int c, String s, Uint8List png) async => pets.add('$d-$c-$s');
+  final states = <Map<String, Object?>>[];
   @override
-  Future<({bool started, String? id})> startActivity(Map<String, Object?> s) async {
-    calls.add('start ${s['waiting']}');
-    return (started: startWorks, id: 'act1');
+  Future<({bool active, String? id})> syncActivity(Map<String, Object?> s) async {
+    calls.add('sync ${s['waiting']}');
+    states.add(s);
+    return (active: startWorks && s['waiting'] != 0, id: 'act1');
   }
 
+  final ended = StreamController<String>.broadcast();
   @override
-  Future<void> updateActivity(Map<String, Object?> s) async => calls.add('update ${s['waiting']}');
-  @override
-  Future<void> endActivity() async => calls.add('end');
+  Stream<String> get activityEnded => ended.stream;
   @override
   Stream<({String id, String token})> get activityTokens => tokens.stream;
   @override
@@ -87,7 +88,7 @@ void main() {
       expect(m.keys.toSet(), {'written', 'computerName', 'computerState', 'todo', 'canStart', 'rows'});
       final rows = m['rows']! as List;
       expect(rows, hasLength(2), reason: 'a todo item is not a row');
-      expect((rows.first as Map).keys.toSet(), {'id', 'name', 'project', 'state', 'pet', 'color', 'ref', 'computer', 'holdSecs'});
+      expect((rows.first as Map).keys.toSet(), {'id', 'name', 'project', 'state', 'pet', 'color', 'ref', 'computer', 'holdSecs', 'at'});
       expect(jsonEncode(m).contains('secret'), isFalse, reason: 'a command never reaches the list');
       expect((rows.first as Map)['state'], 'waiting');
       expect((rows.first as Map)['ref'], 'req0');
@@ -106,6 +107,20 @@ void main() {
       final row = (SharedListJson.toMap(h, computerId: 'c', canStart: false, now: now)['rows']! as List).single as Map;
       expect(row['ref'], '');
       expect(SharedListJson.waiting(h), 0);
+    });
+
+    test('how long a request counts as current is what the computer still holds it for, at most 15 minutes', () {
+      int hold(int? secs) {
+        final h = HomeData(
+          computer: 'M',
+          conn: ConnState.ok,
+          lastContact: '',
+          sessions: [Session(id: 'a', name: 'n', project: 'p', stage: Stage.doing, needsYou: true, waitingId: 'r', holdSecs: secs)],
+        );
+        return ((SharedListJson.toMap(h, computerId: 'c', canStart: true, now: now)['rows']! as List).single as Map)['holdSecs']! as int;
+      }
+
+      expect((hold(120), hold(null), hold(5000)), (120, 900, 900));
     });
 
     test('the computer\'s state: online, asleep, otherwise offline', () {
@@ -134,16 +149,16 @@ void main() {
     test('a failing write does not stop the app or the activity', () async {
       p.listError = Exception('disk');
       await sync.sync(home(), computerId: 'c1', canStart: true);
-      expect(p.calls, ['start 1']);
+      expect(p.calls, ['sync 1']);
     });
 
-    test('the activity starts with a waiting request, follows its count and ends when nothing waits', () async {
+    test('the platform is asked to keep one activity in step with the count each time, and no name goes into it', () async {
       await sync.sync(home(waiting: 1), computerId: 'c1', canStart: true);
       await sync.sync(home(waiting: 2), computerId: 'c1', canStart: true);
       await sync.sync(home(waiting: 0), computerId: 'c1', canStart: true);
-      await sync.sync(home(waiting: 0), computerId: 'c1', canStart: true);
-      await sync.sync(home(waiting: 1), computerId: 'c1', canStart: true);
-      expect(p.calls, ['start 1', 'update 2', 'end', 'start 1']);
+      expect(p.calls, ['sync 1', 'sync 2', 'sync 0']);
+      expect(p.states.first.keys.toSet(), {'waiting', 'written', 'computerId'}, reason: 'counts and a time: the activity draws the shared list');
+      expect(p.states.first['written'], now.millisecondsSinceEpoch);
     });
 
     test('with Live Activities off, only the list is written', () async {
@@ -153,13 +168,6 @@ void main() {
       expect(p.lists, hasLength(1));
     });
 
-    test('an activity that did not start is tried again', () async {
-      p.startWorks = false;
-      await sync.sync(home(), computerId: 'c1', canStart: true);
-      p.startWorks = true;
-      await sync.sync(home(), computerId: 'c1', canStart: true);
-      expect(p.calls, ['start 1', 'start 1']);
-    });
   });
 
   group('the activity tokens', () {

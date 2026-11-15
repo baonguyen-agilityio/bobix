@@ -19,9 +19,9 @@ final class NotificationService: UNNotificationServiceExtension {
     let shaped = PushOpener.live().shape(request.content)
     // The widgets and the Live Activity follow the notice: a request waits, or it was answered.
     if let n = shaped.notice {
-      var list = SharedListStore.load()
-      list.apply(kind: n.kind, ref: n.ref, computer: n.computer, title: n.title)
-      if (try? SharedListStore.save(list)) != nil { WidgetCenter.shared.reloadAllTimelines() }
+      if (try? SharedListStore.update { $0.apply(kind: n.kind, ref: n.ref, computer: n.computer, title: n.title) }) != nil {
+        WidgetCenter.shared.reloadAllTimelines()
+      }
     }
     PushDelivered.removeSuperseded(shaped.supersedes, current: request.identifier) { [weak self] in
       self?.finish(shaped.content)

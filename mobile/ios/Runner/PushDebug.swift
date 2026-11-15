@@ -48,10 +48,11 @@ enum PushDebug {
     }
     try? SharedListStore.save(list, to: dir)
     SurfacesBridge.reloadSurfaces()
-    let state = BobixActivityAttributes.ContentState(
-      waiting: 2, names: ["Add a dark mode switch", "Speed up the search page"], written: now, computerName: "Studio Mac")
+    let state = BobixActivityAttributes.ContentState(waiting: 2, written: now)
     do {
-      let a = try Activity.request(attributes: BobixActivityAttributes(computerId: "c1"), content: .init(state: state, staleDate: nil), pushType: nil)
+      let a = try Activity.request(
+        attributes: BobixActivityAttributes(computerId: "c1"),
+        content: .init(state: state, staleDate: Date(timeIntervalSince1970: Double(now + SharedList.fade) / 1000)), pushType: nil)
       NSLog("bobix surfaces: list written, activity started \(a.id)")
     } catch { NSLog("bobix surfaces: list written, no activity: \(error)") }
   }

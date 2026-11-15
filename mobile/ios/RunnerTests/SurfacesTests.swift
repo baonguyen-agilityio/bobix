@@ -23,32 +23,37 @@ final class SurfacesTests: XCTestCase {
 
   // MARK: the list
 
-  func testStalenessFollowsTheRequestsWaitAndTheComputersState() {
+  func testSurfacesFadeOnAgeWhateverTheLastStateWas() {
     XCTAssertFalse(list().isStale(at: now), "fresh data is not stale")
     XCTAssertTrue(list(ageMinutes: 11, holdSecs: 600).isStale(at: now), "older than the request's wait")
-    XCTAssertFalse(list(waiting: 0, ageMinutes: 60).isStale(at: now), "online with nothing waiting: nothing to go stale")
-    XCTAssertTrue(list(waiting: 0, state: "offline", ageMinutes: 16).isStale(at: now), "offline for 15 minutes")
-    XCTAssertFalse(list(waiting: 0, state: "offline", ageMinutes: 14).isStale(at: now))
-    XCTAssertTrue(list(state: "asleep", ageMinutes: 16, holdSecs: 3600).isStale(at: now))
+    XCTAssertFalse(list(ageMinutes: 14, holdSecs: 3600).isStale(at: now), "a long wait still fades at 15 minutes, not before")
+    XCTAssertTrue(list(ageMinutes: 16, holdSecs: 3600).isStale(at: now), "older than 15 minutes whatever the wait")
+    XCTAssertTrue(list(waiting: 0, ageMinutes: 16).isStale(at: now), "nothing waiting, but old: the computer may be gone")
+    XCTAssertFalse(list(waiting: 0, ageMinutes: 14).isStale(at: now))
+    XCTAssertTrue(list(state: "online", ageMinutes: 16).isStale(at: now), "an online computer seen 16 minutes ago")
   }
 
   func testTheTimelineDimsOnTimeWithoutAReload() {
-    let moments = list(state: "offline").staleMoments()
-    XCTAssertEqual(moments.count, 3, "each request's wait and the 15 minutes offline")
+    let moments = list().staleMoments()
+    XCTAssertEqual(moments.count, 2, "each waiting request's own moment")
     XCTAssertTrue(zip(moments, moments.dropFirst()).allSatisfy { $0 <= $1 })
-    XCTAssertTrue(list(state: "offline").isStale(at: moments[0].addingTimeInterval(1)))
+    XCTAssertTrue(list().isStale(at: moments[0].addingTimeInterval(1)))
+    XCTAssertEqual(list(waiting: 0).staleMoments().count, 1)
   }
 
-  func testTheNotificationExtensionPutsARequestInAndTakesItOut() {
-    var l = SharedList.empty
-    l.apply(kind: "waiting", ref: "r1", computer: "c1", title: "shop-app needs you", now: now)
-    l.apply(kind: "waiting", ref: "r1", computer: "c1", title: "shop-app needs you", now: now)
-    XCTAssertEqual(l.waiting.count, 1, "the same request twice is one row")
-    XCTAssertEqual(l.written, ms)
-    l.apply(kind: "done", ref: "r2", computer: "c1", title: "x", now: now.addingTimeInterval(5))
-    XCTAssertEqual(l.written, ms, "a done notice changes nothing")
-    l.apply(kind: "closed", ref: "r1", computer: "c1", title: "", now: now.addingTimeInterval(9))
-    XCTAssertTrue(l.waiting.isEmpty)
+  func testANoticeRefreshesOnlyItsOwnRow() {
+    var l = list(waiting: 1, ageMinutes: 14)  // r0 was confirmed 14 minutes ago
+    l.apply(kind: "waiting", ref: "newer", computer: "c1", title: "blog needs you", now: now)
+    XCTAssertEqual(l.waiting.count, 2)
+    XCTAssertEqual(l.waiting[1].at, ms)
+    XCTAssertEqual(l.written, ms - 14 * 60_000, "the file-wide time is the app's, not the notice's")
+    XCTAssertTrue(l.isStale(at: now.addingTimeInterval(2 * 60)), "the old request still ages: the new one did not freshen it")
+    l.apply(kind: "waiting", ref: "newer", computer: "c1", title: "again", now: now.addingTimeInterval(5))
+    XCTAssertEqual(l.waiting.count, 2, "the same request twice is one row")
+    l.apply(kind: "done", ref: "x", computer: "c1", title: "x", now: now.addingTimeInterval(6))
+    XCTAssertEqual(l.waiting.count, 2, "a done notice changes nothing")
+    l.apply(kind: "closed", ref: "newer", computer: "c1", title: "", now: now.addingTimeInterval(9))
+    XCTAssertEqual(l.waiting.count, 1)
     XCTAssertEqual(l.written, ms + 9000)
   }
 
@@ -56,7 +61,7 @@ final class SurfacesTests: XCTestCase {
     let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(list())) as! [String: Any]
     XCTAssertEqual(Set(json.keys), ["written", "computerName", "computerState", "todo", "canStart", "rows"])
     let row = (json["rows"] as! [[String: Any]])[0]
-    XCTAssertEqual(Set(row.keys), ["id", "name", "project", "state", "pet", "color", "ref", "computer", "holdSecs"], "no tool input, no command")
+    XCTAssertEqual(Set(row.keys), ["id", "name", "project", "state", "pet", "color", "ref", "computer", "holdSecs", "at"], "no tool input, no command")
   }
 
   func testTheListSurvivesAWriteAndARead() throws {
@@ -67,6 +72,22 @@ final class SurfacesTests: XCTestCase {
     XCTAssertEqual(SharedListStore.load(from: dir), list())
     try Data("{broken".utf8).write(to: dir.appendingPathComponent("surfaces.json"))
     XCTAssertEqual(SharedListStore.load(from: dir), .empty, "a file that cannot be read blanks the surface, never crashes it")
+  }
+
+  func testTwoWritersAtOnceLoseNothingInTheList() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("surfaces-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let group = DispatchGroup()
+    let queue = DispatchQueue(label: "w", attributes: .concurrent)
+    for i in 0..<8 {
+      group.enter()
+      queue.async {
+        try? SharedListStore.update(in: dir) { $0.apply(kind: "waiting", ref: "r\(i)", computer: "c", title: "t", now: Date()) }
+        group.leave()
+      }
+    }
+    group.wait()
+    XCTAssertEqual(SharedListStore.load(from: dir).waiting.count, 8, "every update survived: read, change, write under one lock")
   }
 
   // MARK: links and the activity
@@ -85,17 +106,36 @@ final class SurfacesTests: XCTestCase {
     let s = try JSONDecoder().decode(BobixActivityAttributes.ContentState.self, from: Data(#"{"sealed":"AAAA"}"#.utf8))
     XCTAssertEqual(s.sealed, "AAAA")
     XCTAssertEqual(s.waiting, 0)
-    let (body, fromSealed) = s.resolved(storePath: nil, boxSecret: nil)
-    XCTAssertFalse(fromSealed, "a blob that does not open falls back to the counts the state carries")
-    XCTAssertEqual(body.waiting, 0)
   }
 
-  func testTheAppStartedActivityDrawsItsCounts() {
-    let s = BobixActivityAttributes.ContentState(waiting: 3, names: ["a", "b"], written: ms, computerName: "Studio Mac")
-    let (body, fromSealed) = s.resolved(storePath: nil, boxSecret: nil)
+  func testWithoutASealedBlobTheActivityDrawsTheSharedListNotTheState() {
+    let s = BobixActivityAttributes.ContentState(waiting: 99, written: ms)
+    let (l, fromSealed) = s.resolved(storePath: nil, boxSecret: nil, file: list(waiting: 2), now: now)
     XCTAssertFalse(fromSealed)
-    XCTAssertEqual(body.list.waiting.count, 3, "a row for every counted request, named or not")
-    XCTAssertEqual(body.list.waiting.map(\.name), ["a", "b", ""])
+    XCTAssertEqual(l.waiting.count, 2, "the count in the state is a hint for the system, the list is what is drawn")
+    XCTAssertEqual(l.waiting.first?.name, "Add a dark mode switch")
+  }
+
+  func testASealedBlobThatDoesNotOpenDrawsNothingNeedsYouAndNoRelaySuppliedText() throws {
+    // A relay puts what it likes in a content state: names and a computer it made up are never drawn.
+    let json = #"{"sealed":"AAAA","waiting":5,"names":["Approve: deploy to production"],"computerName":"Your bank"}"#
+    let s = try JSONDecoder().decode(BobixActivityAttributes.ContentState.self, from: Data(json.utf8))
+    let (l, fromSealed) = s.resolved(storePath: nil, boxSecret: nil, file: list(waiting: 2), now: now)
+    XCTAssertFalse(fromSealed)
+    XCTAssertTrue(l.waiting.isEmpty)
+    XCTAssertEqual(l.computerName, "")
+    let m = SurfaceModel(list: l, hide: false, now: now, text: .table(["phone.wg.none": "Nothing needs you"]), petDir: nil)
+    XCTAssertEqual(m.mode, .none)
+    XCTAssertEqual(m.headline, "Nothing needs you")
+  }
+
+  func testTheSystemsStaleFlagDrawsTheActivityStaleWhateverTheListSays() throws {
+    var m = try model(list(waiting: 2))
+    XCTAssertEqual(m.mode, .needs)
+    m.forceStale = true
+    XCTAssertEqual(m.mode, .stale)
+    XCTAssertTrue(m.rows(3).isEmpty)
+    XCTAssertEqual(m.url.absoluteString, "bobix://home")
   }
 
   // MARK: what each surface says

@@ -12,8 +12,8 @@
 "phone.wg.need.1" = "1 phiên cần bạn";
 "phone.wg.need.n" = "{n} phiên cần bạn";
 "phone.wg.none" = "Không có gì cần bạn";
-"phone.wg.nostart" = "Điện thoại này chưa được bắt đầu";
-"phone.wg.offline" = "Máy tính đang tắt";
+"phone.wg.nostart" = "Điện thoại này không có quyền Bắt đầu";
+"phone.wg.offline" = "Máy tính mất kết nối";
 "phone.wg.todo" = "{n} việc cần làm";
 "phone.wg.updated" = "Cập nhật {tm}";
 "phone.wg.working" = "{n} đang chạy";
