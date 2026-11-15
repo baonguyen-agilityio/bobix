@@ -22,6 +22,15 @@ async fn main() {
         eprintln!("{e}");
         std::process::exit(2)
     });
+    // As PID 1 in a container nothing handles SIGTERM by default, so a redeploy would wait for the kill timeout.
+    // Mailboxes live in memory only and the files on disk are written atomically, so stopping at once loses nothing more.
+    #[cfg(unix)]
+    tokio::spawn(async {
+        if let Ok(mut t) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            t.recv().await;
+            std::process::exit(0)
+        }
+    });
     if let Err(e) = run(app, listener).await {
         eprintln!("relay stopped: {e}");
         std::process::exit(1)
