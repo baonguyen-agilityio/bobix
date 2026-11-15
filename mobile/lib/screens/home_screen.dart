@@ -8,14 +8,22 @@ import '../theme/tokens.dart';
 import '../widgets/glass.dart';
 import '../widgets/session_row.dart';
 import '../widgets/status_banner.dart';
-import 'request_screen.dart';
-import 'session_screen.dart';
+import '../features/actions/plan_screen.dart';
+import '../features/actions/question_screen.dart';
+import '../features/actions/request_screen.dart';
+import '../features/actions/session_screen.dart';
 
+/// What a tap opens: the held item (a request, a plan, a question) or, for a request answered elsewhere first, that
+/// request's closed view; otherwise the session.
 void openSession(BuildContext context, Session x) {
-  final held = x.needsYou && !x.answerAtComputer;
-  final page = held || x.answeredAtComputer
-      ? RequestScreen(sessionId: x.id)
-      : SessionScreen(sessionId: x.id);
+  final id = x.waitingId;
+  final Widget page = id == null
+      ? SessionScreen(id: x.id)
+      : switch (x.waitingKind) {
+          WaitingKind.plan => PlanScreen(id: id),
+          WaitingKind.question => QuestionScreen(id: id),
+          _ => RequestScreen(id: id),
+        };
   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
 }
 

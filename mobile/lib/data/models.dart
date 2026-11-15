@@ -1,6 +1,9 @@
 /// What the screens show. The link to the computer produces these (`LinkPhoneData`).
 enum Stage { doing, verify, stuck, todo, done }
 
+/// What a waiting item is: a permission request, a plan to approve, or a question of Claude's.
+enum WaitingKind { request, plan, question }
+
 enum ConnState { ok, noNetwork, relayDown, asleep, offline }
 
 class Session {
@@ -14,6 +17,8 @@ class Session {
     this.answerAtComputer = false,
     this.answeredAtComputer = false,
     this.handledAtComputer = false,
+    this.waitingId,
+    this.waitingKind,
     this.waitingMinutes = 0,
     this.tool,
     this.pullRequest,
@@ -39,6 +44,10 @@ class Session {
   /// Someone is at the computer: the phone gets no pushes for the request, but it can still be answered here and the
   /// first answer wins. Not the same as [answeredAtComputer].
   final bool handledAtComputer;
+
+  /// The id of what waits (the item the action screens open), and what it is. Null when nothing is held for this phone.
+  final String? waitingId;
+  final WaitingKind? waitingKind;
   final int waitingMinutes;
   final String? tool;
   final int? pullRequest;
@@ -73,55 +82,4 @@ class HomeData {
   /// When the computer last sent anything, as the clock time to show ("21:02").
   final String lastContact;
   final List<Session> sessions;
-}
-
-class RequestDetail {
-  const RequestDetail({
-    required this.sessionId,
-    this.tool,
-    required this.command,
-    required this.folder,
-    this.expiresMinutes,
-    this.destructive = false,
-    this.hiddenCharacters = false,
-    this.dangerous = const [],
-  });
-
-  final String sessionId, command, folder;
-
-  /// The tool asking, when the computer says it.
-  final String? tool;
-
-  /// Minutes left to answer; null when the computer waits for as long as it takes.
-  final int? expiresMinutes;
-
-  /// The command deletes things that cannot be brought back.
-  final bool destructive;
-
-  /// The command holds hidden characters (shown in [command] as visible escapes).
-  final bool hiddenCharacters;
-
-  /// Parts of [command] to mark.
-  final List<String> dangerous;
-
-  bool get isLong =>
-      command.length > 240 || '\n'.allMatches(command).length > 5;
-}
-
-class SessionDetail {
-  const SessionDetail({
-    required this.session,
-    required this.activity,
-    required this.lastContact,
-    this.canStop = false,
-  });
-
-  final Session session;
-
-  /// Stop exists only for a session that waits on a held request; a running turn without one cannot be stopped.
-  final bool canStop;
-
-  /// The last lines the computer sent, newest first.
-  final List<String> activity;
-  final String lastContact;
 }

@@ -6,7 +6,7 @@ const SOURCE: &str = include_str!("../../src/ui/i18n.js");
 
 // 'key': 'value' pairs of one language block ("    en: {" up to "    vi: {", "    vi: {" to the end).
 fn block(lang: &str) -> HashMap<&'static str, String> {
-    static PAIR: LazyLock<fancy_regex::Regex> = LazyLock::new(|| fancy_regex::Regex::new(r"'([A-Za-z0-9_.]+)':\s*'((?:[^'\\\n]|\\.)*)'").unwrap());
+    static PAIR: LazyLock<fancy_regex::Regex> = LazyLock::new(|| fancy_regex::Regex::new(r"'([A-Za-z0-9_.-]+)':\s*'((?:[^'\\\n]|\\.)*)'").unwrap());
     let vi = SOURCE.find("\n    vi: {").unwrap_or(SOURCE.len());
     let b = if lang == "vi" { &SOURCE[vi..] } else { &SOURCE[..vi] };
     PAIR.captures_iter(b).flatten().map(|c| {

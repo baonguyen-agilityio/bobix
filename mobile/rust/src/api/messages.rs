@@ -8,7 +8,7 @@ use super::core::{CoreError, LinkStream};
 use bobix_link::command;
 use bobix_link::envelope::{self, Direction, Lane, VersionRange, CURRENT_VERSION};
 use bobix_link::keys::{Identity, SignPublic};
-use bobix_link::messages::{self as m, Choice, CommandBody, Decision, DesktopMsg, Mode, PhoneMsg};
+use bobix_link::messages::{self as m, Choice, CommandBody, Decision, DesktopMsg, Mode, Outcome, PhoneMsg};
 use bobix_link::pairing::{self, Hello, PairingCode, Rights};
 use crypto_box::{PublicKey, SecretKey};
 
@@ -210,9 +210,13 @@ fn limit(body: &CommandBody) -> Result<(), CoreError> {
 
 /// `counter` is the packet counter the command will travel with; `issued_at` the phone's clock in Unix ms.
 pub fn prepare_command(input: CommandInput, phone_id: String, computer_id: String, counter: u64, issued_at: u64) -> Result<PreparedCommand, CoreError> {
+    prepare_command_for(command::new_cid(), input, phone_id, computer_id, counter, issued_at)
+}
+
+/// The same with the command id the screen already shows (it asked for `new_command_id` first): the signature covers it.
+pub fn prepare_command_for(cid: String, input: CommandInput, phone_id: String, computer_id: String, counter: u64, issued_at: u64) -> Result<PreparedCommand, CoreError> {
     let body: CommandBody = input.into();
     limit(&body)?;
-    let cid = command::new_cid();
     let text = serde_json::to_string(&body).map_err(|_| CoreError::Malformed)?;
     let bytes_to_sign = command::command_bytes(CURRENT_VERSION, &phone_id, &computer_id, body.kind(), &body.target(), &cid, counter, issued_at, &text);
     Ok(PreparedCommand { cid, kind: body.kind().to_string(), target: body.target(), bytes_to_sign })
@@ -238,4 +242,74 @@ pub fn finish_command(
 /// Whether the granted rights allow this command (Stop needs the Answer right too).
 pub fn rights_allow(rights: PhoneRights, input: CommandInput) -> bool {
     Rights::from(rights).allows(&input.into())
+}
+
+// ---- results ----
+
+/// What the computer did with a command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResultKind {
+    /// Applied.
+    Ok,
+    /// Someone at the computer answered first.
+    LatePc,
+    /// Another phone answered first (`by` names it).
+    LatePhone,
+    Expired,
+    /// Someone is at the computer; the request is still answerable here.
+    Released,
+    /// What the person saw is not what the computer holds now.
+    Stale,
+    /// Refused (`why` says why: `clock`, `right`, `cut`, ...).
+    Refused,
+    /// The computer never received that command.
+    Unknown,
+}
+
+/// A `result` of the computer, read by the crate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandResultInfo {
+    pub cid: String,
+    pub outcome: ResultKind,
+    pub by: Option<String>,
+    pub why: Option<String>,
+}
+
+/// Reads a message of the computer (its JSON, from `parse_desktop_message`) as a command's result; `None` when it is
+/// another kind of message.
+pub fn command_result(message_json: String) -> Option<CommandResultInfo> {
+    match DesktopMsg::from_json(message_json.as_bytes()) {
+        Ok(DesktopMsg::Result(r)) => Some(CommandResultInfo {
+            cid: r.cid,
+            outcome: match r.outcome {
+                Outcome::Ok => ResultKind::Ok,
+                Outcome::LatePc => ResultKind::LatePc,
+                Outcome::LatePhone => ResultKind::LatePhone,
+                Outcome::Expired => ResultKind::Expired,
+                Outcome::Released => ResultKind::Released,
+                Outcome::Stale => ResultKind::Stale,
+                Outcome::Refused => ResultKind::Refused,
+                Outcome::Unknown => ResultKind::Unknown,
+            },
+            by: r.by,
+            why: r.why,
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_result_is_read_by_the_crate() {
+        let json = |m: DesktopMsg| String::from_utf8(m.to_json()).unwrap();
+        let r = command_result(json(DesktopMsg::Result(m::CmdResult { cid: "c".into(), outcome: Outcome::LatePhone, by: Some("Anna".into()), why: None }))).unwrap();
+        assert_eq!((r.cid.as_str(), r.outcome, r.by.as_deref()), ("c", ResultKind::LatePhone, Some("Anna")));
+        let refused = command_result(json(DesktopMsg::Result(m::CmdResult::refused("c", "clock")))).unwrap();
+        assert_eq!((refused.outcome, refused.why.as_deref()), (ResultKind::Refused, Some("clock")));
+        assert_eq!(command_result(json(DesktopMsg::Revoked { why: "x".into() })), None);
+        assert_eq!(command_result("nonsense".into()), None);
+    }
 }

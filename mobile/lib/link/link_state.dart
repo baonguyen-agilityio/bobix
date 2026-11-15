@@ -40,7 +40,8 @@ class PairedComputer {
     required this.eventReservation,
     this.home,
     this.homeAt,
-  });
+    Set<String>? pending,
+  }) : pending = pending ?? {};
 
   /// The computer's device id.
   final String id;
@@ -65,6 +66,9 @@ class PairedComputer {
   String? home;
   int? homeAt;
 
+  /// The ids of commands sent whose results have not come (ids only, never what they asked): the next `sync` names them.
+  final Set<String> pending;
+
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
@@ -76,6 +80,7 @@ class PairedComputer {
     'eventReservation': eventReservation.toString(),
     'home': home,
     'homeAt': homeAt,
+    'pending': pending.toList(),
   };
 
   static PairedComputer fromJson(Map<String, dynamic> j) => PairedComputer(
@@ -89,6 +94,7 @@ class PairedComputer {
     eventReservation: BigInt.parse(j['eventReservation'] as String),
     home: j['home'] as String?,
     homeAt: j['homeAt'] as int?,
+    pending: {...?(j['pending'] as List?)?.cast<String>()},
   );
 }
 
@@ -128,15 +134,31 @@ class LinkStateStore {
     }
   }
 
-  Future<void> save(PairedComputer c) async {
-    final tmp = File('${_file.path}.tmp');
-    await tmp.writeAsString(jsonEncode({'computer': c.toJson()}), flush: true);
-    await tmp.rename(_file.path);
+  Future<void> _writes = Future.value();
+  bool _erased = false;
+
+  /// Completes when every write asked for so far is done.
+  Future<void> flush() => _writes.catchError((Object _) {});
+
+  /// Writes are one after another: two at once would share the temporary file.
+  Future<void> save(PairedComputer c) {
+    final json = jsonEncode({'computer': c.toJson()});
+    return _writes = _writes.catchError((Object _) {}).then((_) async {
+      if (_erased) {
+        return; // nothing is written back after the pairing was erased
+      }
+      final tmp = File('${_file.path}.tmp');
+      await tmp.writeAsString(json, flush: true);
+      await tmp.rename(_file.path);
+    });
   }
 
-  Future<void> erase() async {
-    for (final f in [_file, File('${_file.path}.tmp')]) {
-      if (await f.exists()) await f.delete();
-    }
+  Future<void> erase() {
+    _erased = true;
+    return _writes = _writes.catchError((Object _) {}).then((_) async {
+      for (final f in [_file, File('${_file.path}.tmp')]) {
+        if (await f.exists()) await f.delete();
+      }
+    });
   }
 }

@@ -40,10 +40,12 @@ const exposed = {
   'relayPairSendFrame',
   'relaySendFrame',
   'relayAckFrame',
+  'relayWithdrawFrame',
   'pairingAnswer',
   'create', // PhoneLink
   'takeCounter', // PhoneLink
   'seal', // PhoneLink
+  'sealWith', // PhoneLink
   'open', // PhoneLink
   'recvState', // PhoneLink
   // messages.rs
@@ -58,8 +60,10 @@ const exposed = {
   'startPreviewMessage',
   'byeMessage',
   'prepareCommand',
+  'prepareCommandFor',
   'finishCommand',
   'rightsAllow',
+  'commandResult',
 };
 
 List<File> filesIn(String dir, String ext, {bool Function(String)? skip}) =>

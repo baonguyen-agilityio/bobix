@@ -8,5 +8,10 @@ import 'src/rust/frb_generated.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
-  runApp(ProviderScope(overrides: [linkPhoneData], child: const BobixApp()));
+  runApp(
+    ProviderScope(
+      overrides: [linkPhoneData, ...linkActionOverrides],
+      child: const BobixApp(),
+    ),
+  );
 }
