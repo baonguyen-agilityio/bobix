@@ -428,13 +428,17 @@ class ComputerLink {
 
   /// The whole content of a request, plan or question, from the computer (in memory only). Null when the phone is not
   /// connected or the computer did not answer.
-  Future<Map<String, dynamic>?> detail(String id, {bool fresh = false}) async {
+  Future<Map<String, dynamic>?> detail(
+    String id, {
+    bool fresh = false,
+    Duration within = const Duration(seconds: 10),
+  }) async {
     final cached = detailCache[id];
     if (cached != null && !fresh) return cached;
     final waiter = _details.putIfAbsent(id, Completer.new);
     try {
       await _sendSealed(await detailRequestMessage(id: id));
-      return await waiter.future.timeout(const Duration(seconds: 10));
+      return await waiter.future.timeout(within);
     } on Object {
       _details.remove(id);
       return null;

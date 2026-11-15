@@ -184,7 +184,7 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
     final source = ref.watch(actionsSourceProvider);
     final c = source.computerName;
     final canSend = ref.watch(canSendProvider);
-    final odd = hasHiddenChars(r.input);
+    final odd = r.odd || hasHiddenChars(r.input);
     final destructive = r.destructive || odd;
     final expired = _left == 0;
     final collapsed = _long && !_open;

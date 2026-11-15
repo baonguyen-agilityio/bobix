@@ -6,6 +6,7 @@ import 'package:markdown/markdown.dart' as md;
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_banner.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
@@ -146,7 +147,7 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
                       s('phone.pl.approve'),
                       kind: BtnKind.primary,
                       icon: Icons.lock_outline,
-                      onPressed: !canSend
+                      onPressed: !canSend || p.cut
                           ? null
                           : () => runCommand(
                               context,
@@ -161,11 +162,18 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              FinePrint(s('phone.pl.auto')),
+              FinePrint(p.cut ? s('phone.pl.cut.s') : s('phone.pl.auto')),
             ],
           ),
           children: [
             const SendOffBanner(),
+            if (p.cut)
+              StatusBanner(
+                kind: BannerKind.warn,
+                icon: Icons.content_cut,
+                title: s('phone.pl.cut'),
+                body: s('phone.pl.cut.d'),
+              ),
             TitleCard(
               title: s('phone.ask.plan.h'),
               subtitle: p.sessionName,

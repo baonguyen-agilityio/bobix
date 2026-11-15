@@ -27,48 +27,65 @@ class QuestionScreen extends ConsumerStatefulWidget {
   ConsumerState<QuestionScreen> createState() => _QuestionScreenState();
 }
 
+/// What the person chose or typed for one part of the question.
+class _PartState {
+  final picked = <int>{};
+  bool other = false;
+  final text = TextEditingController();
+  int get bytes => utf8.encode(text.text).length;
+}
+
 class _QuestionScreenState extends ConsumerState<QuestionScreen> {
-  final _picked = <int>{};
-  bool _other = false;
-  final _text = TextEditingController();
+  List<_PartState> _states = [];
 
   @override
   void dispose() {
-    _text.dispose();
+    for (final st in _states) {
+      st.text.dispose();
+    }
     super.dispose();
   }
 
-  int get _bytes => utf8.encode(_text.text).length;
-
-  void _toggle(QuestionDoc q, int i) => setState(() {
+  void _toggle(QuestionPart q, _PartState st, int i) => setState(() {
     if (q.multiSelect) {
-      _picked.contains(i) ? _picked.remove(i) : _picked.add(i);
+      st.picked.contains(i) ? st.picked.remove(i) : st.picked.add(i);
     } else {
-      _picked
+      st.picked
         ..clear()
         ..add(i);
-      _other = false;
+      st.other = false;
     }
   });
 
-  void _toggleOther(QuestionDoc q) => setState(() {
+  void _toggleOther(QuestionPart q, _PartState st) => setState(() {
     if (q.multiSelect) {
-      _other = !_other;
+      st.other = !st.other;
     } else {
-      _other = true;
-      _picked.clear();
+      st.other = true;
+      st.picked.clear();
     }
   });
 
-  /// The answer exactly as chosen or typed; null while nothing valid is chosen.
-  String? _answer(QuestionDoc q) {
+  /// The answer to one part exactly as chosen or typed; null while nothing valid is chosen.
+  String? _answer(QuestionPart q, _PartState st) {
     final parts = [
-      for (final i in (_picked.toList()..sort())) q.options[i].label,
-      if (_other && _text.text.trim().isNotEmpty) _text.text,
+      for (final i in (st.picked.toList()..sort())) q.options[i].label,
+      if (st.other && st.text.text.trim().isNotEmpty) st.text.text,
     ];
-    if (_other && _text.text.trim().isEmpty) return null;
-    if (_other && _bytes > maxAnswerBytes) return null;
+    if (st.other && st.text.text.trim().isEmpty) return null;
+    if (st.other && st.bytes > maxAnswerBytes) return null;
     return parts.isEmpty ? null : parts.join(', ');
+  }
+
+  /// One answer per part, in order; null until every part has a valid one.
+  List<String>? _answers(QuestionDoc doc) {
+    final out = <String>[];
+    for (var i = 0; i < doc.parts.length; i++) {
+      final a = _answer(doc.parts[i], _states[i]);
+      if (a == null) return null;
+      out.add(a);
+    }
+    return out;
   }
 
   @override
@@ -89,8 +106,10 @@ class _QuestionScreenState extends ConsumerState<QuestionScreen> {
       error: (e, _) =>
           ActionPage(title: s('phone.qs.title'), children: [Text('$e')]),
       data: (q) {
-        final answer = _answer(q);
-        final tooLong = _other && _bytes > maxAnswerBytes;
+        if (_states.length != q.parts.length) {
+          _states = [for (final _ in q.parts) _PartState()];
+        }
+        final answers = _answers(q);
         return ActionPage(
           title: s('phone.qs.title'),
           actions: Column(
@@ -102,7 +121,7 @@ class _QuestionScreenState extends ConsumerState<QuestionScreen> {
                   s('phone.qs.send'),
                   kind: BtnKind.primary,
                   icon: Icons.lock_outline,
-                  onPressed: answer == null || !canSend
+                  onPressed: answers == null || !canSend
                       ? null
                       : () => runCommand(
                           context,
@@ -110,13 +129,14 @@ class _QuestionScreenState extends ConsumerState<QuestionScreen> {
                           kind: CommandKind.answer,
                           target: q.id,
                           shown: q.shownHash,
-                          text: answer,
+                          text: answers.length == 1 ? answers.single : null,
+                          answers: answers,
                           reason: s('phone.un.answer', {'c': c}),
                         ),
                 ),
               ),
               const SizedBox(height: 8),
-              FinePrint(answer == null ? s('phone.qs.pick') : s('phone.qs.n')),
+              FinePrint(answers == null ? s('phone.qs.pick') : s('phone.qs.n')),
             ],
           ),
           children: [
@@ -126,85 +146,115 @@ class _QuestionScreenState extends ConsumerState<QuestionScreen> {
               subtitle: q.sessionName,
               icon: Icons.help_outline,
             ),
-            const SizedBox(height: 14),
-            Semantics(
-              header: true,
-              child: Text(
-                q.question,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  height: 1.25,
-                  color: t.ink,
-                ),
+            for (var i = 0; i < q.parts.length; i++)
+              ..._part(
+                context,
+                s,
+                t,
+                q.parts[i],
+                _states[i],
+                i,
+                q.parts.length,
               ),
-            ),
-            if (q.multiSelect)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  s('phone.qs.multi'),
-                  style: TextStyle(fontSize: 13, color: t.ink3),
-                ),
-              ),
-            const SizedBox(height: 12),
-            for (var i = 0; i < q.options.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _Option(
-                  label: q.options[i].label,
-                  detail: q.options[i].detail,
-                  checked: _picked.contains(i),
-                  multi: q.multiSelect,
-                  onTap: () => _toggle(q, i),
-                ),
-              ),
-            _Option(
-              label: s('phone.qs.other'),
-              detail: s('phone.qs.other.d'),
-              checked: _other,
-              multi: q.multiSelect,
-              onTap: () => _toggleOther(q),
-            ),
-            if (_other) ...[
-              const SizedBox(height: 10),
-              TextField(
-                controller: _text,
-                minLines: 3,
-                maxLines: 8,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  hintText: s('phone.qs.other.ph'),
-                  filled: true,
-                  fillColor: t.surface,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: t.lineStrong),
-                  ),
-                ),
-                style: TextStyle(fontSize: 16, color: t.ink),
-              ),
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  tooLong
-                      ? s('phone.qs.toolong', {'max': maxAnswerBytes})
-                      : s('phone.qs.bytes', {
-                          'n': _bytes,
-                          'max': maxAnswerBytes,
-                        }),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: tooLong ? t.err : t.ink3,
-                  ),
-                ),
-              ),
-            ],
           ],
         );
       },
     );
+  }
+
+  List<Widget> _part(
+    BuildContext context,
+    Strings s,
+    BobixTokens t,
+    QuestionPart q,
+    _PartState st,
+    int index,
+    int count,
+  ) {
+    final tooLong = st.other && st.bytes > maxAnswerBytes;
+    return [
+      const SizedBox(height: 14),
+      if (count > 1)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text(
+            s('phone.qs.part', {'n': index + 1, 'm': count}),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: t.ink3,
+            ),
+          ),
+        ),
+      Semantics(
+        header: true,
+        child: Text(
+          q.question,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            height: 1.25,
+            color: t.ink,
+          ),
+        ),
+      ),
+      if (q.multiSelect)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            s('phone.qs.multi'),
+            style: TextStyle(fontSize: 13, color: t.ink3),
+          ),
+        ),
+      const SizedBox(height: 12),
+      for (var i = 0; i < q.options.length; i++)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _Option(
+            label: q.options[i].label,
+            detail: q.options[i].detail,
+            checked: st.picked.contains(i),
+            multi: q.multiSelect,
+            onTap: () => _toggle(q, st, i),
+          ),
+        ),
+      _Option(
+        label: s('phone.qs.other'),
+        detail: s('phone.qs.other.d'),
+        checked: st.other,
+        multi: q.multiSelect,
+        onTap: () => _toggleOther(q, st),
+      ),
+      if (st.other) ...[
+        const SizedBox(height: 10),
+        TextField(
+          controller: st.text,
+          minLines: 3,
+          maxLines: 8,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            hintText: s('phone.qs.other.ph'),
+            filled: true,
+            fillColor: t.surface,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: t.lineStrong),
+            ),
+          ),
+          style: TextStyle(fontSize: 16, color: t.ink),
+        ),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            tooLong
+                ? s('phone.qs.toolong', {'max': maxAnswerBytes})
+                : s('phone.qs.bytes', {'n': st.bytes, 'max': maxAnswerBytes}),
+            style: TextStyle(fontSize: 12, color: tooLong ? t.err : t.ink3),
+          ),
+        ),
+      ],
+    ];
   }
 }
 

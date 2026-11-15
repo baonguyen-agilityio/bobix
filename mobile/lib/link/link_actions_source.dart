@@ -142,7 +142,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       return _closed[id] ??
           RequestClosed(ClosedBy.computer, at: _clock(_nowMs));
     }
-    final d = await link.detail(id);
+    final d = await link.detail(id, within: answerWithin);
     if (d == null) return const RequestLoading();
     final snap = link.home!;
     final left = w['secondsLeft'] as int?;
@@ -162,6 +162,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
         waitedMinutes: (_nowMs - since) ~/ 60000,
         shownHash: await _shown(d),
         destructive: w['risky'] == true && !cut,
+        odd: d['odd'] == true,
         cut: cut,
         secondsLeft: left == null
             ? null
@@ -188,7 +189,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
 
   Future<Map<String, dynamic>> _item(String id) async {
     await _until(() => _waiting(id), answerWithin);
-    final d = await link.detail(id);
+    final d = await link.detail(id, within: answerWithin);
     if (d == null) throw StateError('the computer did not send $id');
     return d;
   }
@@ -207,6 +208,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       sessionName: _titleOf(id),
       markdown: d['text'] as String,
       shownHash: await _shown(d),
+      cut: d['cut'] == true,
     );
   }
 
@@ -214,16 +216,21 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
   Future<QuestionDoc> question(String id) async {
     final d = await _item(id);
     final qs = (d['questions'] as List).cast<Map<String, dynamic>>();
-    final q = qs.first;
     return QuestionDoc(
       id: id,
       sessionName: _titleOf(id),
-      question: q['text'] as String,
-      options: [
-        for (final o in (q['options'] as List).cast<String>())
-          QuestionOption(o),
+      // Every question is shown, so the hash (over all of them) is of what the person saw.
+      parts: [
+        for (final q in qs)
+          QuestionPart(
+            question: q['text'] as String,
+            options: [
+              for (final o in (q['options'] as List).cast<String>())
+                QuestionOption(o),
+            ],
+            multiSelect: q['multiSelect'] == true,
+          ),
       ],
-      multiSelect: q['multiSelect'] == true,
       shownHash: await _shown(d),
     );
   }
@@ -239,7 +246,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     List<String>? lines;
     var linesAt = '';
     if (rights.activity && link.connected) {
-      final d = await link.detail(id, fresh: true);
+      final d = await link.detail(id, fresh: true, within: answerWithin);
       if (d != null) {
         // The computer sends them oldest first; the screen lists the newest first.
         lines = (d['text'] as String)
@@ -251,15 +258,8 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
         linesAt = _clock(_nowMs);
       }
     }
-    final stop =
-        held != null &&
-        await msg.rightsAllow(
-          rights: rights,
-          input: msg.CommandInput.stop(
-            session: id,
-            request: held['id'] as String,
-          ),
-        );
+    // The computer says whether Stop is possible (`canStop`): a held request, and both the Stop and the Answer right.
+    final stop = info?['canStop'] == true && held != null;
     return SessionDetail(
       id: id,
       name: info?['title'] as String? ?? '',
@@ -357,7 +357,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     ),
     CommandKind.answer => msg.CommandInput.question(
       id: c.target,
-      answers: [c.text ?? ''],
+      answers: c.answers ?? [c.text ?? ''],
       shown: c.shown,
     ),
     CommandKind.stop => msg.CommandInput.stop(
@@ -556,9 +556,11 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     msg.ResultKind.expired => const CommandOutcome(OutcomeKind.expired),
     msg.ResultKind.released => CommandOutcome(
       OutcomeKind.released,
-      why: r.why == 'restarted'
-          ? ReleasedWhy.restarted
-          : ReleasedWhy.answeredAtComputer,
+      why: switch (r.why) {
+        'restart' => ReleasedWhy.restarted,
+        'settings' => ReleasedWhy.settings,
+        _ => ReleasedWhy.answeredAtComputer,
+      },
     ),
     msg.ResultKind.stale => const CommandOutcome(OutcomeKind.stale),
     msg.ResultKind.unknown => const CommandOutcome(OutcomeKind.notReceived),

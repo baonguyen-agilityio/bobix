@@ -124,9 +124,12 @@ void main() {
         final plan = await source.plan('plan1');
         expect(plan.markdown, contains('Add the retry'));
         final q = await source.question('q1');
-        expect(q.question, 'Which database?');
-        expect([for (final o in q.options) o.label], ['SQLite', 'Postgres']);
-        expect(q.multiSelect, isFalse);
+        expect(q.parts.single.question, 'Which database?');
+        expect(
+          [for (final o in q.parts.single.options) o.label],
+          ['SQLite', 'Postgres'],
+        );
+        expect(q.parts.single.multiSelect, isFalse);
         final s = await source.session('s1');
         expect(s.phase, SessionPhase.waiting);
         expect(
@@ -351,19 +354,25 @@ void main() {
       final (source, phone, _, _) = await start('normal');
       // The phone was granted everything here; a start for no project names no command the crate can build.
       final calls = phone.keys.signCalls;
-      final c = Command(
+      Command answer(int bytes) => Command(
         id: source.newCommandId(),
         kind: CommandKind.answer,
         target: 'q1',
         shown: 'x',
-        text: 'y' * 3000,
+        text: 'y' * bytes,
       );
       expect(
-        await source.confirm('Confirm', c),
-        GateResult.failed,
-        reason: 'an answer above the limit is refused before signing',
+        await source.confirm('Confirm', answer(2000)),
+        GateResult.confirmed,
+        reason: 'up to 2 000 bytes is allowed',
       );
-      expect(phone.keys.signCalls, calls);
+      expect(phone.keys.signCalls, calls + 1);
+      expect(
+        await source.confirm('Confirm', answer(2001)),
+        GateResult.failed,
+        reason: 'above the limit it is refused before signing',
+      );
+      expect(phone.keys.signCalls, calls + 1);
     });
   });
 }

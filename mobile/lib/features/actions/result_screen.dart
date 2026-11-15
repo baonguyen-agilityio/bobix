@@ -302,9 +302,15 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
           Icons.undo,
           _Tone.info,
           s('phone.res.released.t'),
-          o.why == ReleasedWhy.restarted
-              ? s('phone.res.released.restart.d', {'c': c})
-              : s('phone.res.released.pc.d', {'c': c}),
+          switch (o.why) {
+            ReleasedWhy.restarted => s('phone.res.released.restart.d', {
+              'c': c,
+            }),
+            ReleasedWhy.settings => s('phone.res.released.settings.d', {
+              'c': c,
+            }),
+            _ => s('phone.res.released.pc.d', {'c': c}),
+          },
         );
       case OutcomeKind.stale:
         return _View(

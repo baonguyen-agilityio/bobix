@@ -15,6 +15,7 @@ class ToolRequest {
     required this.waitedMinutes,
     required this.shownHash,
     this.destructive = false,
+    this.odd = false,
     this.cut = false,
     this.secondsLeft,
     this.released = false,
@@ -26,6 +27,9 @@ class ToolRequest {
 
   /// The computer judged the input destructive.
   final bool destructive;
+
+  /// The computer escaped hidden characters in the text (it says so with `odd`): they show as visible escapes.
+  final bool odd;
 
   /// The computer had to cut the input (20 000 bytes): the end is missing, so it cannot be allowed from the phone.
   final bool cut;
@@ -66,8 +70,13 @@ class PlanDoc {
     required this.sessionName,
     required this.markdown,
     required this.shownHash,
+    this.cut = false,
   });
   final String id, sessionName, markdown, shownHash;
+
+  /// The computer cut the plan (too long, or longer than the cap once hidden characters were escaped): what is shown is
+  /// not all of it, so it cannot be approved from the phone. Sending it back stays possible.
+  final bool cut;
 }
 
 class QuestionOption {
@@ -76,18 +85,28 @@ class QuestionOption {
   final String? detail;
 }
 
+/// One question of Claude's, with its options.
+class QuestionPart {
+  const QuestionPart({
+    required this.question,
+    required this.options,
+    this.multiSelect = false,
+  });
+  final String question;
+  final List<QuestionOption> options;
+  final bool multiSelect;
+}
+
+/// Claude's questions (up to four at once). Every part is shown and answered; the hash covers all of them.
 class QuestionDoc {
   const QuestionDoc({
     required this.id,
     required this.sessionName,
-    required this.question,
-    required this.options,
+    required this.parts,
     required this.shownHash,
-    this.multiSelect = false,
   });
-  final String id, sessionName, question, shownHash;
-  final List<QuestionOption> options;
-  final bool multiSelect;
+  final String id, sessionName, shownHash;
+  final List<QuestionPart> parts;
 }
 
 enum SessionPhase { working, waiting, idle }
@@ -168,9 +187,13 @@ class Command {
     required this.target,
     required this.shown,
     this.text,
+    this.answers,
     this.mode,
   });
   final String id, target, shown;
+
+  /// One answer per question of a multi-part question (the order of the parts); [text] is the answer of a single one.
+  final List<String>? answers;
   final CommandKind kind;
   final String? text;
   final StartMode? mode;
@@ -192,7 +215,7 @@ enum OutcomeKind {
   sessionEnded,
 }
 
-enum ReleasedWhy { restarted, answeredAtComputer }
+enum ReleasedWhy { restarted, settings, answeredAtComputer }
 
 class CommandOutcome {
   const CommandOutcome(this.kind, {this.phone, this.why, this.reason});

@@ -22,6 +22,7 @@ Future<void> runCommand(
   required String reason,
   String? warning,
   String? text,
+  List<String>? answers,
   StartMode? mode,
 }) async {
   if (!ref.read(canSendProvider)) return;
@@ -35,6 +36,7 @@ Future<void> runCommand(
     target: target,
     shown: shown,
     text: text,
+    answers: answers,
     mode: mode,
   );
   final result = await showModalBottomSheet<GateResult>(
