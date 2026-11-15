@@ -166,6 +166,31 @@ class SurfaceModelTest {
     }
 
     @Test
+    fun withHideDetailsOnNoSessionOrProjectNameIsStored() {
+        val dir = Files.createTempDirectory("surfaces-hide").toFile()
+        try {
+            var hide = false
+            val store = SurfaceStore(dir) { hide }
+            val l = list(waiting = listOf(waits(name = "Fix the login")))
+            assertTrue(store.write(l.toJson()))
+            assertTrue("names are kept while the switch is off", java.io.File(dir, "list.json").readText().contains("Fix the login"))
+            hide = true
+            assertTrue(store.update { it }) // what the switch does when it is turned on
+            var text = java.io.File(dir, "list.json").readText()
+            assertFalse(text.contains("Fix the login") || text.contains("\"api\"") || text.contains("\"web\""))
+            assertEquals("the ids, states and times stay", "r1", store.read()!!.waiting.single().id)
+            assertTrue(store.write(l.toJson()))
+            assertFalse("a write by the app", java.io.File(dir, "list.json").readText().contains("Fix the login"))
+            assertTrue(store.update { it!!.withNotice("c1", "waiting", "r9", t0) })
+            text = java.io.File(dir, "list.json").readText()
+            assertFalse("a notice never brings one back", text.contains("Fix the login"))
+            assertEquals(2, store.read()!!.waiting.size)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun theStoreWritesWholeFilesAndRefusesWhatIsNotAList() {
         val dir = Files.createTempDirectory("surfaces").toFile()
         try {

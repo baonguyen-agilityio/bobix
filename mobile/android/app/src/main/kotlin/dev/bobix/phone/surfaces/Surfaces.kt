@@ -33,7 +33,7 @@ object Surfaces {
 
     fun dir(context: Context) = File(context.noBackupFilesDir, "surfaces")
 
-    fun store(context: Context) = SurfaceStore(dir(context))
+    fun store(context: Context) = SurfaceStore(dir(context)) { PushPrefs(context).hideDetails }
 
     fun view(context: Context, now: Long = System.currentTimeMillis()): SurfaceView =
         SurfaceModel.of(store(context).read(), now, PushPrefs(context).hideDetails)
