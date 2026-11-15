@@ -581,6 +581,32 @@ fn a_relay_address_cannot_hide_another_host_behind_userinfo() {
 }
 
 #[test]
+fn a_plain_relay_is_accepted_on_a_private_network_address_and_nowhere_else() {
+    for ok in [
+        "ws://192.168.1.20:8787", "ws://10.0.0.5", "ws://172.16.0.1:9", "ws://172.31.255.255:1/x",
+        "ws://[fd12:3456::1]:8787", "WS://192.168.0.7:8787/",
+    ] {
+        assert!(relay_url_ok(ok), "{ok}");
+    }
+    for bad in [
+        "ws://169.254.169.254", "ws://169.254.1.1:8787", "ws://[fe80::1]:9", "ws://[fd00:::::]", "ws://[fd00::1::2]", "ws://172.32.0.1", "ws://172.15.0.1", "ws://192.169.0.1", "ws://11.0.0.1", "ws://8.8.8.8:8787", "ws://192.168.1.1.evil.example",
+        "ws://192.168.1.256", "ws://192.168.01.1", "ws://192.168.1", "ws://0192.168.1.1", "ws://mac.local:8787", "ws://my-mac",
+        "ws://[2001:db8::1]", "ws://[::ffff:10.0.0.1]", "ws://192.168.1.20@evil.example", "ws://user@192.168.1.20", "ws://192.168.1.20:99999",
+    ] {
+        assert!(!relay_url_ok(bad), "{bad}");
+    }
+    // The address is signed as it is written (lowercase, default port dropped); only loopback is rewritten to `localhost`.
+    for (given, want) in [("ws://192.168.1.20:8787/", "ws://192.168.1.20:8787"), ("ws://192.168.1.20:80", "ws://192.168.1.20"), ("ws://[FD12::1]:9", "ws://[fd12::1]:9")] {
+        assert_eq!(normalize_relay_url(given).as_deref(), Some(want), "{given}");
+    }
+    // A pairing code and the login signature carry it.
+    let k = world().desktop.public();
+    assert!(PairingCode::new("ws://192.168.1.20:8787", k).is_ok());
+    assert!(command::auth_bytes("ws://192.168.1.20:8787", "c").is_some());
+    assert!(command::auth_bytes("ws://8.8.8.8:8787", "c").is_none());
+}
+
+#[test]
 fn the_pairing_secret_is_not_printed_by_debug() {
     let w = world();
     let c = code(&w);

@@ -137,12 +137,10 @@ impl Config {
         }
         c.public_url = match var("RELAY_PUBLIC_URL") {
             Some(u) => u,
-            None if dev => format!("ws://{}", c.addr),
+            None if dev => dev_public_url(&c.addr)?,
             None => return Err("RELAY_PUBLIC_URL is required: the address devices connect to, such as wss://relay.example (a device signs it when it logs in)".into()),
         };
-        if bobix_link::pairing::normalize_relay_url(&c.public_url).is_none() {
-            return Err(format!("RELAY_PUBLIC_URL {} is not an acceptable relay address (wss://host, or ws:// on localhost)", c.public_url));
-        }
+        check_public_url(&c.public_url, dev)?;
         c.client_ip_header = var("CLIENT_IP_HEADER");
         c.relay_id = if dev { var("RELAY_ID").unwrap_or(c.relay_id) } else { need("RELAY_ID")? };
         c.revoked_dir = if dev { var("REVOKED_DIR").map(Into::into) } else { Some(need("REVOKED_DIR")?.into()) };
@@ -168,6 +166,30 @@ impl Config {
     }
 }
 
+/// The address `--dev` checks device signatures against when `RELAY_PUBLIC_URL` is not set: its own, on loopback. Listening
+/// beyond loopback (`RELAY_DEV_FORCE_BIND=1`) there is no address to derive (`0.0.0.0` is not one a device uses), so the
+/// one the phone and the computer connect to must be given, such as `ws://192.168.1.20:8787`.
+pub fn dev_public_url(addr: &str) -> Result<String, String> {
+    let loopback = addr.parse::<std::net::SocketAddr>().map(|a| a.ip().is_loopback()).unwrap_or_else(|_| addr.starts_with("localhost:"));
+    if loopback {
+        return Ok(format!("ws://{addr}"));
+    }
+    Err(format!("--dev listens on {addr}, so RELAY_PUBLIC_URL is required: the address the phone and the computer connect to, such as ws://192.168.1.20:8787 (devices sign it when they log in)"))
+}
+
+/// The address devices sign when they log in. Anywhere: `wss://host`, or `ws://` for a relay on localhost. Only with `--dev`
+/// also a plain `ws://` on a private network address (a development relay on the home Wi-Fi): a relay that keeps state and
+/// sends real push never serves plain text beyond this computer.
+pub fn check_public_url(url: &str, dev: bool) -> Result<(), String> {
+    let Some(norm) = bobix_link::pairing::normalize_relay_url(url) else {
+        return Err(format!("RELAY_PUBLIC_URL {url} is not an acceptable relay address: use wss://host, or ws://localhost for a relay on this computer{}", if dev { ", or ws:// plus a private network address (10.x.x.x, 172.16-31.x.x, 192.168.x.x)" } else { "" }));
+    };
+    if !dev && norm.starts_with("ws://") && !norm.starts_with("ws://localhost") {
+        return Err(format!("RELAY_PUBLIC_URL {url}: a plain ws:// address is for a relay on this computer (ws://localhost); on a private network it is accepted only with --dev. Use wss://host"));
+    }
+    Ok(())
+}
+
 /// `--dev` keeps its revoked list in memory and swallows pushes, so it binds loopback only unless forced.
 pub fn check_dev_bind(addr: &str, forced: bool) -> Result<(), String> {
     let loopback = addr.parse::<std::net::SocketAddr>().map(|a| a.ip().is_loopback()).unwrap_or_else(|_| addr.starts_with("localhost:"));
@@ -179,7 +201,44 @@ pub fn check_dev_bind(addr: &str, forced: bool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::check_dev_bind;
+    use super::{check_dev_bind, check_public_url, dev_public_url};
+
+    #[test]
+    fn a_plain_private_address_is_for_dev_only() {
+        for ok in ["wss://relay.example", "wss://relay.example/ws", "ws://localhost:8787", "ws://127.0.0.1:8787"] {
+            assert!(check_public_url(ok, false).is_ok(), "{ok}");
+            assert!(check_public_url(ok, true).is_ok(), "dev {ok}");
+        }
+        for lan in ["ws://192.168.1.20:8787", "ws://10.1.2.3:8787", "ws://172.16.0.9:1", "ws://[fd00::1]:8787"] {
+            let e = check_public_url(lan, false).unwrap_err();
+            assert!(e.contains("only with --dev"), "{lan}: {e}");
+            assert!(check_public_url(lan, true).is_ok(), "dev {lan}");
+        }
+        for bad in ["ws://203.0.113.5:8787", "ws://relay.example", "ws://169.254.169.254", "ws://0.0.0.0:8787", "http://relay.example"] {
+            assert!(check_public_url(bad, false).is_err() && check_public_url(bad, true).is_err(), "{bad}");
+        }
+        // Each message names the rule that applies: the production one does not offer private addresses, the dev one does.
+        assert!(!check_public_url("ws://relay.example", false).unwrap_err().contains("private network address"));
+        assert!(check_public_url("ws://relay.example", true).unwrap_err().contains("private network address"));
+    }
+
+    #[test]
+    fn dev_derives_its_address_on_loopback_only() {
+        assert_eq!(dev_public_url("127.0.0.1:8787").unwrap(), "ws://127.0.0.1:8787");
+        assert_eq!(dev_public_url("[::1]:8787").unwrap(), "ws://[::1]:8787");
+        assert!(dev_public_url("0.0.0.0:8787").unwrap_err().contains("RELAY_PUBLIC_URL"));
+        assert!(dev_public_url("192.168.1.20:8787").is_err());
+    }
+
+    #[test]
+    fn a_lan_address_given_for_dev_is_acceptable_and_a_public_plain_one_is_not() {
+        for ok in ["ws://192.168.1.20:8787", "ws://10.1.2.3:8787", "ws://[fd00::1]:8787"] {
+            assert!(bobix_link::pairing::normalize_relay_url(ok).is_some(), "{ok}");
+        }
+        for bad in ["ws://203.0.113.5:8787", "ws://relay.example:8787", "ws://0.0.0.0:8787"] {
+            assert!(bobix_link::pairing::normalize_relay_url(bad).is_none(), "{bad}");
+        }
+    }
 
     #[test]
     fn dev_binds_loopback_unless_forced() {
