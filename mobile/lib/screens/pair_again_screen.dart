@@ -57,7 +57,7 @@ class PairAgainScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           PillButton(
-            label: gone ? s('phone.dc.again') : s('phone.again.erase'),
+            label: s('phone.dc.again'),
             primary: true,
             icon: Icons.qr_code_scanner,
             onPressed: link.eraseAndPairAgain,

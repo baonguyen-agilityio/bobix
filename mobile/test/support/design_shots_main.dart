@@ -75,10 +75,13 @@ class Shot {
 
 /// The sessions the design prototype shows on Home, so the two can be set side by side.
 class _DesignData implements PhoneData {
-  const _DesignData();
+  const _DesignData({this.firstWaitingId = 'req-bash'});
+
+  /// The id of the request the first session waits on (a closed request is opened from there).
+  final String firstWaitingId;
   @override
   Stream<HomeData> watchHome() => Stream.value(
-    const HomeData(
+    HomeData(
       computer: 'Studio Mac',
       conn: ConnState.ok,
       lastContact: '21:14',
@@ -90,7 +93,7 @@ class _DesignData implements PhoneData {
           issue: 142,
           stage: Stage.doing,
           needsYou: true,
-          waitingId: 'req-bash',
+          waitingId: firstWaitingId,
           waitingKind: WaitingKind.request,
           waitingMinutes: 2,
           tool: 'Bash',
@@ -453,7 +456,13 @@ class _ShooterState extends State<_Shooter> {
       settingsProvider.overrideWith(
         () => _Settings(widget.dark ? ThemeChoice.dark : ThemeChoice.light),
       ),
-      phoneDataProvider.overrideWithValue(const _DesignData()),
+      phoneDataProvider.overrideWithValue(
+        _DesignData(
+          firstWaitingId: s.id == 'request-closed-pc'
+              ? 'req-closed-pc'
+              : 'req-bash',
+        ),
+      ),
       actionsSourceProvider.overrideWithValue(FixtureActionsSource()),
       biometricGateProvider.overrideWithValue(
         FixtureBiometricGate(

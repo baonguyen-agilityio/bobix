@@ -100,7 +100,7 @@ void main() {
       await pump(tester);
       expect(find.byType(PetView), findsOneWidget);
       expect(tester.widget<PetView>(find.byType(PetView)).state, 'idle');
-      expect(tester.widget<PetView>(find.byType(PetView)).size, 76);
+      expect(tester.widget<PetView>(find.byType(PetView)).size, 96);
       expect(find.text('Bobix'), findsOneWidget);
       expect(find.text('Bobix is locked'), findsOneWidget);
       expect(find.text('Unlock to see your sessions.'), findsOneWidget);

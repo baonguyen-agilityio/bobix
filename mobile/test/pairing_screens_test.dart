@@ -376,12 +376,12 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    expect(find.text('Pair again'), findsOneWidget);
+    expect(find.text('Pair this phone again'), findsOneWidget);
     expect(
       find.textContaining('may have disconnected this phone'),
       findsOneWidget,
     );
-    await tester.tap(find.text('Erase and pair again'));
+    await tester.tap(find.text('Connect again'));
     expect(link.erased, 1);
     expect(link.forgotten, 0);
     await tester.tap(find.text('Erase and forget this computer'));

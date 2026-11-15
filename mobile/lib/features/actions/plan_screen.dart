@@ -284,10 +284,24 @@ class _PlanNoteScreenState extends ConsumerState<PlanNoteScreen> {
           decoration: InputDecoration(
             hintText: s('phone.pn.ph'),
             filled: true,
-            fillColor: t.surface,
+            fillColor: t.isDark ? t.surface2 : const Color(0x99FFFFFF),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: t.lineStrong),
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(
+                color: t.isDark
+                    ? const Color(0x17FFFFFF)
+                    : const Color(0xE6FFFFFF),
+                width: .5,
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(
+                color: t.isDark
+                    ? const Color(0x17FFFFFF)
+                    : const Color(0xE6FFFFFF),
+                width: .5,
+              ),
             ),
           ),
           style: TextStyle(fontSize: 16, color: t.ink),

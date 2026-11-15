@@ -172,7 +172,7 @@ class LockScreen extends ConsumerWidget {
                   design: 'default',
                   color: 0,
                   state: 'idle',
-                  size: 76,
+                  size: 96,
                 ),
                 const SizedBox(height: 12),
                 ExcludeSemantics(
