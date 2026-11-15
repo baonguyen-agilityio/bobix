@@ -1179,9 +1179,12 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
     // The pet card: hover it, press its Open session button.
     r["card"] = ask_for(app, overlay::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); \
         for (let t = 0; t < 8000 && !pets.get({id:?}); t += 100) await w(100); const p = pets.get({id:?}); if (!p) return {{ error: 'no pet' }}; \
-        let bt; /* point at the pet as the mouse does (another pet under a real pointer would end its hover), and keep doing so until the card is there */ \
-        for (let t = 0; t < 8000 && !(bt = p.el.querySelector('.card [data-open]')); t += 100) {{ const b = p.el.querySelector('.spr').getBoundingClientRect(); mouse.x = b.left + b.width / 2; mouse.y = b.top + b.height / 2; mouseMoved = true; p.hoverUntil = Date.now() + 8000; wake(); await w(100); }} \
-        const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '', why: bt ? '' : [p.el.className, p.hover, p.hoverUntil, Date.now(), mouse.x, mouse.y, document.hidden, p.s.state, !!p.el.querySelector('.card')].join(' | ') }}; bt?.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); return r; }})()"), 15);
+        let bt; /* hover it until its card has the button, for at most 10 s. The hover is held for it (hoverUntil) and the pointer goes on it only while it is in the line and is the pet the page would pick there: a pet that is still waiting to come in has its card in the page but hidden, and a pointer put on its hidden place lands on another pet, which the page then picks instead and which ends this pet's hover at once */ \
+        for (let t = 0; t < 10000 && !(bt = p.el.querySelector('.card [data-open]')); t += 100) {{ \
+        mouse.x = mouse.y = -9999; \
+        if (!p.el.classList.contains('line-off')) {{ const b = p.el.querySelector('.spr').getBoundingClientRect(); mouse.x = b.left + b.width / 2; mouse.y = b.top + b.height / 2; if (pointedPet([...pets.values()]) !== p) mouse.x = mouse.y = -9999; }} \
+        mouseMoved = true; p.hoverUntil = Date.now() + 8000; wake(); await w(100); }} \
+        const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '', why: bt ? '' : 'no Open session button on the pet card after 10 s: ' + [p.el.className, p.hover, p.hoverUntil, Date.now(), mouse.x, mouse.y, document.hidden, p.s.state, !!p.el.querySelector('.card')].join(' | ') }}; bt?.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); return r; }})()"), 15);
     r["cardOpened"] = json!(until(&|| hits() == 3));
     // The Overview's Approve on a session that waits for you: Enter on it keeps its own action, a click opens that session.
     r["approve"] = ask_for(app, panel::LABEL, "(async () => { const w = ms => new Promise(o => setTimeout(o, ms)); showTab('overview'); \
