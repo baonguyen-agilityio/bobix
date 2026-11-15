@@ -94,11 +94,18 @@ jobs:
           UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k in sorted(d, reverse=True) if 'iOS' in k for x in d[k] if 'iPhone' in x['name']))")
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
       - name: iOS simulator build (cargokit builds the Rust core into the app; the in-app vector test below proves it is there)
         run: flutter build ios --simulator --debug --no-codesign
       - name: Key store tests (Swift, simulator)
         working-directory: mobile/ios
-        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests
+        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests -parallel-testing-enabled NO
+      # xcodebuild may leave the simulator shut down; Flutter only sees booted simulators, hence "No devices are connected".
+      - name: Boot the simulator again and show what Flutter sees
+        run: |
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+          flutter devices
       - name: Test vectors and key store inside the app (simulator)
         run: |
           flutter test integration_test/core_vectors_test.dart -d "${{ steps.sim.outputs.udid }}"
