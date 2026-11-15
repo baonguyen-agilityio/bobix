@@ -358,7 +358,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     let dirty = b.phones_dirty.swap(false, std::sync::atomic::Ordering::SeqCst);
     let mut c = b.core.lock().unwrap();
     let t = now();
-    let crate::Core { phones: st, pending, sessions, .. } = &mut *c;
+    let crate::Core { phones: st, pending, sessions, work, settings, .. } = &mut *c;
     if st.pairing.as_ref().is_some_and(|p| matches!(p.session.status(t), PairStatus::Expired | PairStatus::Done)) { st.pairing = None; }
     if st.revoking.as_ref().is_some_and(|r| r.pids.is_empty() || t > r.since + MOVE_WAIT_MS) {
         st.revoking = None;
@@ -396,7 +396,8 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         let minute = t >= st.last_home_at + 60_000;
         if dirty || minute || !st.home_now.is_empty() {
             let name = st.computer_name();
-            let home = crate::phone_view::home(sessions, pending, &name, t, if st.asleep { ComputerState::Asleep } else { ComputerState::Online });
+            let groups = crate::phone_view::groups(work, settings, sessions, pending, t);
+            let home = crate::phone_view::home(sessions, pending, &name, t, if st.asleep { ComputerState::Asleep } else { ComputerState::Online }, groups);
             let mut key = home.clone();
             key.sent_at = 0;
             let key = serde_json::to_string(&key).unwrap_or_default();
@@ -935,7 +936,7 @@ pub fn on_sleep(b: &Arc<Bobix>) {
     st.asleep = true;
     st.send(Frame::State { asleep: true });
     let name = st.computer_name();
-    let home = crate::phone_view::home(sessions, pending, &name, now(), ComputerState::Asleep);
+    let home = crate::phone_view::home(sessions, pending, &name, now(), ComputerState::Asleep, vec![]);
     let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
     for id in ids { if let Some((_, f)) = st.tell(&id, &DesktopMsg::Home(home.clone()), None, Some("home".into())) { st.send(f); } }
 }

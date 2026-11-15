@@ -39,7 +39,7 @@ pub fn cut_bytes(s: &str, max: usize) -> String {
 fn folder(p: &str) -> String { p.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or("").into() }
 
 // The sessions and what waits. `groups` stay empty here (the Home groups come with the remote actions).
-pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &str, now: u64, state: ComputerState) -> Home {
+pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &str, now: u64, state: ComputerState, groups: Vec<Group>) -> Home {
     let mut list: Vec<&crate::state::Session> = sessions.values().collect();
     list.sort_by(|a, b| b.updated.cmp(&a.updated));
     let unfinished = sessions.values().filter(|s| matches!(s.state.as_str(), "working" | "waiting")).count() as u32;
@@ -55,7 +55,27 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
         seconds_left: p.until.map(|u| u.saturating_sub(now) / 1000),
     }).collect();
     waiting.sort_by(|a, b| a.id.cmp(&b.id));
-    fit(Home { sent_at: now, computer: Computer { name: preview(computer, 64), state, unfinished }, sessions: infos, groups: vec![], waiting })
+    fit(Home { sent_at: now, computer: Computer { name: preview(computer, 64), state, unfinished }, sessions: infos, groups, waiting })
+}
+
+// The Home groups a phone can carry: its entries are session or waiting ids, so an issue with no session (To do, Done) has
+// no entry yet (the crate's `home` has no issue list). Needs you: what waits; In progress and Waiting for review: the sessions
+// on those issues; Stuck: the session of each stuck item. Empty groups are left out.
+pub fn groups(work: &crate::work::Work, settings: &serde_json::Value, sessions: &Sessions, pending: &HashMap<String, Pending>, now: u64) -> Vec<Group> {
+    let model = crate::model::Model::build(settings, sessions, work);
+    let view = work.view(settings, &model);
+    let list: Vec<serde_json::Value> = sessions.values().map(|s| serde_json::json!({ "id": s.id, "state": s.state, "st": s.state, "since": s.since, "updated": s.updated, "git": s.git })).collect();
+    let st = crate::model::stages(&view, &list, now as f64, &crate::model::local_day);
+    let ids_of = |k: &str| -> Vec<String> {
+        let mut out: Vec<String> = vec![];
+        for x in st[k].as_array().into_iter().flatten() { for id in x[2].as_array().into_iter().flatten().filter_map(|i| i.as_str()) { if !out.iter().any(|o| o == id) { out.push(id.into()); } } }
+        out
+    };
+    let mut needs: Vec<String> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, _)| id.clone()).collect();
+    needs.sort();
+    let stuck: Vec<String> = crate::model::stuck(&model.json(), &list, &settings.clone(), now as f64).iter().filter_map(|x| x["session"].as_str().map(String::from)).fold(vec![], |mut a, s| { if !a.contains(&s) { a.push(s); } a });
+    [(GroupKind::NeedsYou, needs), (GroupKind::InProgress, ids_of("doing")), (GroupKind::WaitingForReview, ids_of("verify")), (GroupKind::Stuck, stuck)]
+        .into_iter().filter(|(_, ids)| !ids.is_empty()).map(|(group, ids)| Group { group, ids }).collect()
 }
 
 // A sealed `home` must fit a frame: previews go first, then the oldest sessions.
@@ -168,7 +188,7 @@ mod tests {
         s.git = Some(serde_json::json!({ "remotes": ["git@host:team/repo.git"] }));
         sessions.insert("s1".into(), s);
         let p = held("rm -rf build && echo ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4", false, false);
-        let h = home(&sessions, &p, "Studio", 1000, ComputerState::Online);
+        let h = home(&sessions, &p, "Studio", 1000, ComputerState::Online, vec![]);
         let json = String::from_utf8(DesktopMsg::Home(h.clone()).to_json()).unwrap();
         for never in ["/Users/someone", "SECRET PROMPT", "remotes", "git@host", "usage", ".jsonl", "ghp_a1B2"] { assert!(!json.contains(never), "{never} in {json}"); }
         assert_eq!(h.sessions[0].project, "app");
@@ -182,7 +202,7 @@ mod tests {
         let mut p = HashMap::new();
         for i in 0..1200 { let (tx, _rx) = tokio::sync::oneshot::channel(); p.insert(format!("{i:032}"), Pending::for_test("s1", false, tx, &"x".repeat(300), false)); }
         sessions.get_mut("s1").unwrap().state = "waiting".into();
-        let h = home(&sessions, &p, "Studio", 1, ComputerState::Online);
+        let h = home(&sessions, &p, "Studio", 1, ComputerState::Online, vec![]);
         assert!(DesktopMsg::Home(h.clone()).to_json().len() <= MAX_FRAME / 4 * 3 - 2048 && h.waiting.iter().all(|w| w.preview.is_empty()));
     }
 
@@ -208,7 +228,7 @@ mod tests {
     fn a_sleeping_computer_says_asleep_with_what_is_unfinished() {
         let mut sessions = Sessions::new();
         for (id, st) in [("a", "working"), ("b", "waiting"), ("c", "idle")] { let mut s = crate::state::Session::default(); s.id = id.into(); s.state = st.into(); sessions.insert(id.into(), s); }
-        let h = home(&sessions, &HashMap::new(), "Studio", 1, ComputerState::Asleep);
+        let h = home(&sessions, &HashMap::new(), "Studio", 1, ComputerState::Asleep, vec![]);
         assert_eq!((h.computer.state, h.computer.unfinished), (ComputerState::Asleep, 2));
     }
 }
