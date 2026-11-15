@@ -6,6 +6,7 @@ use crate::Bobix;
 use std::sync::Arc;
 
 pub fn start(b: &Arc<Bobix>) {
+    if !crate::phones::ENABLED { return; }
     #[cfg(target_os = "macos")]
     mac::start(b.clone());
     #[cfg(not(target_os = "macos"))]

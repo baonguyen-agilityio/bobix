@@ -3093,7 +3093,7 @@ function settingItems() {
   return [...SECTIONS.map(([title, rows]) => ({ id: 'set:' + secKey(title), kind: 'settings', lead: ico(SET_ICON[secKey(title)] || 'settings'), label: T(title),
       sub: rows.filter(r => !['zone', 'prices', 'keys', 'port', 'reset'].includes(r.type)).map(r => T('set.' + r.k)).join(', ') })),
     { id: 'set:habits', kind: 'settings', lead: ico('bulb'), label: T('hab.set.title'), sub: T('hab.set.switch') },
-    { id: 'set:phones', kind: 'settings', lead: ico('plug'), label: T('phones.title'), sub: T('phones.switch') },
+    ...(state.phones ? [{ id: 'set:phones', kind: 'settings', lead: ico('plug'), label: T('phones.title'), sub: T('phones.switch') }] : []), // only a build with phone access (a stable release has none)
     { id: 'setup', kind: 'setup', lead: ico('plug', hooksOk ? 'ok' : 'hot'), label: T('setup.title'), sub: hookText(h) },
     { id: 'feedback', kind: 'settings', lead: ico('chat'), label: T('fb.title'), sub: T('fb.body') }];
 }

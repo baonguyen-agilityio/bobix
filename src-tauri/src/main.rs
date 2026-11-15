@@ -1160,7 +1160,7 @@ fn state(b: B, app: AppHandle) -> Value {
         json!({ "id": name, "label": format!("{name} ({}×{})", (z.width as f64 / f).round(), (z.height as f64 / f).round()) })
     }).collect();
     json!({ "settings": c.settings, "version": version, "news": settings::news_for(&c.settings, &version, &i18n::NEWS), "platform": platform(),
-        "update": c.update, "nodePath": c.node_path, "lastEventAt": c.last_event_at, "hooks": hooks::status(&paths::home()), "screen": screen, "displays": displays })
+        "update": c.update, "nodePath": c.node_path, "lastEventAt": c.last_event_at, "hooks": hooks::status(&paths::home()), "phones": cfg!(feature = "phones"), "screen": screen, "displays": displays })
 }
 
 #[tauri::command]
@@ -1952,29 +1952,39 @@ fn pet_reset(id: String, b: B) -> Value {
 // ---------- phone access (phones.rs) ----------
 #[tauri::command]
 fn question_answer(id: String, answers: Vec<String>, b: B) -> bool { answers::answer_question_now(&b, &id, &answers) }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_state(b: B) -> Value { phones::view(&b) }
 // on: the switch; hold: "phone" | "computer" (when the pets are hidden or paused). Either may be left out.
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_enable(on: Option<bool>, hold: Option<String>, awake: Option<bool>, b: B) -> Result<Value, String> {
     if let Some(h) = hold { phones::set_hold(&b, &h); }
     if let Some(a) = awake { phones::set_awake(&b, a); }
     match on { Some(on) => phones::enable(&b, on), None => Ok(phones::view(&b)) }
 }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_relay(url: String, b: B) -> Result<Value, String> { phones::set_relay(&b, &url) }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_pair_start(b: B) -> Result<Value, String> { phones::pair_start(&b) }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_pair_cancel(b: B) -> Value { phones::pair_cancel(&b) }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_pair_confirm(rights: Value, b: B) -> Result<Value, String> { phones::pair_confirm(&b, phones::rights_of(&rights)) }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_rights(id: String, rights: Value, b: B) -> Result<Value, String> { phones::set_rights(&b, &id, phones::rights_of(&rights)) }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_disconnect(id: String, b: B) -> Result<Value, String> { phones::disconnect(&b, &id) }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_new_identity(b: B) -> Result<Value, String> { phones::new_identity(&b) }
+#[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_log(b: B) -> Value { phones::log(&b) }
 
@@ -1982,7 +1992,9 @@ pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answe
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
     "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act",
-    "question_answer", "phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
+    "question_answer"];
+// Granted and registered only in a build with the `phones` feature (Cargo.toml); the test below keeps this list, the handler and build.rs in step.
+pub const PHONE_COMMANDS: &[&str] = &["phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -2098,7 +2110,17 @@ fn main() {
             settings_set, update_act, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove, usage_effects,
             pet_choose, pet_original, pet_save, pet_reset,
-            question_answer, phones_state, phones_enable, phones_relay, phones_pair_start, phones_pair_cancel, phones_pair_confirm, phones_rights, phones_disconnect, phones_new_identity, phones_log])
+            question_answer,
+            #[cfg(feature = "phones")] phones_state,
+            #[cfg(feature = "phones")] phones_enable,
+            #[cfg(feature = "phones")] phones_relay,
+            #[cfg(feature = "phones")] phones_pair_start,
+            #[cfg(feature = "phones")] phones_pair_cancel,
+            #[cfg(feature = "phones")] phones_pair_confirm,
+            #[cfg(feature = "phones")] phones_rights,
+            #[cfg(feature = "phones")] phones_disconnect,
+            #[cfg(feature = "phones")] phones_new_identity,
+            #[cfg(feature = "phones")] phones_log])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement
@@ -2113,7 +2135,7 @@ fn main() {
 
             // The pages are served by our own server, a "remote" origin to Tauri: only they may call the commands.
             let mut cap = CapabilityBuilder::new("pages").remote(format!("http://127.0.0.1:{port}/*")).windows([overlay::LABEL, panel::LABEL]);
-            for c in COMMANDS { cap = cap.permission(format!("allow-{}", c.replace('_', "-"))); }
+            for c in COMMANDS.iter().chain(cfg!(feature = "phones").then_some(PHONE_COMMANDS).into_iter().flatten()) { cap = cap.permission(format!("allow-{}", c.replace('_', "-"))); }
             app.add_capability(cap)?;
 
             let (eb, sb, ob, assets) = (b.clone(), b.clone(), b.clone(), handle.clone());
@@ -2198,12 +2220,19 @@ mod command_list_tests {
 
     #[test]
     fn every_command_is_in_the_handler_commands_and_build_rs() {
-        let handler: BTreeSet<String> = between(include_str!("main.rs"), concat!("generate_", "handler!["), "])")
-            .split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
-        let granted: BTreeSet<String> = super::COMMANDS.iter().map(|c| c.to_string()).collect();
-        let declared = quoted(between(include_str!("../build.rs"), concat!(".commands", "(&["), "])"));
+        let gate = "#[cfg(feature = \"phones\")] ";
+        let handler_src = between(include_str!("main.rs"), concat!("generate_", "handler!["), "])");
+        let handler: BTreeSet<String> = handler_src.replace(gate, "").split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
+        // exactly the phone commands carry the feature gate, so a stable build registers none of them
+        let gated: BTreeSet<String> = handler_src.split(',').map(|x| x.trim()).filter_map(|x| x.strip_prefix(gate)).map(String::from).collect();
+        let phone_cmds: BTreeSet<String> = super::PHONE_COMMANDS.iter().map(|c| c.to_string()).collect();
+        assert_eq!(gated, phone_cmds, "the gated handler entries vs PHONE_COMMANDS");
+        let granted: BTreeSet<String> = super::COMMANDS.iter().chain(super::PHONE_COMMANDS).map(|c| c.to_string()).collect();
+        let build_rs = include_str!("../build.rs");
+        let declared = quoted(between(build_rs, "const COMMANDS", "fn main")); // both lists
         assert!(handler.len() > 40, "{handler:?}");
-        assert_eq!(granted.len(), super::COMMANDS.len(), "COMMANDS has a name twice");
+        assert_eq!(granted.len(), super::COMMANDS.len() + super::PHONE_COMMANDS.len(), "a command is listed twice");
+        assert!(quoted(between(build_rs, "const PHONE_COMMANDS", "fn main")) == phone_cmds, "build.rs PHONE_COMMANDS vs main.rs");
         assert_eq!(granted, handler, "COMMANDS vs generate_handler!");
         assert_eq!(declared, handler, "build.rs vs generate_handler!");
         let bridge = include_str!("../bridge.js");
