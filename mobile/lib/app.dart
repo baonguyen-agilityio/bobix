@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'data/models.dart';
 import 'data/phone_data.dart';
 import 'l10n/l10n.dart';
 import 'features/actions/start_screen.dart';
@@ -10,6 +11,7 @@ import 'screens/home_screen.dart';
 import 'screens/pair_again_screen.dart';
 import 'screens/unavailable_screen.dart';
 import 'screens/pairing_screens.dart';
+import 'surfaces/surface_sync.dart';
 import 'screens/pets_screen.dart';
 import 'screens/placeholder_screen.dart';
 import 'theme/theme.dart';
@@ -25,6 +27,9 @@ class BobixApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // The Android surfaces outside the app follow the data and send their taps in (nothing on other platforms).
+    ref.watch(surfaceSyncProvider);
+    ref.watch(surfaceOpenListenerProvider);
     return MaterialApp(
       title: 'Bobix',
       debugShowCheckedModeBanner: false,
@@ -65,6 +70,28 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   int _index = _home;
+
+  @override
+  void initState() {
+    super.initState();
+    // A tap on a widget, the Live Update or a tile: the tab it asks for, and the request when it names one.
+    ref.listenManual(surfaceOpenProvider, (_, o) {
+      if (o != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _surfaceOpen(o));
+      }
+    }, fireImmediately: true);
+  }
+
+  void _surfaceOpen(SurfaceOpen o) {
+    if (!mounted) return;
+    ref.read(surfaceOpenProvider.notifier).clear();
+    setState(() => _index = o.target == 'start' ? _start : _home);
+    if (o.target != 'request') return;
+    final sessions =
+        ref.read(homeProvider).value?.sessions ?? const <Session>[];
+    final hit = sessions.where((x) => x.waitingId == o.id);
+    if (hit.isNotEmpty) openSession(context, hit.first);
+  }
 
   @override
   Widget build(BuildContext context) {

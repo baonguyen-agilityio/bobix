@@ -10,4 +10,17 @@
     <string name="phone_push_done_generic">A session has finished</string>
     <string name="phone_biometric_title">Confirm this command</string>
     <string name="phone_biometric_cancel">Cancel</string>
+    <string name="phone_widget_waiting">%1$s waiting for you</string>
+    <string name="phone_widget_nothing">Nothing needs you</string>
+    <string name="phone_widget_updated">Updated %1$s</string>
+    <string name="phone_widget_refresh">Open Bobix to refresh</string>
+    <string name="phone_widget_unpaired">Open Bobix to connect a computer</string>
+    <string name="phone_widget_open">Open to review</string>
+    <string name="phone_widget_desc">How many sessions wait for you</string>
+    <string name="phone_widget_hidden">Details are hidden</string>
+    <string name="phone_live_channel">Waiting requests</string>
+    <string name="phone_live_channel_d">Stays while a session waits for you; shows no details on the lock screen</string>
+    <string name="phone_tile_bobix_label">Bobix</string>
+    <string name="phone_tab_start">Start</string>
+    <string name="phone_min">%1$s min</string>
 </resources>

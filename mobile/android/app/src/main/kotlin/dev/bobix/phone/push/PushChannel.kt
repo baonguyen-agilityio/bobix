@@ -143,7 +143,11 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
                 "removeComputer" -> { peers.remove(call.argument<String>("id") ?: ""); result.success(null) }
                 "openPacket" -> openPacket(call, result)
                 "hideDetails" -> result.success(prefs.hideDetails)
-                "setHideDetails" -> { prefs.hideDetails = call.argument<Boolean>("hide") ?: false; result.success(null) }
+                "setHideDetails" -> {
+                    prefs.hideDetails = call.argument<Boolean>("hide") ?: false
+                    result.success(null)
+                    Thread { dev.bobix.phone.surfaces.Surfaces.refresh(activity.applicationContext) }.start()
+                }
                 else -> result.notImplemented()
             }
         } catch (e: IllegalArgumentException) {

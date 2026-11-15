@@ -20,6 +20,7 @@ class Session {
     this.waitingId,
     this.waitingKind,
     this.waitingMinutes = 0,
+    this.waitingLeftSeconds,
     this.tool,
     this.pullRequest,
     this.petDesign = 'default',
@@ -49,6 +50,10 @@ class Session {
   final String? waitingId;
   final WaitingKind? waitingKind;
   final int waitingMinutes;
+
+  /// Seconds the computer still waits for an answer to what waits, as of when this was built; null when it waits for ever
+  /// (or nothing waits).
+  final int? waitingLeftSeconds;
   final String? tool;
   final int? pullRequest;
   final String petDesign;

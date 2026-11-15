@@ -1,0 +1,159 @@
+package dev.bobix.phone
+
+import dev.bobix.phone.surfaces.SurfaceList
+import dev.bobix.phone.surfaces.SurfaceModel
+import dev.bobix.phone.surfaces.SurfaceState
+import dev.bobix.phone.surfaces.SurfaceStore
+import java.nio.file.Files
+import java.util.TimeZone
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** The list the surfaces read and the rule that decides what each of them shows. All names and times are made up. */
+class SurfaceModelTest {
+    private val min = 60_000L
+    private val t0 = 1_800_000_000_000L
+    private val utc = TimeZone.getTimeZone("UTC")
+    private val pet = SurfaceList.Pet("default", 3, "waiting")
+
+    private fun list(
+        at: Long = t0,
+        online: Boolean = true,
+        waiting: List<SurfaceList.Waiting> = emptyList(),
+        sessions: List<SurfaceList.Row> = listOf(SurfaceList.Row("api", pet)),
+    ) = SurfaceList(at, "c1", "Studio Mac (demo)", online, 2, waiting, sessions)
+
+    private fun waits(left: Int? = null, name: String = "demo-app") = SurfaceList.Waiting("r1", "request", name, 3, left, pet)
+
+    @Test
+    fun noListMeansNothingIsPaired() {
+        val v = SurfaceModel.of(null, t0, hideDetails = false, zone = utc)
+        assertEquals(SurfaceState.UNPAIRED, v.state)
+        assertEquals(0, v.count)
+        assertNull(v.first)
+    }
+
+    @Test
+    fun freshDataSaysWhatWaitsOrThatNothingDoes() {
+        val needs = SurfaceModel.of(list(waiting = listOf(waits())), t0 + 5 * min, false, utc)
+        assertEquals(SurfaceState.NEEDS_YOU, needs.state)
+        assertEquals(1, needs.count)
+        assertEquals("demo-app", needs.rows.single().name)
+        assertEquals("r1", needs.first?.id)
+        assertEquals("Studio Mac (demo)", needs.computer)
+        assertEquals(1, needs.others.size)
+        val none = SurfaceModel.of(list(), t0, false, utc)
+        assertEquals(SurfaceState.NOTHING, none.state)
+        assertNull(none.first)
+    }
+
+    @Test
+    fun aReachableComputerStaysFreshWithoutATimedWait() {
+        assertEquals(SurfaceState.NEEDS_YOU, SurfaceModel.of(list(waiting = listOf(waits())), t0 + 600 * min, false, utc).state)
+    }
+
+    @Test
+    fun anUnreachableComputerMakesDataStaleAfterFifteenMinutes() {
+        val l = list(online = false, waiting = listOf(waits()))
+        assertEquals(SurfaceState.NEEDS_YOU, SurfaceModel.of(l, t0 + 14 * min, false, utc).state)
+        assertEquals(SurfaceState.STALE, SurfaceModel.of(l, t0 + 16 * min, false, utc).state)
+        assertEquals(t0 + 15 * min, SurfaceModel.staleAt(l))
+    }
+
+    @Test
+    fun aWaitShorterThanFifteenMinutesDimsAtTheWait() {
+        val l = list(waiting = listOf(waits(left = 120)))
+        assertEquals(SurfaceState.NEEDS_YOU, SurfaceModel.of(l, t0 + 90_000, false, utc).state)
+        val stale = SurfaceModel.of(l, t0 + 130_000, false, utc)
+        assertEquals(SurfaceState.STALE, stale.state)
+        assertEquals(t0 + 120_000, SurfaceModel.staleAt(l))
+        // The earliest of the two wins, and an unreachable computer with a long wait still dims at fifteen minutes.
+        assertEquals(t0 + 15 * min, SurfaceModel.staleAt(list(online = false, waiting = listOf(waits(left = 3600)))))
+    }
+
+    @Test
+    fun staleDataNeverSaysNeedsYouAndShowsWhenItWasWritten() {
+        val v = SurfaceModel.of(list(at = t0, online = false, waiting = listOf(waits(), waits(name = "api"))), t0 + 20 * min, false, utc)
+        assertEquals(SurfaceState.STALE, v.state)
+        assertEquals(0, v.count)
+        assertTrue(v.rows.isEmpty() && v.others.isEmpty())
+        assertNull("a stale surface opens Home, not a request", v.first)
+        assertEquals("08:00", v.updatedAt) // 1_800_000_000 s is 2027-01-15 08:00:00 UTC
+    }
+
+    @Test
+    fun hideDetailsLeavesCountsOnly() {
+        val v = SurfaceModel.of(list(waiting = listOf(waits(), waits(name = "api"))), t0, hideDetails = true, zone = utc)
+        assertEquals(2, v.count)
+        assertTrue(v.rows.isEmpty() && v.others.isEmpty())
+        assertEquals("", v.computer)
+        assertTrue(v.hidden)
+    }
+
+    @Test
+    fun theListHoldsNoCommandOrToolText() {
+        val keys = mutableSetOf<String>()
+        fun walk(o: Any?) {
+            when (o) {
+                is JSONObject -> o.keys().forEach { keys += it; walk(o.get(it)) }
+                is org.json.JSONArray -> (0 until o.length()).forEach { walk(o.get(it)) }
+            }
+        }
+        walk(JSONObject(list(waiting = listOf(waits())).toJson()))
+        assertEquals(
+            setOf("v", "writtenAt", "computerId", "computer", "online", "todo", "waiting", "sessions", "id", "kind", "name", "waitMinutes", "leftSeconds", "pet", "design", "color", "state"),
+            keys,
+        )
+    }
+
+    @Test
+    fun theListSurvivesAWriteAndARead() {
+        val original = list(waiting = listOf(waits(left = 300)))
+        val back = SurfaceList.parse(original.toJson())!!
+        assertEquals(original.toJson(), back.toJson())
+        assertEquals(300, back.waiting.single().leftSeconds)
+        assertEquals("default-3-waiting.png", back.waiting.single().pet?.petFile)
+        assertNull(SurfaceList.parse("{"))
+        assertNull(SurfaceList.parse("""{"v":2,"writtenAt":1}"""))
+        assertNull(SurfaceList.parse("""{"v":1}"""))
+    }
+
+    @Test
+    fun aPushChangesTheListByItsNotice() {
+        val l = list(waiting = listOf(waits()))
+        val more = l.withNotice("c1", "waiting", "r2", t0 + 1000)
+        assertEquals(listOf("r1", "r2"), more.waiting.map { it.id }.sorted())
+        assertEquals("", more.waiting.first { it.id == "r2" }.name)
+        assertEquals("a second waiting for the same ref replaces it", 2, more.withNotice("c1", "waiting", "r2", t0).waiting.size)
+        assertEquals(listOf("r2"), more.withNotice("c1", "closed", "r1", t0).waiting.map { it.id })
+        assertEquals(l.toJson(), l.withNotice("c1", "done", "r1", t0 + 5).toJson())
+        assertEquals(t0 + 1000, more.writtenAt)
+    }
+
+    @Test
+    fun theStoreWritesWholeFilesAndRefusesWhatIsNotAList() {
+        val dir = Files.createTempDirectory("surfaces").toFile()
+        try {
+            val store = SurfaceStore(dir)
+            assertNull(store.read())
+            assertFalse(store.write("not json"))
+            assertTrue(store.write(list(waiting = listOf(waits())).toJson()))
+            assertNotNull(store.read())
+            assertTrue(store.writePet("default-3-waiting.png", ByteArray(10)))
+            assertNotNull(store.petFile("default-3-waiting.png"))
+            assertFalse("a name that is not a pet file", store.writePet("../escape.png", ByteArray(1)))
+            assertFalse(store.writePet("default-3-waiting.png", ByteArray(300 * 1024)))
+            assertNull(store.petFile("../../list.json"))
+            store.clear()
+            assertNull(store.read())
+            assertNull(store.petFile("default-3-waiting.png"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+}
