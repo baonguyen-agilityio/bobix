@@ -61,6 +61,42 @@ final class SecureKeysTests: XCTestCase {
     XCTAssertEqual(values.isExcludedFromBackup, true)
   }
 
+  func testSecretsLiveInTheSharedAccessGroup() throws {
+    let group = try XCTUnwrap(KeyStore.bundleGroup(), "Info.plist names the group the extensions share")
+    XCTAssertTrue(group.hasSuffix("dev.bobix.phone.keys"))
+    let s = try makeStore()
+    try s.putSecret("auth", Data([1]))
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecAttrAccount as String: "auth",
+      kSecReturnAttributes as String: true,
+    ]
+    var out: CFTypeRef?
+    XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &out), errSecSuccess)
+    XCTAssertEqual((out as? [String: Any])?[kSecAttrAccessGroup as String] as? String, group)
+  }
+
+  func testEraseAllAlsoClearsAnItemWrittenToTheDefaultGroup() throws {
+    let s = try makeStore()
+    // What an earlier build did: no access group, so the app's own default one.
+    let legacy: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecAttrAccount as String: "auth",
+      kSecValueData as String: Data([7]),
+      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+    ]
+    XCTAssertEqual(SecItemAdd(legacy as CFDictionary, nil), errSecSuccess)
+    try s.putSecret("box", Data([8]))
+    try FileManager.default.removeItem(at: marker)
+    let again = try makeStore() // a fresh install: erases everything first
+    XCTAssertNil(again.secret("box"))
+    var out: CFTypeRef?
+    let anyGroup: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "auth"]
+    XCTAssertEqual(SecItemCopyMatching(anyGroup as CFDictionary, &out), errSecItemNotFound, "the old item is gone too")
+  }
+
   func testSigningKeyMakesSignaturesThePublicKeyVerifies() throws {
     let s = try makeStore()
     XCTAssertNil(s.signingPublicKey())

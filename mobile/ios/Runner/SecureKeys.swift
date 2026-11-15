@@ -26,17 +26,26 @@ final class KeyStore {
   private let service: String
   private let signTag: Data
   private let markerURL: URL
+  /// The keychain access group `auth` and `box` live in, shared with the app's extensions (Runner.entitlements lists
+  /// it, Info.plist carries its full name). Nil only where the app has no such group (a test host).
+  private let group: String?
   /// A plain Keychain key in place of the Secure Enclave one. The simulator cannot make a Secure Enclave key with
   /// biometric access control, so the tests use this; it exists only in debug builds and never ships.
   private let software: Bool
 
-  init(service: String = "dev.bobix.phone.keys", software: Bool = false, markerURL: URL? = nil) throws {
+  static func bundleGroup() -> String? {
+    let name = Bundle.main.object(forInfoDictionaryKey: "BobixKeychainGroup") as? String
+    return name?.isEmpty == false ? name : nil
+  }
+
+  init(service: String = "dev.bobix.phone.keys", software: Bool = false, markerURL: URL? = nil, group: String? = KeyStore.bundleGroup()) throws {
     #if !DEBUG
     if software { throw KeyError(message: "the software key is not available in a release build") }
     #endif
     self.service = service
     self.signTag = Data("\(service).sign".utf8)
     self.software = software
+    self.group = group
     self.markerURL = try markerURL ?? KeyStore.defaultMarkerURL()
     try eraseIfFreshInstall()
   }
@@ -68,12 +77,14 @@ final class KeyStore {
   // MARK: auth and box
 
   private func secretQuery(_ name: String) -> [String: Any] {
-    [
+    var query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: name,
       kSecAttrSynchronizable as String: false,
     ]
+    if let group { query[kSecAttrAccessGroup as String] = group }
+    return query
   }
 
   func putSecret(_ name: String, _ data: Data) throws {
@@ -203,6 +214,8 @@ final class KeyStore {
     SecItemDelete(keyQuery as CFDictionary)
   }
 
+  /// Removes every key. The query names no access group, so it reaches the items in all the groups the app can see: the
+  /// shared one and any item an earlier build wrote to the app's own default group.
   func eraseAll() {
     SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrSynchronizable as String: kSecAttrSynchronizableAny] as CFDictionary)
     deleteSigningKey()
