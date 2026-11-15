@@ -201,7 +201,7 @@ talk to each other (a guest network or "client isolation" blocks it).
    Without `RELAY_PUBLIC_URL` it stops and says so. `curl http://192.168.1.20:8787/healthz` from another device should answer `ok`.
    macOS may ask to allow incoming connections for `bobix-relay`: allow it. Stop the relay when you are done: anything on the
    Wi-Fi can reach it meanwhile (packets are sealed end to end, but anyone could open a pairing on it).
-3. **The desktop.** Phone access is part of the normal build; no feature flag. Run it with its own data so it does not touch your installed
+3. **The desktop.** Phone access is in the default build (the `phones` Cargo feature is on by default; see [Phone access is a compile switch](#phone-access-is-a-compile-switch)). Run it with its own data so it does not touch your installed
    Bobix or your real keys (with `BOBIX_DATA_DIR` set, the keys go to a file in it and never to the Keychain):
 
    ```bash
