@@ -73,20 +73,46 @@ final class SecureKeysTests: XCTestCase {
     XCTAssertEqual(values.isExcludedFromBackup, true)
   }
 
-  func testSecretsLiveInTheSharedAccessGroup() throws {
-    let group = try XCTUnwrap(KeyStore.bundleGroup(), "Info.plist names the group the extensions share")
-    XCTAssertTrue(group.hasSuffix("dev.bobix.phone.keys"))
+  func testOnlyBoxLivesInTheGroupTheExtensionsShare() throws {
+    let shared = try XCTUnwrap(KeyStore.bundleGroup(), "Info.plist names the group the extensions share")
+    let own = try XCTUnwrap(KeyStore.bundleAppGroup(), "Info.plist names the group only the app lists")
+    XCTAssertTrue(shared.hasSuffix("dev.bobix.phone.keys"))
+    XCTAssertTrue(own.hasSuffix("dev.bobix.phone.app-keys"))
     let s = try makeStore()
     try s.putSecret("auth", Data([1]))
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: "auth",
-      kSecReturnAttributes as String: true,
+    try s.putSecret("box", Data([2]))
+    func group(of name: String) -> String? {
+      let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: name,
+        kSecReturnAttributes as String: true,
+      ]
+      var out: CFTypeRef?
+      XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &out), errSecSuccess)
+      return (out as? [String: Any])?[kSecAttrAccessGroup as String] as? String
+    }
+    XCTAssertEqual(group(of: "box"), shared)
+    XCTAssertEqual(group(of: "auth"), own, "an extension lists only the shared group, so it cannot reach auth")
+  }
+
+  func testAnAuthKeyAnEarlierBuildLeftInTheSharedGroupMovesToTheAppsOwn() throws {
+    let shared = try XCTUnwrap(KeyStore.bundleGroup())
+    let own = try XCTUnwrap(KeyStore.bundleAppGroup())
+    let s = try makeStore()
+    let legacy: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "auth",
+      kSecAttrAccessGroup as String: shared, kSecValueData as String: Data([9]),
+      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
     ]
-    var out: CFTypeRef?
-    XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &out), errSecSuccess)
-    XCTAssertEqual((out as? [String: Any])?[kSecAttrAccessGroup as String] as? String, group)
+    XCTAssertEqual(SecItemAdd(legacy as CFDictionary, nil), errSecSuccess)
+    XCTAssertEqual(try s.secret("auth"), Data([9]), "still readable: nobody has to pair again")
+    func find(_ g: String) -> OSStatus {
+      SecItemCopyMatching([
+        kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "auth",
+        kSecAttrAccessGroup as String: g,
+      ] as CFDictionary, nil)
+    }
+    XCTAssertEqual(find(own), errSecSuccess)
+    XCTAssertEqual(find(shared), errSecItemNotFound, "the extensions' group no longer holds it")
   }
 
   func testEraseAllAlsoClearsAnItemWrittenToTheDefaultGroup() throws {

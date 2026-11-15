@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The same keychain group as the app (it holds `box`) and the App Group the receive state lives in. -->
+	<!-- Only the shared keychain group (it holds `box`, nothing else) and the App Group the receive state lives in. -->
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>

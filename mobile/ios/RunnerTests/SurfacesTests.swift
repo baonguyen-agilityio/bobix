@@ -90,7 +90,50 @@ final class SurfacesTests: XCTestCase {
     XCTAssertEqual(SharedListStore.load(from: dir).waiting.count, 8, "every update survived: read, change, write under one lock")
   }
 
+  func testHideDetailsKeepsNoNamesInTheFileNotOnlyOffTheScreen() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("surfaces-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let push = dir.appendingPathComponent("push.json").path
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try storeSetHideDetails(storePath: push, hide: false)
+    try SharedListStore.save(list(), to: dir)
+    XCTAssertEqual(SharedListStore.load(from: dir).rows.first?.name, "Add a dark mode switch")
+    try storeSetHideDetails(storePath: push, hide: true)
+    // The app's `home`, and the extension's notice, both write through the same call.
+    try SharedListStore.save(list(), to: dir)
+    try SharedListStore.update(in: dir) { $0.apply(kind: "waiting", ref: "new", computer: "c1", title: "Secret session") }
+    let rows = SharedListStore.load(from: dir).rows
+    XCTAssertTrue(rows.allSatisfy { $0.name.isEmpty && $0.project.isEmpty }, "no session or project name on disk")
+    XCTAssertEqual(rows.filter { $0.state == "waiting" }.count, 3, "the counts stay")
+    let raw = try String(contentsOf: dir.appendingPathComponent("surfaces.json"), encoding: .utf8)
+    XCTAssertFalse(raw.contains("Secret session") || raw.contains("dark mode"))
+  }
+
+  func testNoStoreMeansHideSoNothingIsKept() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("surfaces-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try Data("{broken".utf8).write(to: dir.appendingPathComponent("push.json"))
+    try SharedListStore.save(list(), to: dir)
+    XCTAssertTrue(SharedListStore.load(from: dir).rows.allSatisfy { $0.name.isEmpty }, "a switch that cannot be read counts as on")
+  }
+
   // MARK: links and the activity
+
+  func testFlutterDoesNotRouteALinkItself() {
+    XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: "FlutterDeepLinkingEnabled") as? Bool, false,
+      "SceneDelegate and SurfaceLink are the only readers of bobix://; Flutter would push a route per link")
+  }
+
+  func testClearingThePairingRemovesTheShownNotifications() {
+    final class Spy: DeliveredRemoving {
+      var removed = 0
+      func removeAllDeliveredNotifications() { removed += 1 }
+    }
+    let spy = Spy()
+    PushBridge.clearDelivered(center: spy)
+    XCTAssertEqual(spy.removed, 1)
+  }
 
   func testALinkOnlyPicksAScreen() {
     XCTAssertEqual(SurfaceLink.tap(URL(string: "bobix://request?computer=c1&ref=r1")!), ["computer": "c1", "ref": "r1", "kind": "waiting"])

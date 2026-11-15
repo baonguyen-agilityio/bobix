@@ -48,6 +48,8 @@ void main() {
     expect(await p.hideDetails(), isTrue);
     await p.setHideDetails(true);
     expect(calls.last.arguments, {'hide': true});
+    await p.clearDelivered();
+    expect(calls.last.method, 'clearDelivered');
   });
 
   test('an opened packet and a refused one come back as what they are', () async {

@@ -64,6 +64,9 @@ class FakePushPlatform implements PushPlatform {
   Future<void> openSettings() async => calls.add('openSettings');
 
   @override
+  Future<void> clearDelivered() async => calls.add('clearDelivered');
+
+  @override
   Future<void> setComputer({
     required String id,
     required Uint8List boxPublic,

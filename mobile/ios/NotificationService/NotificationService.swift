@@ -29,7 +29,7 @@ final class NotificationService: UNNotificationServiceExtension {
   }
 
   override func serviceExtensionTimeWillExpire() {
-    // Out of time: the notification as the relay made it (the generic text).
-    if let original { finish(original) }
+    // Out of time: the generic text, not the relay's own words.
+    if let original { finish(PushOpener.unopened(original, strings: .bundled())) }
   }
 }
