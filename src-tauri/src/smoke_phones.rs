@@ -74,7 +74,7 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     // Settings → Phones through the real panel and IPC: the section draws, the commands are granted to the page, and a name
     // with markup is shown as text.
     r["panel"] = crate::smoke::ask_for(app, crate::panel::LABEL, "(async () => { bsel.settings = 'set:phones'; showTab('settings'); \
-        await new Promise(r => setTimeout(r, 2500)); const st = await bridge.phonesState(); const n = document.querySelector('[data-ph-name]'); \
+        for (let t = 0; t < 8000 && !document.querySelector('[data-ph-name]'); t += 100) await new Promise(r => setTimeout(r, 100)); const st = await bridge.phonesState(); const n = document.querySelector('[data-ph-name]'); \
         return { section: !!document.querySelector('#sec-phones'), ipc: st.on === true && st.phones.length === 1, name: n ? n.textContent : null, noMarkup: n ? n.children.length === 0 : false }; })()", 12);
     r["panelOk"] = json!(r["panel"]["section"] == true && r["panel"]["ipc"] == true && r["panel"]["name"] == "Demo <b>phone</b>" && r["panel"]["noMarkup"] == true);
     r["pairedSeen"] = json!(until(10, || fake.saw("paired with")));
@@ -144,6 +144,19 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     fake.say(&format!("answer {r7} allow"));
     r["latePcNoted"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 3));
     let _ = child7.kill();
+    // A long command approved in Claude's own prompt starts at once: a new child of the Claude process marks the request as
+    // maybe answered at the computer, long before its PostToolUse (here the "Claude process" is Bobix itself)
+    let (mut child12, r12) = hold_child(b, "ph12", "sleep 30");
+    { let mut c = b.core.lock().unwrap(); if let Some(s) = c.sessions.get_mut("ph12") { s.pid_is_claude = s.claude_pid; } }
+    r["watchBase"] = json!(until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.child_base.is_some())));
+    let mut sleeper = Command::new("sleep").arg("30").spawn().expect("sleep");
+    // Windows cannot list a process's children (procs::children is empty there), so this hint is not asserted on it
+    r["startedNoticed"] = json!(cfg!(windows) || until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.released))
+        && until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains(&r12) && l.contains("\"atComputer\":true"))));
+    let _ = sleeper.kill();
+    let _ = sleeper.wait();
+    crate::answers::answer(b, &r12, "deny");
+    let _ = child12.wait();
     r["logged"] = json!(phones::log(b).as_array().is_some_and(|a| a.len() >= 3 && a.iter().all(|l| !l["what"].as_str().unwrap_or("").contains("ghp_"))));
     // Claude's questions: an option and free text come back to Claude in the shape the spike recorded
     let q = |n: &str| json!({ "questions": [{ "question": n, "header": "H", "options": [{ "label": "SQLite", "description": "d" }, { "label": "Postgres", "description": "d" }], "multiSelect": false }] });
@@ -199,6 +212,6 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     let busy = b.core.lock().unwrap().sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
     r["awakeHeld"] = json!(!busy || (until(10, || v()["awakeHeld"] == true) && (!cfg!(target_os = "macos") || until(5, caff))));
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "watchBase", "startedNoticed", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }

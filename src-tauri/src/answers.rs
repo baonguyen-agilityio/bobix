@@ -11,7 +11,9 @@ use tokio::sync::oneshot;
 // released: someone is at the computer, so the phones get no more pushes for it; it can still be answered.
 pub struct Pending { pub sid: String, pub tool: String, pub tool_input: Value, pub plan: bool, pub questions: Vec<bobix_link::messages::Question>, pub input: Option<Value>, tx: oneshot::Sender<Option<Value>>, pub raw: String, pub cut: bool, pub risky: bool, pub until: Option<u64>, pub released: bool,
     // held for the phones only (the pets were hidden or paused, nobody at the computer): a settings change does not hand it back
-    pub for_phones: bool, pub held_at: u64 }
+    pub for_phones: bool, pub held_at: u64,
+    // the Claude process's children when the watch first looked: a new one means the command started, so it was approved
+    pub child_base: Option<Vec<u32>> }
 
 impl Pending {
     #[cfg(test)]
@@ -21,7 +23,7 @@ impl Pending {
     pub fn kind(&self) -> Kind { if self.plan { Kind::Plan } else if self.input.is_some() { Kind::Question } else { Kind::Request } }
     #[cfg(test)]
     pub fn for_test(sid: &str, plan: bool, tx: oneshot::Sender<Option<Value>>, raw: &str, cut: bool) -> Pending {
-        Pending { sid: sid.into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0 }
+        Pending { sid: sid.into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0, child_base: None }
     }
 }
 
@@ -251,7 +253,7 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
         "risky": risky, "cut": cut, "odd": odd(&e["tool_input"]), "full": if is_question { escaped(&question_text(&questions)) } else { full_text(e) }, "plan": plan,
         "kind": if is_question { "question" } else if plan { "plan" } else { "request" },
         "questions": questions.iter().map(|q| json!({ "question": escaped(&q.text), "options": q.options.iter().map(|o| escaped(o)).collect::<Vec<_>>(), "multi": q.multi_select })).collect::<Vec<_>>() }));
-    pending.insert(id.clone(), Pending { sid: s.id.clone(), tool: e["tool_name"].as_str().unwrap_or("").into(), tool_input: e["tool_input"].clone(), plan, input: is_question.then(|| e["tool_input"].clone()), raw: if is_question { question_text(&questions) } else { raw_text(e) }, questions, tx, cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now });
+    pending.insert(id.clone(), Pending { sid: s.id.clone(), tool: e["tool_name"].as_str().unwrap_or("").into(), tool_input: e["tool_input"].clone(), plan, input: is_question.then(|| e["tool_input"].clone()), raw: if is_question { question_text(&questions) } else { raw_text(e) }, questions, tx, cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now, child_base: None });
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
     let (b1, id1) = (b.clone(), id.clone());
     tauri::async_runtime::spawn(async move {
@@ -411,7 +413,7 @@ mod tests {
 
     fn pending(c: &mut crate::Core, id: &str, plan: bool) -> oneshot::Receiver<Option<Value>> {
         let (tx, rx) = oneshot::channel();
-        c.pending.insert(id.into(), Pending { sid: "s1".into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0 });
+        c.pending.insert(id.into(), Pending { sid: "s1".into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0, child_base: None });
         rx
     }
 
