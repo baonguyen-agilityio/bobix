@@ -6,6 +6,7 @@ build/
 src-tauri/target/
 crates/*/target/
 crates/*/fuzz/target/
+relay/target/
 src-tauri/gen/
 plans/
 # Claude Code: only .claude/settings.json is shared; worktrees and personal overrides stay local
