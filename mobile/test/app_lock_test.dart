@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,9 +15,12 @@ import 'package:phone/l10n/l10n.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/lock/app_lock.dart';
+import 'package:phone/pets/pet_view.dart';
 import 'package:phone/lock/secure_scope.dart';
 import 'package:phone/src/rust/api/messages.dart';
+import 'package:flutter/rendering.dart';
 import 'package:phone/theme/theme.dart';
+import 'package:phone/theme/tokens.dart';
 
 import 'support/memory_secure_keys.dart';
 
@@ -44,6 +48,59 @@ class _Lang extends Lang {
 }
 
 void main() {
+  for (final dark in [false, true]) {
+    testWidgets(
+      'the cover hides what is behind it (pixels, ${dark ? 'dark' : 'light'})',
+      (tester) async {
+        final key = GlobalKey();
+        tester.view
+          ..physicalSize = const Size(200, 200)
+          ..devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          ProviderScope(
+            child: MaterialApp(
+              theme: bobixTheme(dark ? Brightness.dark : Brightness.light),
+              home: RepaintBoundary(
+                key: key,
+                child: Stack(
+                  children: const [
+                    // Content that would show through a see-through cover: a solid block over the whole page.
+                    Positioned.fill(
+                      child: ColoredBox(color: Color(0xFFFF0000)),
+                    ),
+                    Positioned.fill(child: CoverScreen()),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        final bg = (dark ? BobixTokens.dark : BobixTokens.light).bg;
+        final pixel = await tester.runAsync(() async {
+          final boundary =
+              key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+          final image = await boundary.toImage();
+          final data = (await image.toByteData())!;
+          // A corner, away from the "Bobix" text in the middle.
+          return ui.Color.fromARGB(
+            data.getUint8(3),
+            data.getUint8(0),
+            data.getUint8(1),
+            data.getUint8(2),
+          );
+        });
+        expect(pixel, isNotNull);
+        expect(
+          pixel!.toARGB32(),
+          bg.toARGB32(),
+          reason: 'the red block must not show',
+        );
+      },
+    );
+  }
+
   late Directory tmp;
   late MemorySecureKeys keys;
   setUp(() {
@@ -89,6 +146,21 @@ void main() {
       expect(find.text('the app content'), findsNothing);
       expect(find.text('Bobix is locked'), findsOneWidget);
       expect(keys.authReasons, ['to open Bobix']);
+    },
+  );
+
+  testWidgets(
+    'the lock screen shows the sleeping pet, what is the matter and the way in',
+    (tester) async {
+      keys.authAnswer = AppAuth.cancelled;
+      await pump(tester);
+      expect(find.byType(PetView), findsOneWidget);
+      expect(tester.widget<PetView>(find.byType(PetView)).state, 'idle');
+      expect(tester.widget<PetView>(find.byType(PetView)).size, 96);
+      expect(find.text('Bobix'), findsOneWidget);
+      expect(find.text('Bobix is locked'), findsOneWidget);
+      expect(find.text('Unlock to see your sessions.'), findsOneWidget);
+      expect(find.textContaining('Unlock with'), findsOneWidget);
     },
   );
 
@@ -222,7 +294,10 @@ void main() {
         findsNothing,
         reason: 'mounted but not painted',
       );
-      expect(find.byKey(const Key('draft'), skipOffstage: false), findsOneWidget);
+      expect(
+        find.byKey(const Key('draft'), skipOffstage: false),
+        findsOneWidget,
+      );
       keys.authAnswer = AppAuth.ok;
       await tester.tap(find.textContaining('Unlock with'));
       await settle(tester);

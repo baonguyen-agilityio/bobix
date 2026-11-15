@@ -53,19 +53,34 @@ class Glass extends StatelessWidget {
               (t.isDark ? const Color(0x17FFFFFF) : const Color(0xE6FFFFFF)),
         ),
       ),
-      child: content,
+      // The prototype's specular sheen: bright at the top edge, gone by the middle. Its own layer, because a gradient
+      // in the same decoration would replace the fill.
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: shape,
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: t.isDark
+                ? const [Color(0x0DFFFFFF), Color(0x00FFFFFF)]
+                : const [
+                    Color(0xBFFFFFFF),
+                    Color(0x1FFFFFFF),
+                    Color(0x00FFFFFF),
+                  ],
+            stops: t.isDark ? const [0, .48] : const [0, .42, .6],
+          ),
+        ),
+        child: content,
+      ),
     );
     final blurred = blur && blurEnabled;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: shape,
-        boxShadow: [
-          BoxShadow(
-            color: Color(t.isDark ? 0x4D000000 : 0x12141828),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
-          ),
-        ],
+    return CustomPaint(
+      painter: _OuterShadow(
+        radius: radius,
+        color: Color(t.isDark ? 0x4D000000 : 0x12141828),
+        blur: 14,
+        offset: const Offset(0, 4),
       ),
       child: blurred
           ? ClipRRect(
@@ -78,6 +93,50 @@ class Glass extends StatelessWidget {
           : body,
     );
   }
+}
+
+/// A CSS `box-shadow`: drawn only outside the box. (A Flutter `BoxShadow` is painted under the whole box, so on a
+/// translucent surface it would darken the glass from inside.)
+class _OuterShadow extends CustomPainter {
+  const _OuterShadow({
+    required this.radius,
+    required this.color,
+    required this.blur,
+    required this.offset,
+  });
+
+  final double radius, blur;
+  final Color color;
+  final Offset offset;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final box = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final outside = Path.combine(
+      PathOperation.difference,
+      Path()..addRect((Offset.zero & size).inflate(blur * 3 + 8)),
+      Path()..addRRect(box),
+    );
+    canvas.save();
+    canvas.clipPath(outside);
+    canvas.drawRRect(
+      box.shift(offset),
+      Paint()
+        ..color = color
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur / 2),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_OuterShadow old) =>
+      old.radius != radius ||
+      old.color != color ||
+      old.blur != blur ||
+      old.offset != offset;
 }
 
 class CountBadge extends StatelessWidget {
@@ -125,7 +184,7 @@ class SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
+      padding: const EdgeInsets.fromLTRB(0, 10, 0, 8),
       child: Row(
         children: [
           Flexible(

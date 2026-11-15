@@ -58,11 +58,16 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
   final _pids = <String, String>{};
   final _outcomes = <String, CommandOutcome>{};
   final _closed = <String, RequestClosed>{};
+
+  /// The last open request this phone loaded, per id. Memory only: never written to disk or a log, dropped on dispose.
+  final _lastOpen = <String, ToolRequest>{};
   Set<String> _held = {};
 
   Future<void> dispose() async {
     await _results.cancel();
     await _homes.cancel();
+    _lastOpen.clear();
+    _closed.clear();
   }
 
   int get _nowMs => _now().millisecondsSinceEpoch;
@@ -102,6 +107,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       _closed[id] = RequestClosed(
         ClosedBy.computer,
         at: _clock(snap.receivedAtMs),
+        last: _lastOpen[id],
       );
     }
     _held = now.keys.toSet();
@@ -140,7 +146,11 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     final w = await _until(() => _waiting(id), answerWithin);
     if (w == null) {
       return _closed[id] ??
-          RequestClosed(ClosedBy.computer, at: _clock(_nowMs));
+          RequestClosed(
+            ClosedBy.computer,
+            at: _clock(_nowMs),
+            last: _lastOpen[id],
+          );
     }
     final d = await link.detail(id, within: answerWithin);
     if (d == null) return const RequestLoading();
@@ -148,28 +158,27 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     final left = w['secondsLeft'] as int?;
     final since = link.waitingSince[id] ?? snap.receivedAtMs;
     final cut = d['cut'] == true;
-    return RequestOpen(
-      ToolRequest(
-        id: id,
-        sessionName:
-            _sessionInfo(w['session'] as String)?['title'] as String? ?? '',
-        // The computer names neither the tool nor its kind: the text is shown as a command.
-        tool: '',
-        kind: InputKind.bash,
-        input: d['text'] as String,
-        folder:
-            _sessionInfo(w['session'] as String)?['project'] as String? ?? '',
-        waitedMinutes: (_nowMs - since) ~/ 60000,
-        shownHash: await _shown(d),
-        destructive: w['risky'] == true && !cut,
-        odd: d['odd'] == true,
-        cut: cut,
-        secondsLeft: left == null
-            ? null
-            : left - (_nowMs - snap.receivedAtMs) ~/ 1000,
-        released: w['atComputer'] == true,
-      ),
+    final request = ToolRequest(
+      id: id,
+      sessionName:
+          _sessionInfo(w['session'] as String)?['title'] as String? ?? '',
+      // The computer names neither the tool nor its kind: the text is shown as a command.
+      tool: '',
+      kind: InputKind.bash,
+      input: d['text'] as String,
+      folder: _sessionInfo(w['session'] as String)?['project'] as String? ?? '',
+      waitedMinutes: (_nowMs - since) ~/ 60000,
+      shownHash: await _shown(d),
+      destructive: w['risky'] == true && !cut,
+      odd: d['odd'] == true,
+      cut: cut,
+      secondsLeft: left == null
+          ? null
+          : left - (_nowMs - snap.receivedAtMs) ~/ 1000,
+      released: w['atComputer'] == true,
     );
+    _lastOpen[id] = request;
+    return RequestOpen(request);
   }
 
   /// The hash of what this phone shows of an item: of the text as it is displayed, whether it was cut, and the questions.

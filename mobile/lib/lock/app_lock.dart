@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +8,7 @@ import '../features/actions/action_widgets.dart' show bioName;
 import '../keys/platform_secure_keys.dart';
 import '../keys/secure_keys.dart';
 import '../l10n/l10n.dart';
+import '../pets/pet_view.dart';
 import '../link/link_providers.dart';
 import '../settings/app_settings.dart';
 import '../theme/tokens.dart';
@@ -128,10 +130,7 @@ class _AppLockState extends ConsumerState<AppLock> {
               enabled: !locked,
               child: ExcludeFocus(
                 excluding: locked,
-                child: ExcludeSemantics(
-                  excluding: locked,
-                  child: widget.child,
-                ),
+                child: ExcludeSemantics(excluding: locked, child: widget.child),
               ),
             ),
           ),
@@ -149,7 +148,7 @@ class _AppLockState extends ConsumerState<AppLock> {
   }
 }
 
-/// What is shown instead of the app while it is locked.
+/// What is shown instead of the app while it is locked: the sleeping pet, what is the matter and the way in.
 class LockScreen extends ConsumerWidget {
   const LockScreen({super.key, required this.onUnlock, this.failed = false});
 
@@ -161,43 +160,65 @@ class LockScreen extends ConsumerWidget {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     return Material(
-      color: t.bg,
+      color: Colors.transparent,
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.lock_outline, size: 56, color: t.accent),
-              const SizedBox(height: 16),
-              Semantics(
-                header: true,
-                child: Text(
-                  s('phone.lock.t'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                    color: t.ink,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const PetView(
+                  design: 'default',
+                  color: 0,
+                  state: 'idle',
+                  size: 96,
+                ),
+                const SizedBox(height: 12),
+                ExcludeSemantics(
+                  child: Text(
+                    'Bobix',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -.2,
+                      color: t.ink,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                failed
-                    ? s('phone.lock.failed')
-                    : s('phone.lock.d', {'os': bioName(s)}),
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, height: 1.4, color: t.ink2),
-              ),
-              const SizedBox(height: 24),
-              PillButton(
-                label: s('phone.lock.open', {'os': bioName(s)}),
-                primary: true,
-                icon: Icons.lock_open_outlined,
-                onPressed: onUnlock,
-              ),
-            ],
+                const SizedBox(height: 12),
+                Semantics(
+                  header: true,
+                  child: Text(
+                    s('phone.lock.t'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: t.ink,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 280),
+                  child: Text(
+                    failed ? s('phone.lock.failed') : s('phone.lock.d'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, height: 1.45, color: t.ink2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                PillButton(
+                  label: s('phone.lock.open', {'os': bioName(s)}),
+                  primary: true,
+                  icon: defaultTargetPlatform == TargetPlatform.iOS
+                      ? Icons.face_unlock_outlined
+                      : Icons.fingerprint,
+                  onPressed: onUnlock,
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -4,7 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/app.dart';
 import 'package:phone/data/models.dart';
 import 'package:phone/data/phone_data.dart';
+import 'package:phone/features/actions/actions_source.dart';
+import 'package:phone/log/activity_log.dart';
+import 'package:phone/screens/task_log_screen.dart';
+import 'package:phone/widgets/session_row.dart';
 
+import 'support/actions/fixture_actions_source.dart';
 import 'support/fixture_phone_data.dart';
 
 import 'package:phone/l10n/l10n.dart';
@@ -17,15 +22,69 @@ class _Lang extends Lang {
   String build() => value;
 }
 
-Widget app({String lang = 'en', ConnState conn = ConnState.ok}) =>
-    ProviderScope(
-      key: UniqueKey(),
-      overrides: [
-        langProvider.overrideWith(() => _Lang(lang)),
-        phoneDataProvider.overrideWithValue(FixturePhoneData(connection: conn)),
-      ],
-      child: const BobixApp(home: AppShell()),
-    );
+/// Home data with exactly these sessions.
+class _Sessions implements PhoneData {
+  const _Sessions(this.sessions);
+  final List<Session> sessions;
+
+  @override
+  Stream<HomeData> watchHome() => Stream.value(
+    HomeData(
+      computer: 'Studio Mac',
+      conn: ConnState.ok,
+      lastContact: '21:14',
+      sessions: sessions,
+    ),
+  );
+}
+
+const _asks = <Session>[
+  Session(
+    id: 'a1',
+    name: 'Tidy the cache',
+    project: 'shop',
+    stage: Stage.doing,
+    needsYou: true,
+    waitingId: 'r1',
+    waitingKind: WaitingKind.request,
+    tool: 'Bash',
+  ),
+  Session(
+    id: 'a2',
+    name: 'Rotate the certificates',
+    project: 'infra',
+    stage: Stage.doing,
+    needsYou: true,
+    waitingId: 'p1',
+    waitingKind: WaitingKind.plan,
+  ),
+  Session(
+    id: 'a3',
+    name: 'Add the onboarding screens',
+    project: 'app',
+    stage: Stage.doing,
+    needsYou: true,
+    waitingId: 'q1',
+    waitingKind: WaitingKind.question,
+  ),
+];
+
+Widget app({
+  String lang = 'en',
+  ConnState conn = ConnState.ok,
+  PhoneData? data,
+  ActionsSource? source,
+}) => ProviderScope(
+  key: UniqueKey(),
+  overrides: [
+    langProvider.overrideWith(() => _Lang(lang)),
+    phoneDataProvider.overrideWithValue(
+      data ?? FixturePhoneData(connection: conn),
+    ),
+    if (source != null) actionsSourceProvider.overrideWithValue(source),
+  ],
+  child: const BobixApp(home: AppShell()),
+);
 
 /// A tall phone so a lazy list builds every row.
 void tallScreen(WidgetTester tester) {
@@ -40,6 +99,22 @@ Future<void> settle(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 300));
   }
 }
+
+/// Whether the radio card whose label starts with [label] is picked: read from the `Semantics` it declares, which is
+/// the same on every Flutter version (the semantics matchers and flags are not).
+bool checkedOf(WidgetTester tester, String label) => tester
+    .widget<Semantics>(
+      find
+          .byWidgetPredicate(
+            (w) =>
+                w is Semantics &&
+                (w.properties.label?.startsWith(label) ?? false) &&
+                w.properties.checked != null,
+          )
+          .first,
+    )
+    .properties
+    .checked!;
 
 void main() {
   testWidgets('Home shows the made-up sessions grouped, and the tabs switch', (
@@ -106,11 +181,154 @@ void main() {
     await tester.tap(find.bySemanticsLabel('Pets'));
     await tester.pump();
     expect(
-      find.text('Tap a pet. The ones with a coral ring need you.'),
+      find.text('Tap a pet. The ones with an orange “!” need you.'),
       findsOneWidget,
     );
     expect(find.text('Update the sign-up email'), findsOneWidget);
   });
+
+  testWidgets('Home says what each waiting item asks for by its kind', (
+    tester,
+  ) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app(data: const _Sessions(_asks)));
+    await tester.pump();
+    expect(find.text('Bash wants to run'), findsOneWidget);
+    expect(find.text('Plan ready to approve'), findsOneWidget);
+    expect(find.text('Claude has a question'), findsOneWidget);
+  });
+
+  testWidgets('a task card ends with its log count, which opens that log', (
+    tester,
+  ) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app(source: FixtureActionsSource()));
+    await tester.pump();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AppShell)),
+    );
+    container
+        .read(activityLogProvider.notifier)
+        .record(
+          LogEntry(at: DateTime(2026), kind: LogKind.allow, sessionId: 's1'),
+        );
+    await tester.pump();
+    final pill = find.bySemanticsLabel('Log of Add a dark mode switch');
+    expect(find.descendant(of: pill, matching: find.text('1')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(LogPill).first,
+        matching: find.byIcon(Icons.format_list_bulleted),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(SessionRow).first,
+        matching: find.byIcon(Icons.chevron_right),
+      ),
+      findsOneWidget,
+    );
+    final size = tester.getSize(find.byType(LogPill).first);
+    expect(size.width >= 44 && size.height >= 44, isTrue);
+    await tester.tap(find.byType(LogPill).first);
+    await settle(tester);
+    expect(find.byType(TaskLogScreen), findsOneWidget);
+    expect(find.text('Task log'), findsOneWidget);
+  });
+
+  testWidgets(
+    '"To do" lists the issues, and a tap opens Start with it picked',
+    (tester) async {
+      tallScreen(tester);
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(app(source: FixtureActionsSource()));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('To do'), findsOneWidget);
+      final tickets = find.byIcon(Icons.confirmation_number_outlined);
+      expect(tickets, findsNWidgets(4));
+      await tester.tap(tickets.at(3));
+      await tester.pump();
+      expect(find.text('Start Full'), findsOneWidget);
+      expect(checkedOf(tester, 'Update the sign-up email, shop #35'), isTrue);
+      semantics.dispose();
+    },
+  );
+
+  testWidgets('Pets says per card what the pet is doing', (tester) async {
+    tallScreen(tester);
+    await tester.pumpWidget(
+      app(
+        data: _Sessions([
+          ..._asks,
+          ...const [
+            Session(
+              id: 'd1',
+              name: 'Fix the cart',
+              project: 'shop',
+              stage: Stage.doing,
+              tool: 'Edit',
+            ),
+            Session(
+              id: 'd2',
+              name: 'Update the docs',
+              project: 'blog',
+              stage: Stage.done,
+            ),
+            Session(
+              id: 'd3',
+              name: 'Move the files',
+              project: 'wiki',
+              stage: Stage.stuck,
+            ),
+          ],
+        ]),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('Pets'));
+    await tester.pump();
+    for (final chip in [
+      'Needs your approval',
+      'Plan ready to approve',
+      'Claude has a question',
+      'Now Edit',
+      'Done!',
+      'Finished 3 h ago with no pull request',
+    ]) {
+      expect(find.text(chip), findsOneWidget, reason: chip);
+    }
+    // The project is the card's title and the session its subtitle.
+    expect(find.text('infra'), findsOneWidget);
+    expect(find.text('Rotate the certificates'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Start picks the first issue and shows Full and Quick as radio cards',
+    (tester) async {
+      tallScreen(tester);
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(app(source: FixtureActionsSource()));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('Start'));
+      await tester.pump();
+      bool checked(String label) => checkedOf(tester, label);
+      expect(checked('Fix the cart total rounding, shop #38'), isTrue);
+      expect(checked('Full, '), isTrue);
+      expect(checked('Quick, '), isFalse);
+      expect(find.text('Start Full'), findsOneWidget);
+      await tester.tap(find.text('Quick'));
+      await tester.pump();
+      expect(checked('Quick, '), isTrue);
+      expect(find.text('Start Quick'), findsOneWidget);
+      expect(find.text('Start Full'), findsNothing);
+      expect(find.text('What happens on Studio Mac'), findsOneWidget);
+      expect(find.textContaining('Asks for'), findsOneWidget);
+      semantics.dispose();
+    },
+  );
 
   test('every key exists in both languages with the same {names}', () {
     final names = RegExp(r'\{(\w+)\}');

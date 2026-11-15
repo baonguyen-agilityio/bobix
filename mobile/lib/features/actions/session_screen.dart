@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
+import 'action_screen_parts.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
@@ -39,78 +40,53 @@ class SessionScreen extends ConsumerWidget {
       error: (e, _) =>
           ActionPage(title: s('phone.sv.title'), children: [Text('$e')]),
       data: (d) {
-        final badge = switch (d.phase) {
-          SessionPhase.working => (s('phone.st.working0'), t.info, t.infoBg),
-          SessionPhase.waiting => (
-            s('phone.status.waiting'),
-            t.accentInk,
-            t.accentBg,
+        final (String chip, ChipTone tone) = switch (d.phase) {
+          SessionPhase.working => (
+            d.tool.isEmpty
+                ? s('phone.st.working0')
+                : s('phone.st.working', {'tool': d.tool}),
+            ChipTone.info,
           ),
-          SessionPhase.idle => (s('phone.status.idle'), t.ink2, t.surface3),
+          SessionPhase.waiting => (s('phone.status.waiting'), ChipTone.accent),
+          SessionPhase.idle => (s('phone.status.idle'), ChipTone.plain),
         };
         return ActionPage(
           title: s('phone.sv.title'),
+          onLog: taskLogOpener(context, ref, d.id),
           // Stop is absent, not greyed, when `home` does not allow it; it is off only while sending is off.
           actions: d.stopAllowed
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      child: ActionButton(
-                        s('phone.sv.stop'),
-                        kind: BtnKind.danger,
-                        icon: Icons.lock_outline,
-                        onPressed: !canSend
-                            ? null
-                            : () => runCommand(
-                                context,
-                                ref,
-                                kind: CommandKind.stop,
-                                target: d.id,
-                                shown: d.shownHash,
-                                // Stop names the request it denies.
-                                text: d.waitingOnRequest,
-                                reason: s('phone.un.stop', {'c': c}),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    FinePrint(
-                      canSend
-                          ? s('phone.sv.stop.d', {'c': c})
-                          : s('phone.sv.stop.paused'),
-                    ),
-                  ],
+              ? ActionButtons(
+                  primary: ActionButton(
+                    s('phone.sv.stop'),
+                    kind: BtnKind.danger,
+                    icon: Icons.lock_outline,
+                    onPressed: !canSend
+                        ? null
+                        : () => runCommand(
+                            context,
+                            ref,
+                            kind: CommandKind.stop,
+                            target: d.id,
+                            shown: d.shownHash,
+                            // Stop names the request it denies.
+                            text: d.waitingOnRequest,
+                            reason: s('phone.un.stop', {'c': c}),
+                            project: d.project,
+                          ),
+                  ),
+                  fine: canSend
+                      ? s('phone.sv.stop.d', {'c': c})
+                      : s('phone.sv.stop.paused'),
                 )
               : null,
           children: [
             const SendOffBanner(),
-            TitleCard(
-              title: d.name,
-              subtitle:
-                  '${d.issue == null ? d.project : '${d.project} #${d.issue}'} · ${s('phone.rq.on', {'c': c})}',
-              icon: Icons.bolt_outlined,
-              chips: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: badge.$3,
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child: Text(
-                    badge.$1,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: badge.$2,
-                    ),
-                  ),
-                ),
-              ],
+            ActionSessionCard(
+              id: d.id,
+              name: d.name,
+              chip: chip,
+              tone: tone,
+              where: d.issue == null ? d.project : '${d.project} #${d.issue}',
             ),
             if (d.waitingOnRequest != null) ...[
               const SizedBox(height: 12),

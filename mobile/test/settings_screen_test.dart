@@ -16,6 +16,9 @@ import 'package:phone/push/push_providers.dart';
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
+import 'package:phone/log/activity_log.dart';
+import 'package:phone/screens/app_log_screen.dart';
+import 'package:phone/widgets/glass.dart' show CountBadge;
 import 'package:phone/screens/computers_sheet.dart';
 import 'package:phone/screens/settings_screen.dart';
 import 'package:phone/src/rust/api/messages.dart';
@@ -29,6 +32,13 @@ class _Lang extends Lang {
   final String value;
   @override
   String build() => value;
+}
+
+class _Log extends ActivityLog {
+  _Log(this.entries);
+  final List<LogEntry> entries;
+  @override
+  List<LogEntry> build() => entries;
 }
 
 class _FakeLink extends LinkController {
@@ -94,6 +104,7 @@ void main() {
     ConnState conn = ConnState.ok,
     Widget screen = const SettingsScreen(),
     Brightness brightness = Brightness.light,
+    List<Override> extra = const [],
   }) async {
     tester.view.physicalSize = const Size(400, 2600);
     tester.view.devicePixelRatio = 1;
@@ -109,6 +120,7 @@ void main() {
       linkControllerProvider.overrideWith(() => link),
       secureKeysProvider.overrideWithValue(keys),
       pushPlatformProvider.overrideWithValue(FakePushPlatform()),
+      ...extra,
     ];
     await tester.pumpWidget(
       ProviderScope(
@@ -161,18 +173,12 @@ void main() {
       expect(find.byIcon(Icons.check), findsNWidgets(3));
       expect(find.byIcon(Icons.close), findsNWidgets(3));
       for (final (title, d) in [
-        ('Allow or deny requests', 'Allow or deny one request at a time'),
+        ('Answer permission requests', 'Allow or deny one request at a time'),
+        ('Answer Claude’s questions', 'Pick an option or type an answer'),
         ('Approve or send back plans', 'With an optional note'),
-        ('Answer questions', 'Pick an option or type an answer'),
         ('Start tickets', 'Full or Quick, in a folder that exists'),
-        (
-          'Stop a waiting session',
-          'Interrupts the turn; the session stays open',
-        ),
-        (
-          'See what sessions are doing',
-          'The last lines of each session, read only',
-        ),
+        ('Stop a session', 'Interrupts the turn; the session stays open'),
+        ('See session activity', 'The last lines of each session, read only'),
       ]) {
         expect(find.text(title), findsOneWidget);
         expect(find.text(d), findsOneWidget);
@@ -371,7 +377,128 @@ void main() {
 
   testWidgets('the Safety group has the Hide details switch', (tester) async {
     await pump(tester, paired: computer());
-    expect(find.text('Hide details'), findsOneWidget);
+    expect(find.text('Hide details on the lock screen'), findsOneWidget);
+    expect(
+      find.text('Notifications only say “a session needs you”.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'the biometric check before each command is a row that is always on',
+    (tester) async {
+      await pump(tester, paired: computer());
+      expect(find.text('fingerprint before each command'), findsOneWidget);
+      expect(find.text('Asked every time, not only once.'), findsOneWidget);
+      expect(find.text('Always on'), findsOneWidget);
+      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+      // Always on: nothing to switch. The two switches are "open" and "hide details".
+      expect(find.byType(Switch), findsNWidgets(2));
+      expect(find.text('No “Always allow”'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Disconnect sits in the computer row, and Connect another computer under it',
+    (tester) async {
+      await pump(tester, paired: computer());
+      final disconnect = tester.getCenter(find.text('Disconnect'));
+      final name = tester.getCenter(find.text('Studio Mac (demo)'));
+      expect((disconnect.dy - name.dy).abs(), lessThan(30), reason: 'same row');
+      expect(disconnect.dx, greaterThan(name.dx), reason: 'at the end of it');
+      expect(
+        tester.getCenter(find.text('Connect another computer')).dy,
+        greaterThan(disconnect.dy),
+      );
+      // The capsule is a 44 pt target.
+      expect(
+        tester
+            .getSize(
+              find
+                  .ancestor(
+                    of: find.text('Disconnect'),
+                    matching: find.byType(InkWell),
+                  )
+                  .first,
+            )
+            .height,
+        greaterThanOrEqualTo(44),
+      );
+    },
+  );
+
+  testWidgets('Widgets: a row that says where they are added', (tester) async {
+    await pump(tester, paired: computer());
+    expect(find.text('Widgets'), findsNWidgets(2), reason: 'group and row');
+    expect(
+      find.text('Home Screen, Lock Screen, Live Activity, Control Center'),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.text('Home Screen, Lock Screen, Live Activity, Control Center'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(WidgetsScreen), findsOneWidget);
+    expect(find.text('Home Screen'), findsWidgets);
+    expect(find.text('Lock Screen'), findsWidgets);
+    expect(find.text('Control Center'), findsWidgets);
+    expect(find.text('Preview state'), findsOneWidget);
+  });
+
+  testWidgets(
+    'App log: the row counts the lines that belong to no session and opens the log',
+    (tester) async {
+      await pump(
+        tester,
+        paired: computer(),
+        extra: [
+          activityLogProvider.overrideWith(
+            () => _Log([
+              LogEntry(at: DateTime(2026, 11, 11, 9), kind: LogKind.pair),
+              LogEntry(
+                at: DateTime(2026, 11, 11, 10),
+                kind: LogKind.disconnect,
+              ),
+              LogEntry(
+                at: DateTime(2026, 11, 11, 11),
+                kind: LogKind.allow,
+                sessionId: 's1',
+              ),
+            ]),
+          ),
+        ],
+      );
+      expect(
+        find.text('Pairing, disconnects, tickets started'),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byType(CountBadge), matching: find.text('2')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Pairing, disconnects, tickets started'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AppLogScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets('theme and language are pickers of cards with a swatch each', (
+    tester,
+  ) async {
+    await pump(tester, paired: computer());
+    expect(find.text('Aa'), findsNWidgets(3));
+    for (final name in ['Light', 'Dark', 'System', 'English', 'Tiếng Việt']) {
+      expect(find.text(name), findsOneWidget, reason: name);
+    }
+    expect(find.text('EN'), findsOneWidget);
+    expect(find.text('VI'), findsOneWidget);
+    await tester.tap(find.text('Dark'));
+    await tester.pump();
+    await realWait(tester);
+    final saved = jsonDecode(
+      File('${tmp.path}/app-settings.json').readAsStringSync(),
+    ) as Map;
+    expect(saved['theme'], 'dark');
   });
 
   testWidgets(
@@ -515,11 +642,11 @@ void main() {
       await pump(tester, paired: computer(), lang: lang);
       expect(tester.takeException(), isNull, reason: lang);
       await pump(tester, paired: computer(), lang: lang);
-      await tester.tap(
-        find.text(
-          lang == 'en' ? 'What this phone may do' : 'Quyền của điện thoại này',
-        ),
+      final row = find.text(
+        lang == 'en' ? 'What this phone may do' : 'Quyền của điện thoại này',
       );
+      await tester.scrollUntilVisible(row, 200);
+      await tester.tap(row);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'permissions $lang');
     }

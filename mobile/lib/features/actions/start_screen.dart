@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models.dart';
+import '../../data/phone_data.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
@@ -17,7 +19,30 @@ final startIssuesProvider = FutureProvider.autoDispose<List<StartIssue>>(
   (ref) => ref.watch(actionsSourceProvider).issues(),
 );
 
-/// The Start tab: pick an issue, choose Full or Quick, then ask the computer what would run.
+/// The computer's name: from the actions source once one is paired, else from what Home was told.
+final _computerNameProvider = Provider<String>((ref) {
+  try {
+    return ref.watch(actionsSourceProvider).computerName;
+  } catch (_) {
+    return ref.watch(homeProvider).value?.computer ?? '';
+  }
+});
+
+/// An issue another screen (Home's "To do") asks the Start tab to have picked; Start takes it and clears it.
+class StartRequest extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void open(String issueId) => state = issueId;
+
+  void clear() => state = null;
+}
+
+final startRequestProvider = NotifierProvider<StartRequest, String?>(
+  StartRequest.new,
+);
+
+/// The Start tab: pick an issue, choose Full or Quick, read what would happen, then ask the computer what would run.
 class StartScreen extends ConsumerStatefulWidget {
   const StartScreen({super.key});
 
@@ -34,72 +59,191 @@ class _StartScreenState extends ConsumerState<StartScreen> {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     final canSend = ref.watch(canSendProvider);
+    final conn = ref.watch(connProvider);
+    final computer = ref.watch(_computerNameProvider);
     final issues = ref.watch(startIssuesProvider);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+    ref.listen(startRequestProvider, (_, id) {
+      if (id == null) return;
+      setState(() => _issue = id);
+      ref.read(startRequestProvider.notifier).clear();
+    });
+    final list = issues.value ?? const <StartIssue>[];
+    final picked = list.isEmpty
+        ? null
+        : list.firstWhere((i) => i.id == _issue, orElse: () => list.first);
+    final full = _mode == StartMode.full;
+    final steps = full
+        ? [
+            s('phone.sp.f1', {'c': computer}),
+            s('phone.sp.f2'),
+            s('phone.sp.f3'),
+            s('phone.sp.f4'),
+          ]
+        : [
+            s('phone.sp.q1', {'d': picked?.project ?? ''}),
+            s('phone.sp.q2'),
+            s('phone.sp.q3'),
+          ];
+    final sendNote = switch (conn) {
+      ConnState.ok => s('phone.sn.ok', {'c': computer}),
+      ConnState.noNetwork => s('phone.sn.nonet'),
+      ConnState.relayDown => s('phone.sn.relay'),
+      _ => s('phone.sn.held'),
+    };
+    return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(0, 6, 0, 8),
-          child: Semantics(
-            header: true,
-            child: Text(
-              s('phone.sp.title'),
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -.5,
-                color: t.ink,
-              ),
-            ),
-          ),
-        ),
-        const SendOffBanner(),
-        _Heading(s('phone.sp.pick')),
-        ...issues.when(
-          loading: () => const [Center(child: CircularProgressIndicator())],
-          error: (e, _) => [Text('$e')],
-          data: (list) => list.isEmpty
-              ? [FinePrint(s('phone.sp.noissues'))]
-              : [
-                  for (final i in list)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _IssueRow(
-                        issue: i,
-                        selected: _issue == i.id,
-                        onTap: () => setState(() => _issue = i.id),
-                      ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(0, 6, 0, 8),
+                child: Semantics(
+                  header: true,
+                  child: Text(
+                    s('phone.tab.start'),
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -.5,
+                      color: t.ink,
                     ),
-                ],
-        ),
-        _Heading(s('phone.sp.how')),
-        _ModeSwitch(mode: _mode, onChanged: (m) => setState(() => _mode = m)),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
-          child: Text(
-            s(_mode == StartMode.full ? 'phone.sp.full.d' : 'phone.sp.quick.d'),
-            style: TextStyle(fontSize: 13, height: 1.45, color: t.ink2),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
-          child: Text(
-            s(_mode == StartMode.full ? 'phone.sp.gate' : 'phone.sp.gate.q'),
-            style: TextStyle(fontSize: 13, height: 1.45, color: t.ink3),
-          ),
-        ),
-        const SizedBox(height: 16),
-        ActionButton(
-          s('phone.sp.preview'),
-          kind: BtnKind.primary,
-          onPressed: _issue == null || !canSend
-              ? null
-              : () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        StartPreviewScreen(issueId: _issue!, mode: _mode),
                   ),
                 ),
+              ),
+              const SendOffBanner(),
+              _Heading(s('phone.sp.pick')),
+              ...issues.when(
+                loading: () => const [
+                  Center(child: CircularProgressIndicator()),
+                ],
+                error: (e, _) => [Text('$e')],
+                data: (list) => list.isEmpty
+                    ? [FinePrint(s('phone.sp.noissues'))]
+                    : [
+                        for (final i in list)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _OptionCard(
+                              title: i.title,
+                              subtitle: '${i.project} #${i.number}',
+                              selected: picked?.id == i.id,
+                              onTap: () => setState(() => _issue = i.id),
+                            ),
+                          ),
+                      ],
+              ),
+              _Heading(s('phone.sp.how')),
+              _OptionCard(
+                title: s('phone.sp.full'),
+                subtitle: s('phone.sp.full.d'),
+                selected: full,
+                onTap: () => setState(() => _mode = StartMode.full),
+              ),
+              const SizedBox(height: 8),
+              _OptionCard(
+                title: s('phone.sp.quick'),
+                subtitle: s('phone.sp.quick.d'),
+                selected: !full,
+                onTap: () => setState(() => _mode = StartMode.quick),
+              ),
+              _Heading(s('phone.sp.what', {'c': computer})),
+              Glass(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  children: [
+                    for (final (n, line) in steps.indexed)
+                      Padding(
+                        padding: EdgeInsets.only(top: n == 0 ? 0 : 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 26,
+                              height: 26,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: t.surface3,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${n + 1}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: t.ink2,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  line,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    height: 1.45,
+                                    color: t.ink,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.shield_outlined, size: 16, color: t.ink3),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: FinePrint(
+                        s(full ? 'phone.sp.gate' : 'phone.sp.gate.q'),
+                        align: TextAlign.left,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        GlassActionBar(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                child: ActionButton(
+                  s(full ? 'phone.sp.go.full' : 'phone.sp.go.quick'),
+                  kind: BtnKind.primary,
+                  icon: Icons.lock_outline,
+                  onPressed: picked == null || !canSend
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => StartPreviewScreen(
+                              issueId: picked.id,
+                              mode: _mode,
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              FinePrint(
+                '${s('phone.rq.unlock', {'os': bioName(s)})} · $sendNote',
+              ),
+              // The floating tab bar sits over the bottom of the bar.
+              SizedBox(height: 56 + MediaQuery.viewPaddingOf(context).bottom),
+            ],
+          ),
         ),
       ],
     );
@@ -124,13 +268,15 @@ class _Heading extends StatelessWidget {
   );
 }
 
-class _IssueRow extends StatelessWidget {
-  const _IssueRow({
-    required this.issue,
+/// One choice of a group of radio cards: the picked one has the accent ring and a tint, and a filled radio.
+class _OptionCard extends StatelessWidget {
+  const _OptionCard({
+    required this.title,
+    required this.subtitle,
     required this.selected,
     required this.onTap,
   });
-  final StartIssue issue;
+  final String title, subtitle;
   final bool selected;
   final VoidCallback onTap;
 
@@ -139,26 +285,48 @@ class _IssueRow extends StatelessWidget {
     final t = context.tokens;
     return Semantics(
       selected: selected,
+      checked: selected,
+      inMutuallyExclusiveGroup: true,
       button: true,
-      label: '${issue.title}, ${issue.project} #${issue.number}',
-      child: ExcludeSemantics(
+      label: '$title, $subtitle',
+      excludeSemantics: true,
+      child: Glass(
+        tint: selected
+            ? Color.alphaBlend(t.accent.withValues(alpha: .09), t.surface)
+            : null,
+        border: selected ? t.accent.withValues(alpha: .55) : null,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: onTap,
-          child: Glass(
-            tint: selected ? t.accentBg : null,
-            border: selected ? t.accent : null,
-            padding: const EdgeInsets.all(12),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 44),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 64),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    selected
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_unchecked,
-                    size: 22,
-                    color: selected ? t.accentSolid : t.ink3,
+                  Container(
+                    width: 22,
+                    height: 22,
+                    margin: const EdgeInsets.only(top: 1),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        width: 2,
+                        color: selected ? t.accentSolid : t.lineStrong,
+                      ),
+                    ),
+                    child: selected
+                        ? Container(
+                            width: 9,
+                            height: 9,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: t.accentSolid,
+                            ),
+                          )
+                        : null,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -166,16 +334,24 @@ class _IssueRow extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          issue.title,
+                          title,
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: t.ink,
+                            height: 1.3,
                           ),
                         ),
-                        Text(
-                          '${issue.project} #${issue.number}',
-                          style: TextStyle(fontSize: 12, color: t.ink3),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            subtitle,
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.4,
+                              color: t.ink2,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -185,73 +361,6 @@ class _IssueRow extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _ModeSwitch extends ConsumerWidget {
-  const _ModeSwitch({required this.mode, required this.onChanged});
-  final StartMode mode;
-  final ValueChanged<StartMode> onChanged;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final s = ref.watch(stringsProvider);
-    final t = context.tokens;
-    Widget seg(StartMode m, String label) {
-      final on = mode == m;
-      return Expanded(
-        child: Semantics(
-          button: true,
-          selected: on,
-          label: label,
-          child: ExcludeSemantics(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(22),
-              onTap: () => onChanged(m),
-              child: Container(
-                constraints: const BoxConstraints(minHeight: 44),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: on ? t.surface : null,
-                  borderRadius: BorderRadius.circular(22),
-                  boxShadow: on
-                      ? const [
-                          BoxShadow(
-                            color: Color(0x1A000000),
-                            blurRadius: 3,
-                            offset: Offset(0, 1),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: on ? t.ink : t.ink2,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: t.surface3,
-        borderRadius: BorderRadius.circular(25),
-      ),
-      child: Row(
-        children: [
-          seg(StartMode.full, s('phone.sp.full')),
-          seg(StartMode.quick, s('phone.sp.quick')),
-        ],
       ),
     );
   }

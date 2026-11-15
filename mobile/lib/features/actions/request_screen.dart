@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/status_banner.dart';
+import 'action_screen_parts.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
@@ -49,28 +50,85 @@ class RequestScreen extends ConsumerWidget {
           body: s('phone.rq.loading.d', {'c': c}),
           spinner: true,
         ),
-        RequestClosed() => _Status(
-          icon: switch (v.by) {
-            ClosedBy.computer => Icons.computer,
-            ClosedBy.otherPhone => Icons.phone_iphone,
-            ClosedBy.expired => Icons.hourglass_disabled,
-          },
-          title: s(switch (v.by) {
+        RequestClosed() => _ClosedView(id: id, closed: v),
+        RequestOpen() => RequestBody(request: v.request),
+      },
+    );
+  }
+}
+
+/// A request that closed without this phone: the request's own view stays, under a banner that says who answered.
+class _ClosedView extends ConsumerWidget {
+  const _ClosedView({required this.id, required this.closed});
+  final String id;
+  final RequestClosed closed;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(stringsProvider);
+    final last = closed.last;
+    // This phone had loaded the request: it stays on screen, read-only. Otherwise only the card and note remain.
+    if (last != null) return RequestBody(request: last, closed: closed);
+    return ActionPage(
+      title: s('phone.rq.title'),
+      onLog: taskLogOpener(context, ref, id),
+      banner: _ClosedBanner(closed),
+      actions: const _BackHome(),
+      children: [
+        ActionSessionCard(id: id, showIssue: false),
+        const SizedBox(height: 12),
+        ShieldNote(s('phone.rq.never')),
+      ],
+    );
+  }
+}
+
+class _BackHome extends ConsumerWidget {
+  const _BackHome();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(stringsProvider);
+    return ActionButtons(
+      primary: ActionButton(
+        s('phone.a.home'),
+        onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+      ),
+    );
+  }
+}
+
+class _ClosedBanner extends ConsumerWidget {
+  const _ClosedBanner(this.closed);
+  final RequestClosed closed;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(stringsProvider);
+    final c = ref.watch(actionsSourceProvider).computerName;
+    final by = closed.by;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      child: StatusBanner(
+        kind: by == ClosedBy.expired ? BannerKind.err : BannerKind.warn,
+        icon: by == ClosedBy.expired ? Icons.schedule : Icons.error_outline,
+        title: s(
+          switch (by) {
             ClosedBy.computer => 'phone.cl.pc',
             ClosedBy.otherPhone => 'phone.cl.ph',
             ClosedBy.expired => 'phone.cl.ex',
-          }),
-          body: s(
-            switch (v.by) {
-              ClosedBy.computer => 'phone.cl.pc.d',
-              ClosedBy.otherPhone => 'phone.cl.ph.d',
-              ClosedBy.expired => 'phone.cl.ex.d',
-            },
-            {'tm': v.at, 'c': c, 'p': v.phone ?? ''},
-          ),
+          },
+          {'c': c, 'p': closed.phone ?? ''},
         ),
-        RequestOpen() => RequestBody(request: v.request),
-      },
+        body: s(
+          switch (by) {
+            ClosedBy.computer => 'phone.cl.pc.d',
+            ClosedBy.otherPhone => 'phone.cl.ph.d',
+            ClosedBy.expired => 'phone.cl.ex.d',
+          },
+          {'tm': closed.at, 'c': c, 'p': closed.phone ?? ''},
+        ),
+      ),
     );
   }
 }
@@ -140,8 +198,11 @@ class _Status extends ConsumerWidget {
 
 /// The open request. Stateful for two things only: whether a long input was opened, and the countdown.
 class RequestBody extends ConsumerStatefulWidget {
-  const RequestBody({super.key, required this.request});
+  const RequestBody({super.key, required this.request, this.closed});
   final ToolRequest request;
+
+  /// Set when the request closed after this phone loaded it: the same view, read-only, under the closed banner.
+  final RequestClosed? closed;
 
   @override
   ConsumerState<RequestBody> createState() => _RequestBodyState();
@@ -155,7 +216,7 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
   @override
   void initState() {
     super.initState();
-    _left = widget.request.secondsLeft;
+    _left = widget.closed == null ? widget.request.secondsLeft : null;
     // Counted from "seconds left", never from the two clocks.
     if (_left != null) {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -184,8 +245,9 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
     final source = ref.watch(actionsSourceProvider);
     final c = source.computerName;
     final canSend = ref.watch(canSendProvider);
+    final closed = widget.closed;
     final odd = r.odd || hasHiddenChars(r.input);
-    final destructive = r.destructive || odd;
+    final destructive = closed == null && (r.destructive || odd);
     final expired = _left == 0;
     final collapsed = _long && !_open;
     final locked = collapsed || r.cut || expired;
@@ -212,6 +274,9 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
             kind: kind,
             target: r.id,
             shown: r.shownHash,
+            tool: r.tool,
+            // A long input is cut here: the log shows a line, the computer holds the rest.
+            detail: r.input.length > 300 ? r.input.substring(0, 300) : r.input,
             reason: s(
               kind == CommandKind.allow ? 'phone.un.allow' : 'phone.un.deny',
               {'tool': r.tool.isEmpty ? s('phone.ask.tool0') : r.tool, 'c': c},
@@ -225,6 +290,7 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
       s('phone.ask.deny'),
       onPressed: send(CommandKind.deny),
       kind: destructive ? BtnKind.dangerFill : BtnKind.normal,
+      icon: Icons.lock_outline,
     );
     final allow = ActionButton(
       s(destructive ? 'phone.rq.allow.d' : 'phone.ask.allow'),
@@ -232,52 +298,42 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
       kind: destructive ? BtnKind.danger : BtnKind.primary,
       icon: Icons.lock_outline,
     );
+    final conn = ref.watch(connProvider);
+    final fine = r.cut
+        ? s('phone.rq.cut.s')
+        : collapsed
+        ? s('phone.rq.openfirst')
+        : '${s('phone.rq.unlock', {'os': bioName(s)})} · ${sendNote(s, conn, c)}';
 
     return ActionPage(
       title: s('phone.rq.title'),
-      actions: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (r.cut)
-            SizedBox(width: double.infinity, child: deny)
-          else
-            Row(
-              children: [
-                // A destructive request puts Deny first.
-                Expanded(child: destructive ? deny : allow),
-                const SizedBox(width: 10),
-                Expanded(child: destructive ? allow : deny),
-              ],
+      onLog: taskLogOpener(context, ref, r.id),
+      banner: closed == null ? null : _ClosedBanner(closed),
+      actions: closed != null
+          ? const _BackHome()
+          : r.cut
+          ? ActionButtons(primary: deny, fine: fine)
+          : ActionButtons(
+              secondary: deny,
+              primary: allow,
+              fine: fine,
+              lock: !collapsed,
             ),
-          const SizedBox(height: 8),
-          FinePrint(
-            r.cut
-                ? s('phone.rq.cut.s')
-                : collapsed
-                ? s('phone.rq.openfirst')
-                : s('phone.rq.unlock', {'os': bioName(s)}),
-          ),
-        ],
-      ),
       children: [
-        const SendOffBanner(),
-        TitleCard(
-          title: r.tool.isEmpty
-              ? s('phone.ask.h0')
-              : s('phone.ask.h', {'tool': r.tool}),
-          subtitle: r.sessionName,
-          chips: [
-            MetaChip(s('phone.rq.on', {'c': c}), icon: Icons.computer),
-            MetaChip(
-              '${s('phone.rq.cwd')}: ${r.folder}',
-              icon: Icons.folder_outlined,
-            ),
-            MetaChip(
-              s('phone.home.waited', {
-                'n': s('phone.min', {'n': r.waitedMinutes}),
-              }),
-              icon: Icons.schedule,
-            ),
+        if (closed == null) const SendOffBanner(),
+        if (closed == null && r.released)
+          StatusBanner(
+            kind: BannerKind.info,
+            icon: Icons.computer,
+            title: s('phone.rq.rel'),
+            body: s('phone.rq.rel.d', {'c': c}),
+          ),
+        ActionSessionCard(
+          id: r.id,
+          name: r.sessionName,
+          showIssue: false,
+          chip: closed == null ? waitedText(s, r.waitedMinutes) : null,
+          extraChips: [
             if (_left != null)
               MetaChip(
                 countdown(),
@@ -286,20 +342,17 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
               ),
           ],
         ),
-        const SizedBox(height: 12),
-        if (r.released)
-          StatusBanner(
-            kind: BannerKind.info,
-            icon: Icons.computer,
-            title: s('phone.rq.rel'),
-            body: s('phone.rq.rel.d', {'c': c}),
-          ),
+        ScreenHeading(
+          r.tool.isEmpty
+              ? s('phone.ask.h0')
+              : s('phone.ask.h', {'tool': r.tool}),
+        ),
         if (destructive)
           DangerBand(
             title: s(odd ? 'phone.rq.hid' : 'phone.rq.destr'),
             body: s(odd ? 'phone.rq.hid.d' : 'phone.rq.destr.d'),
           ),
-        if (r.cut)
+        if (r.cut && closed == null)
           StatusBanner(
             kind: BannerKind.warn,
             icon: Icons.content_cut,
@@ -307,7 +360,7 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
             body: s('phone.rq.cut.d'),
           ),
         Padding(
-          padding: const EdgeInsets.only(bottom: 6, top: 4),
+          padding: const EdgeInsets.only(bottom: 6),
           child: Text(
             label,
             style: TextStyle(
@@ -335,8 +388,33 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
               ),
             ),
           ),
-        const SizedBox(height: 8),
-        FinePrint(s('phone.rq.never'), align: TextAlign.left),
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            SizedBox(
+              width: 104,
+              child: Text(
+                s('phone.rq.cwd'),
+                style: TextStyle(fontSize: 13, color: t.ink3),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                r.folder,
+                style: TextStyle(
+                  fontFamily: 'Menlo',
+                  fontFamilyFallback: const ['Roboto Mono', 'monospace'],
+                  fontSize: 13,
+                  color: t.ink,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        ShieldNote(s('phone.rq.never')),
       ],
     );
   }

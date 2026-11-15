@@ -79,9 +79,9 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
     final text = _text(facts);
     final canReview = _title.text.trim().isNotEmpty;
     return Scaffold(
-      backgroundColor: t.bg,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: t.bg,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: t.ink,
         title: Text(s('phone.fb.title')),

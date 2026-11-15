@@ -53,10 +53,13 @@ class RequestLoading extends RequestView {
 }
 
 class RequestClosed extends RequestView {
-  const RequestClosed(this.by, {required this.at, this.phone});
+  const RequestClosed(this.by, {required this.at, this.phone, this.last});
   final ClosedBy by;
   final String at;
   final String? phone;
+
+  /// The request as this phone last showed it, kept in memory only; null when this phone never loaded it.
+  final ToolRequest? last;
 }
 
 class RequestOpen extends RequestView {

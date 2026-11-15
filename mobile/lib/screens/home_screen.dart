@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/models.dart';
 import '../data/phone_data.dart';
 import '../l10n/l10n.dart';
+import '../log/activity_log.dart';
+import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/glass.dart';
 import '../widgets/session_row.dart';
@@ -12,7 +14,10 @@ import 'computers_sheet.dart';
 import '../features/actions/plan_screen.dart';
 import '../features/actions/question_screen.dart';
 import '../features/actions/request_screen.dart';
+import '../features/actions/action_screen_parts.dart' show taskLogOpener;
+import '../features/actions/actions_models.dart';
 import '../features/actions/session_screen.dart';
+import '../features/actions/start_screen.dart';
 
 /// What a tap opens: the held item (a request, a plan, a question) or, for a request answered elsewhere first, that
 /// request's closed view; otherwise the session.
@@ -27,6 +32,13 @@ void openSession(BuildContext context, Session x) {
         };
   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
 }
+
+/// What a waiting session asks for, in one line (what Home and Pets show under its name).
+String waitingText(Strings s, Session x) => switch (x.waitingKind) {
+  WaitingKind.plan => s('phone.ask.plan.h'),
+  WaitingKind.question => s('phone.ask.q.h'),
+  _ => x.tool == null ? s('phone.ask.h0') : s('phone.ask.h', {'tool': x.tool!}),
+};
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -57,6 +69,9 @@ class HomeScreen extends ConsumerWidget {
         title: x.name,
         subtitle: subtitle,
         meta: meta ?? x.ref,
+        logCount: ref.watch(taskLogProvider(x.id)).length,
+        logLabel: s('phone.tl.open', {'n': x.name}),
+        onLog: taskLogOpener(context, ref, x.id),
         needsYou: x.needsYou,
         muted: muted,
         subtitleColor: subtitleColor,
@@ -99,6 +114,8 @@ class HomeScreen extends ConsumerWidget {
 
     final closed = data.sessions.where((x) => x.answeredAtComputer).toList();
 
+    final issues = ref.watch(startIssuesProvider).value ?? const [];
+
     List<Widget> stage(Stage g) {
       final items = data.sessions
           .where((x) => x.stage == g && !x.needsYou && !x.answeredAtComputer)
@@ -123,7 +140,7 @@ class HomeScreen extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(0, 6, 0, 8),
+          padding: const EdgeInsets.fromLTRB(0, 0, 0, 16),
           child: Row(
             children: [
               Expanded(
@@ -217,9 +234,7 @@ class HomeScreen extends ConsumerWidget {
                   ? s('phone.home.atpc')
                   : x.handledAtComputer
                   ? s('phone.hc.short')
-                  : x.tool == null
-                  ? s('phone.ask.h0')
-                  : s('phone.ask.h', {'tool': x.tool!}),
+                  : waitingText(s, x),
               meta:
                   '${x.project} · ${s('phone.home.waited', {'n': minutes(x.waitingMinutes)})}',
             ),
@@ -229,7 +244,20 @@ class HomeScreen extends ConsumerWidget {
           for (final x in closed)
             row(x, s('phone.cl.pc.short'), muted: true, subtitleColor: t.warn),
         ],
-        for (final g in Stage.values) ...stage(g),
+        for (final g in const [Stage.doing, Stage.verify, Stage.stuck])
+          ...stage(g),
+        if (issues.isNotEmpty) ...[
+          SectionHeader(s('phone.stage.todo'), count: issues.length),
+          for (final i in issues)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _TodoRow(
+                issue: i,
+                onTap: () => ref.read(startRequestProvider.notifier).open(i.id),
+              ),
+            ),
+        ],
+        ...stage(Stage.done),
         if (conn != ConnState.ok)
           Padding(
             padding: const EdgeInsets.only(top: 10),
@@ -240,6 +268,77 @@ class HomeScreen extends ConsumerWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// An issue the computer lists to start: a ticket tile, its title and where it belongs. A tap opens Start with it picked.
+class _TodoRow extends StatelessWidget {
+  const _TodoRow({required this.issue, required this.onTap});
+
+  final StartIssue issue;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Semantics(
+      button: true,
+      label: '${issue.title}. ${issue.project} #${issue.number}',
+      excludeSemantics: true,
+      child: Glass(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: minTouch + 17),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: t.surface3,
+                      borderRadius: BorderRadius.circular(44 * 16 / 62),
+                    ),
+                    child: Icon(
+                      Icons.confirmation_number_outlined,
+                      size: 22,
+                      color: t.ink2,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          issue.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: t.ink,
+                            height: 1.3,
+                          ),
+                        ),
+                        Text(
+                          '${issue.project} #${issue.number}',
+                          style: TextStyle(fontSize: 12, color: t.ink3),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 18, color: t.ink3),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -5,15 +5,12 @@ import 'package:markdown/markdown.dart' as md;
 
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/glass.dart';
 import '../../widgets/status_banner.dart';
+import 'action_screen_parts.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
 import 'command_flow.dart';
-
-/// A plan longer than this many lines is collapsed.
-const planCollapseLines = 16;
 
 final planProvider = FutureProvider.autoDispose.family<PlanDoc, String>(
   (ref, id) => ref.watch(actionsSourceProvider).plan(id),
@@ -90,23 +87,16 @@ class PlanMarkdown extends StatelessWidget {
 }
 
 /// A plan waiting for approval: Approve, or Send back with a note.
-class PlanScreen extends ConsumerStatefulWidget {
+class PlanScreen extends ConsumerWidget {
   const PlanScreen({super.key, required this.id});
   final String id;
 
   @override
-  ConsumerState<PlanScreen> createState() => _PlanScreenState();
-}
-
-class _PlanScreenState extends ConsumerState<PlanScreen> {
-  bool _open = false;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
     final canSend = ref.watch(canSendProvider);
     final source = ref.watch(actionsSourceProvider);
-    final plan = ref.watch(planProvider(widget.id));
+    final plan = ref.watch(planProvider(id));
     return plan.when(
       loading: () => ActionPage(
         title: s('phone.pl.title'),
@@ -118,52 +108,42 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
       error: (e, _) =>
           ActionPage(title: s('phone.pl.title'), children: [Text('$e')]),
       data: (p) {
-        final lines = '\n'.allMatches(p.markdown.trim()).length + 1;
-        final long = lines > planCollapseLines;
-        final collapsed = long && !_open;
         final c = source.computerName;
+        final conn = ref.watch(connProvider);
         return ActionPage(
           title: s('phone.pl.title'),
-          actions: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: ActionButton(
-                      s('phone.pl.back'),
-                      onPressed: !canSend
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => PlanNoteScreen(plan: p),
-                              ),
-                            ),
+          onLog: taskLogOpener(context, ref, p.id),
+          actions: ActionButtons(
+            secondary: ActionButton(
+              s('phone.pl.back'),
+              icon: Icons.edit_note_outlined,
+              onPressed: !canSend
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => PlanNoteScreen(plan: p),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ActionButton(
-                      s('phone.pl.approve'),
-                      kind: BtnKind.primary,
-                      icon: Icons.lock_outline,
-                      onPressed: !canSend || p.cut
-                          ? null
-                          : () => runCommand(
-                              context,
-                              ref,
-                              kind: CommandKind.approve,
-                              target: p.id,
-                              shown: p.shownHash,
-                              reason: s('phone.un.approve', {'c': c}),
-                            ),
+            ),
+            primary: ActionButton(
+              s('phone.pl.approve'),
+              kind: BtnKind.primary,
+              icon: Icons.lock_outline,
+              onPressed: !canSend || p.cut
+                  ? null
+                  : () => runCommand(
+                      context,
+                      ref,
+                      kind: CommandKind.approve,
+                      target: p.id,
+                      shown: p.shownHash,
+                      reason: s('phone.un.approve', {'c': c}),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              FinePrint(p.cut ? s('phone.pl.cut.s') : s('phone.pl.auto')),
-            ],
+            ),
+            lock: !p.cut,
+            fine: p.cut
+                ? s('phone.pl.cut.s')
+                : '${s('phone.rq.unlock', {'os': bioName(s)})} · ${sendNote(s, conn, c)}',
           ),
           children: [
             const SendOffBanner(),
@@ -174,41 +154,13 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
                 title: s('phone.pl.cut'),
                 body: s('phone.pl.cut.d'),
               ),
-            TitleCard(
-              title: s('phone.ask.plan.h'),
-              subtitle: p.sessionName,
-              icon: Icons.fact_check_outlined,
-            ),
-            const SizedBox(height: 12),
-            Glass(
-              padding: const EdgeInsets.all(14),
-              child: collapsed
-                  ? ClipRect(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 320),
-                        child: SingleChildScrollView(
-                          physics: const NeverScrollableScrollPhysics(),
-                          child: PlanMarkdown(p.markdown),
-                        ),
-                      ),
-                    )
-                  : PlanMarkdown(p.markdown),
-            ),
-            if (long)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: () => setState(() => _open = !_open),
-                  style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
-                  child: Text(
-                    _open
-                        ? s('phone.pl.less')
-                        : s('phone.pl.all', {'n': lines}),
-                  ),
-                ),
-              ),
-            const SizedBox(height: 6),
-            FinePrint(s('phone.pl.text'), align: TextAlign.left),
+            ActionSessionCard(id: p.id, name: p.sessionName),
+            ScreenHeading(s('phone.pl.h')),
+            PlanMarkdown(p.markdown),
+            const SizedBox(height: 10),
+            ShieldNote(s('phone.pl.text')),
+            const SizedBox(height: 10),
+            ShieldNote(s('phone.pl.auto')),
           ],
         );
       },
@@ -292,10 +244,24 @@ class _PlanNoteScreenState extends ConsumerState<PlanNoteScreen> {
           decoration: InputDecoration(
             hintText: s('phone.pn.ph'),
             filled: true,
-            fillColor: t.surface,
+            fillColor: t.isDark ? t.surface2 : const Color(0x99FFFFFF),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: t.lineStrong),
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(
+                color: t.isDark
+                    ? const Color(0x17FFFFFF)
+                    : const Color(0xE6FFFFFF),
+                width: .5,
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(
+                color: t.isDark
+                    ? const Color(0x17FFFFFF)
+                    : const Color(0xE6FFFFFF),
+                width: .5,
+              ),
             ),
           ),
           style: TextStyle(fontSize: 16, color: t.ink),

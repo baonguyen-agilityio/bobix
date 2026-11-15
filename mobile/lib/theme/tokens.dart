@@ -27,6 +27,7 @@ class BobixTokens extends ThemeExtension<BobixTokens> {
     required this.info,
     required this.infoBg,
     required this.err,
+    required this.n300,
     required this.isDark,
   });
 
@@ -34,6 +35,9 @@ class BobixTokens extends ThemeExtension<BobixTokens> {
   final Color ink, ink2, ink3;
   final Color accent, accentInk, accentBg, accentSolid, onAccent;
   final Color ok, okBg, warn, warnBg, info, infoBg, err;
+
+  /// The off track of a switch.
+  final Color n300;
   final bool isDark;
 
   static final light = BobixTokens(
@@ -58,6 +62,7 @@ class BobixTokens extends ThemeExtension<BobixTokens> {
     info: oklch(52, .15, 255),
     infoBg: oklch(60, .14, 255, .12),
     err: oklch(52, .19, 15),
+    n300: oklch(86, .017, 262),
     isDark: false,
   );
 
@@ -83,6 +88,7 @@ class BobixTokens extends ThemeExtension<BobixTokens> {
     info: oklch(75, .12, 255),
     infoBg: oklch(70, .12, 255, .15),
     err: oklch(72, .17, 18),
+    n300: oklch(38, .024, 266),
     isDark: true,
   );
 

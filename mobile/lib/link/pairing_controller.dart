@@ -5,12 +5,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/flavor.dart';
 import '../config/relay.dart';
 import '../keys/platform_secure_keys.dart';
+import '../keys/secure_keys.dart';
 import '../src/rust/api/messages.dart';
 import 'link_providers.dart';
 import 'link_state.dart';
 import 'pairing_service.dart';
 
-enum PairStep { welcome, scan, relay, details, waiting, done, failed }
+enum PairStep {
+  welcome,
+  scan,
+  relay,
+  details,
+  waiting,
+  done,
+  failed,
+  noBiometrics,
+}
 
 class PairingState {
   const PairingState({
@@ -75,7 +85,20 @@ class PairingController extends Notifier<PairingState> {
     now: ref.read(clockProvider),
   );
 
-  void toScan() => state = const PairingState(step: PairStep.scan);
+  /// "Scan the code". A phone with no strong biometrics cannot pair (every command asks for one), so it learns that now
+  /// rather than after the code was scanned and the rights chosen.
+  Future<void> toScan() async {
+    var biometry = Biometry.available;
+    try {
+      biometry = await ref.read(secureKeysProvider).biometry();
+    } on Object {
+      // Not knowing is not a reason to stop: pairing checks again and fails with its own words.
+    }
+    if (state.step != PairStep.welcome) return;
+    state = PairingState(
+      step: biometry == Biometry.none ? PairStep.noBiometrics : PairStep.scan,
+    );
+  }
 
   /// The scanner (or the development field) read [text]: a Bobix code with a relay this build may use, or a failure.
   Future<void> scanned(String text) async {

@@ -10,12 +10,14 @@ import '../config/flavor.dart';
 import '../data/phone_data.dart';
 import '../keys/platform_secure_keys.dart';
 import '../keys/secure_keys.dart';
+import '../log/activity_log.dart';
 import '../src/rust/api/core.dart';
 import '../features/actions/actions_source.dart';
 import 'computer_link.dart';
 import 'link_actions_source.dart';
 import 'link_phone_data.dart';
 import 'link_state.dart';
+import 'pairing_controller.dart';
 import 'relay_session.dart';
 import '../push/push_providers.dart';
 
@@ -52,9 +54,17 @@ class Unavailable extends AppPhase {
 /// The phone has a pairing it cannot use any more: [removedByComputer] when the computer itself said so (keys and data are
 /// already erased), otherwise the relay says it may have been disconnected (or the keys are gone).
 class PairAgain extends AppPhase {
-  const PairAgain({required this.computer, required this.removedByComputer});
+  const PairAgain({
+    required this.computer,
+    required this.removedByComputer,
+    this.removedAt,
+  });
   final String computer;
   final bool removedByComputer;
+
+  /// When this phone learned the computer removed it (only with [removedByComputer]). A time, nothing else: it is not
+  /// stored, so the screen shows it while the app runs.
+  final DateTime? removedAt;
 }
 
 /// Which screen the app is on: not paired, paired (the link runs while the app is in front), or needing a new pairing.
@@ -107,6 +117,29 @@ class LinkController extends AsyncNotifier<AppPhase> {
     await store.erase();
   }
 
+  /// The activity log is about one computer. When the pairing ends, its entries go and one "disconnected" line stays; when a
+  /// pairing starts, one "paired" line opens the log. In memory only, like the log itself.
+  void _logDisconnected(String computer) {
+    final log = ref.read(activityLogProvider.notifier)..clear();
+    log.record(
+      LogEntry(
+        at: ref.read(clockProvider)(),
+        kind: LogKind.disconnect,
+        detail: computer,
+      ),
+    );
+  }
+
+  void _logPaired(String computer) => ref
+      .read(activityLogProvider.notifier)
+      .record(
+        LogEntry(
+          at: ref.read(clockProvider)(),
+          kind: LogKind.pair,
+          detail: computer,
+        ),
+      );
+
   Future<AppPhase> _attach(
     PairedComputer computer,
     DeviceIdentity identity,
@@ -123,10 +156,14 @@ class LinkController extends AsyncNotifier<AppPhase> {
     );
     _status = link.statusChanges.listen((s) {
       if (s.maybeRevoked || s.revokedByComputer) {
+        if (s.revokedByComputer) _logDisconnected(computer.name);
         state = AsyncData(
           PairAgain(
             computer: computer.name,
             removedByComputer: s.revokedByComputer,
+            removedAt: s.revokedAtMs == null
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(s.revokedAtMs!),
           ),
         );
       }
@@ -164,7 +201,7 @@ class LinkController extends AsyncNotifier<AppPhase> {
         // Not connected or the goodbye could not be sent: the phone leaves anyway.
       }
     }
-    await eraseAndPairAgain();
+    await forgetComputer();
   }
 
   /// A pairing just ended well: start the link to the new computer.
@@ -178,14 +215,29 @@ class LinkController extends AsyncNotifier<AppPhase> {
         await identityFromSecrets(authSeed: auth!, boxSecret: box!),
       ),
     );
+    _logPaired(computer.name);
   }
 
-  /// "Erase and pair again": every key and everything kept about the computer goes.
+  /// "Erase and pair again": erases everything, then opens the scanner.
   Future<void> eraseAndPairAgain() async {
+    await forgetComputer();
+    final pairing = ref.read(pairingControllerProvider.notifier)..cancel();
+    await pairing.toScan();
+  }
+
+  /// "Erase and forget this computer": every key and everything kept about the computer goes, and the phone is back at
+  /// the welcome screen without starting a pairing.
+  Future<void> forgetComputer() async {
     final current = state.value;
     // The notification extension keeps its own copy of the computer's public key: it goes too, or it could still open
     // that computer's notices after an Erase.
-    final id = ref.read(pairedComputerProvider)?.id;
+    final id = current is Paired ? current.link.computer.id : null;
+    final name = switch (current) {
+      Paired p => p.link.computer.name,
+      PairAgain a => a.computer,
+      _ => '',
+    };
+    _logDisconnected(name);
     if (id != null) {
       try {
         await ref.read(pushLinkStoreProvider).removeComputer(id);

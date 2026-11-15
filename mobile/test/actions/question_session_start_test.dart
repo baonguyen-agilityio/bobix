@@ -240,10 +240,11 @@ void main() {
       await tester.tap(find.textContaining(issue));
       await tester.pump();
       if (quick) {
+        await reveal(tester, find.text(tr(lang, 'sp.quick')));
         await tester.tap(find.text(tr(lang, 'sp.quick')));
         await tester.pump();
       }
-      await tester.tap(button(tr(lang, 'sp.preview')));
+      await tester.tap(button(tr(lang, quick ? 'sp.go.quick' : 'sp.go.full')));
       await tester.pumpAndSettle();
     }
 
@@ -269,13 +270,50 @@ void main() {
       }
     }
 
-    testWidgets('nothing is picked: the preview button is off', (tester) async {
+    testWidgets('the first issue is picked at the start, so the button is on', (
+      tester,
+    ) async {
       await pumpScreen(
         tester,
         const Scaffold(body: SafeArea(child: StartScreen())),
       );
-      expect(off(tester, tr('en', 'sp.preview')), isTrue);
+      expect(off(tester, tr('en', 'sp.go.full')), isFalse);
+      expect(find.text(tr('en', 'sp.go.full')), findsOneWidget);
     });
+
+    testWidgets('the Full steps name no branch the phone cannot know', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        const Scaffold(body: SafeArea(child: StartScreen())),
+      );
+      await reveal(
+        tester,
+        find.textContaining('Makes a worktree and a branch for the issue on'),
+      );
+      expect(
+        find.textContaining('Makes a worktree and a branch for the issue on'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('and the branch'), findsNothing);
+    });
+
+    testWidgets(
+      'the button says Start Full or Start Quick and follows the choice',
+      (tester) async {
+        await pumpScreen(
+          tester,
+          const Scaffold(body: SafeArea(child: StartScreen())),
+        );
+        await reveal(tester, find.text(tr('en', 'sp.quick')));
+        await tester.tap(find.text(tr('en', 'sp.quick')));
+        await tester.pump();
+        expect(find.text(tr('en', 'sp.go.quick')), findsOneWidget);
+        expect(find.text(tr('en', 'sp.go.full')), findsNothing);
+        expect(find.text(tr('en', 'sp.q1', {'d': 'shop'})), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'Full: the biometric step comes after the prompt, then one start',
@@ -286,7 +324,7 @@ void main() {
         );
         await tester.tap(find.textContaining('cart total'));
         await tester.pump();
-        await tester.tap(button(tr('en', 'sp.preview')));
+        await tester.tap(button(tr('en', 'sp.go.full')));
         await tester.pumpAndSettle();
         expect(src.sent, isEmpty);
         await reveal(tester, find.text(tr('en', 'sp.prompt.all')));
@@ -308,9 +346,10 @@ void main() {
         const Scaffold(body: SafeArea(child: StartScreen())),
       );
       await tester.tap(find.textContaining('sign-up email'));
+      await reveal(tester, find.text(tr('en', 'sp.quick')));
       await tester.tap(find.text(tr('en', 'sp.quick')));
       await tester.pump();
-      await tester.tap(button(tr('en', 'sp.preview')));
+      await tester.tap(button(tr('en', 'sp.go.quick')));
       await tester.pumpAndSettle();
       await reveal(tester, find.text(tr('en', 'sp.prompt.all')));
       await tester.tap(find.text(tr('en', 'sp.prompt.all')));

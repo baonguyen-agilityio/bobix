@@ -24,6 +24,7 @@ class LinkStatus {
     this.problem = LinkProblem.none,
     this.maybeRevoked = false,
     this.revokedByComputer = false,
+    this.revokedAtMs,
     this.movedHost,
   });
 
@@ -36,6 +37,9 @@ class LinkStatus {
   /// The computer itself said so (a sealed `revoked`): keys and data were erased.
   final bool revokedByComputer;
 
+  /// When this phone learned of that `revoked` (Unix ms). Only a time: kept in memory for the "disconnected" screen.
+  final int? revokedAtMs;
+
   /// The host of the relay the computer moved to, once the phone follows it (shown so the move is not silent).
   final String? movedHost;
 
@@ -44,12 +48,14 @@ class LinkStatus {
     LinkProblem? problem,
     bool? maybeRevoked,
     bool? revokedByComputer,
+    int? revokedAtMs,
     String? movedHost,
   }) => LinkStatus(
     conn: conn ?? this.conn,
     problem: problem ?? this.problem,
     maybeRevoked: maybeRevoked ?? this.maybeRevoked,
     revokedByComputer: revokedByComputer ?? this.revokedByComputer,
+    revokedAtMs: revokedAtMs ?? this.revokedAtMs,
     movedHost: movedHost ?? this.movedHost,
   );
 }
@@ -409,7 +415,12 @@ class ComputerLink {
         _details.remove(id)?.complete(j);
       case 'revoked':
         await _eraseEverything();
-        _set(status.copyWith(revokedByComputer: true));
+        _set(
+          status.copyWith(
+            revokedByComputer: true,
+            revokedAtMs: _now().millisecondsSinceEpoch,
+          ),
+        );
       case 'relayMoved':
         final url = j['url'] as String;
         if (await relayAllowed(url, flavor) && url != computer.relay) {

@@ -72,10 +72,12 @@ class FakePushPlatform implements PushPlatform {
     required Uint8List boxPublic,
     int versionMin = 1,
     int versionMax = 1,
-  }) async => calls.add('setComputer $id ${boxPublic.length} $versionMin-$versionMax');
+  }) async =>
+      calls.add('setComputer $id ${boxPublic.length} $versionMin-$versionMax');
 
   @override
-  Future<void> removeComputer(String id) async => calls.add('removeComputer $id');
+  Future<void> removeComputer(String id) async =>
+      calls.add('removeComputer $id');
 
   @override
   Future<OpenedPacket> openPacket(Uint8List packet) async =>

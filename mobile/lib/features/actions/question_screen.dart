@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
+import 'action_screen_parts.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
@@ -112,40 +113,33 @@ class _QuestionScreenState extends ConsumerState<QuestionScreen> {
         final answers = _answers(q);
         return ActionPage(
           title: s('phone.qs.title'),
-          actions: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: double.infinity,
-                child: ActionButton(
-                  s('phone.qs.send'),
-                  kind: BtnKind.primary,
-                  icon: Icons.lock_outline,
-                  onPressed: answers == null || !canSend
-                      ? null
-                      : () => runCommand(
-                          context,
-                          ref,
-                          kind: CommandKind.answer,
-                          target: q.id,
-                          shown: q.shownHash,
-                          text: answers.length == 1 ? answers.single : null,
-                          answers: answers,
-                          reason: s('phone.un.answer', {'c': c}),
-                        ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              FinePrint(answers == null ? s('phone.qs.pick') : s('phone.qs.n')),
-            ],
+          onLog: taskLogOpener(context, ref, q.id),
+          actions: ActionButtons(
+            primary: ActionButton(
+              s('phone.qs.send'),
+              kind: BtnKind.primary,
+              icon: Icons.lock_outline,
+              onPressed: answers == null || !canSend
+                  ? null
+                  : () => runCommand(
+                      context,
+                      ref,
+                      kind: CommandKind.answer,
+                      target: q.id,
+                      shown: q.shownHash,
+                      text: answers.length == 1 ? answers.single : null,
+                      answers: answers,
+                      reason: s('phone.un.answer', {'c': c}),
+                    ),
+            ),
+            lock: answers != null,
+            fine: answers == null
+                ? s('phone.qs.pick')
+                : '${s('phone.rq.unlock', {'os': bioName(s)})} · ${sendNote(s, ref.watch(connProvider), c)}',
           ),
           children: [
             const SendOffBanner(),
-            TitleCard(
-              title: s('phone.ask.q.h'),
-              subtitle: q.sessionName,
-              icon: Icons.help_outline,
-            ),
+            ActionSessionCard(id: q.id, name: q.sessionName),
             for (var i = 0; i < q.parts.length; i++)
               ..._part(
                 context,
@@ -156,6 +150,8 @@ class _QuestionScreenState extends ConsumerState<QuestionScreen> {
                 i,
                 q.parts.length,
               ),
+            const SizedBox(height: 14),
+            ShieldNote(s('phone.qs.n')),
           ],
         );
       },

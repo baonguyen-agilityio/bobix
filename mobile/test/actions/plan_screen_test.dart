@@ -32,10 +32,9 @@ void main() {
           expect(find.text(tr(lang, 'pl.auto')), findsOneWidget);
           expect(button(tr(lang, 'pl.approve')), findsOneWidget);
           expect(button(tr(lang, 'pl.back')), findsOneWidget);
-          expect(find.text(tr(lang, 'pl.less')), findsNothing);
         });
 
-        testWidgets('long plan: collapsed, then the whole plan', (
+        testWidgets('long plan: the whole plan is inline, nothing to tap', (
           tester,
         ) async {
           await pumpScreen(
@@ -44,14 +43,14 @@ void main() {
             lang: lang,
             brightness: b,
           );
-          final more = find.textContaining(
-            tr(lang, 'pl.all', {'n': 0}).split('0').first,
+          expect(find.byType(TextButton), findsNothing);
+          expect(
+            find.textContaining(
+              'No downtime window is needed.',
+              findRichText: true,
+            ),
+            findsWidgets,
           );
-          expect(more, findsOneWidget);
-          await tester.tap(more);
-          await tester.pump();
-          expect(find.text(tr(lang, 'pl.less')), findsOneWidget);
-          expect(allText(tester), contains('No downtime window is needed.'));
         });
       });
     }
@@ -62,16 +61,12 @@ void main() {
       tester,
     ) async {
       await pumpScreen(tester, const PlanScreen(id: 'plan-long'));
-      await tester.tap(find.textContaining('Show the whole plan'));
-      await tester.pump();
       expect(find.byType(Image), findsNothing);
       expect(allText(tester), contains('[image: the timing chart]'));
     });
 
     testWidgets('links are plain text and nothing is tappable', (tester) async {
       await pumpScreen(tester, const PlanScreen(id: 'plan-long'));
-      await tester.tap(find.textContaining('Show the whole plan'));
-      await tester.pump();
       final text = allText(tester);
       expect(text, contains('the design note (https://example.test/design)'));
       expect(text, contains('https://example.test/raw'));
@@ -89,8 +84,6 @@ void main() {
 
     testWidgets('lists, code blocks and tables render', (tester) async {
       await pumpScreen(tester, const PlanScreen(id: 'plan-long'));
-      await tester.tap(find.textContaining('Show the whole plan'));
-      await tester.pump();
       final text = allText(tester);
       expect(text, contains('npm run build'));
       expect(find.byType(Table), findsOneWidget);

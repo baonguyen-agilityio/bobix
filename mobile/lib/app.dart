@@ -20,7 +20,7 @@ import 'screens/pairing_screens.dart';
 import 'screens/pets_screen.dart';
 import 'screens/settings_screen.dart';
 import 'theme/theme.dart';
-import 'theme/tokens.dart';
+import 'widgets/glass_backdrop.dart';
 import 'widgets/glass_tab_bar.dart';
 import 'widgets/status_banner.dart';
 
@@ -40,7 +40,8 @@ class BobixApp extends ConsumerWidget {
       themeMode:
           ref.watch(settingsProvider).value?.themeMode ?? ThemeMode.system,
       // The lock and the cover sit over everything, the pairing flow included once a computer is paired.
-      builder: (context, child) => AppLock(child: child ?? const SizedBox()),
+      builder: (context, child) =>
+          GlassBackdrop(child: AppLock(child: child ?? const SizedBox())),
       home: home,
     );
   }
@@ -122,7 +123,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(stringsProvider);
-    final t = context.tokens;
+    ref.listen(startRequestProvider, (_, id) {
+      if (id != null) setState(() => _index = _start);
+    });
     final pending = _pending;
     if (pending != null && ref.watch(homeProvider).value != null) {
       _pending = null;
@@ -137,7 +140,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             .length ??
         0;
     return Scaffold(
-      backgroundColor: t.bg,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         bottom: false,
         child: Stack(
@@ -168,10 +171,10 @@ class _AppShellState extends ConsumerState<AppShell> {
                       badge: need,
                     ),
                     TabSpec(Icons.pets_outlined, s('phone.tab.pets')),
-                    TabSpec(Icons.settings_outlined, s('phone.tab.settings')),
+                    TabSpec(Icons.tune, s('phone.tab.settings')),
                   ],
                   start: TabSpec(
-                    Icons.play_arrow_rounded,
+                    Icons.play_arrow_outlined,
                     s('phone.tab.start'),
                   ),
                   index: _index,

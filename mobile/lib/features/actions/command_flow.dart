@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/phone_data.dart';
 import '../../l10n/l10n.dart';
+import '../../log/activity_log.dart';
 import '../../theme/tokens.dart';
+import 'action_screen_parts.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
@@ -12,7 +16,9 @@ import 'result_screen.dart';
 
 /// The one command path of the action screens: the confirm step (the system's biometric prompt, which is also the
 /// signature), then send, then the result screen. A cancelled confirm sends nothing and leaves the screen as it was.
-/// A command is built here with a fresh id and sent once; no screen offers to send it again.
+/// A command is built here with a fresh id and sent once; no screen offers to send it again. When its result comes the
+/// log (in memory only) gets a line: [tool] and [detail] say what it was about (the command, the issue), [project] the
+/// project when the session is not one Home knows.
 Future<void> runCommand(
   BuildContext context,
   WidgetRef ref, {
@@ -24,12 +30,16 @@ Future<void> runCommand(
   String? text,
   List<String>? answers,
   StartMode? mode,
+  String tool = '',
+  String detail = '',
+  String project = '',
 }) async {
   if (!ref.read(canSendProvider)) return;
   final navigator = Navigator.of(context);
   final messenger = ScaffoldMessenger.of(context);
   final s = ref.read(stringsProvider);
   final source = ref.read(actionsSourceProvider);
+  final home = ref.read(homeProvider).value;
   final command = Command(
     id: source.newCommandId(),
     kind: kind,
@@ -60,10 +70,38 @@ Future<void> runCommand(
     );
     return;
   }
+  final first = source.send(command);
+  // A ticket belongs to no session yet: its line is in the app log.
+  final session = kind == CommandKind.start ? null : sessionFor(home, target);
+  final log = ref.read(activityLogProvider.notifier);
+  unawaited(
+    first.then(
+      (o) => log.record(
+        LogEntry(
+          at: DateTime.now(),
+          kind: switch (kind) {
+            CommandKind.allow => LogKind.allow,
+            CommandKind.deny => LogKind.deny,
+            CommandKind.approve => LogKind.approve,
+            CommandKind.back => LogKind.back,
+            CommandKind.answer => LogKind.answer,
+            CommandKind.stop => LogKind.stop,
+            CommandKind.start =>
+              mode == StartMode.quick ? LogKind.startQuick : LogKind.start,
+          },
+          sessionId: kind == CommandKind.start ? null : session?.id ?? target,
+          project: session?.project ?? project,
+          tool: tool,
+          detail: detail,
+          applied: o.kind == OutcomeKind.applied,
+        ),
+      ),
+      onError: (_) {},
+    ),
+  );
   navigator.pushReplacement(
     MaterialPageRoute<void>(
-      builder: (_) =>
-          ResultScreen(command: command, first: source.send(command)),
+      builder: (_) => ResultScreen(command: command, first: first),
     ),
   );
 }
@@ -115,84 +153,99 @@ class _UnlockSheetState extends ConsumerState<UnlockSheet> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(8),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-          decoration: BoxDecoration(
-            color: t.surface,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(width: .5, color: t.line),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 38,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: t.lineStrong,
-                  borderRadius: BorderRadius.circular(3),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(32),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              decoration: BoxDecoration(
+                color: t.surface.withValues(alpha: t.isDark ? .86 : .9),
+                borderRadius: BorderRadius.circular(32),
+                border: Border.all(
+                  width: .5,
+                  color: t.isDark
+                      ? const Color(0x17FFFFFF)
+                      : const Color(0xE6FFFFFF),
                 ),
               ),
-              const SizedBox(height: 14),
-              Container(
-                width: 76,
-                height: 76,
-                decoration: BoxDecoration(
-                  color: _ok ? t.okBg : t.accentBg,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  _ok
-                      ? Icons.check_rounded
-                      : (ios ? Icons.face : Icons.fingerprint),
-                  size: 40,
-                  color: c,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Semantics(
-                header: true,
-                child: Text(
-                  _ok ? s('phone.un.ok') : s('phone.un.h'),
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: t.ink,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: t.lineStrong,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                widget.reason,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: t.ink2),
-              ),
-              if (widget.warning != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  widget.warning!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: t.err,
+                  const SizedBox(height: 14),
+                  Container(
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      color: _ok ? t.okBg : t.accentBg,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      _ok
+                          ? Icons.check_rounded
+                          : (ios
+                                ? Icons.face_unlock_outlined
+                                : Icons.fingerprint),
+                      size: 40,
+                      color: c,
+                    ),
                   ),
-                ),
-              ],
-              const SizedBox(height: 8),
-              FinePrint(
-                ios ? s('phone.un.ios', {'os': bioName(s)}) : s('phone.un.and'),
+                  const SizedBox(height: 10),
+                  Semantics(
+                    header: true,
+                    child: Text(
+                      _ok ? s('phone.un.ok') : s('phone.un.h'),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: t.ink,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    widget.reason,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: t.ink2),
+                  ),
+                  if (widget.warning != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      widget.warning!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: t.err,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  FinePrint(
+                    ios
+                        ? s('phone.un.ios', {'os': bioName(s)})
+                        : s('phone.un.and'),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ActionButton(
+                      s('phone.a.cancel'),
+                      onPressed: () =>
+                          Navigator.of(context).pop(GateResult.cancelled),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ActionButton(
-                  s('phone.a.cancel'),
-                  onPressed: () =>
-                      Navigator.of(context).pop(GateResult.cancelled),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

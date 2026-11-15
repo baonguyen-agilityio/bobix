@@ -6,6 +6,7 @@ import 'package:phone/features/actions/actions_source.dart';
 import '../support/actions/fixture_actions_source.dart';
 
 import 'package:phone/data/models.dart';
+import 'package:phone/data/phone_data.dart';
 
 import 'package:phone/l10n/l10n.dart';
 import 'package:phone/theme/theme.dart';
@@ -40,6 +41,7 @@ Future<FixtureActionsSource> pumpScreen(
   FixtureActionsSource? source,
   ConnState conn = ConnState.ok,
   bool approve = true,
+  HomeData? home,
 }) async {
   tester.view
     ..physicalSize = const Size(390 * 3, 844 * 3)
@@ -53,6 +55,8 @@ Future<FixtureActionsSource> pumpScreen(
         langProvider.overrideWith(() => _Lang(lang)),
         connProvider.overrideWith(() => _Conn(conn)),
         actionsSourceProvider.overrideWithValue(src),
+        if (home != null)
+          homeProvider.overrideWith((ref) => Stream.value(home)),
         biometricGateProvider.overrideWithValue(
           FixtureBiometricGate(approve: approve, after: Duration.zero),
         ),
@@ -60,6 +64,7 @@ Future<FixtureActionsSource> pumpScreen(
       child: MaterialApp(theme: bobixTheme(brightness), home: screen),
     ),
   );
+  await tester.pump();
   await tester.pump();
   await tester.pump();
   return src;

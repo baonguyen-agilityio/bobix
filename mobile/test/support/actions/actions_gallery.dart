@@ -107,6 +107,11 @@ final galleryEntries = <GalleryEntry>[
     'Request: expired',
     () => const RequestScreen(id: 'req-closed-expired'),
   ),
+  GalleryEntry(
+    'request-closed-unseen',
+    'Request: closed, never opened on this phone',
+    () => const RequestScreen(id: 'req-closed-unseen'),
+  ),
   GalleryEntry('plan', 'Plan: long', () => const PlanScreen(id: 'plan-long')),
   GalleryEntry(
     'plan-short',

@@ -162,8 +162,29 @@ void main() {
             );
             expect(find.text(tr(lang, c.$2)), findsOneWidget);
             expect(button(tr(lang, 'ask.allow')), findsNothing);
+            // The remembered request stays under the banner.
+            expect(
+              find.text('git push origin 142-coupon-field'),
+              findsOneWidget,
+            );
+            expect(find.text('~/work/shop-app'), findsOneWidget);
+            expect(find.text(tr(lang, 'a.home')), findsOneWidget);
           });
         }
+
+        testWidgets('a request never loaded here shows only the banner', (
+          tester,
+        ) async {
+          await pumpScreen(
+            tester,
+            const RequestScreen(id: 'req-closed-unseen'),
+            lang: lang,
+            brightness: b,
+          );
+          expect(find.text(tr(lang, 'cl.pc')), findsOneWidget);
+          expect(find.text('git push origin 142-coupon-field'), findsNothing);
+          expect(find.text(tr(lang, 'a.home')), findsOneWidget);
+        });
       });
     }
   }
