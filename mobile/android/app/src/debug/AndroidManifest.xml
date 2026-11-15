@@ -4,4 +4,8 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <application>
+        <!-- Debug builds only: adb can seed a computer and deliver a sealed notice without Firebase (see DebugPush.kt). -->
+        <receiver android:name=".debug.DebugPush" android:exported="true" />
+    </application>
 </manifest>
