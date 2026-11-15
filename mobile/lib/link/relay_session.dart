@@ -1,11 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../src/rust/api/core.dart';
-import 'link_state.dart';
+import '../src/rust/api/relay.dart';
 
 /// A text WebSocket to a relay. A seam for tests; [WebSocketRelaySocket] is the real one.
 abstract interface class RelaySocket {
@@ -62,14 +61,15 @@ Unreachable whyUnreachable(Object error) {
 }
 
 /// One open connection to a relay, logged in with the `auth` key: the relay's challenge is answered with a signature over
-/// the address the phone connected to (the relay refuses a signature made for another address).
+/// the address the phone connected to (the relay refuses a signature made for another address). Frames are built and read
+/// by the crate (through the bridge); this moves their text.
 class RelaySession {
   RelaySession._(this._socket, this.frames);
 
   final RelaySocket _socket;
 
-  /// Frames after the login, as decoded JSON. Ends when the connection does.
-  final Stream<Map<String, dynamic>> frames;
+  /// Frames after the login. Ends when the connection does. A text that is not a frame is skipped.
+  final Stream<RelayFrame> frames;
 
   static Future<RelaySession> open({
     required String url,
@@ -79,54 +79,40 @@ class RelaySession {
     Duration challengeWithin = const Duration(seconds: 10),
   }) async {
     final socket = await connect(url);
-    final queue = StreamController<Map<String, dynamic>>();
-    final sub = socket.frames.listen(
-      (text) {
-        try {
-          final j = jsonDecode(text);
-          if (j is Map<String, dynamic>) queue.add(j);
-        } on FormatException {
-          // Not a frame: ignored, as the relay would ignore ours.
-        }
-      },
-      onError: queue.addError,
-      onDone: queue.close,
-    );
-    final it = StreamIterator<Map<String, dynamic>>(queue.stream);
-    Future<void> fail() async {
-      await sub.cancel();
-      await socket.close();
-    }
-
+    // In order: each text is parsed before the next one is looked at.
+    final parsed = socket.frames
+        .asyncMap<RelayFrame?>((text) async {
+          try {
+            return await parseRelayFrame(text: text);
+          } on CoreError {
+            return null; // not a frame: ignored, as the relay would ignore ours
+          }
+        })
+        .where((f) => f != null)
+        .cast<RelayFrame>();
+    final it = StreamIterator<RelayFrame>(parsed);
     try {
       if (!await it.moveNext().timeout(challengeWithin) ||
-          it.current['type'] != 'challenge') {
+          it.current is! RelayFrame_Challenge) {
         throw const SocketException('the relay sent no challenge');
       }
-      final nonce = it.current['nonce'] as String;
-      final message = await authBytes(relayUrl: url, challenge: nonce);
-      if (message == null) throw const SocketException('bad relay address');
-      final sig = await signWithAuth(
-        authSeed: identity.authSeed,
-        boxSecret: identity.boxSecret,
-        message: message,
-      );
       socket.send(
-        jsonEncode({
-          'type': 'auth',
-          'id': identity.deviceId,
-          'key': b64(identity.authPublic),
-          'relay': url,
-          'sig': b64(sig),
-          'versions': {'min': versions.min, 'max': versions.max},
-        }),
+        await relayAuthFrame(
+          authSeed: identity.authSeed,
+          boxSecret: identity.boxSecret,
+          relayUrl: url,
+          challenge: (it.current as RelayFrame_Challenge).nonce,
+          versionMin: versions.min,
+          versionMax: versions.max,
+        ),
       );
     } on Object {
-      await fail();
+      await it.cancel();
+      await socket.close();
       rethrow;
     }
-    // The iterator took the first frame; the rest is read from the same queue.
-    final rest = StreamController<Map<String, dynamic>>();
+    // The iterator took the first frame; the rest is read from the same stream.
+    final rest = StreamController<RelayFrame>();
     unawaited(() async {
       try {
         while (await it.moveNext()) {
@@ -140,7 +126,8 @@ class RelaySession {
     return RelaySession._(socket, rest.stream);
   }
 
-  void send(Map<String, Object?> frame) => _socket.send(jsonEncode(frame));
+  /// Sends a frame the crate built.
+  void send(String frame) => _socket.send(frame);
 
   Future<void> close() => _socket.close();
 }

@@ -8,6 +8,7 @@
 
 import 'api/core.dart';
 import 'api/messages.dart';
+import 'api/relay.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -25,8 +26,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   });
 
   CrossPlatformFinalizerArg
+  get rust_arc_decrement_strong_count_PhoneLinkPtr => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink;
+
+  CrossPlatformFinalizerArg
   get rust_arc_decrement_strong_count_SendCounterPtr => wire
       .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSendCounter;
+
+  @protected
+  PhoneLink
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    dynamic raw,
+  );
 
   @protected
   SendCounter
@@ -35,8 +46,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PhoneLink
+  dco_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    dynamic raw,
+  );
+
+  @protected
   SendCounter
   dco_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSendCounter(
+    dynamic raw,
+  );
+
+  @protected
+  PhoneLink
+  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    dynamic raw,
+  );
+
+  @protected
+  PhoneLink
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
     dynamic raw,
   );
 
@@ -56,7 +85,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CommandInput dco_decode_box_autoadd_command_input(dynamic raw);
 
   @protected
+  DesktopMessage dco_decode_box_autoadd_desktop_message(dynamic raw);
+
+  @protected
   PhoneRights dco_decode_box_autoadd_phone_rights(dynamic raw);
+
+  @protected
+  RelaySide dco_decode_box_autoadd_relay_side(dynamic raw);
 
   @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
@@ -98,7 +133,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ShownQuestion> dco_decode_list_shown_question(dynamic raw);
 
   @protected
+  OpenedPacket dco_decode_opened_packet(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  RelaySide? dco_decode_opt_box_autoadd_relay_side(dynamic raw);
 
   @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
@@ -107,10 +148,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  OutFrame dco_decode_out_frame(dynamic raw);
+
+  @protected
   PacketHeader dco_decode_packet_header(dynamic raw);
 
   @protected
   PairingInfo dco_decode_pairing_info(dynamic raw);
+
+  @protected
+  PeerState dco_decode_peer_state(dynamic raw);
 
   @protected
   PhoneRights dco_decode_phone_rights(dynamic raw);
@@ -122,10 +169,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ProtocolVersions dco_decode_protocol_versions(dynamic raw);
 
   @protected
+  RelayError dco_decode_relay_error(dynamic raw);
+
+  @protected
+  RelayFrame dco_decode_relay_frame(dynamic raw);
+
+  @protected
+  RelaySide dco_decode_relay_side(dynamic raw);
+
+  @protected
+  SealedPacket dco_decode_sealed_packet(dynamic raw);
+
+  @protected
   ShownQuestion dco_decode_shown_question(dynamic raw);
 
   @protected
   StartMode dco_decode_start_mode(dynamic raw);
+
+  @protected
+  int dco_decode_u_32(dynamic raw);
 
   @protected
   BigInt dco_decode_u_64(dynamic raw);
@@ -140,14 +202,38 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BigInt dco_decode_usize(dynamic raw);
 
   @protected
+  PhoneLink
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SendCounter
   sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSendCounter(
     SseDeserializer deserializer,
   );
 
   @protected
+  PhoneLink
+  sse_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SendCounter
   sse_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSendCounter(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PhoneLink
+  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PhoneLink
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
     SseDeserializer deserializer,
   );
 
@@ -169,7 +255,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  DesktopMessage sse_decode_box_autoadd_desktop_message(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PhoneRights sse_decode_box_autoadd_phone_rights(SseDeserializer deserializer);
+
+  @protected
+  RelaySide sse_decode_box_autoadd_relay_side(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
@@ -213,7 +307,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  OpenedPacket sse_decode_opened_packet(SseDeserializer deserializer);
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  RelaySide? sse_decode_opt_box_autoadd_relay_side(
+    SseDeserializer deserializer,
+  );
 
   @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
@@ -222,10 +324,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  OutFrame sse_decode_out_frame(SseDeserializer deserializer);
+
+  @protected
   PacketHeader sse_decode_packet_header(SseDeserializer deserializer);
 
   @protected
   PairingInfo sse_decode_pairing_info(SseDeserializer deserializer);
+
+  @protected
+  PeerState sse_decode_peer_state(SseDeserializer deserializer);
 
   @protected
   PhoneRights sse_decode_phone_rights(SseDeserializer deserializer);
@@ -237,10 +345,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ProtocolVersions sse_decode_protocol_versions(SseDeserializer deserializer);
 
   @protected
+  RelayError sse_decode_relay_error(SseDeserializer deserializer);
+
+  @protected
+  RelayFrame sse_decode_relay_frame(SseDeserializer deserializer);
+
+  @protected
+  RelaySide sse_decode_relay_side(SseDeserializer deserializer);
+
+  @protected
+  SealedPacket sse_decode_sealed_packet(SseDeserializer deserializer);
+
+  @protected
   ShownQuestion sse_decode_shown_question(SseDeserializer deserializer);
 
   @protected
   StartMode sse_decode_start_mode(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_u_64(SseDeserializer deserializer);
@@ -256,6 +379,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    PhoneLink self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
   sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSendCounter(
     SendCounter self,
     SseSerializer serializer,
@@ -263,8 +393,29 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void
+  sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    PhoneLink self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
   sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSendCounter(
     SendCounter self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    PhoneLink self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    PhoneLink self,
     SseSerializer serializer,
   );
 
@@ -288,8 +439,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_desktop_message(
+    DesktopMessage self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_phone_rights(
     PhoneRights self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_relay_side(
+    RelaySide self,
     SseSerializer serializer,
   );
 
@@ -345,7 +508,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opened_packet(OpenedPacket self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_relay_side(
+    RelaySide? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
@@ -357,10 +529,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_out_frame(OutFrame self, SseSerializer serializer);
+
+  @protected
   void sse_encode_packet_header(PacketHeader self, SseSerializer serializer);
 
   @protected
   void sse_encode_pairing_info(PairingInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_peer_state(PeerState self, SseSerializer serializer);
 
   @protected
   void sse_encode_phone_rights(PhoneRights self, SseSerializer serializer);
@@ -378,10 +556,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_relay_error(RelayError self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_relay_frame(RelayFrame self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_relay_side(RelaySide self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sealed_packet(SealedPacket self, SseSerializer serializer);
+
+  @protected
   void sse_encode_shown_question(ShownQuestion self, SseSerializer serializer);
 
   @protected
   void sse_encode_start_mode(StartMode self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_64(BigInt self, SseSerializer serializer);
@@ -400,6 +593,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
 class RustLibWire implements BaseWire {
   RustLibWire.fromExternalLibrary(ExternalLibrary lib);
+
+  void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+        ptr,
+      );
+
+  void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+        ptr,
+      );
 
   void
   rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSendCounter(
@@ -424,6 +633,16 @@ external RustLibWasmModule get wasmModule;
 @JS()
 @anonymous
 extension type RustLibWasmModule._(JSObject _) implements JSObject {
+  external void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    int ptr,
+  );
+
+  external void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPhoneLink(
+    int ptr,
+  );
+
   external void
   rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSendCounter(
     int ptr,

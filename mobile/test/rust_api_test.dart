@@ -33,6 +33,18 @@ const exposed = {
   'shownHash',
   'resume', // SendCounter
   'take', // SendCounter
+  // relay.rs
+  'parseRelayFrame',
+  'relayAuthFrame',
+  'relayPeersFrame',
+  'relayPairSendFrame',
+  'relaySendFrame',
+  'relayAckFrame',
+  'create', // PhoneLink
+  'takeCounter', // PhoneLink
+  'seal', // PhoneLink
+  'open', // PhoneLink
+  'recvState', // PhoneLink
   // messages.rs
   'promptHash',
   'isPlainText',

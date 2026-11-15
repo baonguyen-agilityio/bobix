@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
 import '../config/flavor.dart';
 import '../keys/secure_keys.dart';
 import '../src/rust/api/core.dart';
 import '../src/rust/api/messages.dart';
+import '../src/rust/api/relay.dart';
 import 'computer_channel.dart';
 import 'link_state.dart';
 import 'relay_session.dart';
@@ -46,11 +46,6 @@ class PairException implements Exception {
   String toString() => 'PairException($failure)';
 }
 
-String _pid(Random r) => List.generate(
-  8,
-  (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0'),
-).join();
-
 /// What the person chose on the "name and rights" screen.
 class PairRequest {
   const PairRequest({
@@ -82,9 +77,7 @@ class PairingService {
     required this.flavor,
     this.waitForComputer = const Duration(minutes: 3),
     DateTime Function()? now,
-    Random? random,
-  }) : _now = now ?? DateTime.now,
-       _random = random ?? Random.secure();
+  }) : _now = now ?? DateTime.now;
 
   final SecureKeys keys;
   final LinkStateStore store;
@@ -94,7 +87,6 @@ class PairingService {
   /// How long the phone waits for the person to confirm on the computer (a code lasts two minutes at the relay).
   final Duration waitForComputer;
   final DateTime Function() _now;
-  final Random _random;
 
   /// Checks a scanned text before anything else: a Bobix code, and a relay this build may use.
   Future<PairingInfo> inspect(String uri) async {
@@ -196,7 +188,6 @@ class PairingService {
     final channel = ComputerChannel(
       boxSecret: identity.boxSecret,
       desktopBoxPublic: info.desktopBoxPublic,
-      versions: versions,
       recvState: await recvStateNew(),
       eventReservation: BigInt.zero,
       onChange: () async {},
@@ -228,15 +219,8 @@ class PairingService {
         counter: await channel.nextCounter(),
       );
       session
-        ..send({
-          'type': 'peers',
-          'allow': [info.desktopDeviceId],
-        })
-        ..send({
-          'type': 'pairSend',
-          'relayToken': b64(info.relayToken),
-          'body': b64(body),
-        });
+        ..send(await relayPeersFrame(allow: [info.desktopDeviceId]))
+        ..send(await relayPairSendFrame(pairingUri: request.uri, body: body));
       final answer = await _awaitAnswer(it, session, channel, info, cancelled);
       final granted = answer.rights;
       await keys.putSecret(SecureKeys.auth, identity.authSeed);
@@ -259,15 +243,13 @@ class PairingService {
         await store.save(computer);
       };
       // Pairing ends when the computer has the acknowledgement: wait for the relay to say it was passed on.
-      final pid = _pid(_random);
-      session.send({
-        'type': 'send',
-        'pid': pid,
-        'to': info.desktopDeviceId,
-        'ttl': 600,
-        'body': b64(await channel.seal(await pairedAckMessage())),
-      });
-      await _awaitDelivery(it, pid);
+      final out = await relaySendFrame(
+        to: info.desktopDeviceId,
+        packet: await channel.seal(await pairedAckMessage()),
+        ttlSeconds: 600,
+      );
+      session.send(out.text);
+      await _awaitDelivery(it, out.pid);
       return computer;
     } finally {
       unawaited(it.cancel());
@@ -276,7 +258,7 @@ class PairingService {
   }
 
   Future<({String name, PhoneRights rights})> _awaitAnswer(
-    StreamIterator<Map<String, dynamic>> it,
+    StreamIterator<RelayFrame> it,
     RelaySession session,
     ComputerChannel channel,
     PairingInfo info,
@@ -301,15 +283,13 @@ class PairingService {
           cancelled() ? PairFailure.cancelled : PairFailure.relayUnreachable,
         );
       }
-      final f = it.current;
-      switch (f['type']) {
-        case 'error':
-          throw _failureOf(f);
-        case 'msg':
-          session.send({'type': 'ack', 'pid': f['pid']});
-          if (f['from'] != info.desktopDeviceId) continue;
-          final opened = await channel.open(b64d(f['body'] as String));
-          switch (opened) {
+      switch (it.current) {
+        case RelayFrame_Error(:final code, :final who):
+          throw _failureOf(code, who);
+        case RelayFrame_Msg(:final pid, :final from, :final packet):
+          session.send(await relayAckFrame(pid: pid));
+          if (from != info.desktopDeviceId) continue;
+          switch (await channel.open(packet)) {
             case OpenedVersion(:final phoneMustUpdate):
               throw PairException(
                 PairFailure.updateNeeded,
@@ -333,21 +313,23 @@ class PairingService {
                 );
               }
           }
+        default:
+          continue;
       }
     }
   }
 
-  Future<void> _awaitDelivery(
-    StreamIterator<Map<String, dynamic>> it,
-    String pid,
-  ) async {
+  Future<void> _awaitDelivery(StreamIterator<RelayFrame> it, String pid) async {
     try {
       await (() async {
         while (await it.moveNext()) {
-          final f = it.current;
-          if (f['pid'] == pid &&
-              (f['type'] == 'delivered' || f['type'] == 'queued')) {
-            return;
+          switch (it.current) {
+            case RelayFrame_Delivered(pid: final p) ||
+                    RelayFrame_Queued(pid: final p)
+                when p == pid:
+              return;
+            default:
+              continue;
           }
         }
       })().timeout(const Duration(seconds: 5));
@@ -357,19 +339,18 @@ class PairingService {
   }
 }
 
-PairException _failureOf(Map<String, dynamic> f) => switch (f['code']) {
-  'pairExpired' => const PairException(PairFailure.codeExpired),
-  'noPeer' => const PairException(PairFailure.codeUsed),
-  'revoked' => const PairException(PairFailure.computerSaidNo),
-  'invite' => const PairException(PairFailure.inviteNeeded),
-  'update' => PairException(
+PairException _failureOf(RelayError code, RelaySide? who) => switch (code) {
+  RelayError.pairExpired => const PairException(PairFailure.codeExpired),
+  RelayError.noPeer => const PairException(PairFailure.codeUsed),
+  RelayError.revoked => const PairException(PairFailure.computerSaidNo),
+  RelayError.invite => const PairException(PairFailure.inviteNeeded),
+  RelayError.update => PairException(
     PairFailure.updateNeeded,
-    phoneMustUpdate: updateIsOnThePhone(f),
+    phoneMustUpdate: updateIsOnThePhone(who),
   ),
   _ => const PairException(PairFailure.relayUnreachable),
 };
 
-/// An `error { update }` names who is to update in `who`; the relay does not send it yet, so the format is an assumption
-/// (see `relay_frames.rs`): `desktop` means the computer, anything else (or nothing) the phone.
-bool updateIsOnThePhone(Map<String, dynamic> errorFrame) =>
-    errorFrame['who'] != 'desktop';
+/// An `update` error names who is to update in `who`; the relay does not send it yet, so the format is an assumption (see
+/// `relay_frames.rs`): the desktop means the computer, anything else (or nothing) the phone.
+bool updateIsOnThePhone(RelaySide? who) => who != RelaySide.desktop;

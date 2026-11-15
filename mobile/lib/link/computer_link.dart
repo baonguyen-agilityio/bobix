@@ -8,6 +8,7 @@ import '../data/models.dart';
 import '../keys/secure_keys.dart';
 import '../src/rust/api/core.dart';
 import '../src/rust/api/messages.dart';
+import '../src/rust/api/relay.dart';
 import 'computer_channel.dart';
 import 'link_state.dart';
 import 'pairing_service.dart' show updateIsOnThePhone;
@@ -83,7 +84,6 @@ class ComputerLink {
     channel = ComputerChannel(
       boxSecret: identity.boxSecret,
       desktopBoxPublic: computer.desktopBoxPublic,
-      versions: versions,
       recvState: computer.recvState,
       eventReservation: computer.eventReservation,
       nowMs: _now().millisecondsSinceEpoch,
@@ -182,10 +182,7 @@ class ComputerLink {
           break;
         }
         _set(status.copyWith(conn: ConnState.ok));
-        session.send({
-          'type': 'peers',
-          'allow': [computer.id],
-        });
+        session.send(await relayPeersFrame(allow: [computer.id]));
         await _sendSealed(
           await syncMessage(
             waiting: const [],
@@ -194,7 +191,7 @@ class ComputerLink {
           ),
         );
         await for (final f in session.frames) {
-          if (f['type'] != 'error') reachedRelay = true;
+          if (f is! RelayFrame_Error) reachedRelay = true;
           if (reachedRelay) attempt = 0;
           await _onFrame(session, f);
           if (_gone || !_running) break;
@@ -234,57 +231,55 @@ class ComputerLink {
   Future<void> _sendSealed(Uint8List plaintext) async {
     final session = _session;
     if (session == null) throw const SocketLost();
-    final packet = await channel.seal(plaintext);
-    session.send({
-      'type': 'send',
-      'pid': _pid(),
-      'to': computer.id,
-      'ttl': 600,
-      'body': b64(packet),
-    });
+    final out = await relaySendFrame(
+      to: computer.id,
+      packet: await channel.seal(plaintext),
+      ttlSeconds: 600,
+    );
+    session.send(out.text);
   }
 
-  String _pid() => List.generate(
-    8,
-    (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
-  ).join();
-
-  Future<void> _onFrame(RelaySession session, Map<String, dynamic> f) async {
-    switch (f['type']) {
-      case 'presence' when f['peer'] == computer.id:
+  Future<void> _onFrame(RelaySession session, RelayFrame f) async {
+    switch (f) {
+      case RelayFrame_Presence(:final peer, :final state)
+          when peer == computer.id:
         _set(
           status.copyWith(
-            conn: switch (f['state']) {
-              'asleep' => ConnState.asleep,
-              'offline' => ConnState.offline,
-              _ => ConnState.ok,
+            conn: switch (state) {
+              PeerState.asleep => ConnState.asleep,
+              PeerState.offline => ConnState.offline,
+              PeerState.online => ConnState.ok,
             },
           ),
         );
-      case 'error':
-        _onError(f);
-      case 'msg':
+      case RelayFrame_Error(:final code, :final who):
+        _onError(code, who);
+      case RelayFrame_Msg(:final pid, :final from, :final packet):
         // Acknowledged on arrival, before it is looked at: the relay stops holding it.
-        session.send({'type': 'ack', 'pid': f['pid']});
-        if (f['from'] != computer.id) return;
-        await _onPacket(b64d(f['body'] as String));
+        session.send(await relayAckFrame(pid: pid));
+        if (from != computer.id) return;
+        await _onPacket(packet);
+      default:
+        break;
     }
   }
 
-  void _onError(Map<String, dynamic> f) {
-    switch (f['code']) {
-      case 'revoked':
+  void _onError(RelayError code, RelaySide? who) {
+    switch (code) {
+      case RelayError.revoked:
         _set(status.copyWith(maybeRevoked: true));
-      case 'update':
+      case RelayError.update:
         _set(
           status.copyWith(
-            problem: updateIsOnThePhone(f)
+            problem: updateIsOnThePhone(who)
                 ? LinkProblem.updatePhone
                 : LinkProblem.updateComputer,
           ),
         );
-      case 'invite':
+      case RelayError.invite:
         _set(status.copyWith(problem: LinkProblem.invite));
+      default:
+        break;
     }
   }
 
