@@ -60,13 +60,16 @@ pub fn new_notice_window() -> String {
 }
 
 /// Opens `packet` (from the computer whose `box` public key is `desktop_box_public`) with this phone's `box` secret,
-/// against the receive window `state` of that computer (`new_notice_window` gives the first one).
+/// against the receive window `state` of that computer (`new_notice_window` gives the first one) and the protocol
+/// versions this pair accepts.
 #[uniffi::export]
 pub fn open_notice(
     box_secret: Vec<u8>,
     desktop_box_public: Vec<u8>,
     packet: Vec<u8>,
     state: String,
+    version_min: u8,
+    version_max: u8,
 ) -> Result<OpenedNotice, OpenNoticeError> {
     let secret = SecretKey::from(key32(&box_secret)?);
     // A small-order peer key would make the shared secret all zeros: the crate refuses it.
@@ -85,7 +88,7 @@ pub fn open_notice(
         OpenError::Dropped => OpenNoticeError::Replayed,
         _ => OpenNoticeError::Decrypt,
     })?;
-    envelope::check_version(&VersionRange::current(), header.version).map_err(|_| OpenNoticeError::Version)?;
+    envelope::check_version(&VersionRange { min: version_min, max: version_max }, header.version).map_err(|_| OpenNoticeError::Version)?;
 
     let msg = messages::DesktopMsg::from_json(&plain).map_err(|_| OpenNoticeError::NotANotice)?;
     msg.validate().map_err(|_| OpenNoticeError::NotANotice)?;
@@ -106,6 +109,67 @@ pub fn open_notice(
         body: notice.body,
         state: serde_json::to_string(&window).expect("a state serialises"),
     })
+}
+
+/// A packet that opened, whatever its stream: what the app takes through the shared window.
+#[derive(uniffi::Record)]
+pub struct OpenedPacket {
+    /// `state`, `event` or `activity`.
+    pub stream: String,
+    pub counter: u64,
+    pub plaintext: Vec<u8>,
+    /// The receive window to store in place of the one passed in.
+    pub state: String,
+}
+
+/// Opens any packet from one computer against its stored window: the same check, open and commit as [`open_notice`],
+/// for a packet that is not necessarily a notice.
+#[uniffi::export]
+pub fn open_packet(
+    box_secret: Vec<u8>,
+    desktop_box_public: Vec<u8>,
+    packet: Vec<u8>,
+    state: String,
+    version_min: u8,
+    version_max: u8,
+) -> Result<OpenedPacket, OpenNoticeError> {
+    let secret = SecretKey::from(key32(&box_secret)?);
+    let peer: PublicKey = keys::box_public(key32(&desktop_box_public)?).ok_or(OpenNoticeError::InvalidKey)?;
+    let mut window: counters::RecvState = serde_json::from_str(&state).map_err(|_| OpenNoticeError::BadState)?;
+    let header = envelope::peek(Direction::ToDesktop, &packet).map_err(|_| OpenNoticeError::NotAPacket)?;
+    if !window.check(header.lane.stream, header.counter) {
+        return Err(OpenNoticeError::Replayed);
+    }
+    let plaintext = envelope::open(&secret, &peer, &packet).map_err(|e| match e {
+        OpenError::Dropped => OpenNoticeError::Replayed,
+        _ => OpenNoticeError::Decrypt,
+    })?;
+    envelope::check_version(&VersionRange { min: version_min, max: version_max }, header.version).map_err(|_| OpenNoticeError::Version)?;
+    window.commit(header.lane.stream, header.counter);
+    Ok(OpenedPacket {
+        stream: match header.lane.stream {
+            Stream::State => "state",
+            Stream::Event => "event",
+            Stream::Activity => "activity",
+        }
+        .into(),
+        counter: header.counter,
+        plaintext,
+        state: serde_json::to_string(&window).expect("a state serialises"),
+    })
+}
+
+/// The grant a phone hands a relay with its push token: `auth public key (32) ‖ expiry unix ms (8, big endian) ‖
+/// Ed25519 signature (64)`, URL-safe base64, over the label, the token, the relay id and the expiry. The same bytes the
+/// iOS push core makes and `relay/src/push.rs` checks. The `auth` seed never leaves native code: Dart gets the grant.
+#[uniffi::export]
+pub fn make_grant(auth_seed: Vec<u8>, box_secret: Vec<u8>, token: String, relay_id: String, expires_unix_ms: u64) -> Result<String, OpenNoticeError> {
+    let id = keys::Identity::from_secrets(key32(&auth_seed)?, key32(&box_secret)?);
+    let signed = bobix_link::Fields::new("bobix-push-grant-v1").field(token.as_bytes()).field(relay_id.as_bytes()).num(expires_unix_ms).done();
+    let mut raw = id.public().auth.to_vec();
+    raw.extend_from_slice(&expires_unix_ms.to_be_bytes());
+    raw.extend_from_slice(&id.sign_auth(&signed));
+    Ok(bobix_link::b64(&raw))
 }
 
 #[cfg(test)]
@@ -133,7 +197,7 @@ mod tests {
     }
 
     fn open(packet: Vec<u8>, state: &str) -> Result<OpenedNotice, OpenNoticeError> {
-        open_notice(PHONE_SECRET.to_vec(), desktop_box_public(), packet, state.into())
+        open_notice(PHONE_SECRET.to_vec(), desktop_box_public(), packet, state.into(), 1, 1)
     }
 
     fn fresh() -> String {
@@ -164,10 +228,10 @@ mod tests {
         assert_eq!(open(seal(5, Direction::ToDesktop, Stream::Event, &notice("waiting")), &fresh()).err(), Some(OpenNoticeError::NotAPacket));
         assert_eq!(open(seal(5, Direction::ToPhone, Stream::Event, r#"{"kind":"home"}"#), &fresh()).err(), Some(OpenNoticeError::NotANotice));
         assert_eq!(open(ok.clone(), "nope").err(), Some(OpenNoticeError::BadState));
-        assert_eq!(open_notice(vec![1; 5], desktop_box_public(), ok.clone(), fresh()).err(), Some(OpenNoticeError::InvalidKey));
-        assert_eq!(open_notice(PHONE_SECRET.to_vec(), vec![0; 32], ok.clone(), fresh()).err(), Some(OpenNoticeError::InvalidKey));
+        assert_eq!(open_notice(vec![1; 5], desktop_box_public(), ok.clone(), fresh(), 1, 1).err(), Some(OpenNoticeError::InvalidKey));
+        assert_eq!(open_notice(PHONE_SECRET.to_vec(), vec![0; 32], ok.clone(), fresh(), 1, 1).err(), Some(OpenNoticeError::InvalidKey));
         // A packet from another computer (another key) does not authenticate.
-        assert_eq!(open_notice(PHONE_SECRET.to_vec(), vec![9; 32], ok, fresh()).err(), Some(OpenNoticeError::Decrypt));
+        assert_eq!(open_notice(PHONE_SECRET.to_vec(), vec![9; 32], ok, fresh(), 1, 1).err(), Some(OpenNoticeError::Decrypt));
     }
 
     // ---- fixtures for the Kotlin tests of the push service ----
@@ -242,6 +306,33 @@ mod tests {
                 Err(e) => assert_eq!(format!("{e:?}"), outcome, "{line}"),
             }
         }
+    }
+
+    #[test]
+    fn open_packet_takes_any_stream_and_shares_the_window() {
+        let home = seal(7, Direction::ToPhone, Stream::State, r#"{"kind":"home"}"#);
+        let got = open_packet(PHONE_SECRET.to_vec(), desktop_box_public(), home.clone(), fresh(), 1, 1).unwrap();
+        assert_eq!((got.stream.as_str(), got.counter), ("state", 7));
+        assert_eq!(open_packet(PHONE_SECRET.to_vec(), desktop_box_public(), home, got.state.clone(), 1, 1).err(), Some(OpenNoticeError::Replayed));
+        // A notice taken here is a replay for the push service that shares this window, and the other way round.
+        let n = seal(20, Direction::ToPhone, Stream::Event, &notice("waiting"));
+        let taken = open_packet(PHONE_SECRET.to_vec(), desktop_box_public(), n.clone(), got.state, 1, 1).unwrap();
+        assert_eq!(open(n, &taken.state).err(), Some(OpenNoticeError::Replayed));
+        // A version outside the pair's range is refused.
+        assert_eq!(open_packet(PHONE_SECRET.to_vec(), desktop_box_public(), seal(30, Direction::ToPhone, Stream::Event, "{}"), fresh(), 2, 3).err(), Some(OpenNoticeError::Version));
+    }
+
+    #[test]
+    fn a_grant_is_what_the_relay_checks() {
+        let g = make_grant(vec![1; 32], vec![2; 32], "tok".into(), "relay.example".into(), 1_800_000_000_000).unwrap();
+        let raw = bobix_link::b64_decode(&g).unwrap();
+        assert_eq!(raw.len(), 32 + 8 + 64);
+        assert_eq!(&raw[32..40], &1_800_000_000_000u64.to_be_bytes());
+        let id = keys::Identity::from_secrets([1; 32], [2; 32]);
+        assert_eq!(&raw[..32], &id.public().auth);
+        let signed = bobix_link::Fields::new("bobix-push-grant-v1").field(b"tok").field(b"relay.example").num(1_800_000_000_000).done();
+        assert!(keys::verify_auth(&id.public().auth, &signed, &raw[40..]));
+        assert_eq!(make_grant(vec![1; 5], vec![2; 32], "t".into(), "r".into(), 1).err(), Some(OpenNoticeError::InvalidKey));
     }
 
     #[test]

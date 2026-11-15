@@ -24,7 +24,7 @@ class DebugPush : BroadcastReceiver() {
         when (intent.action) {
             "dev.bobix.phone.debug.SEED" -> {
                 KeyStore(app).putSecret("box", hex(intent.getStringExtra("box")!!))
-                PeerStore(PushService.peerDir(app)).set("desktop-1", hex(intent.getStringExtra("desktop")!!)) { NoticeHandler.freshWindow() }
+                PeerStore(PushService.peerDir(app)).set("desktop-1", hex(intent.getStringExtra("desktop")!!), 1, 1) { NoticeHandler.freshWindow() }
                 Log.i(TAG, "seeded")
             }
             "dev.bobix.phone.debug.DELIVER" -> Log.i(TAG, "delivered: ${PushService.handle(app, intent.getStringExtra("sealed"))}")

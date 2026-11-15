@@ -20,25 +20,29 @@ class PushService : FirebaseMessagingService() {
     }
 
     override fun onNewToken(token: String) {
-        // The app is not necessarily running: it registers the new token the next time it opens (or now, if it is).
-        PushPrefs(applicationContext).tokenChanged = true
-        PushChannel.active?.tokenRefreshed()
+        // The app registers it with the relays (Dart listens for `token`). If the app is not running, `register` at the
+        // next start fetches the current token again.
+        PushChannel.active?.emitToken(token)
     }
 
     companion object {
         fun peerDir(context: Context) = File(context.noBackupFilesDir, "push")
 
-        /** The whole path of one push, apart from Firebase: open, decide, post. Returns whether anything was done. */
-        fun handle(context: Context, sealed: String?, keys: KeyStore? = null): Boolean {
-            val store = keys ?: try {
-                KeyStore(context)
-            } catch (e: KeyStore.KeyError) {
-                return false
-            }
-            val opened = NoticeHandler(PeerStore(peerDir(context))) { store.secret("box") }.open(sealed) ?: return false
-            val action = planFor(opened, PushPrefs(context).hideDetails) ?: return false
-            NoticePoster(context).apply(action)
-            return true
+        /**
+         * The whole path of one push, apart from Firebase: open, decide, post. Returns whether anything was done. Anything
+         * that goes wrong (keys not readable, a store file that does not parse, the library not loading) drops the push:
+         * a notification service must never crash on one bad message.
+         */
+        fun handle(context: Context, sealed: String?, keys: KeyStore? = null): Boolean = try {
+            val store = keys ?: KeyStore(context)
+            val opened = NoticeHandler(PeerStore(peerDir(context))) { store.secret("box") }.open(sealed)
+            val action = opened?.let { planFor(it, PushPrefs(context).hideDetails) }
+            if (action != null) NoticePoster(context).apply(action)
+            action != null
+        } catch (e: Exception) {
+            false
+        } catch (e: UnsatisfiedLinkError) {
+            false
         }
     }
 }

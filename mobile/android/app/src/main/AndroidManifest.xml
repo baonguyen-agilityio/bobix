@@ -42,7 +42,9 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
-        <!-- Firebase starts only when the app asks for a token (after pairing), never at launch, and sends no analytics. -->
+        <!-- With google-services.json present Firebase's init provider still sets up FirebaseApp at every launch. What these two
+             switches stop is the token (and the installation id behind it) being fetched before the app asks for it, which is
+             after pairing, and analytics. -->
         <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
         <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_notification" />

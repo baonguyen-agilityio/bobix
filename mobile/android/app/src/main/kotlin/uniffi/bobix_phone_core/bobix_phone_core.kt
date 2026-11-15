@@ -674,9 +674,13 @@ internal object IntegrityCheckingUniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_bobix_phone_core_checksum_func_make_grant(
+    ): Int
     external fun uniffi_bobix_phone_core_checksum_func_new_notice_window(
     ): Int
     external fun uniffi_bobix_phone_core_checksum_func_open_notice(
+    ): Int
+    external fun uniffi_bobix_phone_core_checksum_func_open_packet(
     ): Int
     external fun ffi_bobix_phone_core_uniffi_contract_version(
     ): Int
@@ -693,9 +697,13 @@ internal object UniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_bobix_phone_core_fn_func_make_grant(`authSeed`: RustBuffer.ByValue,`boxSecret`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`relayId`: RustBuffer.ByValue,`expiresUnixMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_bobix_phone_core_fn_func_new_notice_window(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
-    external fun uniffi_bobix_phone_core_fn_func_open_notice(`boxSecret`: RustBuffer.ByValue,`desktopBoxPublic`: RustBuffer.ByValue,`packet`: RustBuffer.ByValue,`state`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_bobix_phone_core_fn_func_open_notice(`boxSecret`: RustBuffer.ByValue,`desktopBoxPublic`: RustBuffer.ByValue,`packet`: RustBuffer.ByValue,`state`: RustBuffer.ByValue,`versionMin`: Byte,`versionMax`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_bobix_phone_core_fn_func_open_packet(`boxSecret`: RustBuffer.ByValue,`desktopBoxPublic`: RustBuffer.ByValue,`packet`: RustBuffer.ByValue,`state`: RustBuffer.ByValue,`versionMin`: Byte,`versionMax`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_bobix_phone_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -816,10 +824,16 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if ((lib.uniffi_bobix_phone_core_checksum_func_make_grant() and 0xFFFF) != 10778) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_bobix_phone_core_checksum_func_new_notice_window() and 0xFFFF) != 38207) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if ((lib.uniffi_bobix_phone_core_checksum_func_open_notice() and 0xFFFF) != 37024) {
+    if ((lib.uniffi_bobix_phone_core_checksum_func_open_notice() and 0xFFFF) != 50408) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_bobix_phone_core_checksum_func_open_packet() and 0xFFFF) != 58572) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -914,6 +928,56 @@ object UniffiWithHandle
  * @suppress
  * */
 object NoHandle
+
+/**
+ * @suppress
+ */
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    fun lift(value: Int): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1UL
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterULong: FfiConverter<ULong, Long> {
+    override fun lift(value: Long): ULong {
+        return value.toULong()
+    }
+
+    override fun read(buf: ByteBuffer): ULong {
+        return lift(buf.getLong())
+    }
+
+    override fun lower(value: ULong): Long {
+        return value.toLong()
+    }
+
+    override fun allocationSize(value: ULong) = 8UL
+
+    override fun write(value: ULong, buf: ByteBuffer) {
+        buf.putLong(value.toLong())
+    }
+}
 
 /**
  * @suppress
@@ -1054,6 +1118,63 @@ public object FfiConverterTypeOpenedNotice: FfiConverterRustBuffer<OpenedNotice>
             FfiConverterString.write(value.`session`, buf)
             FfiConverterString.write(value.`title`, buf)
             FfiConverterString.write(value.`body`, buf)
+            FfiConverterString.write(value.`state`, buf)
+    }
+}
+
+
+
+/**
+ * A packet that opened, whatever its stream: what the app takes through the shared window.
+ */
+data class OpenedPacket (
+    /**
+     * `state`, `event` or `activity`.
+     */
+    var `stream`: kotlin.String
+    , 
+    var `counter`: kotlin.ULong
+    , 
+    var `plaintext`: kotlin.ByteArray
+    , 
+    /**
+     * The receive window to store in place of the one passed in.
+     */
+    var `state`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeOpenedPacket: FfiConverterRustBuffer<OpenedPacket> {
+    override fun read(buf: ByteBuffer): OpenedPacket {
+        return OpenedPacket(
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: OpenedPacket) = (
+            FfiConverterString.allocationSize(value.`stream`) +
+            FfiConverterULong.allocationSize(value.`counter`) +
+            FfiConverterByteArray.allocationSize(value.`plaintext`) +
+            FfiConverterString.allocationSize(value.`state`)
+    )
+
+    override fun write(value: OpenedPacket, buf: ByteBuffer) {
+            FfiConverterString.write(value.`stream`, buf)
+            FfiConverterULong.write(value.`counter`, buf)
+            FfiConverterByteArray.write(value.`plaintext`, buf)
             FfiConverterString.write(value.`state`, buf)
     }
 }
@@ -1246,6 +1367,27 @@ public object FfiConverterTypeOpenNoticeError : FfiConverterRustBuffer<OpenNotic
 
 }
         /**
+         * The grant a phone hands a relay with its push token: `auth public key (32) ‖ expiry unix ms (8, big endian) ‖
+         * Ed25519 signature (64)`, URL-safe base64, over the label, the token, the relay id and the expiry. The same bytes the
+         * iOS push core makes and `relay/src/push.rs` checks. The `auth` seed never leaves native code: Dart gets the grant.
+         */
+    @Throws(OpenNoticeException::class) fun `makeGrant`(`authSeed`: kotlin.ByteArray, `boxSecret`: kotlin.ByteArray, `token`: kotlin.String, `relayId`: kotlin.String, `expiresUnixMs`: kotlin.ULong): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(OpenNoticeException) { _status ->
+    UniffiLib.uniffi_bobix_phone_core_fn_func_make_grant(
+    
+        
+        FfiConverterByteArray.lower(`authSeed`),
+        FfiConverterByteArray.lower(`boxSecret`),
+        FfiConverterString.lower(`token`),
+        FfiConverterString.lower(`relayId`),
+        FfiConverterULong.lower(`expiresUnixMs`),_status)
+}
+    )
+    }
+    
+
+        /**
          * The receive window of a computer that has sent nothing yet (the first `state` to pass to [`open_notice`]).
          */ fun `newNoticeWindow`(): kotlin.String {
             return FfiConverterString.lift(
@@ -1260,9 +1402,10 @@ public object FfiConverterTypeOpenNoticeError : FfiConverterRustBuffer<OpenNotic
 
         /**
          * Opens `packet` (from the computer whose `box` public key is `desktop_box_public`) with this phone's `box` secret,
-         * against the receive window `state` of that computer (`new_notice_window` gives the first one).
+         * against the receive window `state` of that computer (`new_notice_window` gives the first one) and the protocol
+         * versions this pair accepts.
          */
-    @Throws(OpenNoticeException::class) fun `openNotice`(`boxSecret`: kotlin.ByteArray, `desktopBoxPublic`: kotlin.ByteArray, `packet`: kotlin.ByteArray, `state`: kotlin.String): OpenedNotice {
+    @Throws(OpenNoticeException::class) fun `openNotice`(`boxSecret`: kotlin.ByteArray, `desktopBoxPublic`: kotlin.ByteArray, `packet`: kotlin.ByteArray, `state`: kotlin.String, `versionMin`: kotlin.UByte, `versionMax`: kotlin.UByte): OpenedNotice {
             return FfiConverterTypeOpenedNotice.lift(
     uniffiRustCallWithError(OpenNoticeException) { _status ->
     UniffiLib.uniffi_bobix_phone_core_fn_func_open_notice(
@@ -1271,7 +1414,30 @@ public object FfiConverterTypeOpenNoticeError : FfiConverterRustBuffer<OpenNotic
         FfiConverterByteArray.lower(`boxSecret`),
         FfiConverterByteArray.lower(`desktopBoxPublic`),
         FfiConverterByteArray.lower(`packet`),
-        FfiConverterString.lower(`state`),_status)
+        FfiConverterString.lower(`state`),
+        FfiConverterUByte.lower(`versionMin`),
+        FfiConverterUByte.lower(`versionMax`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Opens any packet from one computer against its stored window: the same check, open and commit as [`open_notice`],
+         * for a packet that is not necessarily a notice.
+         */
+    @Throws(OpenNoticeException::class) fun `openPacket`(`boxSecret`: kotlin.ByteArray, `desktopBoxPublic`: kotlin.ByteArray, `packet`: kotlin.ByteArray, `state`: kotlin.String, `versionMin`: kotlin.UByte, `versionMax`: kotlin.UByte): OpenedPacket {
+            return FfiConverterTypeOpenedPacket.lift(
+    uniffiRustCallWithError(OpenNoticeException) { _status ->
+    UniffiLib.uniffi_bobix_phone_core_fn_func_open_packet(
+    
+        
+        FfiConverterByteArray.lower(`boxSecret`),
+        FfiConverterByteArray.lower(`desktopBoxPublic`),
+        FfiConverterByteArray.lower(`packet`),
+        FfiConverterString.lower(`state`),
+        FfiConverterUByte.lower(`versionMin`),
+        FfiConverterUByte.lower(`versionMax`),_status)
 }
     )
     }

@@ -151,14 +151,19 @@ jobs:
       - name: Strings are current (the Android strings.xml come from the same source)
         working-directory: .
         run: node mobile/tool/strings.mjs --check
-      - name: Rust core and the push opener (also builds the library the Kotlin unit tests load)
+      - name: Rust core and the push opener
         run: |
           cargo clippy --locked --manifest-path rust/Cargo.toml -- -D warnings
           cargo test --locked --manifest-path rust/Cargo.toml
+      # `cargo test` builds the test harness, not the library. The binding check, the Dart tests and the Kotlin unit tests
+      # all load `rust/target/debug/libbobix_phone_core.so`, so make it before them.
+      - name: Compile the Rust library the next steps load
+        run: cargo build --locked --manifest-path rust/Cargo.toml
       - name: The committed Kotlin binding is what the Rust code says
+        working-directory: mobile/rust
         run: |
-          cargo run --locked --manifest-path rust/Cargo.toml --features uniffi-cli --bin uniffi-bindgen -- generate --library rust/target/debug/libbobix_phone_core.so --language kotlin --out-dir android/app/src/main/kotlin --no-format
-          git diff --exit-code -- android/app/src/main/kotlin/uniffi
+          cargo run --locked --features uniffi-cli --bin uniffi-bindgen -- generate --library target/debug/libbobix_phone_core.so --language kotlin --out-dir ../android/app/src/main/kotlin --no-format
+          git diff --exit-code -- ../android/app/src/main/kotlin/uniffi
       - run: flutter analyze
       - name: Dart tests (the shared crate's test vectors through the bridge, on this computer)
         run: flutter test

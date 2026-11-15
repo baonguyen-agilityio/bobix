@@ -65,4 +65,16 @@ class KeyStoreAndManifestTest {
         val poster = src("kotlin/dev/bobix/phone/push/NoticePoster.kt")
         assertTrue(poster.contains("VISIBILITY_PRIVATE") && poster.contains("setPublicVersion(generic)"))
     }
+
+    @Test
+    fun theDebugReceiverIsOnlyForTheShell() {
+        val debug = File(System.getProperty("app.src.main")!!, "../debug/AndroidManifest.xml").readText()
+        assertTrue(debug.contains("android:permission=\"android.permission.DUMP\""))
+    }
+
+    @Test
+    fun aTapIsCheckedAgainstASecretOnlyOurNotificationsCarry() {
+        val channel = src("kotlin/dev/bobix/phone/push/PushChannel.kt")
+        assertTrue(channel.contains("EXTRA_TOKEN) != prefs.tapToken"))
+    }
 }

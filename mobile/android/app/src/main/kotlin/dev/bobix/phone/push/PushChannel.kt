@@ -10,32 +10,40 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
+import dev.bobix.phone.keys.KeyStore
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import uniffi.bobix_phone_core.makeGrant
 
 /**
- * The platform channel `dev.bobix.phone/push`: the Android half of what the Dart side needs from the OS for push.
+ * The platform channel `dev.bobix.phone/push`, answering what `lib/push/push_platform.dart` (the `ChannelPushPlatform`
+ * the iOS push work defines) calls: the same method names, argument names and answer maps as `ios/Runner/PushChannel.swift`.
  *
  * Dart to native:
- * - `permission` -> "granted" | "denied"; `requestPermission` -> the same, after the system dialog (Android 13 and later;
- *   earlier versions have no dialog); `openSettings` opens this app's notification settings.
- * - `token` -> the FCM token, or null when this build has no Firebase project (`google-services.json` is missing).
- *   Firebase starts only when this is first called, which is after pairing; it never starts at launch.
- * - `deleteToken` forgets the token at Google (on disconnect from the last computer).
- * - `setHideDetails(bool)` and `hideDetails`: the "Hide details" switch the push service reads without the app open.
- * - `setPeer(id, boxPublic)` and `removePeer(id)`: the computers the push service may open notices from.
- * - `launchTap` -> the notification tap that started the app ({ref, what, session}), once, or null.
- * - `tokenChanged` -> whether the OS changed the token while the app was not running; reading it clears it.
+ * - `permissionStatus` -> "notDetermined" | "denied" | "authorized"; `requestPermission` -> whether allowed (the system
+ *   dialog on Android 13 and later, none before; registers with FCM when allowed); `openSettings`.
+ * - `register` fetches the FCM token and hands it over as a `token` call to Dart; `token` -> the current token, or null
+ *   when this build has no Firebase project (`google-services.json` missing) or none has been handed over yet.
+ * - `environment` -> always "production" (APNs has sandbox and production; FCM has one).
+ * - `grant({token, relayId, expiresMs})` -> the signed grant; the `auth` seed stays on this side.
+ * - `initialTap` -> {computer, ref, kind} of the notification tap that started the app, once, or null.
+ * - `setComputer({id, boxPublic, versionMin, versionMax})`, `removeComputer({id})`, `openPacket({packet})` ->
+ *   {computer, stream, counter, plaintext} or {error: replayed|version|unreadable|noKey}: the receive window shared with
+ *   the push service, which is a separate entry point into this app.
+ * - `hideDetails` and `setHideDetails({hide})`: the switch the push service reads without the app being open.
  *
- * Native to Dart: `tap` ({ref, what, session}) when a notification is tapped while the app runs, and `tokenRefreshed`.
+ * Native to Dart: `token` (a String), `tokenError` (a String) and `tap` ({computer, ref, kind}).
+ *
+ * A tap is accepted only from this app's own notifications (they carry a secret in the intent); see [onIntent].
  */
 class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActivity) {
     private val channel = MethodChannel(messenger, NAME)
     private val prefs = PushPrefs(activity.applicationContext)
     private val peers = PeerStore(PushService.peerDir(activity.applicationContext))
-    private var launchTap: Map<String, String>? = null
+    private var initialTap: Map<String, String>? = null
     private var permissionResult: MethodChannel.Result? = null
+    private var lastToken: String? = null
 
     init {
         channel.setMethodCallHandler(::handle)
@@ -47,78 +55,127 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
         channel.setMethodCallHandler(null)
     }
 
-    /** The activity was started (or brought forward) by a tap on a notification. */
+    /**
+     * The activity was started (or brought forward) with [intent]. Only a tap made by this app's own notification counts:
+     * [MainActivity] is exported (it is the launcher), so another app can send it an `OPEN_NOTICE` intent with any
+     * extras, and those carry no [NoticePoster.EXTRA_TOKEN] that matches.
+     */
     fun onIntent(intent: Intent?, started: Boolean) {
         if (intent?.action != NoticePoster.ACTION_OPEN_NOTICE) return
+        if (intent.getStringExtra(NoticePoster.EXTRA_TOKEN) != prefs.tapToken) return
         val tap = mapOf(
+            "computer" to (intent.getStringExtra(NoticePoster.EXTRA_COMPUTER) ?: ""),
             "ref" to (intent.getStringExtra(NoticePoster.EXTRA_REF) ?: ""),
-            "what" to (intent.getStringExtra(NoticePoster.EXTRA_WHAT) ?: ""),
-            "session" to (intent.getStringExtra(NoticePoster.EXTRA_SESSION) ?: ""),
+            "kind" to (intent.getStringExtra(NoticePoster.EXTRA_KIND) ?: ""),
         )
-        if (started) launchTap = tap else channel.invokeMethod("tap", tap)
+        if (started) initialTap = tap else channel.invokeMethod("tap", tap)
     }
 
-    fun tokenRefreshed() {
-        activity.runOnUiThread { channel.invokeMethod("tokenRefreshed", null) }
+    /** A token the system handed over (first time, or changed). */
+    fun emitToken(token: String) {
+        lastToken = token
+        activity.runOnUiThread { channel.invokeMethod("token", token) }
     }
 
     fun onPermissionResult() {
-        permissionResult?.success(permission())
+        val pending = permissionResult ?: return
         permissionResult = null
+        val granted = permission() == "authorized"
+        if (granted) fetchToken()
+        pending.success(granted)
     }
 
     private fun permission(): String {
-        val ok = NotificationManagerCompat.from(activity).areNotificationsEnabled() &&
-            (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
-        return if (ok) "granted" else "denied"
+        val enabled = NotificationManagerCompat.from(activity).areNotificationsEnabled()
+        val granted = enabled && (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+        return when {
+            granted -> "authorized"
+            prefs.asked || Build.VERSION.SDK_INT < 33 -> "denied"
+            else -> "notDetermined"
+        }
+    }
+
+    private fun firebaseReady() = FirebaseApp.getApps(activity).isNotEmpty()
+
+    /** Asks FCM for the token and hands it to Dart. No Firebase project in this build: nothing happens. */
+    private fun fetchToken() {
+        if (!firebaseReady()) return
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { t ->
+            if (t.isSuccessful) emitToken(t.result) else channel.invokeMethod("tokenError", t.exception?.message ?: "token failed")
+        }
     }
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
-                "permission" -> result.success(permission())
+                "permissionStatus" -> result.success(permission())
                 "requestPermission" -> when {
-                    permission() == "granted" -> result.success("granted")
-                    Build.VERSION.SDK_INT < 33 || permissionResult != null -> result.success(permission())
+                    permission() == "authorized" -> { fetchToken(); result.success(true) }
+                    Build.VERSION.SDK_INT < 33 || permissionResult != null -> result.success(false)
                     else -> {
+                        prefs.asked = true
                         permissionResult = result
                         activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PERMISSION_CODE)
                     }
                 }
+                "register" -> { fetchToken(); result.success(null) }
+                "token" -> result.success(lastToken)
+                "environment" -> result.success("production")
+                "grant" -> grant(call, result)
+                "initialTap" -> { result.success(initialTap); initialTap = null }
                 "openSettings" -> {
                     activity.startActivity(
                         Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName),
                     )
                     result.success(null)
                 }
-                "token" -> token(result)
-                "deleteToken" -> {
-                    if (FirebaseApp.getApps(activity).isEmpty()) result.success(null)
-                    else FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener { result.success(null) }
-                }
-                "setHideDetails" -> { prefs.hideDetails = call.argument<Boolean>("value") ?: false; result.success(null) }
-                "hideDetails" -> result.success(prefs.hideDetails)
-                "setPeer" -> {
+                "setComputer" -> {
                     val box = call.argument<ByteArray>("boxPublic") ?: ByteArray(0)
-                    if (box.size != 32) return result.error("bad_key", "a box public key is 32 bytes", null)
-                    peers.set(call.argument<String>("id") ?: "", box) { NoticeHandler.freshWindow() }
+                    val min = call.argument<Int>("versionMin") ?: 1
+                    val max = call.argument<Int>("versionMax") ?: 1
+                    if (box.size != 32 || min < 1 || min > max || max > 255) return result.error("push_error", "a box public key is 32 bytes and 1 <= versionMin <= versionMax", null)
+                    peers.set(call.argument<String>("id") ?: "", box, min, max) { NoticeHandler.freshWindow() }
                     result.success(null)
                 }
-                "removePeer" -> { peers.remove(call.argument<String>("id") ?: ""); result.success(null) }
-                "launchTap" -> { result.success(launchTap); launchTap = null }
-                "tokenChanged" -> { result.success(prefs.tokenChanged); prefs.tokenChanged = false }
+                "removeComputer" -> { peers.remove(call.argument<String>("id") ?: ""); result.success(null) }
+                "openPacket" -> openPacket(call, result)
+                "hideDetails" -> result.success(prefs.hideDetails)
+                "setHideDetails" -> { prefs.hideDetails = call.argument<Boolean>("hide") ?: false; result.success(null) }
                 else -> result.notImplemented()
             }
         } catch (e: IllegalArgumentException) {
-            result.error("bad_argument", e.message, null)
+            result.error("push_error", e.message, null)
         }
     }
 
-    private fun token(result: MethodChannel.Result) {
-        if (FirebaseApp.getApps(activity).isEmpty()) return result.success(null)
-        FirebaseMessaging.getInstance().token.addOnCompleteListener { t ->
-            if (t.isSuccessful) result.success(t.result) else result.error("token_failed", t.exception?.message, null)
+    private fun keys() = KeyStore(activity.applicationContext)
+
+    private fun grant(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val store = keys()
+            val auth = store.secret("auth")
+            val box = store.secret("box")
+            if (auth == null || box == null) return result.error("no_key", "the device keys are not there", null)
+            val expires = (call.argument<Number>("expiresMs") ?: 0).toLong()
+            result.success(makeGrant(auth, box, call.argument<String>("token") ?: "", call.argument<String>("relayId") ?: "", expires.toULong()))
+        } catch (e: Exception) {
+            result.error("push_error", e.message, null)
         }
+    }
+
+    private fun openPacket(call: MethodCall, result: MethodChannel.Result) {
+        val box = try {
+            keys().secret("box")
+        } catch (e: Exception) {
+            null
+        } ?: return result.success(mapOf("error" to "noKey"))
+        val packet = call.argument<ByteArray>("packet") ?: ByteArray(0)
+        result.success(
+            when (val r = NoticeHandler(peers) { box }.openAny(packet)) {
+                is PacketResult.Opened -> mapOf("computer" to r.computerId, "stream" to r.stream, "counter" to r.counter, "plaintext" to r.plaintext)
+                is PacketResult.Refused -> mapOf("error" to r.why)
+            },
+        )
     }
 
     companion object {

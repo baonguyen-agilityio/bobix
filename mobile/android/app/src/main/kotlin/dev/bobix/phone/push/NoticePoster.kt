@@ -19,10 +19,18 @@ class PushPrefs(context: Context) {
         get() = prefs.getBoolean("hideDetails", false)
         set(v) = prefs.edit().putBoolean("hideDetails", v).apply()
 
-    /** The OS gave the app a new push token while the app was not running; the app registers it on next open. */
-    var tokenChanged: Boolean
-        get() = prefs.getBoolean("tokenChanged", false)
-        set(v) = prefs.edit().putBoolean("tokenChanged", v).apply()
+    /** The system permission dialog was shown once: tells "not asked yet" from "refused". */
+    var asked: Boolean
+        get() = prefs.getBoolean("asked", false)
+        set(v) = prefs.edit().putBoolean("asked", v).apply()
+
+    /**
+     * A secret that only this app's own notifications carry in their tap intent. MainActivity is exported (it is the
+     * launcher), so any app can start it with a forged tap; a tap without this value is ignored.
+     */
+    val tapToken: String
+        get() = prefs.getString("tapToken", null) ?: java.util.UUID.randomUUID().toString().replace("-", "")
+            .also { prefs.edit().putString("tapToken", it).apply() }
 }
 
 /** Carries out a [NoticeAction]: private on the lock screen, with a public version that says nothing but "needs you". */
@@ -67,9 +75,10 @@ class NoticePoster(private val context: Context) {
         val intent = Intent(context, MainActivity::class.java)
             .setAction(ACTION_OPEN_NOTICE)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(EXTRA_COMPUTER, a.computerId)
             .putExtra(EXTRA_REF, a.reference)
-            .putExtra(EXTRA_WHAT, a.what)
-            .putExtra(EXTRA_SESSION, a.session)
+            .putExtra(EXTRA_KIND, a.what)
+            .putExtra(EXTRA_TOKEN, PushPrefs(context).tapToken)
         return PendingIntent.getActivity(context, a.tag.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
@@ -94,8 +103,9 @@ class NoticePoster(private val context: Context) {
         const val CHANNEL_DONE = "done"
         const val NOTIFICATION_ID = 1
         const val ACTION_OPEN_NOTICE = "dev.bobix.phone.OPEN_NOTICE"
+        const val EXTRA_COMPUTER = "computer"
         const val EXTRA_REF = "ref"
-        const val EXTRA_WHAT = "what"
-        const val EXTRA_SESSION = "session"
+        const val EXTRA_KIND = "kind"
+        const val EXTRA_TOKEN = "token"
     }
 }
