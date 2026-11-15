@@ -3,13 +3,13 @@
 //! same code the desktop and the relay use, so a change in the crate shows up here and nowhere else.
 
 use super::core::{CoreError, CounterTake};
-use super::messages::{parse_desktop_message, DesktopMessage};
+use super::messages::{parse_desktop_message, DesktopMessage, PhoneRights};
 use bobix_link::command;
 use bobix_link::counters::RecvState;
 use bobix_link::envelope::{Direction, OpenError, Update, VersionRange, CURRENT_VERSION};
 use bobix_link::keys::Identity;
 use bobix_link::link::Link;
-use bobix_link::messages::Who;
+use bobix_link::messages::{DesktopMsg, Who};
 use bobix_link::pairing::PairingCode;
 use bobix_link::relay_frames::{ErrorCode, Frame, PresenceState};
 use bobix_link::{b64, b64_decode, hex, random};
@@ -157,6 +157,43 @@ pub fn relay_send_frame(to: String, packet: Vec<u8>, ttl_seconds: u32) -> Result
 /// The acknowledgement of a packet.
 pub fn relay_ack_frame(pid: String) -> String {
     text(&Frame::Ack { pid }).expect("an ack is small")
+}
+
+// ---- what the computer says about a pairing ----
+
+/// What a message from the computer means for a pairing that waits for its answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PairingAnswer {
+    /// The owner confirmed: the computer's name and the rights it granted (possibly fewer than asked).
+    Paired { computer: String, rights: PhoneRights },
+    /// A second phone answered the same code, so the computer cancelled the pairing.
+    Cancelled,
+    /// The computer ended the pairing: the owner said no.
+    Refused,
+    /// Not an answer (a home, a notice ...): keep waiting.
+    NotAnAnswer,
+}
+
+/// How the computer says "cancelled" in a sealed `revoked` (what the crate's fake desktop sends) and in a sealed `error`
+/// (what the real desktop is asked to send: see the report of the pull request that added this).
+const CANCELLED_WHY: &str = "pairing cancelled";
+const CANCELLED_CODE: &str = "pairingCancelled";
+const REFUSED_CODE: &str = "pairingRefused";
+
+/// Reads a message of the computer (its JSON, from `parse_desktop_message`) as the answer to a pairing. The words that
+/// say "cancelled" or "refused" live here and nowhere in Dart.
+pub fn pairing_answer(message_json: String) -> PairingAnswer {
+    match DesktopMsg::from_json(message_json.as_bytes()) {
+        Ok(DesktopMsg::Paired { computer, rights }) => PairingAnswer::Paired {
+            computer,
+            rights: PhoneRights { answer: rights.answer, plan: rights.plan, question: rights.question, start: rights.start, stop: rights.stop, activity: rights.activity },
+        },
+        Ok(DesktopMsg::Revoked { why }) if why == CANCELLED_WHY => PairingAnswer::Cancelled,
+        Ok(DesktopMsg::Revoked { .. }) => PairingAnswer::Refused,
+        Ok(DesktopMsg::Error { code, .. }) if code == CANCELLED_CODE => PairingAnswer::Cancelled,
+        Ok(DesktopMsg::Error { code, .. }) if code == REFUSED_CODE => PairingAnswer::Refused,
+        _ => PairingAnswer::NotAnAnswer,
+    }
 }
 
 // ---- the phone's side of one pairing ----
@@ -332,5 +369,21 @@ mod tests {
         assert!(first.reserve.is_some(), "the first take asks to store a reservation");
         let sealed = link.seal(vec![1]).unwrap();
         assert!(!sealed.packet.is_empty());
+    }
+
+    #[test]
+    fn a_pairing_answer_is_read_in_one_place() {
+        let json = |m: DesktopMsg| String::from_utf8(m.to_json()).unwrap();
+        let rights = bobix_link::pairing::Rights { answer: true, ..Default::default() };
+        assert!(matches!(
+            pairing_answer(json(DesktopMsg::Paired { computer: "Mac".into(), rights })),
+            PairingAnswer::Paired { computer, rights } if computer == "Mac" && rights.answer && !rights.plan
+        ));
+        assert_eq!(pairing_answer(json(DesktopMsg::Revoked { why: "pairing cancelled".into() })), PairingAnswer::Cancelled);
+        assert_eq!(pairing_answer(json(DesktopMsg::Revoked { why: "the owner said no".into() })), PairingAnswer::Refused);
+        assert_eq!(pairing_answer(json(DesktopMsg::Error { code: "pairingCancelled".into(), who: Some(Who::Desktop) })), PairingAnswer::Cancelled);
+        assert_eq!(pairing_answer(json(DesktopMsg::Error { code: "pairingRefused".into(), who: None })), PairingAnswer::Refused);
+        assert_eq!(pairing_answer(json(DesktopMsg::Error { code: "right".into(), who: None })), PairingAnswer::NotAnAnswer);
+        assert_eq!(pairing_answer("nonsense".into()), PairingAnswer::NotAnAnswer);
     }
 }

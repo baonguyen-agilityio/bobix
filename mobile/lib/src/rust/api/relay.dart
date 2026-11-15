@@ -12,7 +12,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'relay.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `text`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`
 
 /// Reads one text frame from the relay. A frame that is too big or not a frame is `Malformed`.
 Future<RelayFrame> parseRelayFrame({required String text}) =>
@@ -63,6 +63,11 @@ Future<OutFrame> relaySendFrame({
 /// The acknowledgement of a packet.
 Future<String> relayAckFrame({required String pid}) =>
     RustLib.instance.api.crateApiRelayRelayAckFrame(pid: pid);
+
+/// Reads a message of the computer (its JSON, from `parse_desktop_message`) as the answer to a pairing. The words that
+/// say "cancelled" or "refused" live here and nowhere in Dart.
+Future<PairingAnswer> pairingAnswer({required String messageJson}) =>
+    RustLib.instance.api.crateApiRelayPairingAnswer(messageJson: messageJson);
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<PhoneLink>>
 abstract class PhoneLink implements RustOpaqueInterface {
@@ -127,6 +132,26 @@ class OutFrame {
           runtimeType == other.runtimeType &&
           pid == other.pid &&
           text == other.text;
+}
+
+@freezed
+sealed class PairingAnswer with _$PairingAnswer {
+  const PairingAnswer._();
+
+  /// The owner confirmed: the computer's name and the rights it granted (possibly fewer than asked).
+  const factory PairingAnswer.paired({
+    required String computer,
+    required PhoneRights rights,
+  }) = PairingAnswer_Paired;
+
+  /// A second phone answered the same code, so the computer cancelled the pairing.
+  const factory PairingAnswer.cancelled() = PairingAnswer_Cancelled;
+
+  /// The computer ended the pairing: the owner said no.
+  const factory PairingAnswer.refused() = PairingAnswer_Refused;
+
+  /// Not an answer (a home, a notice ...): keep waiting.
+  const factory PairingAnswer.notAnAnswer() = PairingAnswer_NotAnAnswer;
 }
 
 enum PeerState { online, offline, asleep }

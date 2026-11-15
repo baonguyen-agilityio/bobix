@@ -152,6 +152,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PacketHeader dco_decode_packet_header(dynamic raw);
 
   @protected
+  PairingAnswer dco_decode_pairing_answer(dynamic raw);
+
+  @protected
   PairingInfo dco_decode_pairing_info(dynamic raw);
 
   @protected
@@ -326,6 +329,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PacketHeader sse_decode_packet_header(SseDeserializer deserializer);
+
+  @protected
+  PairingAnswer sse_decode_pairing_answer(SseDeserializer deserializer);
 
   @protected
   PairingInfo sse_decode_pairing_info(SseDeserializer deserializer);
@@ -531,6 +537,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_packet_header(PacketHeader self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_pairing_answer(PairingAnswer self, SseSerializer serializer);
 
   @protected
   void sse_encode_pairing_info(PairingInfo self, SseSerializer serializer);

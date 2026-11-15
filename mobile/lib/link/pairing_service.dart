@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import '../config/flavor.dart';
@@ -298,19 +297,15 @@ class PairingService {
             case OpenedDropped():
               continue;
             case OpenedMessage(:final message):
-              final j = jsonDecode(message.json) as Map<String, dynamic>;
-              if (message.kind == 'paired') {
-                return (
-                  name: j['computer'] as String,
-                  rights: rightsFromJson(j['rights'] as Map<String, dynamic>),
-                );
-              }
-              if (message.kind == 'revoked') {
-                throw PairException(
-                  j['why'] == 'pairing cancelled'
-                      ? PairFailure.twoPhones
-                      : PairFailure.computerSaidNo,
-                );
+              switch (await pairingAnswer(messageJson: message.json)) {
+                case PairingAnswer_Paired(:final computer, :final rights):
+                  return (name: computer, rights: rights);
+                case PairingAnswer_Cancelled():
+                  throw const PairException(PairFailure.twoPhones);
+                case PairingAnswer_Refused():
+                  throw const PairException(PairFailure.computerSaidNo);
+                case PairingAnswer_NotAnAnswer():
+                  continue;
               }
           }
         default:

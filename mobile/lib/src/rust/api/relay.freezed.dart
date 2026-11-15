@@ -349,6 +349,344 @@ String toString() {
 
 
 /// @nodoc
+mixin _$PairingAnswer {
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is PairingAnswer);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'PairingAnswer()';
+}
+
+
+}
+
+/// @nodoc
+class $PairingAnswerCopyWith<$Res>  {
+$PairingAnswerCopyWith(PairingAnswer _, $Res Function(PairingAnswer) __);
+}
+
+
+/// Adds pattern-matching-related methods to [PairingAnswer].
+extension PairingAnswerPatterns on PairingAnswer {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( PairingAnswer_Paired value)?  paired,TResult Function( PairingAnswer_Cancelled value)?  cancelled,TResult Function( PairingAnswer_Refused value)?  refused,TResult Function( PairingAnswer_NotAnAnswer value)?  notAnAnswer,required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case PairingAnswer_Paired() when paired != null:
+return paired(_that);case PairingAnswer_Cancelled() when cancelled != null:
+return cancelled(_that);case PairingAnswer_Refused() when refused != null:
+return refused(_that);case PairingAnswer_NotAnAnswer() when notAnAnswer != null:
+return notAnAnswer(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( PairingAnswer_Paired value)  paired,required TResult Function( PairingAnswer_Cancelled value)  cancelled,required TResult Function( PairingAnswer_Refused value)  refused,required TResult Function( PairingAnswer_NotAnAnswer value)  notAnAnswer,}){
+final _that = this;
+switch (_that) {
+case PairingAnswer_Paired():
+return paired(_that);case PairingAnswer_Cancelled():
+return cancelled(_that);case PairingAnswer_Refused():
+return refused(_that);case PairingAnswer_NotAnAnswer():
+return notAnAnswer(_that);}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( PairingAnswer_Paired value)?  paired,TResult? Function( PairingAnswer_Cancelled value)?  cancelled,TResult? Function( PairingAnswer_Refused value)?  refused,TResult? Function( PairingAnswer_NotAnAnswer value)?  notAnAnswer,}){
+final _that = this;
+switch (_that) {
+case PairingAnswer_Paired() when paired != null:
+return paired(_that);case PairingAnswer_Cancelled() when cancelled != null:
+return cancelled(_that);case PairingAnswer_Refused() when refused != null:
+return refused(_that);case PairingAnswer_NotAnAnswer() when notAnAnswer != null:
+return notAnAnswer(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String computer,  PhoneRights rights)?  paired,TResult Function()?  cancelled,TResult Function()?  refused,TResult Function()?  notAnAnswer,required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case PairingAnswer_Paired() when paired != null:
+return paired(_that.computer,_that.rights);case PairingAnswer_Cancelled() when cancelled != null:
+return cancelled();case PairingAnswer_Refused() when refused != null:
+return refused();case PairingAnswer_NotAnAnswer() when notAnAnswer != null:
+return notAnAnswer();case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String computer,  PhoneRights rights)  paired,required TResult Function()  cancelled,required TResult Function()  refused,required TResult Function()  notAnAnswer,}) {final _that = this;
+switch (_that) {
+case PairingAnswer_Paired():
+return paired(_that.computer,_that.rights);case PairingAnswer_Cancelled():
+return cancelled();case PairingAnswer_Refused():
+return refused();case PairingAnswer_NotAnAnswer():
+return notAnAnswer();}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String computer,  PhoneRights rights)?  paired,TResult? Function()?  cancelled,TResult? Function()?  refused,TResult? Function()?  notAnAnswer,}) {final _that = this;
+switch (_that) {
+case PairingAnswer_Paired() when paired != null:
+return paired(_that.computer,_that.rights);case PairingAnswer_Cancelled() when cancelled != null:
+return cancelled();case PairingAnswer_Refused() when refused != null:
+return refused();case PairingAnswer_NotAnAnswer() when notAnAnswer != null:
+return notAnAnswer();case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+
+
+class PairingAnswer_Paired extends PairingAnswer {
+  const PairingAnswer_Paired({required this.computer, required this.rights}): super._();
+  
+
+ final  String computer;
+ final  PhoneRights rights;
+
+/// Create a copy of PairingAnswer
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$PairingAnswer_PairedCopyWith<PairingAnswer_Paired> get copyWith => _$PairingAnswer_PairedCopyWithImpl<PairingAnswer_Paired>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is PairingAnswer_Paired&&(identical(other.computer, computer) || other.computer == computer)&&(identical(other.rights, rights) || other.rights == rights));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,computer,rights);
+}
+
+@override
+String toString() {
+    return 'PairingAnswer.paired(computer: $computer, rights: $rights)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $PairingAnswer_PairedCopyWith<$Res> implements $PairingAnswerCopyWith<$Res> {
+  factory $PairingAnswer_PairedCopyWith(PairingAnswer_Paired value, $Res Function(PairingAnswer_Paired) _then) = _$PairingAnswer_PairedCopyWithImpl;
+@useResult
+$Res call({
+ String computer, PhoneRights rights
+});
+
+
+
+
+}
+/// @nodoc
+class _$PairingAnswer_PairedCopyWithImpl<$Res>
+    implements $PairingAnswer_PairedCopyWith<$Res> {
+  _$PairingAnswer_PairedCopyWithImpl(this._self, this._then);
+
+  final PairingAnswer_Paired _self;
+  final $Res Function(PairingAnswer_Paired) _then;
+
+/// Create a copy of PairingAnswer
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? computer = null,Object? rights = null,}) {
+  return _then(PairingAnswer_Paired(
+computer: null == computer ? _self.computer : computer // ignore: cast_nullable_to_non_nullable
+as String,rights: null == rights ? _self.rights : rights // ignore: cast_nullable_to_non_nullable
+as PhoneRights,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class PairingAnswer_Cancelled extends PairingAnswer {
+  const PairingAnswer_Cancelled(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is PairingAnswer_Cancelled);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'PairingAnswer.cancelled()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class PairingAnswer_Refused extends PairingAnswer {
+  const PairingAnswer_Refused(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is PairingAnswer_Refused);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'PairingAnswer.refused()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class PairingAnswer_NotAnAnswer extends PairingAnswer {
+  const PairingAnswer_NotAnAnswer(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is PairingAnswer_NotAnAnswer);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'PairingAnswer.notAnAnswer()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
 mixin _$RelayFrame {
 
 

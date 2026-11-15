@@ -40,6 +40,7 @@ const exposed = {
   'relayPairSendFrame',
   'relaySendFrame',
   'relayAckFrame',
+  'pairingAnswer',
   'create', // PhoneLink
   'takeCounter', // PhoneLink
   'seal', // PhoneLink

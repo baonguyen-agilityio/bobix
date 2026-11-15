@@ -17,29 +17,7 @@ import 'package:phone/src/rust/api/messages.dart';
 
 import 'support/core_library.dart';
 import 'support/memory_secure_keys.dart';
-
-class ScriptedSocket implements RelaySocket {
-  final _in = StreamController<String>();
-  final sent = <Map<String, dynamic>>[];
-  bool closed = false;
-
-  @override
-  Stream<String> get frames => _in.stream;
-
-  @override
-  void send(String text) => sent.add(jsonDecode(text) as Map<String, dynamic>);
-
-  @override
-  Future<void> close() async {
-    closed = true;
-    if (!_in.isClosed) await _in.close();
-  }
-
-  void push(Map<String, Object?> frame) => _in.add(jsonEncode(frame));
-
-  Iterable<Map<String, dynamic>> ofType(String t) =>
-      sent.where((f) => f['type'] == t);
-}
+import 'support/scripted_socket.dart';
 
 Future<T> untilValue<T>(T? Function() f) async {
   final end = DateTime.now().add(const Duration(seconds: 5));
