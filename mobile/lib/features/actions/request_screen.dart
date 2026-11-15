@@ -66,45 +66,69 @@ class _ClosedView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
-    final c = ref.watch(actionsSourceProvider).computerName;
-    final by = closed.by;
+    final last = closed.last;
+    // This phone had loaded the request: it stays on screen, read-only. Otherwise only the card and note remain.
+    if (last != null) return RequestBody(request: last, closed: closed);
     return ActionPage(
       title: s('phone.rq.title'),
       onLog: taskLogOpener(context, ref, id),
-      banner: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-        child: StatusBanner(
-          kind: by == ClosedBy.expired ? BannerKind.err : BannerKind.warn,
-          icon: by == ClosedBy.expired ? Icons.schedule : Icons.error_outline,
-          title: s(
-            switch (by) {
-              ClosedBy.computer => 'phone.cl.pc',
-              ClosedBy.otherPhone => 'phone.cl.ph',
-              ClosedBy.expired => 'phone.cl.ex',
-            },
-            {'c': c, 'p': closed.phone ?? ''},
-          ),
-          body: s(
-            switch (by) {
-              ClosedBy.computer => 'phone.cl.pc.d',
-              ClosedBy.otherPhone => 'phone.cl.ph.d',
-              ClosedBy.expired => 'phone.cl.ex.d',
-            },
-            {'tm': closed.at, 'c': c, 'p': closed.phone ?? ''},
-          ),
-        ),
-      ),
-      actions: ActionButtons(
-        primary: ActionButton(
-          s('phone.a.home'),
-          onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
-        ),
-      ),
+      banner: _ClosedBanner(closed),
+      actions: const _BackHome(),
       children: [
         ActionSessionCard(id: id, showIssue: false),
         const SizedBox(height: 12),
         ShieldNote(s('phone.rq.never')),
       ],
+    );
+  }
+}
+
+class _BackHome extends ConsumerWidget {
+  const _BackHome();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(stringsProvider);
+    return ActionButtons(
+      primary: ActionButton(
+        s('phone.a.home'),
+        onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+      ),
+    );
+  }
+}
+
+class _ClosedBanner extends ConsumerWidget {
+  const _ClosedBanner(this.closed);
+  final RequestClosed closed;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(stringsProvider);
+    final c = ref.watch(actionsSourceProvider).computerName;
+    final by = closed.by;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      child: StatusBanner(
+        kind: by == ClosedBy.expired ? BannerKind.err : BannerKind.warn,
+        icon: by == ClosedBy.expired ? Icons.schedule : Icons.error_outline,
+        title: s(
+          switch (by) {
+            ClosedBy.computer => 'phone.cl.pc',
+            ClosedBy.otherPhone => 'phone.cl.ph',
+            ClosedBy.expired => 'phone.cl.ex',
+          },
+          {'c': c, 'p': closed.phone ?? ''},
+        ),
+        body: s(
+          switch (by) {
+            ClosedBy.computer => 'phone.cl.pc.d',
+            ClosedBy.otherPhone => 'phone.cl.ph.d',
+            ClosedBy.expired => 'phone.cl.ex.d',
+          },
+          {'tm': closed.at, 'c': c, 'p': closed.phone ?? ''},
+        ),
+      ),
     );
   }
 }
@@ -174,8 +198,11 @@ class _Status extends ConsumerWidget {
 
 /// The open request. Stateful for two things only: whether a long input was opened, and the countdown.
 class RequestBody extends ConsumerStatefulWidget {
-  const RequestBody({super.key, required this.request});
+  const RequestBody({super.key, required this.request, this.closed});
   final ToolRequest request;
+
+  /// Set when the request closed after this phone loaded it: the same view, read-only, under the closed banner.
+  final RequestClosed? closed;
 
   @override
   ConsumerState<RequestBody> createState() => _RequestBodyState();
@@ -189,7 +216,7 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
   @override
   void initState() {
     super.initState();
-    _left = widget.request.secondsLeft;
+    _left = widget.closed == null ? widget.request.secondsLeft : null;
     // Counted from "seconds left", never from the two clocks.
     if (_left != null) {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -218,8 +245,9 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
     final source = ref.watch(actionsSourceProvider);
     final c = source.computerName;
     final canSend = ref.watch(canSendProvider);
+    final closed = widget.closed;
     final odd = r.odd || hasHiddenChars(r.input);
-    final destructive = r.destructive || odd;
+    final destructive = closed == null && (r.destructive || odd);
     final expired = _left == 0;
     final collapsed = _long && !_open;
     final locked = collapsed || r.cut || expired;
@@ -280,7 +308,10 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
     return ActionPage(
       title: s('phone.rq.title'),
       onLog: taskLogOpener(context, ref, r.id),
-      actions: r.cut
+      banner: closed == null ? null : _ClosedBanner(closed),
+      actions: closed != null
+          ? const _BackHome()
+          : r.cut
           ? ActionButtons(primary: deny, fine: fine)
           : ActionButtons(
               secondary: deny,
@@ -289,8 +320,8 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
               lock: !collapsed,
             ),
       children: [
-        const SendOffBanner(),
-        if (r.released)
+        if (closed == null) const SendOffBanner(),
+        if (closed == null && r.released)
           StatusBanner(
             kind: BannerKind.info,
             icon: Icons.computer,
@@ -301,7 +332,7 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
           id: r.id,
           name: r.sessionName,
           showIssue: false,
-          chip: waitedText(s, r.waitedMinutes),
+          chip: closed == null ? waitedText(s, r.waitedMinutes) : null,
           extraChips: [
             if (_left != null)
               MetaChip(
@@ -321,7 +352,7 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
             title: s(odd ? 'phone.rq.hid' : 'phone.rq.destr'),
             body: s(odd ? 'phone.rq.hid.d' : 'phone.rq.destr.d'),
           ),
-        if (r.cut)
+        if (r.cut && closed == null)
           StatusBanner(
             kind: BannerKind.warn,
             icon: Icons.content_cut,

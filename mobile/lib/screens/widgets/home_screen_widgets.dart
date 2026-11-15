@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models.dart';
 import '../../l10n/l10n.dart';
+import '../../theme/oklch.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/glass.dart';
 import 'system_screen.dart';
 import 'widget_preview_data.dart';
 
@@ -29,37 +31,22 @@ class _WidgetCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
     final body = Padding(padding: const EdgeInsets.all(14), child: child);
     return LayoutBuilder(
-      builder: (context, box) => Container(
+      builder: (context, box) => SizedBox(
         width: box.maxWidth < width ? box.maxWidth : width,
         height: height,
-        decoration: BoxDecoration(
-          color: t.isDark
-              ? t.surface2.withValues(alpha: .94)
-              : const Color(0xEBFFFFFF),
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            width: .5,
-            color: t.isDark ? const Color(0x17FFFFFF) : const Color(0xE6FFFFFF),
+        child: Glass(
+          radius: 24,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: off
+                ? ColorFiltered(
+                    colorFilter: _saturate40,
+                    child: Opacity(opacity: .55, child: body),
+                  )
+                : body,
           ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x1F000000),
-              blurRadius: 16,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(22),
-          child: off
-              ? ColorFiltered(
-                  colorFilter: _saturate40,
-                  child: Opacity(opacity: .55, child: body),
-                )
-              : body,
         ),
       ),
     );
@@ -548,105 +535,154 @@ class LargeHomeWidget extends ConsumerWidget {
   }
 }
 
-/// A square app icon of the simulated home screen: a flat colour, no name of a real app.
+/// An app icon of the simulated home screen: a gradient tile with a name (or none, in the dock), as the design draws it.
 class _AppIcon extends StatelessWidget {
-  const _AppIcon(this.color);
-  final Color color;
+  const _AppIcon(this.colors, {this.label, this.child});
+  final List<Color> colors;
+  final String? label;
+  final Widget? child;
 
   @override
-  Widget build(BuildContext context) => ExcludeSemantics(
-    child: Container(
-      width: 62,
-      height: 62,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(16),
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 62,
+        height: 62,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          gradient: LinearGradient(
+            begin: const Alignment(-.34, -.94),
+            end: const Alignment(.34, .94),
+            colors: colors,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x26000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: child,
       ),
-    ),
+      if (label != null) ...[
+        const SizedBox(height: 5),
+        Text(
+          label!,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: Colors.white,
+          ),
+        ),
+      ],
+    ],
   );
 }
 
-/// Settings > Widgets > Home Screen: a phone home screen with a medium, a small and a large widget in place, and the app's
-/// own icon in the dock.
+const _appColors = [
+  [Color(0xFF6EC1FF), Color(0xFF2A7DE1)],
+  [Color(0xFF8FE3A8), Color(0xFF2FA866)],
+  [Color(0xFFFFE08A), Color(0xFFF3B43C)],
+  [Color(0xFFFF8FA3), Color(0xFFE5485F)],
+  [Color(0xFFFFD0A1), Color(0xFFF08A5D)],
+  [Color(0xFF3C3F47), Color(0xFF15161A)],
+  [Color(0xFF7FB6FF), Color(0xFF4D6FE0)],
+];
+
+/// Settings > Widgets > Home Screen: a phone home screen with a medium, a small and a large widget in place, four
+/// placeholder apps, and a dock with the app's own icon.
 class HomeScreenPreviewScreen extends ConsumerWidget {
   const HomeScreenPreviewScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
-    const colors = [
-      Color(0xFF5B9BF0),
-      Color(0xFF6FCF97),
-      Color(0xFFF2C94C),
-      Color(0xFFEB5770),
-    ];
+    const names = ['Mail', 'Maps', 'Notes', 'Music'];
     return SystemScreen(
       title: s('phone.wgs.hs'),
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
+      bottom: 11,
+      child: Column(
         children: [
-          const Center(child: MediumHomeWidget()),
-          const SizedBox(height: 16),
-          Center(
-            child: SizedBox(
-              width: 364,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
                 children: [
-                  const SmallHomeWidget(),
-                  const Spacer(),
+                  const MediumHomeWidget(),
+                  const SizedBox(height: 16),
                   SizedBox(
-                    width: 164,
-                    child: Wrap(
-                      spacing: 40,
-                      runSpacing: 26,
-                      children: [for (final c in colors) _AppIcon(c)],
+                    width: 364,
+                    child: Row(
+                      children: [
+                        const SmallHomeWidget(),
+                        const Spacer(),
+                        ExcludeSemantics(
+                          child: SizedBox(
+                            width: 170,
+                            height: 170,
+                            child: Wrap(
+                              alignment: WrapAlignment.center,
+                              runAlignment: WrapAlignment.center,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 8,
+                              runSpacing: 10,
+                              children: [
+                                for (var i = 0; i < 4; i++)
+                                  SizedBox(
+                                    width: 80,
+                                    child: Center(
+                                      child: _AppIcon(
+                                        _appColors[i],
+                                        label: names[i],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  const LargeHomeWidget(),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          const Center(child: LargeHomeWidget()),
-          const SizedBox(height: 16),
-          Center(
-            child: Container(
-              width: 364,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0x33FFFFFF),
-                borderRadius: BorderRadius.circular(32),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Semantics(
-                    button: true,
-                    label: 'Bobix',
-                    excludeSemantics: true,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () => openFromWidget(context, null),
-                      child: Container(
-                        width: 62,
-                        height: 62,
-                        decoration: BoxDecoration(
-                          color: context.tokens.accentSolid,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Icon(
-                          Icons.pets_outlined,
-                          size: 28,
-                          color: context.tokens.onAccent,
-                        ),
+          const SizedBox(height: 3),
+          Container(
+            width: 364,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0x33FFFFFF),
+              borderRadius: BorderRadius.circular(34),
+              border: Border.all(width: .5, color: const Color(0x4DFFFFFF)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Semantics(
+                  button: true,
+                  label: 'Bobix',
+                  excludeSemantics: true,
+                  child: GestureDetector(
+                    onTap: () => openFromWidget(context, null),
+                    child: _AppIcon(
+                      [oklch(78, .14, 40), oklch(60, .18, 30)],
+                      child: const Icon(
+                        Icons.pets_outlined,
+                        size: 26,
+                        color: Colors.white,
                       ),
                     ),
                   ),
-                  for (final c in colors.skip(1))
-                    _AppIcon(c.withValues(alpha: .8)),
-                ],
-              ),
+                ),
+                for (final c in _appColors.skip(4))
+                  ExcludeSemantics(child: _AppIcon(c)),
+              ],
             ),
           ),
         ],

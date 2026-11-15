@@ -225,6 +225,38 @@ void main() {
     },
   );
 
+  testWidgets('the Lock Screen preview shows the design clock and date', (
+    tester,
+  ) async {
+    await pump(tester);
+    await open(tester, 'Lock Screen');
+    expect(on(LockWidgetsScreen, find.text('21:14')), findsOneWidget);
+    expect(on(LockWidgetsScreen, find.text('Friday 13 November ·')), findsOne);
+  });
+
+  testWidgets('the Lock Screen preview says the date in Vietnamese', (
+    tester,
+  ) async {
+    await pump(tester, lang: 'vi');
+    await open(tester, 'Màn khoá');
+    expect(on(LockWidgetsScreen, find.text('21:14')), findsOneWidget);
+    expect(on(LockWidgetsScreen, find.text('Thứ Sáu 13 tháng 11 ·')), findsOne);
+  });
+
+  testWidgets('the Home Screen preview has placeholder apps and a dock', (
+    tester,
+  ) async {
+    await pump(tester);
+    await open(tester, 'Home Screen');
+    for (final n in ['Mail', 'Maps', 'Notes', 'Music']) {
+      expect(on(HomeScreenPreviewScreen, find.text(n)), findsOneWidget);
+    }
+    expect(
+      on(HomeScreenPreviewScreen, find.bySemanticsLabel('Bobix')),
+      findsWidgets,
+    );
+  });
+
   testWidgets('the Control Center row opens the Bobix and Start controls', (
     tester,
   ) async {

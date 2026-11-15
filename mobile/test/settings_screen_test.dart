@@ -177,14 +177,8 @@ void main() {
         ('Answer Claude’s questions', 'Pick an option or type an answer'),
         ('Approve or send back plans', 'With an optional note'),
         ('Start tickets', 'Full or Quick, in a folder that exists'),
-        (
-          'Stop a session',
-          'Interrupts the turn; the session stays open',
-        ),
-        (
-          'See session activity',
-          'The last lines of each session, read only',
-        ),
+        ('Stop a session', 'Interrupts the turn; the session stays open'),
+        ('See session activity', 'The last lines of each session, read only'),
       ]) {
         expect(find.text(title), findsOneWidget);
         expect(find.text(d), findsOneWidget);

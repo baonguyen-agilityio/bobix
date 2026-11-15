@@ -7,7 +7,6 @@ import '../../data/models.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/theme.dart' show minTouch;
 import '../../theme/tokens.dart';
-import '../settings_screen.dart' show shortDate;
 import 'system_screen.dart';
 import 'widget_preview_data.dart';
 
@@ -486,49 +485,49 @@ class _LockWidgetsScreenState extends ConsumerState<LockWidgetsScreen> {
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(stringsProvider);
-    final now = DateTime.now().millisecondsSinceEpoch;
     return SystemScreen(
       title: s('phone.wgs.lk'),
+      top: 46,
+      topOverlay: _expanded
+          ? GestureDetector(
+              onTap: () => setState(() => _expanded = false),
+              child: const IslandPreview(IslandKind.expanded),
+            )
+          : IslandPreview(
+              IslandKind.compact,
+              onTap: () => setState(() => _expanded = true),
+            ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         child: Column(
           children: [
-            Center(
-              child: _expanded
-                  ? GestureDetector(
-                      onTap: () => setState(() => _expanded = false),
-                      child: const IslandPreview(IslandKind.expanded),
-                    )
-                  : IslandPreview(
-                      IslandKind.compact,
-                      onTap: () => setState(() => _expanded = true),
-                    ),
-            ),
-            const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  '${shortDate(now, s)}  ·  ',
+                  '${s('phone.wgs.date')} ·',
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
-                    color: _white70,
+                    color: Color(0xEBFFFFFF),
                   ),
                 ),
+                const SizedBox(width: 8),
                 const Flexible(child: LockInlineWidget()),
               ],
             ),
-            Text(
-              clockNow(),
-              style: const TextStyle(
-                fontSize: 84,
-                height: 1.05,
-                fontWeight: FontWeight.w200,
+            const SizedBox(height: 10),
+            const Text(
+              previewClock,
+              style: TextStyle(
+                fontSize: 76,
+                height: 1,
+                letterSpacing: -1.5,
+                fontWeight: FontWeight.w300,
                 color: _white,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
             const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -539,12 +538,13 @@ class _LockWidgetsScreenState extends ConsumerState<LockWidgetsScreen> {
             ),
             const Spacer(),
             const LiveActivityCard(),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
             Text(
               s('phone.wgs.di.tap'),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 12, color: _white70),
             ),
+            const SizedBox(height: 4),
           ],
         ),
       ),

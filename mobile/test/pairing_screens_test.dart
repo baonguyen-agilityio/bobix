@@ -377,10 +377,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.text('Pair this phone again'), findsOneWidget);
-    expect(
-      find.textContaining('until you pair again'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('until you pair again'), findsOneWidget);
     await tester.tap(find.text('Connect again'));
     expect(link.erased, 1);
     expect(link.forgotten, 0);

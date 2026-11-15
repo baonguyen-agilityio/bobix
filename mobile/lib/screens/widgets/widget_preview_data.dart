@@ -101,10 +101,3 @@ Color petDotColor(Session x) => switch (x.petState) {
   'failed' => const Color(0xFFE5484D),
   _ => const Color(0xFF34C38F),
 };
-
-/// "21:14", the clock a lock screen draws.
-String clockNow() {
-  final d = DateTime.now();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(d.hour)}:${two(d.minute)}';
-}

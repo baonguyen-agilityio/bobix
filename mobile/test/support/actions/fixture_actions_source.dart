@@ -61,15 +61,26 @@ class FixtureActionsSource implements ActionsSource {
       case 'req-loading':
         return Completer<RequestView>().future;
       case 'req-closed-pc':
-        return const RequestClosed(ClosedBy.computer, at: '21:14');
+        return const RequestClosed(
+          ClosedBy.computer,
+          at: '21:14',
+          last: _closedLast,
+        );
       case 'req-closed-phone':
         return const RequestClosed(
           ClosedBy.otherPhone,
           at: '21:14',
           phone: 'Anna’s iPhone',
+          last: _closedLast,
         );
       case 'req-closed-expired':
-        return const RequestClosed(ClosedBy.expired, at: '21:12');
+        return const RequestClosed(
+          ClosedBy.expired,
+          at: '21:12',
+          last: _closedLast,
+        );
+      case 'req-closed-unseen':
+        return const RequestClosed(ClosedBy.computer, at: '21:14');
     }
     return _after(RequestOpen(_requests[id] ?? _requests['req-bash']!));
   }
@@ -283,6 +294,18 @@ String _prompt(StartIssue i) =>
     '- Never push to the main branch.\n- Keep the change small enough to review in one sitting.\n\n'
     'Issue text:\n${i.title}. The total shown in the cart differs by one cent from the total on the receipt '
     'when a coupon and a tax rate apply at once. Find where the two are computed and make them agree.';
+
+/// What this phone showed before the request closed: made-up data.
+const _closedLast = ToolRequest(
+  id: 'req-closed',
+  sessionName: 'Add coupon field to checkout',
+  tool: 'Bash',
+  kind: InputKind.bash,
+  input: 'git push origin 142-coupon-field',
+  folder: '~/work/shop-app',
+  waitedMinutes: 2,
+  shownHash: 'h-closed',
+);
 
 final _requests = <String, ToolRequest>{
   'req-bash': const ToolRequest(

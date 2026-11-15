@@ -7,8 +7,8 @@ import 'system_screen.dart';
 import 'widget_preview_data.dart';
 
 const _cell = 68.0;
-const _gap = 12.0;
-const _fill = Color(0x2EFFFFFF);
+const _gap = 18.0;
+const _fill = Color(0x24FFFFFF);
 
 /// The Bobix control: a round button with the paw and, while sessions wait, their number. A tap opens the first.
 class BobixControl extends ConsumerWidget {
@@ -42,29 +42,29 @@ class BobixControl extends ConsumerWidget {
                   ),
                   child: Icon(
                     Icons.pets_outlined,
-                    size: 24,
+                    size: 22,
                     color: n > 0 ? t.accentSolid : Colors.white,
                   ),
                 ),
                 if (n > 0)
                   Positioned(
-                    top: -2,
-                    right: -2,
+                    top: 2,
+                    right: 2,
                     child: Container(
                       constraints: const BoxConstraints(
-                        minWidth: 22,
-                        minHeight: 22,
+                        minWidth: 20,
+                        minHeight: 20,
                       ),
                       alignment: Alignment.center,
                       padding: const EdgeInsets.symmetric(horizontal: 5),
                       decoration: BoxDecoration(
                         color: t.accentSolid,
-                        borderRadius: BorderRadius.circular(11),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         '$n',
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.w700,
                           color: t.onAccent,
                         ),
@@ -100,7 +100,7 @@ class StartControl extends ConsumerWidget {
           child: Container(
             width: _cell * 2 + _gap,
             height: _cell,
-            padding: const EdgeInsets.symmetric(horizontal: 18),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
               color: _fill,
               borderRadius: BorderRadius.circular(_cell / 2),
@@ -109,7 +109,7 @@ class StartControl extends ConsumerWidget {
               children: [
                 const Icon(
                   Icons.play_arrow_outlined,
-                  size: 22,
+                  size: 20,
                   color: Colors.white,
                 ),
                 const SizedBox(width: 10),
@@ -123,7 +123,7 @@ class StartControl extends ConsumerWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: Colors.white,
                         ),
@@ -133,7 +133,7 @@ class StartControl extends ConsumerWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           color: Color(0xB3FFFFFF),
                         ),
                       ),
@@ -151,25 +151,40 @@ class StartControl extends ConsumerWidget {
 
 /// A control of the system itself, drawn as a neutral placeholder: Bobix draws nothing of the phone's own.
 class _SystemTile extends StatelessWidget {
-  const _SystemTile({
-    this.width = _cell,
-    this.height = _cell,
-    this.radius = _cell / 2,
-    this.child,
-  });
-  final double width, height, radius;
-  final Widget? child;
+  const _SystemTile();
 
   @override
   Widget build(BuildContext context) => ExcludeSemantics(
     child: Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: const Color(0x26FFFFFF),
-        borderRadius: BorderRadius.circular(radius),
+      width: _cell,
+      height: _cell,
+      decoration: const BoxDecoration(
+        color: Color(0x1AFFFFFF),
+        shape: BoxShape.circle,
       ),
-      child: child,
+    ),
+  );
+}
+
+/// The media block: two grey lines on a rounded tile.
+class _MediaBlock extends StatelessWidget {
+  const _MediaBlock();
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: Container(
+      width: _cell * 2 + _gap,
+      height: _cell * 2 + 12,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _fill,
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [const _Bar(1), const SizedBox(height: 8), const _Bar(.6)],
+      ),
     ),
   );
 }
@@ -182,10 +197,10 @@ class _Slider extends StatelessWidget {
   Widget build(BuildContext context) => ExcludeSemantics(
     child: Container(
       width: _cell,
-      height: _cell * 2 + _gap,
+      height: _cell * 2 + 12,
       decoration: BoxDecoration(
-        color: const Color(0x33FFFFFF),
-        borderRadius: BorderRadius.circular(_cell / 2),
+        color: _fill,
+        borderRadius: BorderRadius.circular(24),
       ),
       clipBehavior: Clip.antiAlias,
       alignment: Alignment.bottomCenter,
@@ -198,106 +213,101 @@ class _Slider extends StatelessWidget {
   );
 }
 
-/// The in-between of two cells of the grid.
-const _h = SizedBox(width: _gap);
-const _v = SizedBox(height: _gap);
-
-/// Settings > Widgets > Control Center: the Bobix control and the Start control among neutral system controls.
+/// Settings > Widgets > Control Center: the Bobix control and the Start control among neutral system controls, on the
+/// phone's darkened wallpaper, laid out as the design draws it: four small tiles and the media block, the Bobix and Start
+/// controls, then a tile and two tall sliders.
 class ControlCenterScreen extends ConsumerWidget {
   const ControlCenterScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
+    const small = SizedBox(width: 12);
+    const smallV = SizedBox(height: 12);
     return SystemScreen(
       title: s('phone.wgs.cc'),
-      colors: const [Color(0xFF1E2140), Color(0xFF47305A), Color(0xFF603B3B)],
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        children: [
-          Center(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Column(
-                      children: [
-                        Row(
-                          children: [
-                            const _SystemTile(),
-                            _h,
-                            const _SystemTile(),
-                          ],
-                        ),
-                        _v,
-                        Row(
-                          children: [
-                            const _SystemTile(),
-                            _h,
-                            const _SystemTile(),
-                          ],
-                        ),
-                      ],
-                    ),
-                    _h,
-                    _SystemTile(
-                      width: _cell * 2 + _gap,
-                      height: _cell * 2 + _gap,
-                      radius: 28,
-                      child: const Padding(
-                        padding: EdgeInsets.all(16),
+      top: 46,
+      overlay: const Color(0x8C0A0A10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          children: [
+            SizedBox(
+              width: _cell * 4 + _gap * 3,
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: _cell * 2 + 12,
                         child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [_Bar(120), SizedBox(height: 8), _Bar(70)],
+                          children: [
+                            Row(
+                              children: [_SystemTile(), small, _SystemTile()],
+                            ),
+                            smallV,
+                            Row(
+                              children: [_SystemTile(), small, _SystemTile()],
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                _v,
-                const Row(
-                  children: [
-                    BobixControl(),
-                    _h,
-                    StartControl(),
-                    _h,
-                    _SystemTile(),
-                  ],
-                ),
-                _v,
-                const Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [_SystemTile(), _h, _Slider(.62), _h, _Slider(.4)],
-                ),
-              ],
+                      SizedBox(width: _gap + 6),
+                      _MediaBlock(),
+                    ],
+                  ),
+                  SizedBox(height: _gap),
+                  Row(
+                    children: [
+                      BobixControl(),
+                      SizedBox(width: _gap),
+                      StartControl(),
+                      SizedBox(width: _gap),
+                      _SystemTile(),
+                    ],
+                  ),
+                  SizedBox(height: _gap),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SystemTile(),
+                      SizedBox(width: _gap),
+                      _Slider(.62),
+                      SizedBox(width: _gap),
+                      _Slider(.4),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 28),
-          Text(
-            s('phone.wgs.cc.n'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, color: Color(0xB3FFFFFF)),
-          ),
-        ],
+            const Spacer(),
+            Text(
+              s('phone.wgs.cc.n'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, color: Color(0xB3FFFFFF)),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
 class _Bar extends StatelessWidget {
-  const _Bar(this.width);
-  final double width;
+  const _Bar(this.fraction);
+  final double fraction;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: width,
-    height: 8,
-    decoration: BoxDecoration(
-      color: const Color(0x66FFFFFF),
-      borderRadius: BorderRadius.circular(4),
+  Widget build(BuildContext context) => FractionallySizedBox(
+    widthFactor: fraction,
+    child: Container(
+      height: 8,
+      decoration: BoxDecoration(
+        color: const Color(0x59FFFFFF),
+        borderRadius: BorderRadius.circular(4),
+      ),
     ),
   );
 }
