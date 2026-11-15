@@ -33,6 +33,8 @@ pub struct Config {
     pub relay: String,
     // when the pets are hidden or paused: "phone" keeps requests for my phone, "computer" lets Claude ask at the computer
     pub hold: String,
+    // keep the computer awake while a session works or waits (needs the switch on)
+    pub awake: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -97,6 +99,10 @@ pub struct State {
     results: HashMap<String, (CmdResult, u64)>, // by cid, kept 24 hours
     pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
     notified: HashSet<String>,
+    awake: crate::awake::Awake,
+    asleep: bool,                               // the computer is going to sleep (or sleeps): phones are told, with how much is unfinished
+    inflight: HashSet<String>,                  // `from:cid` of starts still running: a repeat of one gets no answer yet
+    starting: HashSet<String>,                  // issues a start from a phone is running for: one at a time
     last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
     deferred: Vec<(String, String, u64)>, // (pid of a `revoked` message, phone id, when): the relay is told to revoke once the phone has it
 }
@@ -273,7 +279,19 @@ pub fn save_on_exit(b: &Bobix) {
     c.phones.save_results(&c.closed);
 }
 
+// Keeps the awake inhibitor in step with the work, on its own clock (the relay link may be down).
+fn awake_loop(b: Arc<Bobix>) {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let mut c = b.core.lock().unwrap();
+        let busy = c.sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
+        let want = c.phones.cfg.awake && c.phones.cfg.on && busy;
+        c.phones.awake.set(want);
+    }
+}
+
 pub fn init(b: &Arc<Bobix>) {
+    { let b2 = b.clone(); std::thread::spawn(move || awake_loop(b2)); }
     let dir = crate::paths::data_dir();
     let read = |f: PathBuf| std::fs::read(f).ok();
     let cfg: Config = read(cfg_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -353,7 +371,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     let dirty = b.phones_dirty.swap(false, std::sync::atomic::Ordering::SeqCst);
     let mut c = b.core.lock().unwrap();
     let t = now();
-    let crate::Core { phones: st, pending, sessions, .. } = &mut *c;
+    let crate::Core { phones: st, pending, sessions, work, settings, .. } = &mut *c;
     if st.pairing.as_ref().is_some_and(|p| matches!(p.session.status(t), PairStatus::Expired | PairStatus::Done)) { st.pairing = None; }
     if st.revoking.as_ref().is_some_and(|r| r.pids.is_empty() || t > r.since + MOVE_WAIT_MS) {
         st.revoking = None;
@@ -389,7 +407,8 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         let minute = t >= st.last_home_at + 60_000;
         if dirty || minute || !st.home_now.is_empty() {
             let name = st.computer_name();
-            let home = crate::phone_view::home(sessions, pending, &name, t);
+            let groups = crate::phone_view::groups(work, settings, sessions, pending, t);
+            let home = crate::phone_view::home(sessions, pending, &name, t, if st.asleep { ComputerState::Asleep } else { ComputerState::Online }, groups);
             let mut key = home.clone();
             key.sent_at = 0;
             let key = serde_json::to_string(&key).unwrap_or_default();
@@ -435,7 +454,7 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
             Frame::Msg { pid, from, body } => {
                 out.push(Frame::Ack { pid });
                 if let Some(packet) = b64_decode(&body) {
-                    if c.phones.store.phones.iter().any(|p| p.id == from) { out.extend(on_packet(&mut c, &from, &packet, &mut changed)); }
+                    if c.phones.store.phones.iter().any(|p| p.id == from) { out.extend(on_packet(b, &mut c, &from, &packet, &mut changed)); }
                     else { changed = on_hello(&mut c.phones, &from, &packet); }
                 }
             }
@@ -480,7 +499,7 @@ fn on_hello(st: &mut State, from: &str, body: &[u8]) -> bool {
     }
 }
 
-fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool) -> Vec<Frame> {
+fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool) -> Vec<Frame> {
     let st = &mut c.phones;
     let Some(link) = st.link_of(from) else { return vec![] };
     let opened = match link.open(packet) { Ok(o) => o, Err(_) => return vec![] };
@@ -505,11 +524,29 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
             }
         }
         PhoneMsg::Detail { id } => {
-            let m = match crate::phone_view::detail(&c.pending, &id, rights) {
+            let r = match crate::phone_view::detail(&c.pending, &id, rights) { Err("unknown") => crate::phone_view::session_detail(&c.sessions, &id, rights), r => r };
+            let m = match r {
                 Ok(d) => DesktopMsg::Detail(d),
                 Err(code) => DesktopMsg::Error { code: code.into(), who: Some(Who::Desktop) },
             };
             if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
+        }
+        PhoneMsg::StartPreview { project, iid, mode } => {
+            let m = if !rights.start { Some(DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }) }
+                else if iid.parse::<i64>().is_err() { Some(DesktopMsg::Error { code: "encoding".into(), who: Some(Who::Desktop) }) } else { None };
+            match m {
+                Some(m) => { if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); } }
+                None => {
+                    let (b2, from2, iid) = (b.clone(), from.to_string(), iid.parse::<i64>().unwrap_or(0));
+                    std::thread::spawn(move || {
+                        let m = match start_plan(&b2, &project, iid, mode) {
+                            Ok(p) => DesktopMsg::StartPrompt(StartPrompt { project, iid: iid.to_string(), mode, prompt_hash: prompt_hash(&p.prompt), prompt: p.prompt, folder_known: p.folder_known, free_disk: p.free }),
+                            Err(code) => DesktopMsg::Error { code: code.into(), who: Some(Who::Desktop) },
+                        };
+                        tell_later(&b2, &from2, &m);
+                    });
+                }
+            }
         }
         PhoneMsg::Sync { waiting, .. } => {
             let st = &mut c.phones;
@@ -517,8 +554,9 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
             for r in results { if let Some((_, f)) = st.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); } }
         }
         PhoneMsg::Cmd(cmd) => {
-            let r = on_command(c, from, opened.counter, &cmd, changed);
-            if let Some((_, f)) = c.phones.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); }
+            if let Some(r) = on_command(b, c, from, opened.counter, &cmd, changed) {
+                if let Some((_, f)) = c.phones.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); }
+            } // None: a start, whose result is sent when it is done
         }
         _ => {}
     }
@@ -528,14 +566,16 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
 // A command from a phone, checked in this order: signature (with phone id, computer id, age), counter (already by the
 // link), a `cid` seen before (the stored result), the phone's right for the kind of thing held, `cut`, the `shown`
 // hash against what is held, and the request still open. Every result is stored per `cid` for 24 hours and logged.
-fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Command, changed: &mut bool) -> CmdResult {
+fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Command, changed: &mut bool) -> Option<CmdResult> {
     use crate::answers::By;
     let key = format!("{from}:{}", cmd.cid);
-    if let Some(stored) = c.phones.results.get(&key) { return stored.0.clone(); }
+    if let Some(stored) = c.phones.results.get(&key) { return Some(stored.0.clone()); }
+    if c.phones.inflight.contains(&key) { return None; } // its start is still running: the result comes when it is done
     let t = now();
-    let Some(phone) = c.phones.store.phones.iter().find(|p| p.id == from).cloned() else { return CmdResult::refused(&cmd.cid, "unknown") };
-    let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return CmdResult::refused(&cmd.cid, "encoding") };
+    let Some(phone) = c.phones.store.phones.iter().find(|p| p.id == from).cloned() else { return Some(CmdResult::refused(&cmd.cid, "unknown")) };
+    let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return Some(CmdResult::refused(&cmd.cid, "encoding")) };
     let ctx = command::VerifyCtx { version: CURRENT_VERSION, phone_id: from, computer_id: &cid, sign_key: &sign, counter, now_ms: t };
+    let mut later = false;
     let (result, what) = match command::verify(&ctx, cmd) {
         Err(r) => (CmdResult::refused(&cmd.cid, r.why()), "command".to_string()),
         Ok(body) => {
@@ -554,22 +594,143 @@ fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Comm
                     let approve = *decision == Decision::Approve;
                     apply(c, &cmd.cid, id, shown, if approve { "allow" } else { "deny" }, note.as_deref().unwrap_or(""), true, By::Phone, changed, &phone.rights)
                 }
-                _ => refuse("unsupported"), // questions, starts and stops come with the remote actions
+                CommandBody::Question { id, answers, shown } => apply_question(c, &cmd.cid, id, shown, answers, changed),
+                CommandBody::Stop { session, request } => {
+                    match crate::answers::stop_session(c, session, request, By::Phone, now()) {
+                        Ok(()) => { *changed = true; CmdResult::new(&cmd.cid, Outcome::Ok) }
+                        Err(why) => refuse(why),
+                    }
+                }
+                CommandBody::Start { project, iid, mode, prompt_hash } => match begin_start(b, c, from, &phone.name, &cmd.cid, project, iid, *mode, prompt_hash) {
+                    Some(r) => r,
+                    None => { later = true; CmdResult::new(&cmd.cid, Outcome::Unknown) }
+                },
             } };
             (r, what)
         }
     };
+    if later { return None; } // the start thread logs and stores it when it is done
     let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
     let shown = if let Some(w) = &result.why { format!("{word} ({w})") } else { word };
     c.phones.push_log(&phone.name, &what, &shown);
     c.phones.results.insert(key, (result.clone(), t));
     c.phones.save_results(&c.closed);
-    result
+    Some(result)
+}
+
+// What a start of an issue would run and need, read off the core's lock (it reads the issue's body from the tracker).
+pub struct StartPlan { pub prompt: String, pub folder_known: bool, pub free: u64, pub full: Option<(String, Value)> } // Full: (the base branch remembered for the repository, the models)
+
+fn start_plan(b: &Arc<Bobix>, project: &str, iid: i64, mode: Mode) -> Result<StartPlan, &'static str> {
+    let (src, dir) = {
+        let c = b.core.lock().unwrap();
+        let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
+        let dir = view["local"].as_array().and_then(|l| l.iter().find(|g| g["path"] == project)).and_then(|g| g["dir"].as_str().map(String::from));
+        (c.work.source_of(&c.settings, project, iid), dir)
+    };
+    let Some((f, bin, host, i)) = src else { return Err("gone") };
+    let body = crate::work::fetch_body(f, &bin, &host, project, iid).map_err(|_| "gone")?;
+    let brief = crate::work::brief(iid, i["title"].as_str().unwrap_or(""), &body, i["url"].as_str().unwrap_or(""));
+    if mode == Mode::Quick {
+        let free = dir.as_deref().and_then(|d| crate::tickets::free_bytes(Path::new(d))).unwrap_or(0);
+        return Ok(StartPlan { prompt: brief, folder_known: dir.is_some(), free, full: None });
+    }
+    // Full: the same preparation as the panel's, with the models and rules text its prompt carries
+    let prep = crate::prep_issue(b, project, iid, None);
+    if prep["ok"] != true { return Err("folder"); }
+    if prep["exists"] == true { return Err("exists"); }
+    let base = prep["remembered"].as_str().unwrap_or("").to_string();
+    let prompt = crate::work::flow_prompt(&brief, prep["models"].as_str().unwrap_or(""), prep["rules"].as_str().unwrap_or(""));
+    Ok(StartPlan { prompt, folder_known: true, free: prep["free"].as_u64().unwrap_or(0), full: Some((base, json!({ "size": "small" }))) })
+}
+
+// Whether the issue already has a session (a phone never resumes or focuses one), from the work view.
+fn issue_has_session(view: &Value, project: &str, iid: i64) -> bool {
+    view["local"].as_array().into_iter().flatten().filter_map(|g| g["issues"].as_array()).flatten()
+        .any(|i| i["project"] == project && i["iid"].as_i64() == Some(iid) && i["sessions"].as_array().is_some_and(|s| !s.is_empty()))
+}
+
+// The result of a start, from its plan: gone, folder, stale (the prompt is not the one shown), base (Full needs the branch
+// remembered for the repository; asked at the computer), disk, or what the start itself answered.
+fn finish_start(cid: &str, plan: Result<StartPlan, &'static str>, hash: &str, start: impl FnOnce(&StartPlan) -> Value) -> CmdResult {
+    let p = match plan { Ok(p) => p, Err(why) => return CmdResult::refused(cid, why) };
+    if !p.folder_known { return CmdResult::refused(cid, "folder"); }
+    if prompt_hash(&p.prompt) != hash { return CmdResult::new(cid, Outcome::Stale); }
+    if let Some((base, _)) = &p.full {
+        if base.is_empty() { return CmdResult::refused(cid, "base"); }
+        if p.free < crate::tickets::WORKTREE_BYTES { return CmdResult::refused(cid, "disk"); }
+    }
+    let r = start(&p);
+    if r["ok"] == true { CmdResult::new(cid, Outcome::Ok) } else { CmdResult::refused(cid, match r["reason"].as_str() { Some("gone") => "folder", Some(x) => x, None => "failed" }) }
+}
+
+// A message to a phone from a thread: sealed and sent now.
+fn tell_later(b: &Arc<Bobix>, to: &str, m: &DesktopMsg) {
+    let mut c = b.core.lock().unwrap();
+    if let Some((_, f)) = c.phones.tell(to, m, None, None) { c.phones.send(f); }
+}
+
+// A `start` that passed the signature and the right. Refused at once: an issue that already has a session and a second
+// start of the issue while one runs. Otherwise a thread reads the issue, compares the prompt's hash with the one the phone
+// was shown, and starts it the way the panel does (Quick: a new session with the brief; Full: the ticket flow, `how:
+// desktop`, small models, the remembered base, never `anyway`); its result goes to the phone when it is done.
+#[allow(clippy::too_many_arguments)]
+fn begin_start(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, name: &str, cid: &str, project: &str, iid: &str, mode: Mode, hash: &str) -> Option<CmdResult> {
+    let Ok(n) = iid.parse::<i64>() else { return Some(CmdResult::refused(cid, "encoding")) };
+    let key = format!("{project}#{n}");
+    if c.phones.starting.contains(&key) { return Some(CmdResult::refused(cid, "busy")); }
+    let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
+    if issue_has_session(&view, project, n) { return Some(CmdResult::refused(cid, "exists")); }
+    c.phones.starting.insert(key.clone());
+    c.phones.inflight.insert(format!("{from}:{cid}"));
+    let (b2, from, name, cid, project, hash) = (b.clone(), from.to_string(), name.to_string(), cid.to_string(), project.to_string(), hash.to_string());
+    std::thread::spawn(move || {
+        let result = finish_start(&cid, start_plan(&b2, &project, n, mode), &hash, |p| match &p.full {
+            None => crate::start_issue(&b2, &project, n, &p.prompt, None),
+            Some((base, models)) => crate::start_flow(&b2, &project, n, None, &p.prompt, models.clone(), "desktop", Some(false), Some(base.clone()), Some(false)),
+        });
+        let mut c = b2.core.lock().unwrap();
+        c.phones.starting.remove(&key);
+        c.phones.inflight.remove(&format!("{from}:{cid}"));
+        let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+        c.phones.push_log(&name, &format!("start {project}#{n}"), &if let Some(w) = &result.why { format!("{word} ({w})") } else { word });
+        c.phones.results.insert(format!("{from}:{cid}"), (result.clone(), now()));
+        if let Some((_, f)) = c.phones.tell(&from, &DesktopMsg::Result(result), None, None) { c.phones.send(f); }
+        drop(c);
+        b2.broadcast();
+    });
+    None
 }
 
 // A note or a free-text answer goes into Claude's reply: plain text, newlines allowed, no other control character.
 fn plain_body(body: &CommandBody) -> bool {
     match body { CommandBody::Plan { note: Some(n), .. } => is_plain_text(n, MAX_NOTE), CommandBody::Question { answers, .. } => answers.iter().all(|a| is_plain_text(a, MAX_NOTE)), _ => true }
+}
+
+// A `question` command that passed the signature and the right: the kind, the hash of what was shown, the answers.
+fn apply_question(c: &mut crate::Core, cid: &str, id: &str, shown: &str, answers: &[String], changed: &mut bool) -> CmdResult {
+    use crate::answers::{answer_question, Answered, By, Kind};
+    match c.pending.get(id) {
+        Some(p) if p.kind() != Kind::Question => return CmdResult::refused(cid, "kind"),
+        Some(p) => {
+            if crate::phone_view::shown_cut(p) { return CmdResult::refused(cid, "cut"); }
+            match crate::phone_view::detail(&c.pending, id, Rights { question: true, ..Default::default() }) {
+                Ok(d) if command::shown_matches(&d, shown) => {}
+                _ => return CmdResult::new(cid, Outcome::Stale),
+            }
+        }
+        None => {}
+    }
+    match answer_question(c, id, answers, By::Phone, now()) {
+        Answered::Ok => { *changed = true; CmdResult::new(cid, Outcome::Ok) }
+        Answered::LatePc => CmdResult { by: Some("computer".into()), ..CmdResult::new(cid, Outcome::LatePc) },
+        Answered::LatePhone => CmdResult { by: Some("phone".into()), ..CmdResult::new(cid, Outcome::LatePhone) },
+        Answered::Expired => CmdResult::new(cid, Outcome::Expired),
+        Answered::Released(why) => CmdResult { why: Some(why.into()), ..CmdResult::new(cid, Outcome::Released) },
+        Answered::WrongKind => CmdResult::refused(cid, "kind"),
+        Answered::Unknown => CmdResult::refused(cid, "unknown"),
+        Answered::Invalid => CmdResult::refused(cid, "answers"),
+    }
 }
 
 // An `answer` (plan: false) or `plan` (plan: true) command that passed the signature and the right.
@@ -578,7 +739,7 @@ fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, no
     use crate::answers::{respond_core, Answered};
     // what is held, as the phone saw it: the kind first (an answer for a plan id is refused, and the reverse)
     match c.pending.get(id) {
-        Some(p) if p.plan != plan => return CmdResult::refused(cid, "kind"),
+        Some(p) if p.kind() != if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request } => return CmdResult::refused(cid, "kind"),
         Some(p) => {
             if crate::phone_view::shown_cut(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too: only what was shown is known
             let rights = Rights { answer: true, plan: true, ..Default::default() };
@@ -589,7 +750,7 @@ fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, no
         }
         None => {}
     }
-    let r = respond_core(c, id, choice, note, by, Some(plan), now());
+    let r = respond_core(c, id, choice, note, by, Some(if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request }), now());
     match r {
         Answered::Ok => { *changed = true; CmdResult::new(cid, Outcome::Ok) }
         Answered::LatePc => CmdResult { by: Some("computer".into()), ..CmdResult::new(cid, Outcome::LatePc) },
@@ -628,7 +789,7 @@ pub fn view(b: &Arc<Bobix>) -> Value {
                 "name": p.offer.as_ref().map(|o| &o.name), "asked": p.offer.as_ref().map(|o| o.rights), "warning": p.warning })
         }
     };
-    json!({ "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "node": node,
+    json!({ "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
         "canRead": !st.cfg.on || crate::presence::source().idle_ms().is_some(), "deviceId": st.computer_id(), "storage": format!("{:?}", st.storage.unwrap_or(crate::secrets::Storage::Keychain)),
         "phones": st.store.phones.iter().map(|p| json!({ "id": p.id, "name": p.name, "rights": p.rights, "since": p.since, "needsPairing": p.needs_pairing, "noPush": p.no_push })).collect::<Vec<_>>(),
         "revoked": st.store.revoked.len(), "moving": st.moving.is_some(), "linked": st.tx.is_some(), "pairing": pairing })
@@ -649,6 +810,7 @@ pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
             for id in ids { out.extend(st.disconnect(&id, "phone access was turned off")); }
             st.cfg.on = false;
             st.pairing = None;
+            st.awake.release();
             st.status = "off".into();
             if st.revoking.is_none() { st.send_close(); }
         }
@@ -778,6 +940,31 @@ pub fn set_hold(b: &Arc<Bobix>, hold: &str) -> Value {
     { let mut c = b.core.lock().unwrap(); c.phones.cfg.hold = if hold == "computer" { "computer".into() } else { "phone".into() }; c.phones.save_cfg(); }
     view(b)
 }
+
+// The computer is about to sleep: the relay and every phone are told before it does (a home that says asleep, with how many
+// sessions are unfinished, and the relay's `state`). Returns once the frames are handed to the link.
+pub fn on_sleep(b: &Arc<Bobix>) {
+    let mut c = b.core.lock().unwrap();
+    let crate::Core { phones: st, pending, sessions, .. } = &mut *c;
+    if !st.cfg.on || st.asleep { return; }
+    st.asleep = true;
+    st.send(Frame::State { asleep: true });
+    let name = st.computer_name();
+    let home = crate::phone_view::home(sessions, pending, &name, now(), ComputerState::Asleep, vec![]);
+    let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
+    for id in ids { if let Some((_, f)) = st.tell(&id, &DesktopMsg::Home(home.clone()), None, Some("home".into())) { st.send(f); } }
+}
+// It woke up: the relay hears it, and the phones get a fresh home.
+pub fn on_wake(b: &Arc<Bobix>) {
+    let mut c = b.core.lock().unwrap();
+    if !c.phones.asleep { return; }
+    c.phones.asleep = false;
+    c.phones.send(Frame::State { asleep: false });
+    let ids: Vec<String> = c.phones.store.phones.iter().map(|p| p.id.clone()).collect();
+    c.phones.home_now.extend(ids);
+}
+
+pub fn set_awake(b: &Arc<Bobix>, on: bool) { let mut c = b.core.lock().unwrap(); c.phones.cfg.awake = on; c.phones.save_cfg(); }
 
 pub fn log(b: &Arc<Bobix>) -> Value { json!(b.core.lock().unwrap().phones.log.iter().rev().collect::<Vec<_>>()) }
 
@@ -928,5 +1115,103 @@ mod tests {
         st.grant_ended(1000 + 5_000);
         assert!(st.store.phones[0].no_push);
         let _ = std::fs::remove_dir_all(&st.dir);
+    }
+
+    fn held_question(c: &mut crate::Core, id: &str, sid: &str) -> oneshot_rx {
+        let input = json!({ "questions": [
+            { "question": "Which database?", "header": "DB", "options": [{ "label": "SQLite", "description": "x" }, { "label": "Postgres", "description": "y" }], "multiSelect": false },
+            { "question": "Which extras?", "header": "X", "options": [{ "label": "A", "description": "" }, { "label": "B", "description": "" }], "multiSelect": true }] });
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let qs = crate::answers::questions_of(&input).unwrap();
+        let raw = qs.iter().map(|q| q.text.as_str()).collect::<Vec<_>>().join("\n");
+        c.pending.insert(id.into(), Pending::for_question(sid, tx, &raw, qs, input));
+        rx
+    }
+    type oneshot_rx = tokio::sync::oneshot::Receiver<Option<Value>>;
+
+    #[test]
+    fn a_question_is_answered_in_the_shape_the_spike_recorded() {
+        let mut c = crate::Core::default();
+        let mut rx = held_question(&mut c, "q", "s1");
+        let mut changed = false;
+        let sh = crate::phone_view::detail(&c.pending, "q", Rights { question: true, ..Default::default() }).unwrap();
+        assert_eq!(sh.what, DetailKind::Question);
+        assert_eq!(sh.questions.len(), 2);
+        let ans = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(apply_question(&mut c, "c1", "q", &sh.shown, &ans(&["SQLite"]), &mut changed).why.as_deref(), Some("answers"), "wrong count");
+        assert_eq!(apply_question(&mut c, "c1", "q", "stale", &ans(&["SQLite", "A, B"]), &mut changed).outcome, Outcome::Stale);
+        assert!(c.pending.contains_key("q") && !changed);
+        assert_eq!(apply_question(&mut c, "c1", "q", &sh.shown, &ans(&["SQLite", "A, B"]), &mut changed).outcome, Outcome::Ok);
+        let out = rx.try_recv().unwrap().unwrap();
+        let d = &out["hookSpecificOutput"]["decision"];
+        assert_eq!(d["behavior"], "allow");
+        assert_eq!(d["updatedInput"]["answers"], json!({ "Which database?": "SQLite", "Which extras?": "A, B" }), "keyed by the question text, one string each");
+        assert_eq!(d["updatedInput"]["questions"].as_array().unwrap().len(), 2, "the questions come back unchanged");
+        assert_eq!(apply_question(&mut c, "c2", "q", &sh.shown, &ans(&["SQLite", "A"]), &mut changed).outcome, Outcome::LatePhone);
+        // kinds are not mixed up
+        held(&mut c, "req", false, "ls", false);
+        assert_eq!(apply_question(&mut c, "c3", "req", "x", &ans(&["a"]), &mut changed).why.as_deref(), Some("kind"), "a question command on a request id");
+        let _rx2 = held_question(&mut c, "q2", "s1");
+        let a = |c: &mut crate::Core, id: &str, ch: &mut bool| apply(c, "c4", id, "x", "allow", "", false, By::Phone, ch, &Rights::default());
+        assert_eq!(a(&mut c, "q2", &mut changed).why.as_deref(), Some("kind"), "an answer on a question id");
+        assert!(crate::answers::respond_core(&mut c, "q2", "allow", "", By::Pc, None, 1) == crate::answers::Answered::WrongKind, "a bare Allow never skips a question");
+    }
+
+    #[test]
+    fn stop_denies_with_interrupt_only_the_held_request_of_that_session() {
+        let mut c = crate::Core::default();
+        let mut rx = { let (tx, rx) = tokio::sync::oneshot::channel(); c.pending.insert("r".into(), Pending::for_test("s1", false, tx, "rm -rf x", false)); rx };
+        held(&mut c, "plan", true, "p", false);
+        assert_eq!(crate::answers::stop_session(&mut c, "s2", "r", By::Phone, 1), Err("not-held"), "another session's request");
+        assert_eq!(crate::answers::stop_session(&mut c, "s1", "plan", By::Phone, 1), Err("not-held"), "a plan is not stopped");
+        assert_eq!(crate::answers::stop_session(&mut c, "s1", "nope", By::Phone, 1), Err("not-held"));
+        assert_eq!(crate::answers::stop_session(&mut c, "s1", "r", By::Phone, 1), Ok(()));
+        let d = rx.try_recv().unwrap().unwrap()["hookSpecificOutput"]["decision"].clone();
+        assert_eq!(d["behavior"], "deny");
+        assert_eq!(d["interrupt"], true);
+        assert_eq!(crate::answers::stop_session(&mut c, "s1", "r", By::Phone, 2), Err("not-held"), "a second stop finds nothing");
+    }
+
+    #[test]
+    fn a_start_is_refused_or_judged_by_its_plan() {
+        let plan = |prompt: &str, known: bool, free: u64, full: Option<&str>| Ok(StartPlan { prompt: prompt.into(), folder_known: known, free, full: full.map(|b| (b.to_string(), json!({ "size": "small" }))) });
+        let h = prompt_hash("#7 Fix it");
+        let ok = |_: &StartPlan| json!({ "ok": true });
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, 0, None), &h, ok).outcome, Outcome::Ok, "Quick needs no disk");
+        assert_eq!(finish_start("c", plan("#7 Fix it CHANGED", true, 0, None), &h, ok).outcome, Outcome::Stale, "the prompt changed since the preview");
+        assert_eq!(finish_start("c", plan("#7 Fix it", false, 0, None), &h, ok).why.as_deref(), Some("folder"));
+        assert_eq!(finish_start("c", Err("gone"), &h, ok).why.as_deref(), Some("gone"));
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, 10, Some("origin/main")), &h, ok).why.as_deref(), Some("disk"), "Full needs room for a worktree");
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, crate::tickets::WORKTREE_BYTES, Some("")), &h, ok).why.as_deref(), Some("base"), "no base branch remembered");
+        let mut seen = None;
+        let r = finish_start("c", plan("#7 Fix it", true, crate::tickets::WORKTREE_BYTES, Some("origin/main")), &h, |p| { seen = Some(p.full.clone()); json!({ "ok": true }) });
+        assert_eq!(r.outcome, Outcome::Ok);
+        assert_eq!(seen.unwrap().unwrap().0, "origin/main", "the remembered base is the one started from");
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, 0, None), &h, |_| json!({ "ok": false, "reason": "gone" })).why.as_deref(), Some("folder"));
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, 0, None), &h, |_| json!({ "ok": false, "reason": "exists" })).why.as_deref(), Some("exists"));
+    }
+
+    #[test]
+    fn an_issue_with_a_session_is_not_started_from_a_phone() {
+        let view = json!({ "local": [{ "path": "team/shop", "issues": [{ "project": "team/shop", "iid": 7, "sessions": ["s1"] }, { "project": "team/shop", "iid": 8, "sessions": [] }] }] });
+        assert!(issue_has_session(&view, "team/shop", 7));
+        assert!(!issue_has_session(&view, "team/shop", 8) && !issue_has_session(&view, "team/shop", 9) && !issue_has_session(&view, "other", 7));
+    }
+
+    #[test]
+    fn two_starts_of_one_issue_do_not_both_pass() {
+        // the lock is a set of issue keys: the second insert says the issue is taken
+        let mut st = State::default();
+        assert!(st.starting.insert("team/shop#7".into()));
+        assert!(!st.starting.insert("team/shop#7".into()));
+        assert!(st.starting.insert("team/shop#8".into()), "another issue is free");
+    }
+
+    #[test]
+    fn a_repeated_cid_of_a_running_start_gets_no_refusal() {
+        // the in-flight set holds `phone:cid`; on_command answers nothing while the key is in it
+        let mut st = State::default();
+        assert!(st.inflight.insert("p:c1".into()));
+        assert!(st.inflight.contains("p:c1") && !st.inflight.contains("p:c2"));
     }
 }

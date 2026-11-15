@@ -30,8 +30,9 @@ pub fn until(secs: u64, mut f: impl FnMut() -> bool) -> bool {
 }
 
 // Holds a permission request of session `sid` as Claude's hook would; returns the hook's output (when it ends) and the request id.
-fn hold(b: &Arc<Bobix>, sid: &str, command: &str) -> (thread::JoinHandle<String>, String) {
-    let ask = json!({ "session_id": sid, "cwd": "/tmp/demo-app", "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": { "command": command } }).to_string();
+fn hold(b: &Arc<Bobix>, sid: &str, command: &str) -> (thread::JoinHandle<String>, String) { hold_tool(b, sid, "Bash", json!({ "command": command })) }
+fn hold_tool(b: &Arc<Bobix>, sid: &str, tool: &str, input: Value) -> (thread::JoinHandle<String>, String) {
+    let ask = json!({ "session_id": sid, "cwd": "/tmp/demo-app", "hook_event_name": "PermissionRequest", "tool_name": tool, "tool_input": input }).to_string();
     let (hook, port) = (crate::hooks::hook_target(&crate::paths::home()), b.port);
     let h = thread::spawn(move || crate::smoke::run_hook_out(&hook, port, &ask));
     let mut got = None;
@@ -66,10 +67,10 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     r["offered"] = json!(until(15, || v()["pairing"]["state"] == "offered") && v()["pairing"]["name"] == "Demo <b>phone</b>");
     // nothing works before the owner confirms; start and stop stay unticked
     r["notBeforeConfirm"] = json!(v()["phones"].as_array().is_some_and(|a| a.is_empty()));
-    let granted = phones::rights_of(&json!({ "answer": true, "plan": true, "question": true, "start": false, "stop": false, "activity": false }));
+    let granted = phones::rights_of(&json!({ "answer": true, "plan": true, "question": true, "start": false, "stop": true, "activity": true }));
     r["confirmed"] = json!(phones::pair_confirm(b, granted).is_ok() && until(10, || v()["phones"].as_array().is_some_and(|a| a.len() == 1)));
     let phone = v()["phones"][0].clone();
-    r["rights"] = json!(phone["rights"]["answer"] == true && phone["rights"]["stop"] == false && phone["rights"]["start"] == false && phone["rights"]["activity"] == false);
+    r["rights"] = json!(phone["rights"]["answer"] == true && phone["rights"]["stop"] == true && phone["rights"]["start"] == false && phone["rights"]["activity"] == true);
     // Settings → Phones through the real panel and IPC: the section draws, the commands are granted to the page, and a name
     // with markup is shown as text.
     r["panel"] = crate::smoke::ask_for(app, crate::panel::LABEL, "(async () => { bsel.settings = 'set:phones'; showTab('settings'); \
@@ -96,6 +97,12 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     crate::answers::answer(b, &rid, "allow");
     r["closedSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"what\":\"closed\""))));
     r["hookAnswered"] = json!(held.join().unwrap_or_default().contains("\"behavior\":\"allow\""));
+    // Going to sleep: the phone hears "asleep" with what is unfinished, then "online" again on waking
+    phones::on_sleep(b);
+    r["asleepSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains("\"state\":\"asleep\"") && l.contains("\"unfinished\""))));
+    phones::on_wake(b);
+    let seen = fake.lines.lock().unwrap().iter().filter(|l| l.contains("\"kind\":\"home\"")).count();
+    r["wokeSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().filter(|l| l.contains("\"kind\":\"home\"") && l.contains("\"state\":\"online\"")).count() >= 2) && seen > 0);
     // Pets hidden and nobody at the computer (the input time is fixed under the smoke run): a request is held for the phones,
     // and a phone allows it, another it denies.
     crate::update_settings(b, json!({ "petsVisible": false }));
@@ -125,7 +132,52 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     until(10, || !b.core.lock().unwrap().pending.contains_key(&r5));
     fake.say(&format!("answer {r5} allow"));
     r["latePcTerminal"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 2));
+    // Answered in Claude's own prompt, and Claude then ran the command (its PostToolUse): the desktop notices, the waiting
+    // hook ends by itself, and a phone that answers after is told it was late
+    let cmd7 = json!({ "command": "echo ran in the terminal" });
+    let (mut child7, r7) = hold_child(b, "ph11", "echo ran in the terminal");
+    fake.say(&format!("detail {r7}"));
+    until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("ran in the terminal") && l.contains("\"kind\":\"detail\"")));
+    let post = json!({ "session_id": "ph11", "cwd": "/tmp/demo-app", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": cmd7 }).to_string();
+    crate::smoke::run_hook_out(&crate::hooks::hook_target(&crate::paths::home()), b.port, &post);
+    r["notedTerminal"] = json!(until(10, || !b.core.lock().unwrap().pending.contains_key(&r7)) && until(10, || child7.try_wait().ok().flatten().is_some()));
+    fake.say(&format!("answer {r7} allow"));
+    r["latePcNoted"] = json!(until(10, || outcomes(&fake, "\"outcome\":\"latePc\"") >= 3));
+    let _ = child7.kill();
     r["logged"] = json!(phones::log(b).as_array().is_some_and(|a| a.len() >= 3 && a.iter().all(|l| !l["what"].as_str().unwrap_or("").contains("ghp_"))));
+    // Claude's questions: an option and free text come back to Claude in the shape the spike recorded
+    let q = |n: &str| json!({ "questions": [{ "question": n, "header": "H", "options": [{ "label": "SQLite", "description": "d" }, { "label": "Postgres", "description": "d" }], "multiSelect": false }] });
+    let (hq1, q1) = hold_tool(b, "ph7", "AskUserQuestion", q("Which database?"));
+    r["questionHeld"] = json!(b.core.lock().unwrap().pending.get(&q1).is_some_and(|p| p.kind() == crate::answers::Kind::Question));
+    fake.say(&format!("detail {q1}"));
+    until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"what\":\"question\"") && l.contains("SQLite")));
+    fake.say(&format!("question {q1} SQLite"));
+    let out1 = hq1.join().unwrap_or_default();
+    r["questionOption"] = json!(out1.contains("\"answers\":{\"Which database?\":\"SQLite\"}") && out1.contains("\"behavior\":\"allow\"") && out1.contains("\"questions\""));
+    let (hq2, q2) = hold_tool(b, "ph8", "AskUserQuestion", q("Pick one"));
+    fake.say(&format!("detail {q2}"));
+    until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("Pick one") && l.contains("\"what\":\"question\"")));
+    fake.say(&format!("question {q2} my_own_words"));
+    r["questionFreeText"] = json!(hq2.join().unwrap_or_default().contains("\"Pick one\":\"my_own_words\""));
+    // Stop: a held request is denied with interrupt; the session stays
+    let (hs, rs) = hold(b, "ph9", "sleep 99");
+    fake.say(&format!("stop ph9 {rs}"));
+    let outs = hs.join().unwrap_or_default();
+    r["stopped"] = json!(outs.contains("\"behavior\":\"deny\"") && outs.contains("\"interrupt\":true") && b.core.lock().unwrap().sessions.contains_key("ph9"));
+    let (hs2, rs2) = hold(b, "ph10", "sleep 98");
+    fake.say(&format!("stop ph9 {rs2}")); // another session's name: refused, the request stays held
+    thread::sleep(Duration::from_secs(2));
+    r["staleStop"] = json!(b.core.lock().unwrap().pending.contains_key(&rs2));
+    crate::answers::answer(b, &rs2, "deny");
+    let _ = hs2.join();
+    // Last lines: a session's recent tool lines, redacted, without its prompt
+    for (ev, extra) in [("UserPromptSubmit", json!({ "prompt": "SECRET PROMPT TEXT" })), ("PreToolUse", json!({ "tool_name": "Bash", "tool_input": { "command": format!("deploy --key {token}") } }))] {
+        let mut e = json!({ "session_id": "ph1", "cwd": "/tmp/demo-app", "hook_event_name": ev });
+        for (k, v) in extra.as_object().unwrap() { e[k] = v.clone(); }
+        crate::smoke::run_hook_out(&crate::hooks::hook_target(&crate::paths::home()), b.port, &e.to_string());
+    }
+    fake.say("detail ph1");
+    r["lastLines"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"what\":\"lastLines\"") && l.contains("deploy --key") && !l.contains(&token) && !l.contains("SECRET PROMPT"))));
     // a disconnected phone's next command is refused: the request stays held
     let (h4, r4) = hold(b, "ph5", "echo after disconnect");
     let pid = phones::view(b)["phones"][0]["id"].as_str().unwrap_or("").to_string();
@@ -140,7 +192,13 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     r["told"] = json!(until(10, || fake.saw("revoked") || fake.saw("Revoked")));
     if std::env::var_os("BOBIX_SMOKE_DEBUG").is_some() { r["lines"] = json!(fake.lines.lock().unwrap().iter().map(|l| l.chars().take(260).collect::<String>()).collect::<Vec<_>>()); }
     fake.stop();
-    r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false));
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    // Keep awake: held while a session works, released with the switch (macOS: the caffeinate process is there, then gone)
+    let pid = std::process::id();
+    let caff = || cfg!(target_os = "macos") && Command::new("pgrep").args(["-f", &format!("caffeinate -i -w {pid}")]).output().is_ok_and(|o| !o.stdout.is_empty());
+    phones::set_awake(b, true);
+    let busy = b.core.lock().unwrap().sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
+    r["awakeHeld"] = json!(!busy || (until(10, || v()["awakeHeld"] == true) && (!cfg!(target_os = "macos") || until(5, caff))));
+    r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }

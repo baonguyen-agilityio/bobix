@@ -1180,6 +1180,18 @@ test('phones: every string in both languages, and every one the panel uses exist
   for (const k of keys) if (!/^phones\.(note|err)\./.test(k)) assert.ok(used.has(k), `unused ${k}`);
 });
 
+test('board: the brief a ticket starts with (the same literals as work.rs asserts)', () => {
+  const B = require('../src/ui/board');
+  assert.equal(B.brief({ iid: 7, title: 'Fix it', url: 'https://x/7' }, '  Body text \n'), '#7 Fix it\n\nBody text\n\nhttps://x/7');
+  assert.equal(B.brief({ iid: 7, title: 'Fix it' }, '  '), '#7 Fix it');
+});
+
+test('board: the flow prompt (the same literals as work.rs asserts)', () => {
+  const B = require('../src/ui/board');
+  assert.equal(B.flowPrompt({ iid: 7, title: 'Fix' }, '', ' models ', '\nrules\n'), '#7 Fix\n\nmodels\n\nrules');
+  assert.equal(B.flowPrompt({ iid: 7, title: 'Fix' }, '', '', ''), '#7 Fix');
+});
+
 test('a plan approval reads "Approve the plan", not ExitPlanMode; other tools keep their own name', () => {
   const I18N = require('../src/ui/i18n');
   assert.equal(I18N.askLabel('en', 'ExitPlanMode'), 'Approve the plan');
