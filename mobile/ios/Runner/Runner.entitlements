@@ -8,5 +8,14 @@
 	<array>
 		<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
 	</array>
+	<!-- The App Group holds the receive state and the "Hide details" switch, which the app and the notification service
+	     extension (two processes) both read and write. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(BOBIX_APP_GROUP)</string>
+	</array>
+	<!-- Push through APNs directly. Xcode replaces `development` with `production` for an App Store or TestFlight build. -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>
