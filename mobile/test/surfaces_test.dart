@@ -211,9 +211,14 @@ void main() {
   group('when the pairing ends', () {
     test('every surface is cleared once, on entering not paired or pair again', () async {
       final p = FakeSurfaces();
+      final push = FakePushPlatform();
       final c = _Controller(const Unavailable());
       final container = ProviderContainer(
-        overrides: [surfacesPlatformProvider.overrideWithValue(p), linkControllerProvider.overrideWith(() => c)],
+        overrides: [
+          surfacesPlatformProvider.overrideWithValue(p),
+          pushPlatformProvider.overrideWithValue(push),
+          linkControllerProvider.overrideWith(() => c),
+        ],
       );
       addTearDown(container.dispose);
       container.listen(surfacesClearProvider, (_, _) {});
@@ -223,9 +228,11 @@ void main() {
       c.go(const PairAgain(computer: 'Studio Mac', removedByComputer: true));
       await Future<void>.delayed(Duration.zero);
       expect(p.clears, 1, reason: 'a sealed revoked, or an erase');
+      expect(push.calls.where((x) => x == 'clearDelivered'), hasLength(1), reason: 'shown notifications go too');
       c.go(const Unpaired());
       await Future<void>.delayed(Duration.zero);
       expect(p.clears, 1, reason: 'already cleared');
+      expect(push.calls.where((x) => x == 'clearDelivered'), hasLength(1));
     });
   });
 

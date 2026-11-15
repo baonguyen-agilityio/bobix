@@ -43,6 +43,12 @@ final class PushBridge {
     }
   }
 
+  /// The pairing ended: every notification of this app that is still shown goes, so no session name or request stays on
+  /// the lock screen.
+  static func clearDelivered(center: DeliveredRemoving = UNUserNotificationCenter.current()) {
+    center.removeAllDeliveredNotifications()
+  }
+
   func attach(messenger: FlutterBinaryMessenger) {
     let c = FlutterMethodChannel(name: "dev.bobix.phone/push", binaryMessenger: messenger)
     c.setMethodCallHandler { [weak self] call, result in self?.handle(call, result) }
@@ -97,7 +103,7 @@ final class PushBridge {
     guard let path = PushPaths.storePath() else {
       // No App Group (a build without the capability): only the permission calls make sense.
       switch call.method {
-      case "permissionStatus", "requestPermission", "register", "token", "environment", "initialTap", "openSettings", "grant": break
+      case "permissionStatus", "requestPermission", "register", "token", "environment", "initialTap", "openSettings", "grant", "clearDelivered": break
       default: return result(FlutterError(code: "no_app_group", message: "the app group is not available", details: nil))
       }
       return handleSystem(call, result, args)
@@ -115,7 +121,10 @@ final class PushBridge {
       do { try storeRemoveComputer(storePath: path, computerId: str("id")); result(nil) } catch { fail(error) }
     case "setHideDetails":
       do {
-        try storeSetHideDetails(storePath: path, hide: args["hide"] as? Bool ?? false)
+        let hide = args["hide"] as? Bool ?? false
+        try storeSetHideDetails(storePath: path, hide: hide)
+        // The names already in the shared list go now, not at the next write.
+        if hide { try? SharedListStore.update { $0.dropNames() } }
         // The widgets and the Live Activity read the switch when they draw: draw them again now, not at the next write.
         SurfacesBridge.reloadSurfaces()
         SurfacesBridge.refreshActivities()
@@ -123,6 +132,9 @@ final class PushBridge {
       } catch { fail(error) }
     case "hideDetails":
       do { result(try storeHideDetails(storePath: path)) } catch { fail(error) }
+    case "clearDelivered":
+      PushBridge.clearDelivered()
+      result(nil)
     case "openPacket":
       guard let box = PushBoxKey.read() else { return result(["error": "noKey"]) }
       do {
@@ -161,7 +173,8 @@ final class PushBridge {
       result(nil)
     case "grant":
       func str(_ k: String) -> String { args[k] as? String ?? "" }
-      // `auth` never leaves this process: Dart gets the signed grant, not the key.
+      // Dart gets the signed grant. (`auth` itself is only readable by this app, in its own keychain group, never by the
+      // extensions; Dart can read it through the `secure_keys` channel.)
       guard let store = try? KeyStore(), let auth = (try? store.secret("auth")) ?? nil, let box = (try? store.secret("box")) ?? nil else {
         return result(FlutterError(code: "no_key", message: "the device keys are not there", details: nil))
       }

@@ -148,26 +148,44 @@ final class PushOpenerTests: XCTestCase {
     XCTAssertEqual(opener().shape(request("inWindow")).content.title, "shop-app needs you")
   }
 
-  func testWhatCannotBeOpenedIsLeftAsTheRelayMadeIt() {
+  func testWhatCannotBeOpenedShowsTheGenericTextNotTheRelaysWords() {
     let before = stored()
     for name in ["tampered", "stranger", "version9", "home", "paired"] {
-      let c = request(name)
+      let c = hostile(name)
       let s = opener().shape(c)
       XCTAssertEqual(s.content.title, strings.genericTitle, name)
       XCTAssertEqual(s.content.body, strings.genericBody, name)
-      XCTAssertNotNil(s.content.sound, "\(name): not quieted, the relay's alert stays as it is")
+      XCTAssertNil(PushRoute.parse(s.content.userInfo), "\(name): a route the relay wrote is dropped")
       XCTAssertNil(s.supersedes, name)
     }
     XCTAssertEqual(stored(), before, "none of them touched the receive state")
   }
 
+  /// An alert whose words the relay chose (it holds no key, so it cannot have sealed them).
+  private func hostile(_ name: String) -> UNNotificationContent {
+    let c = UNMutableNotificationContent()
+    c.title = "Bobix: tap Allow to keep your session running"
+    c.body = "Tap here"
+    c.subtitle = "urgent"
+    c.userInfo = ["sealed": sealed(name), PushRoute.key: ["computer": "c", "ref": "r", "kind": "waiting"]]
+    return c
+  }
+
+  func testTheTimeOutShowsTheGenericTextToo() {
+    let out = PushOpener.unopened(hostile("waiting"), strings: strings)
+    XCTAssertEqual(out.title, strings.genericTitle)
+    XCTAssertEqual(out.body, strings.genericBody)
+    XCTAssertEqual(out.subtitle, "")
+    XCTAssertNil(PushRoute.parse(out.userInfo))
+  }
+
   func testWithoutTheKeyOrTheFileOrAPayloadNothingIsOpened() {
-    XCTAssertEqual(opener(useBox: false).shape(request("waiting")).content.title, strings.genericTitle)
+    XCTAssertEqual(opener(useBox: false).shape(hostile("waiting")).content.title, strings.genericTitle)
     XCTAssertEqual(PushOpener(storePath: nil, boxSecret: box, strings: strings).shape(request("waiting")).content.title, strings.genericTitle)
     XCTAssertEqual(opener(box: Data(repeating: 7, count: 32)).shape(request("waiting")).content.title, strings.genericTitle)
     let plain = UNMutableNotificationContent()
     plain.title = "x"
-    XCTAssertEqual(opener().shape(plain).content.title, "x")
+    XCTAssertEqual(opener().shape(plain).content.title, strings.genericTitle, "a push with nothing sealed is not trusted with words")
   }
 
   func testWhatTheExtensionTookTheAppSeesAsAReplayAndWhatItLeftIsStillOpen() throws {
