@@ -22,6 +22,26 @@ fn presence(peer: &str, state: PresenceState) -> impl Fn(&Frame) -> bool + '_ {
 }
 
 #[tokio::test]
+async fn healthz_fails_when_a_configured_invitation_or_gateway_keys_file_cannot_be_read() {
+    let dir = std::env::temp_dir().join(format!("relay-health-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (invites, keys) = (dir.join("invites.txt"), dir.join("keys.txt"));
+    std::fs::write(&invites, "# none yet\n").unwrap();
+    let mut c = cfg();
+    c.invite_file = Some(invites.clone());
+    c.gateway_keys_file = Some(keys.clone());
+    let s = start(c).await;
+    let get = || async { let r = reqwest::get(format!("http://{}/healthz", s.addr)).await.unwrap(); (r.status().as_u16(), r.text().await.unwrap()) };
+    assert_eq!(get().await, (503, "gateway keys file missing or unreadable".into()));
+    std::fs::write(&keys, "\n").unwrap();
+    assert_eq!(get().await, (200, "ok".into()));
+    std::fs::remove_file(&invites).unwrap();
+    let (code, body) = get().await;
+    assert_eq!((code, body.as_str()), (503, "invitation file missing or unreadable"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
 async fn healthz_answers_and_a_replayed_auth_signature_is_refused() {
     let s = start(cfg()).await;
     assert_eq!(reqwest::get(format!("http://{}/healthz", s.addr)).await.unwrap().text().await.unwrap(), "ok");

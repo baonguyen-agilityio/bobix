@@ -1,6 +1,7 @@
 # The phone app (mobile/): generated strings and fixtures are current, the Rust core builds and passes the shared crate's test vectors
 # through the bridge, `flutter analyze` and `flutter test`, the iOS simulator build, the Swift key-store tests and the
-# vectors again inside the app on a simulator. The Android job comes with the Android project.
+# vectors again inside the app on a simulator; and, in the `android` job, the same checks for the Android app (the push
+# opener's Rust tests, the Kotlin unit tests, a debug and a release build).
 # The workflow starts on every pull request so its check always reports; the job skips itself when nothing it covers
 # changed (a skipped job counts as passing for a required check, a workflow that never started would block the merge).
 name: mobile
@@ -65,7 +66,9 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mobile/rust
+          workspaces: |
+            mobile/rust
+            mobile/push-core
       - run: flutter pub get
 
       # Generated files must be what their sources say: the strings and the pets fixtures.
@@ -90,6 +93,11 @@ jobs:
         run: |
           cargo build --locked --manifest-path ../relay/Cargo.toml
           cargo build --locked --manifest-path ../crates/bobix-link/Cargo.toml --example fake-desktop
+      - name: Push core (the receive state both processes share, the notice opener, the grant) and its Swift bindings
+        run: |
+          cargo clippy --locked --manifest-path push-core/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path push-core/Cargo.toml
+          sh tool/push-core.sh bindings --check
       - run: flutter analyze
       - name: Dart tests (the crate's test vectors through the bridge; pairing and the link against relay --dev and fake-desktop)
         run: flutter test
@@ -103,9 +111,9 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
       - name: iOS simulator build (cargokit builds the Rust core into the app; the in-app vector test below proves it is there)
         run: flutter build ios --simulator --debug --no-codesign
-      - name: Key store tests (Swift, simulator)
+      - name: Key store and push opener tests (Swift, simulator)
         working-directory: mobile/ios
-        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests -parallel-testing-enabled NO
+        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests -only-testing:RunnerTests/PushOpenerTests -parallel-testing-enabled NO
       # xcodebuild may leave the simulator shut down; Flutter only sees booted simulators, hence "No devices are connected".
       - name: Boot the simulator again and show what Flutter sees
         run: |
@@ -122,3 +130,65 @@ jobs:
       # neither of which a simulator Debug build compiles. No signing: the job has no certificate.
       - name: Release build for a device, without signing (prod flavor)
         run: flutter build ios --release --no-codesign --dart-define=BOBIX_FLAVOR=prod
+
+  android:
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/rust
+      - run: flutter pub get
+      - name: Strings are current (the Android strings.xml come from the same source)
+        working-directory: .
+        run: node mobile/tool/strings.mjs --check
+      - name: Rust core and the push opener
+        run: |
+          cargo clippy --locked --manifest-path rust/Cargo.toml -- -D warnings
+          cargo test --locked --manifest-path rust/Cargo.toml
+      # `cargo test` builds the test harness, not the library. The binding check, the Dart tests and the Kotlin unit tests
+      # all load `rust/target/debug/libbobix_phone_core.so`, so make it before them.
+      - name: Compile the Rust library the next steps load
+        run: cargo build --locked --manifest-path rust/Cargo.toml
+      - name: The committed Kotlin binding is what the Rust code says
+        working-directory: mobile/rust
+        run: |
+          cargo run --locked --features uniffi-cli --bin uniffi-bindgen -- generate --library target/debug/libbobix_phone_core.so --language kotlin --out-dir ../android/app/src/main/kotlin --no-format
+          git diff --exit-code -- ../android/app/src/main/kotlin/uniffi
+      - name: The development relay and the crate's fake desktop (the link tests run the real programs)
+        run: |
+          cargo build --locked --manifest-path ../relay/Cargo.toml
+          cargo build --locked --manifest-path ../crates/bobix-link/Cargo.toml --example fake-desktop
+      - run: flutter analyze
+      - name: Dart tests (the crate's test vectors through the bridge; pairing and the link against relay --dev and fake-desktop)
+        run: flutter test
+      - name: Kotlin unit tests (the payload opener through the Rust library, the key store's mappings, the manifest)
+        working-directory: mobile/android
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+      - name: Debug build (dev flavor); cargokit builds the Rust core into the app
+        run: flutter build apk --debug --target-platform android-arm64 --dart-define=BOBIX_FLAVOR=dev
+      # The release build runs R8, which would drop what JNA and the UniFFI binding look up by name without the keep rules.
+      # No signing material in CI: it is signed with the debug key, which is never what ships.
+      - name: Release build (prod flavor)
+        run: flutter build apk --release --target-platform android-arm64 --dart-define=BOBIX_FLAVOR=prod

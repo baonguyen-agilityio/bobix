@@ -32,6 +32,8 @@
 	<string>Bobix connects to a Bobix relay on your home network when you try the app on your own computer. It reads nothing else on the network.</string>
 	<key>BobixKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
+	<key>BobixAppGroup</key>
+	<string>$(BOBIX_APP_GROUP)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

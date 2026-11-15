@@ -62,7 +62,7 @@ impl App {
 
 pub fn router(app: Arc<App>) -> Router {
     let mut r = Router::new()
-        .route("/healthz", get(|| async { "ok" }))
+        .route("/healthz", get(healthz))
         .route("/v1/ws", get(ws::upgrade));
     // Only a relay with its own APNs or FCM credentials (or --dev) is a gateway; any other would be an open proxy.
     if app.cfg.dev || app.cfg.apns.is_some() || app.cfg.fcm.is_some() {
@@ -73,6 +73,17 @@ pub fn router(app: Arc<App>) -> Router {
         r = r.route("/", get(ws::upgrade)).route("/dev/pushes", get(dev_pushes));
     }
     r.with_state(app)
+}
+
+/// "ok", or 503 naming what a monitor must fix: the invitation file or the gateway keys file, when one is set and cannot be read
+/// (a relay that lost its invitation file would otherwise look healthy). Names the file's role, never its path.
+async fn healthz(axum::extract::State(app): axum::extract::State<Arc<App>>) -> (axum::http::StatusCode, &'static str) {
+    let readable = |p: &Option<std::path::PathBuf>| p.as_ref().is_none_or(|p| std::fs::File::open(p).is_ok_and(|f| f.metadata().is_ok_and(|m| m.is_file())));
+    match (readable(&app.cfg.invite_file), readable(&app.cfg.gateway_keys_file)) {
+        (true, true) => (axum::http::StatusCode::OK, "ok"),
+        (false, _) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "invitation file missing or unreadable"),
+        (true, false) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "gateway keys file missing or unreadable"),
+    }
 }
 
 async fn dev_pushes(axum::extract::State(app): axum::extract::State<Arc<App>>) -> axum::Json<serde_json::Value> {

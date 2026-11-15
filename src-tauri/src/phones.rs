@@ -2,6 +2,7 @@
 // (link.rs) hands in. Off by default: while the switch is off and no phone was ever paired there is no key, no file
 // and no connection. Keys are in the OS keychain (secrets.rs); the list of phones is stored sealed with a keychain key.
 // The wire format, crypto and counter rules are the shared crate's (bobix-link); this module only decides.
+#![cfg_attr(not(feature = "phones"), allow(dead_code))] // the commands that call these are not compiled in a stable build
 use crate::{secrets::Secrets, Bobix};
 use bobix_link::{
     b64, b64_decode,
@@ -316,7 +317,12 @@ fn watch_loop(b: Arc<Bobix>) {
 // A child that was not there when the watch first looked.
 pub fn started_since(base: &[u32], now: &[u32]) -> bool { now.iter().any(|p| !base.contains(p)) }
 
+// False in a build without the `phones` feature (a stable release): init does nothing, so no thread, key, file or relay
+// connection exists, and every other entry point finds phone access off and no phone paired.
+pub const ENABLED: bool = cfg!(feature = "phones");
+
 pub fn init(b: &Arc<Bobix>) {
+    if !ENABLED { return; }
     { let b2 = b.clone(); std::thread::spawn(move || watch_loop(b2)); }
     let dir = crate::paths::data_dir();
     let read = |f: PathBuf| std::fs::read(f).ok();
