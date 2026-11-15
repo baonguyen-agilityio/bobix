@@ -34,6 +34,7 @@ import uniffi.bobix_phone_core.makeGrant
  *   {computer, stream, counter, plaintext} or {error: replayed|version|unreadable|noKey}: the receive window shared with
  *   the push service, which is a separate entry point into this app.
  * - `hideDetails` and `setHideDetails({hide})`: the switch the push service reads without the app being open.
+ * - `clearDelivered`: cancels every notification of this app that is still shown.
  *
  * Native to Dart: `token` (a String), `tokenError` (a String) and `tap` ({computer, ref, kind}).
  *
@@ -143,6 +144,8 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
                     }
                 }
                 "register" -> { fetchToken(); result.success(null) }
+                // The pairing ended: no notification of this app stays in the shade with a session name in it.
+                "clearDelivered" -> { NotificationManagerCompat.from(activity).cancelAll(); result.success(null) }
                 "token" -> result.success(lastToken)
                 "environment" -> result.success("production")
                 "grant" -> grant(call, result)

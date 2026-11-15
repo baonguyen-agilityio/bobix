@@ -32,6 +32,8 @@
 	<string>Bobix connects to a Bobix relay on your home network when you try the app on your own computer. It reads nothing else on the network.</string>
 	<key>BobixKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
+	<key>BobixAppKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)dev.bobix.phone.app-keys</string>
 	<key>BobixAppGroup</key>
 	<string>$(BOBIX_APP_GROUP)</string>
 	<key>UIBackgroundModes</key>
@@ -40,6 +42,9 @@
 	</array>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<!-- A bobix:// link only picks a screen through SceneDelegate and SurfaceLink; Flutter must not also route it as a path. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

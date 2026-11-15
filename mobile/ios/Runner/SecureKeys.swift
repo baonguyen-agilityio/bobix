@@ -32,19 +32,30 @@ final class KeyStore {
   private let service: String
   private let signTag: Data
   private let markerURL: URL
-  /// The keychain access group `auth` and `box` live in, shared with the app's extensions (Runner.entitlements lists
-  /// it, Info.plist carries its full name). Nil only where the app has no such group (a test host).
+  /// The keychain access group `box` lives in, shared with the app's extensions (every entitlements file lists it,
+  /// Info.plist carries its full name). Nil only where the app has no such group (a test host).
   private let group: String?
+  /// The group only the app lists (Runner.entitlements): `auth`, the signing key and its biometric state. An extension
+  /// has no way to get a reference to them.
+  private let appGroup: String?
   /// A plain Keychain key in place of the Secure Enclave one. The simulator cannot make a Secure Enclave key with
   /// biometric access control, so the tests use this; it exists only in debug builds and never ships.
   private let software: Bool
+
+  static func bundleAppGroup() -> String? {
+    let name = Bundle.main.object(forInfoDictionaryKey: "BobixAppKeychainGroup") as? String
+    return name?.isEmpty == false ? name : nil
+  }
+
+  /// Only `box` is shared: an extension opens a notice with it and needs nothing else.
+  static let sharedSecret = "box"
 
   static func bundleGroup() -> String? {
     let name = Bundle.main.object(forInfoDictionaryKey: "BobixKeychainGroup") as? String
     return name?.isEmpty == false ? name : nil
   }
 
-  init(service: String = "dev.bobix.phone.keys", software: Bool = false, markerURL: URL? = nil, group: String? = KeyStore.bundleGroup()) throws {
+  init(service: String = "dev.bobix.phone.keys", software: Bool = false, markerURL: URL? = nil, group: String? = KeyStore.bundleGroup(), appGroup: String? = KeyStore.bundleAppGroup()) throws {
     #if !DEBUG
     if software { throw KeyError(message: "the software key is not available in a release build") }
     #endif
@@ -54,6 +65,7 @@ final class KeyStore {
     self.signTag = KeyStore.signTag(service: service, software: software)
     self.software = software
     self.group = group
+    self.appGroup = appGroup
     self.markerURL = try markerURL ?? KeyStore.defaultMarkerURL()
     try eraseIfFreshInstall()
     // Only a debug build may hold a software key: any other launch erases one that a debug build left on this device.
@@ -99,14 +111,14 @@ final class KeyStore {
 
   // MARK: auth and box
 
-  private func secretQuery(_ name: String) -> [String: Any] {
+  private func secretQuery(_ name: String, in access: String? = nil) -> [String: Any] {
     var query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: name,
       kSecAttrSynchronizable as String: false,
     ]
-    if let group { query[kSecAttrAccessGroup as String] = group }
+    if let g = access ?? (name == KeyStore.sharedSecret ? group : appGroup) { query[kSecAttrAccessGroup as String] = g }
     return query
   }
 
@@ -138,11 +150,27 @@ final class KeyStore {
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var out: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &out)
-    return try KeyStore.readOutcome(status) ? out as? Data : nil
+    if try KeyStore.readOutcome(status) { return out as? Data }
+    return try moveFromSharedGroup(name)
+  }
+
+  /// An earlier build kept `auth` in the group the extensions list. Found there, it moves to the app's own group and is
+  /// deleted from the shared one, so an extension can no longer reach it.
+  private func moveFromSharedGroup(_ name: String) throws -> Data? {
+    guard name != KeyStore.sharedSecret, appGroup != nil, let group else { return nil }
+    var old = secretQuery(name, in: group)
+    old[kSecReturnData as String] = true
+    old[kSecMatchLimit as String] = kSecMatchLimitOne
+    var out: CFTypeRef?
+    guard try KeyStore.readOutcome(SecItemCopyMatching(old as CFDictionary, &out)), let data = out as? Data else { return nil }
+    try putSecret(name, data)
+    SecItemDelete(secretQuery(name, in: group) as CFDictionary)
+    return data
   }
 
   func deleteSecret(_ name: String) {
     SecItemDelete(secretQuery(name) as CFDictionary)
+    if name != KeyStore.sharedSecret, let group { SecItemDelete(secretQuery(name, in: group) as CFDictionary) }
   }
 
   // MARK: sign
@@ -157,6 +185,8 @@ final class KeyStore {
       kSecAttrKeySizeInBits as String: 256,
     ]
     var privateAttributes: [String: Any] = [kSecAttrIsPermanent as String: true, kSecAttrApplicationTag as String: signTag]
+    // Not in the default group (the first of the entitlements): an extension must not get a reference to it.
+    if let appGroup { privateAttributes[kSecAttrAccessGroup as String] = appGroup }
     if software {
       privateAttributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     } else {

@@ -1,17 +1,28 @@
 /// Control and format characters that a screen must never draw: they are shown as visible escapes, so the text on
-/// screen is the text that runs. Newline and tab stay as they are.
+/// screen is the text that runs. Newline and tab stay as they are. Besides controls and bidirectional or zero-width
+/// format characters this covers line and paragraph separators, variation selectors and the invisible fillers: all
+/// draw as nothing or as a line break, yet are not what a shell or an interpreter reads that way. Keep in step with
+/// `is_odd_char` in `crates/bobix-link/src/messages.rs`.
 bool _hidden(int c) =>
     (c < 0x20 && c != 0x0A && c != 0x09) ||
     (c >= 0x7F && c <= 0x9F) ||
     c == 0xAD ||
+    c == 0x034F ||
     c == 0x061C ||
+    c == 0x115F ||
+    c == 0x1160 ||
     c == 0x180E ||
     (c >= 0x200B && c <= 0x200F) ||
+    (c >= 0x2028 && c <= 0x2029) ||
     (c >= 0x202A && c <= 0x202E) ||
     (c >= 0x2060 && c <= 0x206F) ||
+    c == 0x3164 ||
+    (c >= 0xFE00 && c <= 0xFE0F) ||
     c == 0xFEFF ||
+    c == 0xFFA0 ||
     (c >= 0xFFF9 && c <= 0xFFFB) ||
-    (c >= 0xE0000 && c <= 0xE007F);
+    (c >= 0xE0000 && c <= 0xE007F) ||
+    (c >= 0xE0100 && c <= 0xE01EF);
 
 class TextPart {
   const TextPart(this.text, {this.escaped = false});
