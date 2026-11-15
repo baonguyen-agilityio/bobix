@@ -173,16 +173,16 @@ void main() {
       expect(find.byIcon(Icons.check), findsNWidgets(3));
       expect(find.byIcon(Icons.close), findsNWidgets(3));
       for (final (title, d) in [
-        ('Allow or deny requests', 'Allow or deny one request at a time'),
+        ('Answer permission requests', 'Allow or deny one request at a time'),
+        ('Answer Claude’s questions', 'Pick an option or type an answer'),
         ('Approve or send back plans', 'With an optional note'),
-        ('Answer questions', 'Pick an option or type an answer'),
         ('Start tickets', 'Full or Quick, in a folder that exists'),
         (
-          'Stop a waiting session',
+          'Stop a session',
           'Interrupts the turn; the session stays open',
         ),
         (
-          'See what sessions are doing',
+          'See session activity',
           'The last lines of each session, read only',
         ),
       ]) {

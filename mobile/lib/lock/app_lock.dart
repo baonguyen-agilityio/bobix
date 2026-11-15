@@ -213,7 +213,7 @@ class LockScreen extends ConsumerWidget {
                   label: s('phone.lock.open', {'os': bioName(s)}),
                   primary: true,
                   icon: defaultTargetPlatform == TargetPlatform.iOS
-                      ? Icons.face_outlined
+                      ? Icons.face_unlock_outlined
                       : Icons.fingerprint,
                   onPressed: onUnlock,
                 ),

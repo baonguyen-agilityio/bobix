@@ -233,11 +233,11 @@ IconData bioIcon() => defaultTargetPlatform == TargetPlatform.iOS
 List<(String, bool)> _rights(PhoneRights r) {
   return [
     ('answer', r.answer),
-    ('plan', r.plan),
     ('question', r.question),
+    ('plan', r.plan),
     ('start', r.start),
-    ('stop', r.stop),
     ('activity', r.activity),
+    ('stop', r.stop),
   ];
 }
 
@@ -278,7 +278,7 @@ class PermissionsScreen extends ConsumerWidget {
     _Row row(String name, bool granted) => _Row(
       icon: granted ? Icons.check : Icons.close,
       tile: granted ? _Tile.ok : _Tile.plain,
-      title: s('phone.right.$name'),
+      title: s('phone.pair.may.$name'),
       subtitle: s('phone.perm.$name.d'),
       muted: !granted,
     );
@@ -522,9 +522,7 @@ class _Row extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: tile == _Tile.ok
-                  ? t.okBg
-                  : (t.isDark ? t.surface3 : const Color(0x99FFFFFF)),
+              color: t.isDark ? t.surface3 : const Color(0xCCFFFFFF),
               borderRadius: BorderRadius.circular(12),
               border: tile == _Tile.plain
                   ? Border.all(width: .5, color: t.line)

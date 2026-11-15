@@ -191,7 +191,9 @@ class _UnlockSheetState extends ConsumerState<UnlockSheet> {
                     child: Icon(
                       _ok
                           ? Icons.check_rounded
-                          : (ios ? Icons.face : Icons.fingerprint),
+                          : (ios
+                                ? Icons.face_unlock_outlined
+                                : Icons.fingerprint),
                       size: 40,
                       color: c,
                     ),

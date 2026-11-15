@@ -65,16 +65,12 @@ class Glass extends StatelessWidget {
       child: content,
     );
     final blurred = blur && blurEnabled;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: shape,
-        boxShadow: [
-          BoxShadow(
-            color: Color(t.isDark ? 0x4D000000 : 0x12141828),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
-          ),
-        ],
+    return CustomPaint(
+      painter: _OuterShadow(
+        radius: radius,
+        color: Color(t.isDark ? 0x4D000000 : 0x12141828),
+        blur: 14,
+        offset: const Offset(0, 4),
       ),
       child: blurred
           ? ClipRRect(
@@ -87,6 +83,50 @@ class Glass extends StatelessWidget {
           : body,
     );
   }
+}
+
+/// A CSS `box-shadow`: drawn only outside the box. (A Flutter `BoxShadow` is painted under the whole box, so on a
+/// translucent surface it would darken the glass from inside.)
+class _OuterShadow extends CustomPainter {
+  const _OuterShadow({
+    required this.radius,
+    required this.color,
+    required this.blur,
+    required this.offset,
+  });
+
+  final double radius, blur;
+  final Color color;
+  final Offset offset;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final box = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final outside = Path.combine(
+      PathOperation.difference,
+      Path()..addRect((Offset.zero & size).inflate(blur * 3 + 8)),
+      Path()..addRRect(box),
+    );
+    canvas.save();
+    canvas.clipPath(outside);
+    canvas.drawRRect(
+      box.shift(offset),
+      Paint()
+        ..color = color
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur / 2),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_OuterShadow old) =>
+      old.radius != radius ||
+      old.color != color ||
+      old.blur != blur ||
+      old.offset != offset;
 }
 
 class CountBadge extends StatelessWidget {
