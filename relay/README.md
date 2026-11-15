@@ -50,7 +50,7 @@ Without Docker: `cd relay && cargo build --release`, then run `target/release/bo
 | `RELAY_PUBLIC_URL` | **Required.** The address devices use, such as `wss://relay.example.com`. A device signs this address when it logs in, so a signature made for another relay is refused. Wrong value: every device is refused with `relayUrl` and the log says "signed for ... but this relay's RELAY_PUBLIC_URL is ...". |
 | `RELAY_ID` | **Required.** The id push grants name; use the relay's host name. Changing it invalidates the push grants phones already hold. |
 | `REVOKED_DIR` | **Required** outside `--dev`; the image sets `/data/revoked`. Must be on a persistent volume, otherwise a restart forgets who was revoked. |
-| `INVITE_FILE` | Path of a file with one device id per line (`#` comments). When set, only the computers listed may open a pairing or revoke; everyone else is a guest. Keep it set during the beta. Read again every 5 seconds, so no restart is needed. If unset, anyone can use the relay. Put it on the data volume, such as `/data/invites.txt`. |
+| `INVITE_FILE` | Path of a file with one device id per line (`#` comments). When set, only the computers listed may open a pairing or revoke; everyone else is a guest. **Keep it set during the beta, and do not unset it** until per-sender shares of the global mailbox budget exist (today 1,000 mailboxes and 256 MiB are shared by everyone, so one open relay could be filled by a single client; see #227). Read again every 5 seconds, so no restart is needed. If unset, anyone can use the relay. Put it on the data volume, such as `/data/invites.txt`. |
 | `CLIENT_IP_HEADER` | The header your proxy sets to the client's address, such as `X-Real-IP` or `X-Forwarded-For`; the last value is used. It keys the per-address limits (8 unauthenticated sockets, 120 connections a minute). Set it only when the proxy overwrites that header; otherwise a client picks its own address. If unset, the proxy's address is used and every client shares one limit. |
 
 ### Every setting
@@ -86,7 +86,7 @@ Nothing here has been done yet; it needs your Railway account.
    - `CLIENT_IP_HEADER` = `X-Real-IP` (Railway's proxy sets the client address there; check the current Railway docs for
      the header it overwrites, and leave this empty rather than guess, since a header the client can set makes the
      limits per client meaningless).
-   - `INVITE_FILE` = `/data/invites.txt`. Keep it set during the beta.
+   - `INVITE_FILE` = `/data/invites.txt`. **Keep it set during the beta, and do not unset it** until per-sender shares of the global mailbox budget exist (today 1,000 mailboxes and 256 MiB are shared by everyone, so one open relay could be filled by a single client; see #227).
 5. Add a **volume** mounted at `/data`. Without it a redeploy forgets revocations. Railway mounts volumes as root; if the
    relay cannot write to `/data` (uid 65532 has no access), add the variable `RAILWAY_RUN_UID=0`, which is Railway's way
    to run the container as root for volume access.
