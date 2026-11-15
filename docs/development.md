@@ -35,7 +35,7 @@ How a change gets made, by people and by Claude Code sessions alike. The working
 6. **CI.** The three smoke checks (see [CI](#ci)) must pass.
 7. **The owner approves the merge.** Sessions never merge, and never `gh pr merge --auto`. A new feature is tried by hand by the owner first.
 
-[`dependabot.yml`](../.github/dependabot.yml) opens one weekly pull request per ecosystem and directory (cargo for `src-tauri`, `crates/bobix-link` and its `fuzz` crate; npm; GitHub Actions). The smoke checks run on it; the review skips it. Read it like any other pull request before the owner merges it.
+[`dependabot.yml`](../.github/dependabot.yml) opens one weekly pull request per ecosystem and directory (cargo for `src-tauri`, `crates/bobix-link` and its `fuzz` crate, and `relay`; npm; GitHub Actions). The smoke checks run on it; the review skips it. Read it like any other pull request before the owner merges it.
 
 ## Layout
 
@@ -52,7 +52,8 @@ How a change gets made, by people and by Claude Code sessions alike. The working
 | `docs/` | This documentation; `docs/media/` holds the screenshots and `demo.gif`, `docs/releases/` the release notes |
 | `site/` | The project's web page (published by `.github/workflows/pages.yml`) |
 | `crates/bobix-link/` | The link crate: the wire format and the crypto that the desktop, the phone-access relay and the phone app will share (see [The link crate](#the-link-crate)). Not used by `src-tauri` yet |
-| `.github/` | Workflows (`smoke.yml`, `release.yml`, `claude-review.yml`, `pages.yml`, `link.yml`), `dependabot.yml`, the pull request template |
+| `relay/` | The relay for phone access: forwards sealed packets between a desktop and its phones, holds one for an offline device for at most 10 minutes, tells each side who is online, sends pushes. Holds no key that opens a packet (see [The relay](#the-relay)). Not used by `src-tauri` yet |
+| `.github/` | Workflows (`smoke.yml`, `release.yml`, `claude-review.yml`, `pages.yml`, `link.yml`, `relay.yml`), `dependabot.yml`, the pull request template |
 | `CLAUDE.md`, `.claude/settings.json` | The working rules and shared permissions for Claude Code sessions in this repository |
 
 ## Build installers
@@ -131,6 +132,25 @@ cd crates/bobix-link && cargo test
   `fake-desktop --scenario list` names the 20 scenarios; `tests/fakes.rs` runs each of them in-process. `fake-phone` reads commands from standard input (the list is at the top of its source file) and signs with a software key.
 
 [The link workflow](../.github/workflows/link.yml) runs on every pull request, but its jobs skip themselves when nothing under `crates/bobix-link/` changed (a skipped job counts as passing for a required check). Jobs: `link` on macOS, Windows and Ubuntu (clippy, tests, the fake tools built and kept as an artifact), `fuzz`, `audit` (known vulnerabilities in the dependencies, with cargo-deny), and `link-ok`, which fails when any of them failed. They have their own cache keys, so they never evict the app's cache. The owner makes `link-ok` a required check of `develop`, `main` and the phone-access integration branch `feat/phone-access` after the workflow has run once; it is the only name to require, because a skipped matrix job does not report one check per system.
+
+## The relay
+
+`relay/` is an axum server (a path dependency on `bobix-link`, its own `Cargo.lock`, not part of a workspace). It authenticates a device with a challenge signed by its `auth` key, keeps one in-memory mailbox per recipient (ttl at most 600 s, 64 packets, 2 MiB) until the recipient acknowledges, delivers only between devices that allowed each other, forwards up to four `pairSend`s per open pairing token, shows presence (`online`, `offline` after 30 s without a pong, `asleep`), keeps revocations in a small file per desktop for 90 days (a revocation cuts only the path between that desktop and that device; the device is told with `error { revoked }` and keeps its other desktops), and with `INVITE_FILE` set serves only invited computers. Pushes go through a `PushSender` (APNs, FCM, another relay's gateway, or a recording fake); `POST /v1/push` is the gateway for relays without credentials. It never parses a `body` and has no code or dependency that could open one. Only a relay with its own APNs or FCM credentials (or `--dev`) serves the gateway route.
+
+```bash
+cd relay && cargo test
+cargo run -- --dev          # plain ws on 127.0.0.1:8787, recording push fake, GET /healthz, GET /dev/pushes
+```
+
+- Configuration is by environment variables only; without `--dev`, `RELAY_PUBLIC_URL` (the relay's own address as devices know it, such as `wss://relay.example`; a device signs it when it logs in, so a signature made for another relay is refused with `relayUrl`, and a wrong value shows in the log as "signed for … but this relay's RELAY_PUBLIC_URL is …"), `RELAY_ID` (the id push grants name) and `REVOKED_DIR` are required and the relay says which one is missing. With `--dev` the public URL is `ws://` plus the bind address unless `RELAY_PUBLIC_URL` is set. Others: `RELAY_ADDR` (default `0.0.0.0:8787`; `127.0.0.1:8787` with `--dev`), `INVITE_FILE` (one device id per line, `#` comments), `GATEWAY_KEYS_FILE` (one gateway key per line, optionally followed by the relay id it belongs to), `LOG_DIR` (one file per day, 14 days kept), `APNS_KEY_FILE` with `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `FCM_SERVICE_ACCOUNT_FILE`, and `PUSH_GATEWAY_URL` with `PUSH_GATEWAY_KEY_FILE`. Credentials are read from the files named, never from the repository.
+- `--dev` refuses to listen on anything but loopback (it keeps no revoked list on disk and sends no real push); `RELAY_DEV_FORCE_BIND=1` overrides this on purpose and the relay says so at start.
+- Limits: a socket has a queue of 256 outbound frames and is closed when it is full (a reader that does not read); a device may send 100 frames a second; a client address may hold 8 sockets that have not authenticated and open 120 connections a minute; 1000 mailboxes and 256 MiB at most are held in all; the allow-list and push tokens of a device that left are dropped after an hour; pushes through the relay's own credentials are limited per token and per sending device. The client address is the connection's, or, behind a proxy you trust, the last value of the header `CLIENT_IP_HEADER` names (for example `X-Forwarded-For`); set it only when the proxy overwrites that header, otherwise a client could pick its own address. `INVITE_FILE` is looked at again every 5 seconds, also for desktops that are connected.
+- A desktop can revoke only a device that confirmed a pairing with it, meaning it sent the desktop a packet the desktop had allowed; that record is kept next to the revoked list (`<desktop id>.paired` in `REVOKED_DIR`, 90 days), so a revoke works after a relay restart. A desktop that merely received a `hello` cannot affect the phone. A fresh pairing the desktop opens lifts an old cut.
+- `--dev` also serves the socket on `/`, because the fake tools of the link crate connect to exactly the address they are given: `fake-desktop --relay ws://127.0.0.1:8787`. A real client connects to `/v1/ws`.
+- Logs hold device ids and counts, never a body or a token (`tests/push.rs` checks this).
+- Not built yet: the Dockerfile, the README and the deploy.
+
+[The relay workflow](../.github/workflows/relay.yml) mirrors the link workflow: it skips its jobs when nothing under `relay/` or `crates/bobix-link/` changed; jobs `relay` (clippy and tests on macOS and Ubuntu), `audit` (cargo-deny) and `relay-ok`, the one check to require.
 
 ## Demo and screenshots
 
