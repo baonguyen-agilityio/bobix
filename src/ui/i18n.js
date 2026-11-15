@@ -1813,7 +1813,7 @@
       'phone.un.failed': 'Việc xác nhận không thành công. Chưa gửi gì cả.',
       'phone.un.keylost': 'Khóa của điện thoại đã mất: hãy ghép lại với máy tính. Chưa gửi gì cả.',
       'phone.ask.tool0': 'lệnh này',
-      'phone.res.title': 'Kết quả',
+      'phone.res.title': 'Đã gửi',
       'phone.res.ok.allow.t': 'Đã cho phép',
       'phone.res.ok.allow.d': '{c} đã nhận câu trả lời. Phiên tiếp tục chạy.',
       'phone.res.ok.deny.t': 'Đã từ chối',

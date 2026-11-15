@@ -1,6 +1,6 @@
 # Roadmap and open work
 
-What Bobix still lacks, what is done but not released, and what nobody has verified yet. Update this file when an item lands, ships or changes. Last updated: 2026-11-14 (`develop` is v0.2.0-rc.9; the newest release is the pre-release v0.2.0-rc.9, the newest stable one v0.1.3). What must be true before 0.2.0 is tracked in [#195](https://github.com/baonguyen-agilityio/bobix/issues/195).
+What Bobix still lacks, what is done but not released, and what nobody has verified yet. Update this file when an item lands, ships or changes. Last updated: 2026-11-15 (`develop` is v0.2.0-rc.9; the newest release is the pre-release v0.2.0-rc.9, the newest stable one v0.1.3). What must be true before 0.2.0 is tracked in [#195](https://github.com/baonguyen-agilityio/bobix/issues/195).
 
 **Product direction (v3):** [product-direction.md](product-direction.md) records where Bobix goes next as a personal assistant for working well with Claude Code, in five build steps: measure usage, skills audit and model routing, a GitLab ticket flow, habits into skills, and a war room with its security ([#110](https://github.com/baonguyen-agilityio/bobix/issues/110)).
 
@@ -10,7 +10,9 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 Nothing yet: `develop` is v0.2.0-rc.9.
 
-On the integration branch `feat/phone-access` (not on `develop`): phone access on the desktop (Settings → Phones, off by default). Verified with `fake-phone` against `relay --dev` on macOS; Windows, Linux (the keychain, the input time) and the phone app are not verified yet.
+On the integration branch `feat/phone-access` (not on `develop`): phone access on the desktop (Settings → Phones, off by default). Verified with `fake-phone` against `relay --dev` on macOS; Windows, Linux (the keychain, the input time) are not verified yet.
+
+The phone app (`mobile/`, iOS first) is on the same branch: pairing by the app's own scanner, the relay link, Home and Pets from the computer's `home`, and the action screens (a permission request with Allow or Deny, a plan, Claude's questions with every part, a session's last lines, Stop, Start Quick or Full, the result of each command with Check status and withdraw), every command signed in secure hardware at the biometric step. Verified on an iPhone simulator and in `flutter test` against `relay --dev` and the crate's `fake-desktop`, with a software signing key. **Unverified:** a real iPhone (the camera scan, Face ID on each command, what the Keychain answers before the first unlock, a changed biometric set), the real desktop end to end (the tests use `fake-desktop`), Android (not started), push notifications, widgets and the Live Activity. **Known gaps:** Start has nothing to pick yet (`home` carries no list of issues a phone can start), a request shows no tool name (the computer sends none), and a session's last lines wait on the desktop answering a `detail` by session id.
 
 ## 2. In the test builds (v0.2.0-rc.1 to rc.9), no stable release yet
 
