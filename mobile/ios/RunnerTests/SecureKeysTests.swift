@@ -154,6 +154,17 @@ final class SecureKeysTests: XCTestCase {
     XCTAssertEqual(status(errSecMissingEntitlement, true), .failed("keychain (\(errSecMissingEntitlement))"))
   }
 
+  func testADebugSoftwareKeyIsNeitherFoundNorKeptByAnotherBuild() throws {
+    let debug = try makeStore(software: true)
+    _ = try debug.createSigningKey()
+    XCTAssertNotNil(debug.signingPublicKey())
+    // A launch that is not the software mode (a Release build) neither finds that key nor leaves it on the device.
+    let release = try makeStore(software: false)
+    XCTAssertNil(release.signingPublicKey(), "a Release build never matches the software key")
+    XCTAssertEqual(release.sign(Data([1]), reason: "x"), .invalidated, "and says there is no key")
+    XCTAssertNil(try makeStore(software: true).signingPublicKey(), "it was erased on that launch")
+  }
+
   func testNoBiometricStateIsNotALostKey() {
     let stored = Data([1, 2, 3])
     XCTAssertFalse(KeyStore.setChanged(stored: stored, current: stored, notEnrolled: false), "same set")

@@ -48,11 +48,27 @@ final class KeyStore {
     if software { throw KeyError(message: "the software key is not available in a release build") }
     #endif
     self.service = service
-    self.signTag = Data("\(service).sign".utf8)
+    // The debug-only software key has a tag of its own, so a Release build never finds one a Debug build left, and
+    // never signs with it.
+    self.signTag = KeyStore.signTag(service: service, software: software)
     self.software = software
     self.group = group
     self.markerURL = try markerURL ?? KeyStore.defaultMarkerURL()
     try eraseIfFreshInstall()
+    // Only a debug build may hold a software key: any other launch erases one that a debug build left on this device.
+    if !software { SecItemDelete(KeyStore.signQuery(tag: KeyStore.signTag(service: service, software: true)) as CFDictionary) }
+  }
+
+  static func signTag(service: String, software: Bool) -> Data {
+    Data("\(service).sign\(software ? ".software" : "")".utf8)
+  }
+
+  static func signQuery(tag: Data) -> [String: Any] {
+    [
+      kSecClass as String: kSecClassKey,
+      kSecAttrApplicationTag as String: tag,
+      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+    ]
   }
 
   private static func defaultMarkerURL() throws -> URL {
@@ -118,13 +134,7 @@ final class KeyStore {
 
   // MARK: sign
 
-  private var keyQuery: [String: Any] {
-    [
-      kSecClass as String: kSecClassKey,
-      kSecAttrApplicationTag as String: signTag,
-      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-    ]
-  }
+  private var keyQuery: [String: Any] { KeyStore.signQuery(tag: signTag) }
 
   /// Makes the signing key (replacing any earlier one) and returns its public key in X9.63 form.
   func createSigningKey() throws -> Data {
