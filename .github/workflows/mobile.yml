@@ -169,8 +169,12 @@ jobs:
         run: |
           cargo run --locked --features uniffi-cli --bin uniffi-bindgen -- generate --library target/debug/libbobix_phone_core.so --language kotlin --out-dir ../android/app/src/main/kotlin --no-format
           git diff --exit-code -- ../android/app/src/main/kotlin/uniffi
+      - name: The development relay and the crate's fake desktop (the link tests run the real programs)
+        run: |
+          cargo build --locked --manifest-path ../relay/Cargo.toml
+          cargo build --locked --manifest-path ../crates/bobix-link/Cargo.toml --example fake-desktop
       - run: flutter analyze
-      - name: Dart tests (the shared crate's test vectors through the bridge, on this computer)
+      - name: Dart tests (the crate's test vectors through the bridge; pairing and the link against relay --dev and fake-desktop)
         run: flutter test
       - name: Kotlin unit tests (the payload opener through the Rust library, the key store's mappings, the manifest)
         working-directory: mobile/android
