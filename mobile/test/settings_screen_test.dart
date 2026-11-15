@@ -445,10 +445,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(WidgetsScreen), findsOneWidget);
-    expect(find.text('Home Screen'), findsOneWidget);
-    expect(find.text('Lock Screen'), findsOneWidget);
-    expect(find.text('Control Center'), findsOneWidget);
-    expect(find.textContaining('Touch and hold'), findsNWidgets(2));
+    expect(find.text('Home Screen'), findsWidgets);
+    expect(find.text('Lock Screen'), findsWidgets);
+    expect(find.text('Control Center'), findsWidgets);
+    expect(find.text('Preview state'), findsOneWidget);
   });
 
   testWidgets(

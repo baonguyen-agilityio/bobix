@@ -22,6 +22,9 @@ import '../widgets/glass.dart';
 import '../widgets/switch_row.dart';
 import 'app_log_screen.dart';
 import 'feedback_screen.dart';
+import 'widgets/widgets_screen.dart';
+
+export 'widgets/widgets_screen.dart' show WidgetsScreen;
 
 /// The day and month of [ms] in the person's language ("11 Nov", "11 thg 11").
 String shortDate(int ms, Strings s) {
@@ -363,45 +366,6 @@ class PermissionsScreen extends ConsumerWidget {
               ),
             ],
           ),
-        ),
-      ],
-    );
-  }
-}
-
-/// How to put Bobix outside the app: on the Home Screen, on the Lock Screen and in Control Center. The widgets are
-/// added on the phone itself, so this says where.
-class WidgetsScreen extends ConsumerWidget {
-  const WidgetsScreen({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final s = ref.watch(stringsProvider);
-    final t = context.tokens;
-    return DetailScaffold(
-      title: s('phone.settings.wg'),
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
-          child: Text(
-            s('phone.wgs.n', {'os': bioName(s)}),
-            style: TextStyle(fontSize: 14, height: 1.4, color: t.ink2),
-          ),
-        ),
-        _Group(
-          children: [
-            for (final (key, icon) in const [
-              ('hs', Icons.home_outlined),
-              ('lk', Icons.lock_outline),
-              ('cc', Icons.tune),
-            ])
-              _Row(
-                icon: icon,
-                tile: _Tile.plain,
-                title: s('phone.wgs.$key'),
-                subtitle: s('phone.wgs.$key.d'),
-              ),
-          ],
         ),
       ],
     );
