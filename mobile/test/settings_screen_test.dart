@@ -93,6 +93,7 @@ void main() {
     String lang = 'en',
     ConnState conn = ConnState.ok,
     Widget screen = const SettingsScreen(),
+    Brightness brightness = Brightness.light,
   }) async {
     tester.view.physicalSize = const Size(400, 2600);
     tester.view.devicePixelRatio = 1;
@@ -114,7 +115,7 @@ void main() {
         key: UniqueKey(),
         overrides: overrides,
         child: MaterialApp(
-          theme: bobixTheme(Brightness.light),
+          theme: bobixTheme(brightness),
           home: Scaffold(body: SafeArea(child: screen)),
         ),
       ),
@@ -124,34 +125,138 @@ void main() {
     return link;
   }
 
+  testWidgets('the paired computer and how it is; the rights are one row', (
+    tester,
+  ) async {
+    await pump(tester, paired: computer());
+    expect(find.text('Computers'), findsOneWidget);
+    expect(find.text('Studio Mac (demo)'), findsOneWidget);
+    expect(find.text('connected 11 Nov · online'), findsOneWidget);
+    expect(find.text('Connect another computer'), findsOneWidget);
+    expect(find.text('Permissions'), findsOneWidget);
+    expect(find.text('What this phone may do'), findsOneWidget);
+    expect(find.text('3 of 6 allowed on Studio Mac (demo)'), findsOneWidget);
+    // The six rights are not listed in Settings any more.
+    expect(find.byIcon(Icons.check), findsNothing);
+    expect(find.text('Start tickets'), findsNothing);
+  });
+
+  Future<void> openPermissions(WidgetTester tester) async {
+    await tester.tap(find.text('What this phone may do'));
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
-    'the paired computer, how it is, and exactly the rights it granted',
+    'the permissions screen: allowed, not allowed, always, and read only',
     (tester) async {
       await pump(tester, paired: computer());
-      expect(find.text('Computers'), findsOneWidget);
+      await openPermissions(tester);
+      // The computer, this phone's name and the count.
       expect(find.text('Studio Mac (demo)'), findsOneWidget);
-      expect(find.text('connected 11 Nov · online'), findsOneWidget);
-      expect(find.text('Connect another computer'), findsOneWidget);
-      expect(find.text('This phone may, on Studio Mac (demo)'), findsOneWidget);
+      expect(find.text('p on this computer'), findsOneWidget);
+      expect(find.text('3/6'), findsOneWidget);
       // Granted: answer, plan, activity. Not granted: question, start, stop.
+      expect(find.text('Allowed'), findsOneWidget);
+      expect(find.text('Not allowed'), findsOneWidget);
       expect(find.byIcon(Icons.check), findsNWidgets(3));
       expect(find.byIcon(Icons.close), findsNWidgets(3));
-      for (final r in [
-        'Allow or deny requests',
-        'Approve or send back plans',
-        'Answer questions',
-        'Start tickets',
-        'Stop a waiting session',
-        'See what sessions are doing',
+      for (final (title, d) in [
+        ('Allow or deny requests', 'Allow or deny one request at a time'),
+        ('Approve or send back plans', 'With an optional note'),
+        ('Answer questions', 'Pick an option or type an answer'),
+        ('Start tickets', 'Full or Quick, in a folder that exists'),
+        (
+          'Stop a waiting session',
+          'Interrupts the turn; the session stays open',
+        ),
+        (
+          'See what sessions are doing',
+          'The last lines of each session, read only',
+        ),
       ]) {
-        expect(find.text(r), findsOneWidget);
+        expect(find.text(title), findsOneWidget);
+        expect(find.text(d), findsOneWidget);
       }
-      expect(
-        find.text('Set on the computer. This phone can’t change it.'),
-        findsOneWidget,
-      );
+      // What always holds, and where the rights are changed.
+      expect(find.text('Always, whatever is allowed'), findsOneWidget);
+      expect(find.textContaining('before each command'), findsOneWidget);
+      expect(find.text('No “Always allow”'), findsOneWidget);
+      expect(find.textContaining('Bobix → Settings → Phones'), findsOneWidget);
+      // Read only: nothing here can be switched.
+      expect(find.byType(Switch), findsNothing);
+      expect(find.byType(Checkbox), findsNothing);
     },
   );
+
+  testWidgets('everything allowed: no "Not allowed" part', (tester) async {
+    await pump(
+      tester,
+      paired: computer(
+        rights: const PhoneRights(
+          answer: true,
+          plan: true,
+          question: true,
+          start: true,
+          stop: true,
+          activity: true,
+        ),
+      ),
+    );
+    expect(find.text('6 of 6 allowed on Studio Mac (demo)'), findsOneWidget);
+    await openPermissions(tester);
+    expect(find.text('6/6'), findsOneWidget);
+    expect(find.text('Not allowed'), findsNothing);
+    expect(find.byIcon(Icons.close), findsNothing);
+  });
+
+  testWidgets('nothing allowed: says so, and lists all six as not allowed', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      paired: computer(
+        rights: const PhoneRights(
+          answer: false,
+          plan: false,
+          question: false,
+          start: false,
+          stop: false,
+          activity: false,
+        ),
+      ),
+    );
+    expect(find.text('0 of 6 allowed on Studio Mac (demo)'), findsOneWidget);
+    await openPermissions(tester);
+    expect(
+      find.text('Nothing yet. Turn permissions on at the computer.'),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.check), findsNothing);
+    expect(find.byIcon(Icons.close), findsNWidgets(6));
+  });
+
+  testWidgets('Vietnamese and dark: the same permissions screen', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      paired: computer(),
+      lang: 'vi',
+      brightness: Brightness.dark,
+    );
+    expect(find.text('Được 3/6 quyền trên Studio Mac (demo)'), findsOneWidget);
+    await tester.tap(find.text('Quyền của điện thoại này'));
+    await tester.pumpAndSettle();
+    expect(find.text('Được phép'), findsOneWidget);
+    expect(find.text('Không được phép'), findsOneWidget);
+    expect(find.text('Luôn áp dụng'), findsOneWidget);
+    expect(find.text('Bắt đầu ticket'), findsOneWidget);
+    expect(
+      find.text('Đầy đủ hoặc Nhanh, trong thư mục có sẵn'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Bobix → Cài đặt → Điện thoại'), findsOneWidget);
+  });
 
   testWidgets('each state of the computer reads its own way', (tester) async {
     for (final (conn, text) in [
@@ -282,11 +387,17 @@ void main() {
     'the lock is on by default, and the choice is kept in the settings file',
     (tester) async {
       await pump(tester, paired: computer());
-      expect(tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value, isTrue);
+      expect(
+        tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value,
+        isTrue,
+      );
       await tester.tap(find.byKey(const Key('lock-switch')));
       await tester.pump();
       await realWait(tester);
-      expect(tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value, isFalse);
+      expect(
+        tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value,
+        isFalse,
+      );
       final saved = jsonDecode(
         File('${tmp.path}/app-settings.json').readAsStringSync(),
       ) as Map;
@@ -325,7 +436,10 @@ void main() {
     await pump(tester, paired: computer());
     await realWait(tester);
     expect(find.text('Máy tính'), findsOneWidget);
-    expect(tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value, isFalse);
+    expect(
+      tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value,
+      isFalse,
+    );
   });
 
   testWidgets(
@@ -333,7 +447,10 @@ void main() {
     (tester) async {
       File('${tmp.path}/app-settings.json').writeAsStringSync('{ nope');
       await pump(tester, paired: computer());
-      expect(tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value, isTrue);
+      expect(
+        tester.widget<Switch>(find.byKey(const Key('lock-switch'))).value,
+        isTrue,
+      );
     },
   );
 
@@ -373,6 +490,14 @@ void main() {
     for (final lang in ['en', 'vi']) {
       await pump(tester, paired: computer(), lang: lang);
       expect(tester.takeException(), isNull, reason: lang);
+      await pump(tester, paired: computer(), lang: lang);
+      await tester.tap(
+        find.text(
+          lang == 'en' ? 'What this phone may do' : 'Quyền của điện thoại này',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'permissions $lang');
     }
   });
 }
