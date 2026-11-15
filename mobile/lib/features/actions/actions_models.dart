@@ -97,7 +97,7 @@ class SessionDetail {
     required this.id,
     required this.name,
     required this.project,
-    required this.issue,
+    this.issue,
     required this.phase,
     required this.tool,
     this.lines,
@@ -107,7 +107,7 @@ class SessionDetail {
     this.shownHash = '',
   });
   final String id, name, project, linesAt;
-  final int issue;
+  final int? issue;
   final SessionPhase phase;
   final String tool;
 

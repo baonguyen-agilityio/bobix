@@ -214,7 +214,7 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
             shown: r.shownHash,
             reason: s(
               kind == CommandKind.allow ? 'phone.un.allow' : 'phone.un.deny',
-              {'tool': r.tool, 'c': c},
+              {'tool': r.tool.isEmpty ? s('phone.ask.tool0') : r.tool, 'c': c},
             ),
             warning: kind == CommandKind.allow && destructive
                 ? s(odd ? 'phone.rq.hid' : 'phone.rq.destr')
@@ -262,7 +262,9 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
       children: [
         const SendOffBanner(),
         TitleCard(
-          title: s('phone.ask.h', {'tool': r.tool}),
+          title: r.tool.isEmpty
+              ? s('phone.ask.h0')
+              : s('phone.ask.h', {'tool': r.tool}),
           subtitle: r.sessionName,
           chips: [
             MetaChip(s('phone.rq.on', {'c': c}), icon: Icons.computer),

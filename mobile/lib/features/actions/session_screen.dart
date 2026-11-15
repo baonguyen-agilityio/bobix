@@ -69,6 +69,8 @@ class SessionScreen extends ConsumerWidget {
                                 kind: CommandKind.stop,
                                 target: d.id,
                                 shown: d.shownHash,
+                                // Stop names the request it denies.
+                                text: d.waitingOnRequest,
                                 reason: s('phone.un.stop', {'c': c}),
                               ),
                       ),
@@ -87,7 +89,7 @@ class SessionScreen extends ConsumerWidget {
             TitleCard(
               title: d.name,
               subtitle:
-                  '${d.project} #${d.issue} · ${s('phone.rq.on', {'c': c})}',
+                  '${d.issue == null ? d.project : '${d.project} #${d.issue}'} · ${s('phone.rq.on', {'c': c})}',
               icon: Icons.bolt_outlined,
               chips: [
                 Container(

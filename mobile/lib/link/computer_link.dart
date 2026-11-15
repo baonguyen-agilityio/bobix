@@ -122,6 +122,8 @@ class ComputerLink {
   final _statusChanges = StreamController<LinkStatus>.broadcast();
   final _homeChanges = StreamController<HomeSnapshot>.broadcast();
   final _messages = StreamController<DesktopMessage>.broadcast();
+  final _relayEvents = StreamController<RelayFrame>.broadcast();
+  final _results = StreamController<CommandResultInfo>.broadcast();
   final _details = <String, Completer<Map<String, dynamic>>>{};
 
   Stream<LinkStatus> get statusChanges => _statusChanges.stream;
@@ -129,6 +131,15 @@ class ComputerLink {
 
   /// Every message that was accepted (not dropped), in order.
   Stream<DesktopMessage> get messages => _messages.stream;
+
+  /// The relay's own answers to packets this phone sent: `queued`, `delivered`, `dropped`, `withdrawn`, `tooLate`.
+  Stream<RelayFrame> get relayEvents => _relayEvents.stream;
+
+  /// Every `result` of the computer, whatever it answers.
+  Stream<CommandResultInfo> get results => _results.stream;
+
+  /// When this phone first saw each waiting item (Unix ms), to say how long it has been waiting.
+  final Map<String, int> waitingSince = {};
 
   /// Whole inputs, plans and questions: in memory only, never written to the stored state.
   final Map<String, Map<String, dynamic>> detailCache = {};
@@ -170,6 +181,8 @@ class ComputerLink {
     await _statusChanges.close();
     await _homeChanges.close();
     await _messages.close();
+    await _relayEvents.close();
+    await _results.close();
   }
 
   Future<void> _loop() async {
@@ -192,7 +205,7 @@ class ComputerLink {
         session.send(await relayPeersFrame(allow: [computer.id]));
         await _sendSealed(
           await syncMessage(
-            waiting: const [],
+            waiting: computer.pending.toList(),
             versionMin: versions.min,
             versionMax: versions.max,
           ),
@@ -235,7 +248,8 @@ class ComputerLink {
     _wake = null;
   }
 
-  Future<void> _sendSealed(Uint8List plaintext) async {
+  /// Seals and sends a message; the pid names it in the relay's answers (`queued`, `delivered`, `dropped`, `withdrawn`).
+  Future<String> _sendSealed(Uint8List plaintext) async {
     final session = _session;
     if (session == null) throw const SocketLost();
     final out = await relaySendFrame(
@@ -244,6 +258,48 @@ class ComputerLink {
       ttlSeconds: 600,
     );
     session.send(out.text);
+    return out.pid;
+  }
+
+  /// Whether the phone is connected to the relay right now.
+  bool get connected => _session != null;
+
+  /// A message that is not a command (a `detail` request, a `sync`, a start preview). Throws [SocketLost] when not connected.
+  Future<String> send(Uint8List plaintext) => _sendSealed(plaintext);
+
+  /// The next packet counter, for a command that carries its own inside its signature.
+  Future<BigInt> takeCounter() => channel.nextCounter();
+
+  /// Sends a signed command sealed with the counter its signature covers. Its id is remembered (and stored) first, so a
+  /// `sync` names it until its result comes, and the command is never sent twice.
+  Future<String> sendCommand(
+    String cid,
+    BigInt counter,
+    Uint8List message,
+  ) async {
+    final session = _session;
+    if (session == null) throw const SocketLost();
+    computer.pending.add(cid);
+    await store.save(computer);
+    final out = await relaySendFrame(
+      to: computer.id,
+      packet: channel.sealWith(counter, message),
+      ttlSeconds: 600,
+    );
+    session.send(out.text);
+    return out.pid;
+  }
+
+  /// Asks the relay to take back a packet it still holds for an offline computer.
+  Future<void> withdraw(String pid) async {
+    final session = _session;
+    if (session == null) throw const SocketLost();
+    session.send(await relayWithdrawFrame(pid: pid));
+  }
+
+  /// A command that was dealt with (a result came, or the person gave up on it) is no longer waited for.
+  Future<void> forget(String cid) async {
+    if (computer.pending.remove(cid)) await store.save(computer);
   }
 
   Future<void> _onFrame(RelaySession session, RelayFrame f) async {
@@ -261,6 +317,12 @@ class ComputerLink {
         );
       case RelayFrame_Error(:final code, :final who):
         _onError(code, who);
+      case RelayFrame_Queued() ||
+          RelayFrame_Delivered() ||
+          RelayFrame_Dropped() ||
+          RelayFrame_Withdrawn() ||
+          RelayFrame_TooLate():
+        if (!_relayEvents.isClosed) _relayEvents.add(f);
       case RelayFrame_Msg(:final pid, :final from, :final packet):
         // Acknowledged on arrival, before it is looked at: the relay stops holding it.
         session.send(await relayAckFrame(pid: pid));
@@ -318,6 +380,14 @@ class ComputerLink {
           ..home = m.json
           ..homeAt = snap.receivedAtMs;
         await store.save(computer);
+        final held = {
+          for (final w in (j['waiting'] as List).cast<Map<String, dynamic>>())
+            w['id'] as String,
+        };
+        for (final id in held) {
+          waitingSince.putIfAbsent(id, () => snap.receivedAtMs);
+        }
+        waitingSince.removeWhere((id, _) => !held.contains(id));
         if (!_homeChanges.isClosed) _homeChanges.add(snap);
         final state = (j['computer'] as Map<String, dynamic>)['state'];
         if (state == 'asleep' && status.conn == ConnState.ok) {
@@ -325,6 +395,9 @@ class ComputerLink {
         } else if (state == 'online' && status.conn == ConnState.asleep) {
           _set(status.copyWith(conn: ConnState.ok));
         }
+      case 'result':
+        final r = await commandResult(messageJson: m.json);
+        if (r != null && !_results.isClosed) _results.add(r);
       case 'detail':
         final id = j['id'] as String;
         detailCache[id] = j;
@@ -355,9 +428,9 @@ class ComputerLink {
 
   /// The whole content of a request, plan or question, from the computer (in memory only). Null when the phone is not
   /// connected or the computer did not answer.
-  Future<Map<String, dynamic>?> detail(String id) async {
+  Future<Map<String, dynamic>?> detail(String id, {bool fresh = false}) async {
     final cached = detailCache[id];
-    if (cached != null) return cached;
+    if (cached != null && !fresh) return cached;
     final waiter = _details.putIfAbsent(id, Completer.new);
     try {
       await _sendSealed(await detailRequestMessage(id: id));

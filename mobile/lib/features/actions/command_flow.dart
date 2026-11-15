@@ -29,16 +29,6 @@ Future<void> runCommand(
   final messenger = ScaffoldMessenger.of(context);
   final s = ref.read(stringsProvider);
   final source = ref.read(actionsSourceProvider);
-  final confirmed = await showModalBottomSheet<bool>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (_) => UnlockSheet(reason: reason, warning: warning),
-  );
-  if (confirmed != true) {
-    messenger.showSnackBar(SnackBar(content: Text(s('phone.un.cancelled'))));
-    return;
-  }
   final command = Command(
     id: source.newCommandId(),
     kind: kind,
@@ -47,6 +37,27 @@ Future<void> runCommand(
     text: text,
     mode: mode,
   );
+  final result = await showModalBottomSheet<GateResult>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) =>
+        UnlockSheet(reason: reason, warning: warning, command: command),
+  );
+  if (result != GateResult.confirmed) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(switch (result) {
+          GateResult.lockedOut => s('phone.un.locked'),
+          GateResult.unavailable => s('phone.un.nobio'),
+          GateResult.failed => s('phone.un.failed'),
+          GateResult.keyLost => s('phone.un.keylost'),
+          _ => s('phone.un.cancelled'),
+        }),
+      ),
+    );
+    return;
+  }
   navigator.pushReplacement(
     MaterialPageRoute<void>(
       builder: (_) =>
@@ -57,8 +68,14 @@ Future<void> runCommand(
 
 /// The designed reason shown while the system asks for the biometric. Dismissing it cancels.
 class UnlockSheet extends ConsumerStatefulWidget {
-  const UnlockSheet({super.key, required this.reason, this.warning});
+  const UnlockSheet({
+    super.key,
+    required this.reason,
+    required this.command,
+    this.warning,
+  });
   final String reason;
+  final Command command;
   final String? warning;
 
   @override
@@ -75,12 +92,16 @@ class _UnlockSheetState extends ConsumerState<UnlockSheet> {
   }
 
   Future<void> _ask() async {
-    final yes = await ref.read(biometricGateProvider).confirm(widget.reason);
+    final result = await ref
+        .read(biometricGateProvider)
+        .confirm(widget.reason, widget.command);
     if (!mounted) return;
-    if (!yes) return Navigator.of(context).pop(false);
+    if (result != GateResult.confirmed) {
+      return Navigator.of(context).pop(result);
+    }
     setState(() => _ok = true);
     await Future<void>.delayed(const Duration(milliseconds: 350));
-    if (mounted) Navigator.of(context).pop(true);
+    if (mounted) Navigator.of(context).pop(GateResult.confirmed);
   }
 
   @override
@@ -165,7 +186,8 @@ class _UnlockSheetState extends ConsumerState<UnlockSheet> {
                 width: double.infinity,
                 child: ActionButton(
                   s('phone.a.cancel'),
-                  onPressed: () => Navigator.of(context).pop(false),
+                  onPressed: () =>
+                      Navigator.of(context).pop(GateResult.cancelled),
                 ),
               ),
             ],

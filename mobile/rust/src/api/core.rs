@@ -344,6 +344,7 @@ pub fn auth_bytes(relay_url: String, challenge: String) -> Option<Vec<u8>> {
 }
 
 /// A new command id: 16 random bytes in hex. A command is never sent twice under one id.
+#[flutter_rust_bridge::frb(sync)]
 pub fn new_command_id() -> String {
     command::new_cid()
 }

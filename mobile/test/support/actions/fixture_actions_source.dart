@@ -220,7 +220,10 @@ class FixtureBiometricGate implements BiometricGate {
   final Duration after;
 
   @override
-  Future<bool> confirm(String reason) => Future.delayed(after, () => approve);
+  Future<GateResult> confirm(String reason, Command command) => Future.delayed(
+    after,
+    () => approve ? GateResult.confirmed : GateResult.cancelled,
+  );
 }
 
 String _slug(String s) => s

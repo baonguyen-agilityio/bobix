@@ -36,7 +36,19 @@ abstract class ActionsSource {
 
 /// The system's biometric prompt, which is also the prompt of the signature itself. Cancelling sends nothing.
 abstract class BiometricGate {
-  Future<bool> confirm(String reason);
+  /// Asks for the biometric that signs [command]. Only [GateResult.confirmed] lets the command go.
+  Future<GateResult> confirm(String reason, Command command);
+}
+
+/// How the biometric step ended. Each is its own state: a cancel is the person's choice, a lockout clears with the
+/// passcode, a missing or turned-off biometric is a setting, and only [keyLost] means the phone must pair again.
+enum GateResult {
+  confirmed,
+  cancelled,
+  lockedOut,
+  unavailable,
+  keyLost,
+  failed,
 }
 
 /// The real connection implements [ActionsSource] (see `link_actions_source.dart`); tests override this with made-up data.
