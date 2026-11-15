@@ -7,6 +7,7 @@ import '../data/models.dart';
 import '../data/phone_data.dart';
 import '../link/computer_link.dart';
 import '../link/link_providers.dart';
+import '../push/hide_details.dart';
 import '../push/push_providers.dart';
 import 'surfaces_platform.dart';
 import 'surfaces_sync.dart';
@@ -94,6 +95,11 @@ class _SurfacesHostState extends ConsumerState<SurfacesHost> with WidgetsBinding
 
   @override
   Widget build(BuildContext context) {
+    // Hide details turned off: the names the list lost come back at once, not at the next `home`.
+    ref.listen(hideDetailsProvider, (prev, next) {
+      final c = widget.link.computer;
+      if (prev != null) unawaited(ref.read(surfacesSyncProvider).again(computerId: c.id, canStart: c.rights.start));
+    });
     ref.listen(homeProvider, (_, next) {
       final h = next.value;
       if (h == null) return;
