@@ -86,6 +86,7 @@
     ticketSeen: key => invoke('ticket_seen', { key: String(key) }),
     ticketSummary: key => invoke('ticket_summary', { key: String(key) }),
     usageEffects: () => invoke('usage_effects'),
+    questionAnswer: (id, answers) => invoke('question_answer', { id: String(id), answers: Array.isArray(answers) ? answers.map(String) : [] }),
     phonesState: () => invoke('phones_state'),
     phonesEnable: (on, hold) => invoke('phones_enable', { on: typeof on === 'boolean' ? on : null, hold: typeof hold === 'string' ? hold : null }),
     phonesRelay: url => invoke('phones_relay', { url: String(url || '') }),

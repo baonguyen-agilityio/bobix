@@ -195,8 +195,8 @@ impl Bobix {
                         if start && f.place.is_empty() && f.status != "starting" { follow = Some((f.key.clone(), id.clone(), s.cwd.clone())); }
                     }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
-                    // AskUserQuestion is never held: an "Allow" from Bobix would skip the question; Claude asks in its own window
-                    let reply = if wait && ev == "PermissionRequest" && tool != "AskUserQuestion" { answers::wait(self, pending, closed, phones, settings, s, &e, plan) }
+                    // AskUserQuestion is held as a question (answered with its answers, never with a bare Allow), whole or not at all
+                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, closed, phones, settings, s, &e, plan) }
                         // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
                         // way /rename names it; one that has a name keeps it. One new where a start waits is named by its
                         // first prompt, once that names the issue (Work::claim): not one you opened there yourself.
@@ -1939,6 +1939,8 @@ fn pet_reset(id: String, b: B) -> Value {
 
 // ---------- phone access (phones.rs) ----------
 #[tauri::command]
+fn question_answer(id: String, answers: Vec<String>, b: B) -> bool { answers::answer_question_now(&b, &id, &answers) }
+#[tauri::command]
 fn phones_state(b: B) -> Value { phones::view(&b) }
 // on: the switch; hold: "phone" | "computer" (when the pets are hidden or paused). Either may be left out.
 #[tauri::command]
@@ -1967,7 +1969,7 @@ pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answe
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
     "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act",
-    "phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
+    "question_answer", "phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -2082,7 +2084,7 @@ fn main() {
             settings_set, update_act, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove, usage_effects,
             pet_choose, pet_original, pet_save, pet_reset,
-            phones_state, phones_enable, phones_relay, phones_pair_start, phones_pair_cancel, phones_pair_confirm, phones_rights, phones_disconnect, phones_new_identity, phones_log])
+            question_answer, phones_state, phones_enable, phones_relay, phones_pair_start, phones_pair_cancel, phones_pair_confirm, phones_rights, phones_disconnect, phones_new_identity, phones_log])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement

@@ -505,7 +505,8 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
             }
         }
         PhoneMsg::Detail { id } => {
-            let m = match crate::phone_view::detail(&c.pending, &id, rights) {
+            let r = match crate::phone_view::detail(&c.pending, &id, rights) { Err("unknown") => crate::phone_view::session_detail(&c.sessions, &id, rights), r => r };
+            let m = match r {
                 Ok(d) => DesktopMsg::Detail(d),
                 Err(code) => DesktopMsg::Error { code: code.into(), who: Some(Who::Desktop) },
             };
@@ -554,7 +555,14 @@ fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Comm
                     let approve = *decision == Decision::Approve;
                     apply(c, &cmd.cid, id, shown, if approve { "allow" } else { "deny" }, note.as_deref().unwrap_or(""), true, By::Phone, changed, &phone.rights)
                 }
-                _ => refuse("unsupported"), // questions, starts and stops come with the remote actions
+                CommandBody::Question { id, answers, shown } => apply_question(c, &cmd.cid, id, shown, answers, changed),
+                CommandBody::Stop { session, request } => {
+                    match crate::answers::stop_session(c, session, request, By::Phone, now()) {
+                        Ok(()) => { *changed = true; CmdResult::new(&cmd.cid, Outcome::Ok) }
+                        Err(why) => refuse(why),
+                    }
+                }
+                _ => refuse("unsupported"), // starting a ticket comes with its own refusals
             } };
             (r, what)
         }
@@ -572,13 +580,39 @@ fn plain_body(body: &CommandBody) -> bool {
     match body { CommandBody::Plan { note: Some(n), .. } => is_plain_text(n, MAX_NOTE), CommandBody::Question { answers, .. } => answers.iter().all(|a| is_plain_text(a, MAX_NOTE)), _ => true }
 }
 
+// A `question` command that passed the signature and the right: the kind, the hash of what was shown, the answers.
+fn apply_question(c: &mut crate::Core, cid: &str, id: &str, shown: &str, answers: &[String], changed: &mut bool) -> CmdResult {
+    use crate::answers::{answer_question, Answered, By, Kind};
+    match c.pending.get(id) {
+        Some(p) if p.kind() != Kind::Question => return CmdResult::refused(cid, "kind"),
+        Some(p) => {
+            if crate::phone_view::shown_cut(p) { return CmdResult::refused(cid, "cut"); }
+            match crate::phone_view::detail(&c.pending, id, Rights { question: true, ..Default::default() }) {
+                Ok(d) if command::shown_matches(&d, shown) => {}
+                _ => return CmdResult::new(cid, Outcome::Stale),
+            }
+        }
+        None => {}
+    }
+    match answer_question(c, id, answers, By::Phone, now()) {
+        Answered::Ok => { *changed = true; CmdResult::new(cid, Outcome::Ok) }
+        Answered::LatePc => CmdResult { by: Some("computer".into()), ..CmdResult::new(cid, Outcome::LatePc) },
+        Answered::LatePhone => CmdResult { by: Some("phone".into()), ..CmdResult::new(cid, Outcome::LatePhone) },
+        Answered::Expired => CmdResult::new(cid, Outcome::Expired),
+        Answered::Released(why) => CmdResult { why: Some(why.into()), ..CmdResult::new(cid, Outcome::Released) },
+        Answered::WrongKind => CmdResult::refused(cid, "kind"),
+        Answered::Unknown => CmdResult::refused(cid, "unknown"),
+        Answered::Invalid => CmdResult::refused(cid, "answers"),
+    }
+}
+
 // An `answer` (plan: false) or `plan` (plan: true) command that passed the signature and the right.
 #[allow(clippy::too_many_arguments)]
 fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, note: &str, plan: bool, by: crate::answers::By, changed: &mut bool, _rights: &Rights) -> CmdResult {
     use crate::answers::{respond_core, Answered};
     // what is held, as the phone saw it: the kind first (an answer for a plan id is refused, and the reverse)
     match c.pending.get(id) {
-        Some(p) if p.plan != plan => return CmdResult::refused(cid, "kind"),
+        Some(p) if p.kind() != if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request } => return CmdResult::refused(cid, "kind"),
         Some(p) => {
             if crate::phone_view::shown_cut(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too: only what was shown is known
             let rights = Rights { answer: true, plan: true, ..Default::default() };
@@ -589,7 +623,7 @@ fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, no
         }
         None => {}
     }
-    let r = respond_core(c, id, choice, note, by, Some(plan), now());
+    let r = respond_core(c, id, choice, note, by, Some(if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request }), now());
     match r {
         Answered::Ok => { *changed = true; CmdResult::new(cid, Outcome::Ok) }
         Answered::LatePc => CmdResult { by: Some("computer".into()), ..CmdResult::new(cid, Outcome::LatePc) },
@@ -928,5 +962,60 @@ mod tests {
         st.grant_ended(1000 + 5_000);
         assert!(st.store.phones[0].no_push);
         let _ = std::fs::remove_dir_all(&st.dir);
+    }
+
+    fn held_question(c: &mut crate::Core, id: &str, sid: &str) -> oneshot_rx {
+        let input = json!({ "questions": [
+            { "question": "Which database?", "header": "DB", "options": [{ "label": "SQLite", "description": "x" }, { "label": "Postgres", "description": "y" }], "multiSelect": false },
+            { "question": "Which extras?", "header": "X", "options": [{ "label": "A", "description": "" }, { "label": "B", "description": "" }], "multiSelect": true }] });
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let qs = crate::answers::questions_of(&input).unwrap();
+        let raw = qs.iter().map(|q| q.text.as_str()).collect::<Vec<_>>().join("\n");
+        c.pending.insert(id.into(), Pending::for_question(sid, tx, &raw, qs, input));
+        rx
+    }
+    type oneshot_rx = tokio::sync::oneshot::Receiver<Option<Value>>;
+
+    #[test]
+    fn a_question_is_answered_in_the_shape_the_spike_recorded() {
+        let mut c = crate::Core::default();
+        let mut rx = held_question(&mut c, "q", "s1");
+        let mut changed = false;
+        let sh = crate::phone_view::detail(&c.pending, "q", Rights { question: true, ..Default::default() }).unwrap();
+        assert_eq!(sh.what, DetailKind::Question);
+        assert_eq!(sh.questions.len(), 2);
+        let ans = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(apply_question(&mut c, "c1", "q", &sh.shown, &ans(&["SQLite"]), &mut changed).why.as_deref(), Some("answers"), "wrong count");
+        assert_eq!(apply_question(&mut c, "c1", "q", "stale", &ans(&["SQLite", "A, B"]), &mut changed).outcome, Outcome::Stale);
+        assert!(c.pending.contains_key("q") && !changed);
+        assert_eq!(apply_question(&mut c, "c1", "q", &sh.shown, &ans(&["SQLite", "A, B"]), &mut changed).outcome, Outcome::Ok);
+        let out = rx.try_recv().unwrap().unwrap();
+        let d = &out["hookSpecificOutput"]["decision"];
+        assert_eq!(d["behavior"], "allow");
+        assert_eq!(d["updatedInput"]["answers"], json!({ "Which database?": "SQLite", "Which extras?": "A, B" }), "keyed by the question text, one string each");
+        assert_eq!(d["updatedInput"]["questions"].as_array().unwrap().len(), 2, "the questions come back unchanged");
+        assert_eq!(apply_question(&mut c, "c2", "q", &sh.shown, &ans(&["SQLite", "A"]), &mut changed).outcome, Outcome::LatePhone);
+        // kinds are not mixed up
+        held(&mut c, "req", false, "ls", false);
+        assert_eq!(apply_question(&mut c, "c3", "req", "x", &ans(&["a"]), &mut changed).why.as_deref(), Some("kind"), "a question command on a request id");
+        let _rx2 = held_question(&mut c, "q2", "s1");
+        let a = |c: &mut crate::Core, id: &str, ch: &mut bool| apply(c, "c4", id, "x", "allow", "", false, By::Phone, ch, &Rights::default());
+        assert_eq!(a(&mut c, "q2", &mut changed).why.as_deref(), Some("kind"), "an answer on a question id");
+        assert!(crate::answers::respond_core(&mut c, "q2", "allow", "", By::Pc, None, 1) == crate::answers::Answered::WrongKind, "a bare Allow never skips a question");
+    }
+
+    #[test]
+    fn stop_denies_with_interrupt_only_the_held_request_of_that_session() {
+        let mut c = crate::Core::default();
+        let mut rx = { let (tx, rx) = tokio::sync::oneshot::channel(); c.pending.insert("r".into(), Pending::for_test("s1", false, tx, "rm -rf x", false)); rx };
+        held(&mut c, "plan", true, "p", false);
+        assert_eq!(crate::answers::stop_session(&mut c, "s2", "r", By::Phone, 1), Err("not-held"), "another session's request");
+        assert_eq!(crate::answers::stop_session(&mut c, "s1", "plan", By::Phone, 1), Err("not-held"), "a plan is not stopped");
+        assert_eq!(crate::answers::stop_session(&mut c, "s1", "nope", By::Phone, 1), Err("not-held"));
+        assert_eq!(crate::answers::stop_session(&mut c, "s1", "r", By::Phone, 1), Ok(()));
+        let d = rx.try_recv().unwrap().unwrap()["hookSpecificOutput"]["decision"].clone();
+        assert_eq!(d["behavior"], "deny");
+        assert_eq!(d["interrupt"], true);
+        assert_eq!(crate::answers::stop_session(&mut c, "s1", "r", By::Phone, 2), Err("not-held"), "a second stop finds nothing");
     }
 }

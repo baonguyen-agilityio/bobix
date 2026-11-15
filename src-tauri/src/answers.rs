@@ -9,16 +9,25 @@ use tokio::sync::oneshot;
 // plan: a ticket flow's plan (ExitPlanMode), held until answered; approving it puts that one session in auto mode.
 // raw: the request's text as it arrives (what a phone is shown, escaped by phone_view); until: when it stops waiting, if it does.
 // released: someone is at the computer, so the phones get no more pushes for it; it can still be answered.
-pub struct Pending { pub sid: String, pub plan: bool, tx: oneshot::Sender<Option<Value>>, pub raw: String, pub cut: bool, pub risky: bool, pub until: Option<u64>, pub released: bool,
+pub struct Pending { pub sid: String, pub plan: bool, pub questions: Vec<bobix_link::messages::Question>, pub input: Option<Value>, tx: oneshot::Sender<Option<Value>>, pub raw: String, pub cut: bool, pub risky: bool, pub until: Option<u64>, pub released: bool,
     // held for the phones only (the pets were hidden or paused, nobody at the computer): a settings change does not hand it back
     pub for_phones: bool, pub held_at: u64 }
 
 impl Pending {
     #[cfg(test)]
+    pub fn for_question(sid: &str, tx: oneshot::Sender<Option<Value>>, raw: &str, questions: Vec<bobix_link::messages::Question>, input: Value) -> Pending {
+        Pending { questions, input: Some(input), ..Pending::for_test(sid, false, tx, raw, false) }
+    }
+    pub fn kind(&self) -> Kind { if self.plan { Kind::Plan } else if self.input.is_some() { Kind::Question } else { Kind::Request } }
+    #[cfg(test)]
     pub fn for_test(sid: &str, plan: bool, tx: oneshot::Sender<Option<Value>>, raw: &str, cut: bool) -> Pending {
-        Pending { sid: sid.into(), plan, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0 }
+        Pending { sid: sid.into(), plan, questions: vec![], input: None, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0 }
     }
 }
+
+// What a held item is: a permission request, a ticket flow's plan, or Claude asking the person a question.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kind { Request, Plan, Question }
 
 // Who answered: the computer (a page, a pet, a notification) or a phone.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -29,7 +38,7 @@ pub enum By { Pc, Phone }
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum End { Answered(By, bool), Expired, Released(&'static str), Computer }
 // A closed request, kept CLOSED_KEEP_MS so a late answer is told why it is late, not just "no".
-pub struct Closed { pub plan: bool, pub end: End, pub at: u64 }
+pub struct Closed { pub kind: Kind, pub plan: bool, pub end: End, pub at: u64 }
 const CLOSED_KEEP_MS: u64 = 30 * 60_000; // the contract is 20 minutes at least
 // The record of closed requests as JSON, for the file that survives a restart (phones.rs).
 pub fn closed_json(m: &HashMap<String, Closed>) -> Value {
@@ -38,7 +47,7 @@ pub fn closed_json(m: &HashMap<String, Closed>) -> Value {
             End::Answered(by, a) => ("answered", Some(by == By::Phone), a, ""), End::Expired => ("expired", None, false, ""),
             End::Released(w) => ("released", None, false, w), End::Computer => ("computer", None, false, ""),
         };
-        json!({ "id": id, "plan": k.plan, "kind": kind, "phone": by, "allowed": allowed, "why": why, "at": k.at })
+        json!({ "id": id, "itemKind": if k.kind == Kind::Question { "question" } else { "other" }, "plan": k.plan, "kind": kind, "phone": by, "allowed": allowed, "why": why, "at": k.at })
     }).collect::<Vec<_>>())
 }
 pub fn closed_from_json(v: &Value) -> HashMap<String, Closed> {
@@ -48,7 +57,7 @@ pub fn closed_from_json(v: &Value) -> HashMap<String, Closed> {
             "expired" => End::Expired, "computer" => End::Computer,
             _ => End::Released(match x["why"].as_str() { Some("settings") => "settings", _ => "restart" }),
         };
-        Some((x["id"].as_str()?.to_string(), Closed { plan: x["plan"] == true, end, at: x["at"].as_u64()? }))
+        Some((x["id"].as_str()?.to_string(), Closed { kind: match x["itemKind"].as_str() { Some("question") => Kind::Question, _ if x["plan"] == true => Kind::Plan, _ => Kind::Request }, plan: x["plan"] == true, end, at: x["at"].as_u64()? }))
     }).collect()
 }
 // Bobix is closing: what is still held goes back to Claude's own prompt, and a phone that asks later is told why.
@@ -144,6 +153,65 @@ pub fn raw_text(e: &Value) -> String {
     all
 }
 
+// Claude's questions as held: at most 4 questions with 8 options, each text up to 2 000 bytes, no two with the same
+// text (the answers are keyed by it). None when the input is not that, so Claude asks in its own prompt.
+const MAX_QUESTIONS: usize = 4;
+const MAX_OPTIONS: usize = 8;
+const MAX_QTEXT: usize = 2000;
+pub fn questions_of(input: &Value) -> Option<Vec<bobix_link::messages::Question>> {
+    let qs = input["questions"].as_array().filter(|a| !a.is_empty() && a.len() <= MAX_QUESTIONS)?;
+    let mut out: Vec<bobix_link::messages::Question> = vec![];
+    for q in qs {
+        let text = q["question"].as_str().filter(|t| !t.is_empty() && t.len() <= MAX_QTEXT)?.to_string();
+        let options: Vec<String> = match q["options"].as_array() {
+            Some(a) if a.len() <= MAX_OPTIONS => a.iter().map(|o| o["label"].as_str().filter(|l| l.len() <= MAX_QTEXT).map(String::from)).collect::<Option<_>>()?,
+            Some(_) => return None,
+            None => vec![],
+        };
+        if out.iter().any(|x| x.text == text) { return None; }
+        out.push(bobix_link::messages::Question { text, options, multi_select: q["multiSelect"] == true });
+    }
+    Some(out)
+}
+
+fn question_text(qs: &[bobix_link::messages::Question]) -> String { qs.iter().map(|q| q.text.as_str()).collect::<Vec<_>>().join("\n") }
+
+// The answers a person gave, one string per question, as the hook returns them (spike 1): `updatedInput` is the input
+// as it came with `answers` keyed by each question's text; several choices are one string joined by ", ".
+fn question_decision(p: &Pending, answers: &[String]) -> Option<Value> {
+    if answers.len() != p.questions.len() || answers.iter().any(|a| a.is_empty() || a.len() > MAX_QTEXT) { return None; }
+    let mut input = p.input.clone()?;
+    let map: serde_json::Map<String, Value> = p.questions.iter().zip(answers).map(|(q, a)| (q.text.clone(), json!(a))).collect();
+    input["answers"] = Value::Object(map);
+    Some(json!({ "behavior": "allow", "updatedInput": input }))
+}
+
+// Answers a held question (from a page or a phone). Refused when the id is not a held question or the answers do not fit.
+pub fn answer_question(c: &mut crate::Core, id: &str, answers: &[String], by: By, now: u64) -> Answered {
+    let d = match c.pending.get(id) {
+        None => return late(c, id, Some(Kind::Question)),
+        Some(p) if p.kind() != Kind::Question => return Answered::WrongKind,
+        Some(p) => match question_decision(p, answers) { Some(d) => d, None => return Answered::Invalid },
+    };
+    if close(c, id, Some(d), End::Answered(by, true), now) { Answered::Ok } else { late(c, id, Some(Kind::Question)) }
+}
+pub fn answer_question_now(b: &Arc<Bobix>, id: &str, answers: &[String]) -> bool {
+    let r = answer_question(&mut b.core.lock().unwrap(), id, answers, By::Pc, crate::state::now());
+    if r == Answered::Ok { b.broadcast(); }
+    r == Answered::Ok
+}
+
+// Stop: the held request of a session is denied with `interrupt: true`, which ends Claude's turn and keeps the session
+// (spike 2). No signal is ever sent. Only a plain request of that very session; Err: why not.
+pub fn stop_session(c: &mut crate::Core, session: &str, request: &str, by: By, now: u64) -> Result<(), &'static str> {
+    match c.pending.get(request) {
+        Some(p) if p.sid == session && p.kind() == Kind::Request => {}
+        _ => return Err("not-held"),
+    }
+    let d = json!({ "behavior": "deny", "message": "Stopped from Bobix.", "interrupt": true });
+    if close(c, request, Some(d), End::Answered(by, false), now) { Ok(()) } else { Err("not-held") }
+}
+
 fn new_id() -> String {
     let mut b = [0u8; 16];
     let _ = getrandom::fill(&mut b);
@@ -161,10 +229,16 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
     // one open request per session
     let now = crate::state::now();
     if let Some((oid, old)) = s.answer.as_ref().and_then(|a| a["id"].as_str()).and_then(|id| pending.remove(id).map(|p| (id.to_string(), p))) {
+        let okind = old.kind();
         let _ = old.tx.send(None);
         phones.closed_events.push((oid.clone(), old.sid.clone(), old.plan)); // the phones told of it are told it is gone
-        closed.insert(oid, Closed { plan: old.plan, end: End::Expired, at: now }); // Claude asked again: the old one is moot
+        closed.insert(oid, Closed { kind: okind, plan: old.plan, end: End::Expired, at: now }); // Claude asked again: the old one is moot
     }
+    // Claude's question: held only whole and answerable (else Claude asks in its own prompt)
+    let is_question = e["tool_name"] == "AskUserQuestion" && !plan;
+    let questions = if is_question { questions_of(&e["tool_input"]).filter(|_| e["bobix_cut"] != true) } else { vec![].into() };
+    if is_question && questions.is_none() { return None; }
+    let questions = questions.unwrap_or_default();
     let id = new_id();
     let cut = e["bobix_cut"] == true; // the hook dropped part of the input
     let risky = cut || risky(e["tool_name"].as_str().unwrap_or(""), &e["tool_input"]);
@@ -174,8 +248,10 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
     // until: null = no countdown. risky: it deletes or overwrites, or the input was cut (the panel warns). odd: hidden characters
     // (shown as escapes). full: the request's text, whole.
     s.answer = Some(json!({ "id": id, "until": if forever { Value::Null } else { json!(now + (secs * 1000.0) as u64) },
-        "risky": risky, "cut": cut, "odd": odd(&e["tool_input"]), "full": full_text(e), "plan": plan }));
-    pending.insert(id.clone(), Pending { sid: s.id.clone(), plan, tx, raw: raw_text(e), cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now });
+        "risky": risky, "cut": cut, "odd": odd(&e["tool_input"]), "full": if is_question { escaped(&question_text(&questions)) } else { full_text(e) }, "plan": plan,
+        "kind": if is_question { "question" } else if plan { "plan" } else { "request" },
+        "questions": questions.iter().map(|q| json!({ "question": escaped(&q.text), "options": q.options.iter().map(|o| escaped(o)).collect::<Vec<_>>(), "multi": q.multi_select })).collect::<Vec<_>>() }));
+    pending.insert(id.clone(), Pending { sid: s.id.clone(), plan, input: is_question.then(|| e["tool_input"].clone()), raw: if is_question { question_text(&questions) } else { raw_text(e) }, questions, tx, cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now });
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
     let (b1, id1) = (b.clone(), id.clone());
     tauri::async_runtime::spawn(async move {
@@ -199,9 +275,10 @@ fn close(c: &mut crate::Core, id: &str, decision: Option<Value>, end: End, now: 
         if s.answer.as_ref().is_some_and(|a| a["id"] == id) { s.answer = None; }
         if decision.is_some() { s.ask.clear(); s.ask_tool.clear(); s.state = "working".into(); s.since = now; }
     }
+    let kind = p.kind();
     let _ = p.tx.send(decision.map(output));
     c.closed.retain(|_, k| now.saturating_sub(k.at) < CLOSED_KEEP_MS);
-    c.closed.insert(id.to_string(), Closed { plan: p.plan, end, at: now });
+    c.closed.insert(id.to_string(), Closed { kind, plan: p.plan, end, at: now });
     c.phones.closed_events.push((id.to_string(), p.sid.clone(), p.plan)); // the phones told of it are told it is gone
     true
 }
@@ -213,28 +290,30 @@ pub fn done(b: &Arc<Bobix>, id: &str, decision: Option<Value>, end: End) -> bool
 }
 
 // What a late or wrong answer to `id` is told, from the record.
-fn late(c: &crate::Core, id: &str, expect: Option<bool>) -> Answered {
+fn late(c: &crate::Core, id: &str, expect: Option<Kind>) -> Answered {
     match c.closed.get(id) {
         None => Answered::Unknown,
-        Some(k) if expect.is_some_and(|plan| plan != k.plan) => Answered::WrongKind,
+        Some(k) if expect.is_some_and(|e| e != k.kind) => Answered::WrongKind,
         Some(k) => match k.end { End::Answered(By::Pc, _) => Answered::LatePc, End::Answered(By::Phone, _) => Answered::LatePhone,
             End::Computer => Answered::LatePc, End::Expired => Answered::Expired, End::Released(why) => Answered::Released(why) },
     }
 }
 
 // An answer: allow | deny. On a ticket flow's plan, allow approves it (auto mode) and deny sends it back; `change`: what to
-// change, from the Work screen. `expect`: Some(false) only a plain request, Some(true) only a plan; a page that shows what
+// change, from the Work screen. `expect`: the kind it may be answered as; a page that shows what
 // it asks about passes None. The first answer wins; the others are told why they are late.
-pub fn respond(b: &Arc<Bobix>, id: &str, choice: &str, change: &str, by: By, expect: Option<bool>) -> Answered {
+pub fn respond(b: &Arc<Bobix>, id: &str, choice: &str, change: &str, by: By, expect: Option<Kind>) -> Answered {
     let r = respond_core(&mut b.core.lock().unwrap(), id, choice, change, by, expect, crate::state::now());
     if r == Answered::Ok { b.broadcast(); }
     r
 }
 // The same with the core already locked (a command from a phone arrives with it locked).
-pub fn respond_core(c: &mut crate::Core, id: &str, choice: &str, change: &str, by: By, expect: Option<bool>, now: u64) -> Answered {
+pub fn respond_core(c: &mut crate::Core, id: &str, choice: &str, change: &str, by: By, expect: Option<Kind>, now: u64) -> Answered {
     if !matches!(choice, "allow" | "deny") { return Answered::Invalid; }
     let plan = match c.pending.get(id) {
-        Some(p) if expect.is_some_and(|e| e != p.plan) => return Answered::WrongKind,
+        Some(p) if expect.is_some_and(|e| e != p.kind()) => return Answered::WrongKind,
+        // "allow" on a question would skip it: only an answer or a deny (skip) from a page
+        Some(p) if p.kind() == Kind::Question && choice == "allow" => return Answered::WrongKind,
         Some(p) => p.plan,
         None => return late(c, id, expect),
     };
@@ -321,7 +400,7 @@ mod tests {
 
     fn pending(c: &mut crate::Core, id: &str, plan: bool) -> oneshot::Receiver<Option<Value>> {
         let (tx, rx) = oneshot::channel();
-        c.pending.insert(id.into(), Pending { sid: "s1".into(), plan, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0 });
+        c.pending.insert(id.into(), Pending { sid: "s1".into(), plan, questions: vec![], input: None, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0 });
         rx
     }
 
@@ -356,8 +435,8 @@ mod tests {
         let mut c = crate::Core::default();
         let _ = pending(&mut c, "plan", true);
         close(&mut c, "plan", None, End::Expired, 1);
-        assert_eq!(late(&c, "plan", Some(false)), Answered::WrongKind, "a plan id answered as a request");
-        assert_eq!(late(&c, "plan", Some(true)), Answered::Expired);
+        assert_eq!(late(&c, "plan", Some(Kind::Request)), Answered::WrongKind, "a plan id answered as a request");
+        assert_eq!(late(&c, "plan", Some(Kind::Plan)), Answered::Expired);
         assert_eq!(late(&c, "plan", None), Answered::Expired, "the computer's own pages ask for no kind");
     }
 
@@ -416,5 +495,16 @@ mod tests {
         c.phones.mark_sent("sent");
         c.pending.get_mut("phonesonly").unwrap().for_phones = true;
         assert_eq!(unseen_ids(&c), vec!["plain".to_string()]);
+    }
+
+    #[test]
+    fn questions_are_held_only_whole_and_answerable() {
+        let q = |n: &str, o: usize| json!({ "question": n, "options": (0..o).map(|i| json!({ "label": format!("o{i}") })).collect::<Vec<_>>() });
+        assert_eq!(questions_of(&json!({ "questions": [q("a", 2), q("b", 8)] })).unwrap().len(), 2);
+        assert!(questions_of(&json!({ "questions": [q("a", 9)] })).is_none(), "more than 8 options");
+        assert!(questions_of(&json!({ "questions": [q("a", 1), q("b", 1), q("c", 1), q("d", 1), q("e", 1)] })).is_none(), "more than 4 questions");
+        assert!(questions_of(&json!({ "questions": [q("a", 1), q("a", 1)] })).is_none(), "the same text twice: answers are keyed by it");
+        assert!(questions_of(&json!({ "questions": [q(&"x".repeat(2001), 1)] })).is_none(), "a text over 2 000 bytes");
+        assert!(questions_of(&json!({})).is_none());
     }
 }
