@@ -174,10 +174,20 @@ final class KeyStore {
     return context.evaluatedPolicyDomainState
   }
 
-  /// True only when the key was made under a biometric set that is no longer the current one (or none is left).
+  /// Whether the biometric set a key was made under is gone. A current state that differs says so. No current state at
+  /// all is "unknown" (Face ID turned off for the app reports none), not "gone", unless nothing is enrolled any more, which
+  /// does invalidate a key bound to the current set.
+  static func setChanged(stored: Data, current: Data?, notEnrolled: Bool) -> Bool {
+    if let current { return current != stored }
+    return notEnrolled
+  }
+
   private func biometricSetChanged() -> Bool {
     guard let stored = secret(KeyStore.domainStateName) else { return false } // a software key records none
-    return currentDomainState() != stored
+    let context = LAContext()
+    var error: NSError?
+    _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    return KeyStore.setChanged(stored: stored, current: context.evaluatedPolicyDomainState, notEnrolled: error?.code == LAError.biometryNotEnrolled.rawValue)
   }
 
   func signingPublicKey() -> Data? {

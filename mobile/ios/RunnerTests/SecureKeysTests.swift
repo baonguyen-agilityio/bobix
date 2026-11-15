@@ -154,6 +154,14 @@ final class SecureKeysTests: XCTestCase {
     XCTAssertEqual(status(errSecMissingEntitlement, true), .failed("keychain (\(errSecMissingEntitlement))"))
   }
 
+  func testNoBiometricStateIsNotALostKey() {
+    let stored = Data([1, 2, 3])
+    XCTAssertFalse(KeyStore.setChanged(stored: stored, current: stored, notEnrolled: false), "same set")
+    XCTAssertTrue(KeyStore.setChanged(stored: stored, current: Data([9]), notEnrolled: false), "another set")
+    XCTAssertFalse(KeyStore.setChanged(stored: stored, current: nil, notEnrolled: false), "Face ID off for the app: unknown, not gone")
+    XCTAssertTrue(KeyStore.setChanged(stored: stored, current: nil, notEnrolled: true), "nothing enrolled any more")
+  }
+
   func testAFreshInstallErasesEveryOldKey() throws {
     let s = try makeStore()
     try s.putSecret("auth", Data([1]))
