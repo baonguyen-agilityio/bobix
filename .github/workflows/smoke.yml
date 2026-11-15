@@ -76,16 +76,17 @@ jobs:
       - name: Panel and pets card in Chrome (no layout shift)
         timeout-minutes: 7
         run: node --test test/layout.test.js
-      - name: Rust tests
-        working-directory: src-tauri
-        run: cargo test
-      # A stable release is built without the `phones` feature (release.yml): keep that configuration compiling and passing.
       - name: Rust tests without phone access
         working-directory: src-tauri
-        run: cargo test --no-default-features
-      - name: Build
+        run: cargo test
+      # Phone access is still in development: a release or develop build has no `phones` feature, so both configurations are
+      # tested, built and smoked (the one without it is what ships).
+      - name: Rust tests with phone access
         working-directory: src-tauri
-        run: cargo build
+        run: cargo test --features phones
+      - name: Build with phone access
+        working-directory: src-tauri
+        run: cargo build --features phones
       - name: Build the fake phone (cached with the crate's build folder, reused by every run)
         working-directory: crates/bobix-link
         run: cargo build --example fake-phone
@@ -98,7 +99,7 @@ jobs:
           Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
           for i in $(seq 1 50); do DISPLAY=:99 xdotool getdisplaygeometry > /dev/null 2>&1 && break; sleep 0.2; done # ready before the app starts
           echo "DISPLAY=:99" >> "$GITHUB_ENV"
-      - name: Smoke
+      - name: Smoke with phone access
         timeout-minutes: 7
         shell: bash
         env:
@@ -127,11 +128,11 @@ jobs:
         with:
           name: smoke-tauri-${{ matrix.os }}
           path: smoke-out/
-      # The stable-release build (no `phones` feature): the app starts, the Phones section and phones_* commands are absent
+      # The build that ships (no `phones` feature): the app starts, the Phones section and phones_* commands are absent
       # (phoneSwitch.compiled is false and passes), and no phone-access thread or relay connection is made.
       - name: Build without phone access
         working-directory: src-tauri
-        run: cargo build --no-default-features
+        run: cargo build
       - name: Smoke without phone access
         timeout-minutes: 7
         shell: bash

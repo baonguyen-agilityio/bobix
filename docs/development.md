@@ -14,7 +14,7 @@ git clone https://github.com/baonguyen-agilityio/bobix.git && cd bobix
 npm install
 npm run tauri dev    # run the app from source
 npm test             # node tests (pages, pixel art, hook.js); not test/overlay.test.js, which needs Chrome
-cd src-tauri && cargo test   # Rust tests (state, settings, hooks, server, Work tab, picture store...)
+cd src-tauri && cargo test   # Rust tests (add `--features phones` for phone access, which is off by default) (state, settings, hooks, server, Work tab, picture store...)
 ```
 
 A copy run from source and an installed Bobix share the same port, settings and hooks. To run one next to the installed
@@ -115,13 +115,13 @@ It exits by itself and `report.json` must say `"pass": true` with empty `pageErr
 
 ### Phone access is a compile switch
 
-Settings → Phones, the ten `phones_*` Tauri commands and the relay link exist only in a build with the Cargo feature `phones` (`src-tauri/Cargo.toml`; on by default, so `cargo run`, a develop build and a pull request's smoke run have it). `release.yml` asks [`.github/scripts/build-kind.mjs`](../.github/scripts/build-kind.mjs) about the ref it runs on: a branch (develop, or a run by hand) and a `-rc.N` tag keep the feature; a stable `vX.Y.Z` tag builds with `--no-default-features`; any other tag (a malformed one, `-beta.1`) also builds without it and the run warns. Without the feature the section is not listed, the commands are not registered, not granted to the pages and not declared in `build.rs`, and `phones::init` returns first, so no thread, key, file or relay connection is made (the module's code is still in the binary; nothing starts it). The app's `state` carries `phones: true|false` for the panel. The smoke run's `phoneSwitch` step checks that the section and `phones_log` follow the build, and the release workflow additionally compares `phoneSwitch.compiled` with the tag kind. Try a stable-style build by hand:
+Phone access is still in development, so no build that ships has it. Settings → Phones, the ten `phones_*` Tauri commands and the relay link exist only in a build with the Cargo feature `phones` (`src-tauri/Cargo.toml`), which is **off by default**: a plain `cargo build`, a `develop` build, a `-rc` tag and a stable tag are all without it, and `release.yml` never turns it on. It is on only when asked for: locally (`npm run tauri dev -- --features phones`, or `cargo run --features phones` in `src-tauri`) and in the pull request smoke run, which builds and tests both configurations. Without the feature the section is not listed, the commands are not registered, not granted to the pages and not declared in `build.rs`, and `phones::init` returns first, so no thread, key, file or relay connection is made (the module's code is still in the binary; nothing starts it). The app's `state` carries `phones: true|false` for the panel. The smoke run's `phoneSwitch` step checks that the section and `phones_log` follow the build, and the release workflow requires `phoneSwitch.compiled` to be false. Try the build with it by hand:
 
 ```bash
-cd src-tauri && cargo build --no-default-features   # the smoke command above then reports phoneSwitch.compiled false
+cd src-tauri && cargo build --features phones   # the smoke command above then reports phoneSwitch.compiled true
 ```
 
-The `command_list_tests` test keeps the handler, `COMMANDS` plus `PHONE_COMMANDS`, and `build.rs` in step in both configurations (run `cargo test` and `cargo test --no-default-features`). Taking the switch out for the public release means deleting the feature, the `cfg` attributes and `build-kind.mjs`; it is not part of the phone-access work.
+The `command_list_tests` test keeps the handler, `COMMANDS` plus `PHONE_COMMANDS`, and `build.rs` in step in both configurations (run `cargo test` and `cargo test --features phones`). Taking the switch out for the public release means deleting the feature and the `cfg` attributes; it is not part of the phone-access work.
 
 ## The link crate
 
@@ -201,11 +201,11 @@ talk to each other (a guest network or "client isolation" blocks it).
    Without `RELAY_PUBLIC_URL` it stops and says so. `curl http://192.168.1.20:8787/healthz` from another device should answer `ok`.
    macOS may ask to allow incoming connections for `bobix-relay`: allow it. Stop the relay when you are done: anything on the
    Wi-Fi can reach it meanwhile (packets are sealed end to end, but anyone could open a pairing on it).
-3. **The desktop.** Phone access is in the default build (the `phones` Cargo feature is on by default; see [Phone access is a compile switch](#phone-access-is-a-compile-switch)). Run it with its own data so it does not touch your installed
+3. **The desktop.** Phone access is in a build only with the `phones` Cargo feature, off by default (see [Phone access is a compile switch](#phone-access-is-a-compile-switch)). Run it with `--features phones` and its own data so it does not touch your installed
    Bobix or your real keys (with `BOBIX_DATA_DIR` set, the keys go to a file in it and never to the Keychain):
 
    ```bash
-   BOBIX_PORT=4767 BOBIX_DATA_DIR=/tmp/bobix-data BOBIX_HOME=/tmp/bobix-home npm run tauri dev
+   BOBIX_PORT=4767 BOBIX_DATA_DIR=/tmp/bobix-data BOBIX_HOME=/tmp/bobix-home npm run tauri dev -- --features phones
    ```
 
    Open the panel, Settings → Phones. Type `ws://192.168.1.20:8787` in **Relay address** and save, then turn on **Let phones connect**.

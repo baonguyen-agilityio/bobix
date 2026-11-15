@@ -1226,16 +1226,6 @@ test('ticket flow: steps, the Start prompt, disk sizes', () => {
   assert.deepStrictEqual([B.gb(5 * 1024 ** 3), B.gb(123 * 1024 ** 3), B.gb(null)], ['5.0', '123', '?']);
 });
 
-// Which tags build phone access in (.github/scripts/build-kind.mjs): branches and -rc tags do, a stable tag does not, and a tag it
-// does not recognise never switches it on.
-test('the build kind: phone access in for branches and -rc tags, out for stable and unknown tags', async () => {
-  const { kindOf } = await import('../.github/scripts/build-kind.mjs');
-  const on = ref => kindOf(ref).phones;
-  assert.deepEqual(['refs/heads/develop', 'refs/heads/feat/x', 'refs/tags/v0.2.0-rc.8'].map(on), [true, true, true]);
-  assert.deepEqual(['refs/tags/v0.2.0', 'refs/tags/v10.20.30', 'refs/tags/v0.2.0-beta.1', 'refs/tags/v0.2', 'refs/tags/v0.2.0-rc', 'refs/tags/v0.2.0-rc.1.x', 'refs/tags/release', 'refs/tags/v0.2.0 '].map(on), Array(8).fill(false));
-  assert.equal(kindOf('refs/tags/v0.2.0').kind, 'stable');
-});
-
 // The update manifest (.github/scripts/update-manifest.mjs): the version, a signature and a link per system; a release
 // missing a signature is refused.
 test('update manifest: a signature and a link per system, and a missing one is refused', async () => {

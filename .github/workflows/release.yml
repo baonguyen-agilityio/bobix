@@ -78,26 +78,13 @@ jobs:
           done
           exit 1
       - run: npm ci
-      # Phone access (Settings → Phones, the phones_* commands, the relay link) is compiled in for develop and -rc tags and out of
-      # a stable tag (the `phones` Cargo feature); .github/scripts/build-kind.mjs decides, and a tag it does not know takes it out.
-      - name: Phone access switch
-        id: kind
-        shell: bash
-        run: |
-          read -r kind phones <<< "$(node .github/scripts/build-kind.mjs "$GITHUB_REF")"
-          echo "build kind: $kind ($phones)"
-          if [ "$kind" = other ]; then echo "::warning::$GITHUB_REF is neither a stable version nor an -rc tag: built without phone access"; fi
-          echo "phones=${phones#phones=}" >> "$GITHUB_OUTPUT"
       - name: Build the installer
         shell: bash
         run: |
           cfg=()
-          cargo_args=()
-          if [ "$PHONES" = off ]; then cargo_args=(-- --no-default-features); fi
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then cfg=(--config '{"bundle":{"createUpdaterArtifacts":true}}'); else echo "no signing key: no update files"; fi
-          npm run tauri -- build --ci --target ${{ matrix.target }} --bundles ${{ matrix.make || matrix.bundles }} "${cfg[@]}" "${cargo_args[@]}"
+          npm run tauri -- build --ci --target ${{ matrix.target }} --bundles ${{ matrix.make || matrix.bundles }} "${cfg[@]}"
         env:
-          PHONES: ${{ steps.kind.outputs.phones }}
           # only a v* tag run gets the key (the other runs use whichever workflow their branch has)
           TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
@@ -184,7 +171,6 @@ jobs:
         env:
           BOBIX_SMOKE: smoke-out
           BOBIX_PORT: '4767'
-          PHONES: ${{ steps.kind.outputs.phones }}
         run: |
           export BOBIX_DATA_DIR="$RUNNER_TEMP/bobix-data" BOBIX_HOME="$RUNNER_TEMP/bobix-home"
           if [ "$RUNNER_OS" = Linux ]; then export XDG_SESSION_TYPE=wayland; fi
@@ -193,8 +179,8 @@ jobs:
           for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done
           if [ "$RUNNER_OS" = Windows ]; then taskkill //F //IM bobix.exe > /dev/null 2>&1 || true; else pkill -9 -f "$APP_BIN" || true; fi
           grep "\[bobix\]" smoke.log || tail -40 smoke.log
-          # the app must have what the tag kind asked for (phoneSwitch.pass already checks that the section and the commands follow the build)
-          node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.pass && r.phoneSwitch.compiled === (process.env.PHONES === 'on') ? 0 : 1)"
+          # no release build has phone access (it is still in development): the Phones section and its commands must be absent
+          node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.pass && r.phoneSwitch.compiled === false && r.phoneSwitch.pass ? 0 : 1)"
       - uses: actions/upload-artifact@v4
         if: always() && matrix.smoke
         with:
