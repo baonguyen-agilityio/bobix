@@ -35,6 +35,11 @@ pub struct Secrets { backend: Box<dyn Backend>, storage: Storage, fell_back: Opt
 
 impl Secrets {
     // The app's: a file inside BOBIX_DATA_DIR when that is set, else the OS keychain (a file only where there is none).
+    // Under `cargo test` it is always a file in a folder of this process: no test can reach the OS keychain through it (a
+    // test that wants the real keychain says so, like `real_keychain_round_trip`, which is ignored by default).
+    #[cfg(test)]
+    pub fn open() -> Secrets { Self::choose(Some(std::env::temp_dir().join(format!("bobix-test-secrets-{}", std::process::id()))), Box::new(Os { fallback: File { dir: PathBuf::new() } })) }
+    #[cfg(not(test))]
     pub fn open() -> Secrets { Self::choose(std::env::var_os("BOBIX_DATA_DIR").map(PathBuf::from), Box::new(Os { fallback: File { dir: crate::paths::data_dir().join("secrets") } })) }
     fn choose(data_dir: Option<PathBuf>, os: Box<dyn Backend>) -> Secrets {
         match data_dir {
@@ -184,6 +189,16 @@ mod tests {
         assert!(matches!(e, Error::Keychain(_)) && e.to_string().contains("locked"));
         assert!(s.set("k", b"secret-value").is_err());
         assert!(!d.exists() && !crate::paths::data_dir().join("secrets/k").exists(), "nothing was written to a file instead");
+    }
+
+    #[test]
+    fn open_never_reaches_the_os_keychain_under_test() {
+        let s = Secrets::open();
+        assert_eq!(s.storage(), Storage::FileDataDir);
+        s.set("probe", b"x").unwrap();
+        assert_eq!(s.get("probe").unwrap().as_deref(), Some(&b"x"[..]));
+        s.delete("probe").unwrap();
+        assert!(!NO_KEYCHAIN.load(Ordering::Relaxed), "the keychain fallback flag is untouched");
     }
 
     #[test]
