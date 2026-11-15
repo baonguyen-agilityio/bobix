@@ -1333,16 +1333,18 @@ fn code_of(path: &str, code: Option<String>) -> String { code.map(|c| c.trim().t
 #[tauri::command]
 async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let code = code_of(&path, code);
-        let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
+    tauri::async_runtime::spawn_blocking(move || prep_issue(&b, &path, iid, code)).await.map_err(|_| ())
+}
+// What the ticket flow needs before a start: the repository, worktree and branch, the rules and models text, the free space.
+pub fn prep_issue(b: &Arc<Bobix>, path: &str, iid: i64, code: Option<String>) -> Value {
+        let code = code_of(path, code);
+        let (repo, _, wt, branch) = match ticket_place(b, path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
-        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
+        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(path, iid, &code)).is_some_and(|f| !f.cleaned);
         // where new work starts from: the branches the remote has right now, and the one remembered for this repository
         let remembered = b.core.lock().unwrap().settings["workBase"][&code].as_str().map(String::from);
         let from = match tickets::branches(&repo) { Ok(l) => json!({ "ok": true, "branches": l }), Err(e) => json!({ "ok": false, "kind": e.kind, "detail": e.detail }) };
         json!({ "ok": true, "code": code, "from": from, "remembered": remembered, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
-    }).await.map_err(|_| ())
 }
 
 // Why a start from a picked branch stopped, as the page reads it: { ok: false, reason: base-<kind>, detail, branch }.
@@ -1356,7 +1358,12 @@ fn base_failed(e: tickets::BaseErr, branch: &str) -> Value { json!({ "ok": false
 #[tauri::command]
 async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, base: Option<String>, keep: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || start_flow(&b, &path, iid, code, &prompt, models, &how, anyway, base, keep)).await.map_err(|_| ())
+}
+// Start: see the comment above ticket_start. Called by the panel's command and by a Full start from a phone.
+#[allow(clippy::too_many_arguments)]
+pub fn start_flow(b: &Arc<Bobix>, path: &str, iid: i64, code: Option<String>, prompt: &str, models: Value, how: &str, anyway: Option<bool>, base: Option<String>, keep: Option<bool>) -> Value {
+    let (path, how, prompt) = (path.to_string(), how.to_string(), prompt.to_string());
         let code = code_of(&path, code);
         let (repo, i, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let key = tickets::flow_key(&path, iid, &code);
@@ -1400,7 +1407,6 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
             Ok(_) => json!({ "ok": true, "mode": "new", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
             Err(e) => json!({ "ok": false, "mode": "new", "key": key, "reason": e, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
         }
-    }).await.map_err(|_| ())
 }
 
 // Only on your click: Haiku classifies the ticket through your own `claude -p` (no tools, no hooks). { ok, size, why, steps } | { ok: false, error }

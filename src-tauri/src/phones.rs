@@ -520,14 +520,14 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
         }
         PhoneMsg::StartPreview { project, iid, mode } => {
             let m = if !rights.start { Some(DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }) }
-                else if mode != Mode::Quick || iid.parse::<i64>().is_err() { Some(DesktopMsg::Error { code: "unsupported".into(), who: Some(Who::Desktop) }) } else { None };
+                else if iid.parse::<i64>().is_err() { Some(DesktopMsg::Error { code: "encoding".into(), who: Some(Who::Desktop) }) } else { None };
             match m {
                 Some(m) => { if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); } }
                 None => {
                     let (b2, from2, iid) = (b.clone(), from.to_string(), iid.parse::<i64>().unwrap_or(0));
                     std::thread::spawn(move || {
-                        let m = match start_prompt(&b2, &project, iid) {
-                            Ok((prompt, folder_known, free_disk)) => DesktopMsg::StartPrompt(StartPrompt { project, iid: iid.to_string(), mode: Mode::Quick, prompt_hash: prompt_hash(&prompt), prompt, folder_known, free_disk }),
+                        let m = match start_plan(&b2, &project, iid, mode) {
+                            Ok(p) => DesktopMsg::StartPrompt(StartPrompt { project, iid: iid.to_string(), mode, prompt_hash: prompt_hash(&p.prompt), prompt: p.prompt, folder_known: p.folder_known, free_disk: p.free }),
                             Err(code) => DesktopMsg::Error { code: code.into(), who: Some(Who::Desktop) },
                         };
                         tell_later(&b2, &from2, &m);
@@ -604,9 +604,10 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, counter: u64, cmd
     Some(result)
 }
 
-// What a start of this issue would run: its brief (title, body, link), whether the repository's folder is known, and the
-// free space on its volume. Reads the issue's body from the tracker, so it runs off the core's lock.
-fn start_prompt(b: &Arc<Bobix>, project: &str, iid: i64) -> Result<(String, bool, u64), &'static str> {
+// What a start of an issue would run and need, read off the core's lock (it reads the issue's body from the tracker).
+pub struct StartPlan { pub prompt: String, pub folder_known: bool, pub free: u64, pub full: Option<(String, Value)> } // Full: (the base branch remembered for the repository, the models)
+
+fn start_plan(b: &Arc<Bobix>, project: &str, iid: i64, mode: Mode) -> Result<StartPlan, &'static str> {
     let (src, dir) = {
         let c = b.core.lock().unwrap();
         let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
@@ -615,9 +616,38 @@ fn start_prompt(b: &Arc<Bobix>, project: &str, iid: i64) -> Result<(String, bool
     };
     let Some((f, bin, host, i)) = src else { return Err("gone") };
     let body = crate::work::fetch_body(f, &bin, &host, project, iid).map_err(|_| "gone")?;
-    let prompt = crate::work::brief(iid, i["title"].as_str().unwrap_or(""), &body, i["url"].as_str().unwrap_or(""));
-    let free = dir.as_deref().and_then(|d| crate::tickets::free_bytes(Path::new(d))).unwrap_or(0);
-    Ok((prompt, dir.is_some(), free))
+    let brief = crate::work::brief(iid, i["title"].as_str().unwrap_or(""), &body, i["url"].as_str().unwrap_or(""));
+    if mode == Mode::Quick {
+        let free = dir.as_deref().and_then(|d| crate::tickets::free_bytes(Path::new(d))).unwrap_or(0);
+        return Ok(StartPlan { prompt: brief, folder_known: dir.is_some(), free, full: None });
+    }
+    // Full: the same preparation as the panel's, with the models and rules text its prompt carries
+    let prep = crate::prep_issue(b, project, iid, None);
+    if prep["ok"] != true { return Err("folder"); }
+    if prep["exists"] == true { return Err("exists"); }
+    let base = prep["remembered"].as_str().unwrap_or("").to_string();
+    let prompt = crate::work::flow_prompt(&brief, prep["models"].as_str().unwrap_or(""), prep["rules"].as_str().unwrap_or(""));
+    Ok(StartPlan { prompt, folder_known: true, free: prep["free"].as_u64().unwrap_or(0), full: Some((base, json!({ "size": "small" }))) })
+}
+
+// Whether the issue already has a session (a phone never resumes or focuses one), from the work view.
+fn issue_has_session(view: &Value, project: &str, iid: i64) -> bool {
+    view["local"].as_array().into_iter().flatten().filter_map(|g| g["issues"].as_array()).flatten()
+        .any(|i| i["project"] == project && i["iid"].as_i64() == Some(iid) && i["sessions"].as_array().is_some_and(|s| !s.is_empty()))
+}
+
+// The result of a start, from its plan: gone, folder, stale (the prompt is not the one shown), base (Full needs the branch
+// remembered for the repository; asked at the computer), disk, or what the start itself answered.
+fn finish_start(cid: &str, plan: Result<StartPlan, &'static str>, hash: &str, start: impl FnOnce(&StartPlan) -> Value) -> CmdResult {
+    let p = match plan { Ok(p) => p, Err(why) => return CmdResult::refused(cid, why) };
+    if !p.folder_known { return CmdResult::refused(cid, "folder"); }
+    if prompt_hash(&p.prompt) != hash { return CmdResult::new(cid, Outcome::Stale); }
+    if let Some((base, _)) = &p.full {
+        if base.is_empty() { return CmdResult::refused(cid, "base"); }
+        if p.free < crate::tickets::WORKTREE_BYTES { return CmdResult::refused(cid, "disk"); }
+    }
+    let r = start(&p);
+    if r["ok"] == true { CmdResult::new(cid, Outcome::Ok) } else { CmdResult::refused(cid, match r["reason"].as_str() { Some("gone") => "folder", Some(x) => x, None => "failed" }) }
 }
 
 // A message to a phone from a thread: sealed and sent now.
@@ -626,32 +656,24 @@ fn tell_later(b: &Arc<Bobix>, to: &str, m: &DesktopMsg) {
     if let Some((_, f)) = c.phones.tell(to, m, None, None) { c.phones.send(f); }
 }
 
-// A `start` that passed the signature and the right. Refused at once: Full (its prompt is not built here yet), an issue
-// that already has a session (a phone never resumes or focuses one) and a second start of the issue while one runs.
-// Otherwise a thread reads the issue, compares the prompt's hash with the one the phone was shown (`stale`), and starts
-// it the way the panel's Quick start does; its result goes to the phone when it is done.
+// A `start` that passed the signature and the right. Refused at once: an issue that already has a session and a second
+// start of the issue while one runs. Otherwise a thread reads the issue, compares the prompt's hash with the one the phone
+// was shown, and starts it the way the panel does (Quick: a new session with the brief; Full: the ticket flow, `how:
+// desktop`, small models, the remembered base, never `anyway`); its result goes to the phone when it is done.
 #[allow(clippy::too_many_arguments)]
 fn begin_start(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, name: &str, cid: &str, project: &str, iid: &str, mode: Mode, hash: &str) -> Option<CmdResult> {
     let Ok(n) = iid.parse::<i64>() else { return Some(CmdResult::refused(cid, "encoding")) };
-    if mode != Mode::Quick { return Some(CmdResult::refused(cid, "unsupported")); }
     let key = format!("{project}#{n}");
     if c.phones.starting.contains(&key) { return Some(CmdResult::refused(cid, "busy")); }
     let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
-    let has_session = view["local"].as_array().into_iter().flatten().filter_map(|g| g["issues"].as_array()).flatten()
-        .any(|i| i["project"] == project && i["iid"].as_i64() == Some(n) && i["sessions"].as_array().is_some_and(|s| !s.is_empty()));
-    if has_session { return Some(CmdResult::refused(cid, "exists")); }
+    if issue_has_session(&view, project, n) { return Some(CmdResult::refused(cid, "exists")); }
     c.phones.starting.insert(key.clone());
     let (b2, from, name, cid, project, hash) = (b.clone(), from.to_string(), name.to_string(), cid.to_string(), project.to_string(), hash.to_string());
     std::thread::spawn(move || {
-        let result = match start_prompt(&b2, &project, n) {
-            Err(_) => CmdResult::refused(&cid, "gone"),
-            Ok((_, false, _)) => CmdResult::refused(&cid, "folder"),
-            Ok((prompt, true, _)) if prompt_hash(&prompt) != hash => CmdResult::new(&cid, Outcome::Stale),
-            Ok((prompt, true, _)) => {
-                let r = crate::start_issue(&b2, &project, n, &prompt, None);
-                if r["ok"] == true { CmdResult::new(&cid, Outcome::Ok) } else { CmdResult::refused(&cid, match r["reason"].as_str() { Some("gone") => "folder", Some(x) => x, None => "failed" }) }
-            }
-        };
+        let result = finish_start(&cid, start_plan(&b2, &project, n, mode), &hash, |p| match &p.full {
+            None => crate::start_issue(&b2, &project, n, &p.prompt, None),
+            Some((base, models)) => crate::start_flow(&b2, &project, n, None, &p.prompt, models.clone(), "desktop", Some(false), Some(base.clone()), Some(false)),
+        });
         let mut c = b2.core.lock().unwrap();
         c.phones.starting.remove(&key);
         let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
@@ -1109,5 +1131,40 @@ mod tests {
         assert_eq!(d["behavior"], "deny");
         assert_eq!(d["interrupt"], true);
         assert_eq!(crate::answers::stop_session(&mut c, "s1", "r", By::Phone, 2), Err("not-held"), "a second stop finds nothing");
+    }
+
+    #[test]
+    fn a_start_is_refused_or_judged_by_its_plan() {
+        let plan = |prompt: &str, known: bool, free: u64, full: Option<&str>| Ok(StartPlan { prompt: prompt.into(), folder_known: known, free, full: full.map(|b| (b.to_string(), json!({ "size": "small" }))) });
+        let h = prompt_hash("#7 Fix it");
+        let ok = |_: &StartPlan| json!({ "ok": true });
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, 0, None), &h, ok).outcome, Outcome::Ok, "Quick needs no disk");
+        assert_eq!(finish_start("c", plan("#7 Fix it CHANGED", true, 0, None), &h, ok).outcome, Outcome::Stale, "the prompt changed since the preview");
+        assert_eq!(finish_start("c", plan("#7 Fix it", false, 0, None), &h, ok).why.as_deref(), Some("folder"));
+        assert_eq!(finish_start("c", Err("gone"), &h, ok).why.as_deref(), Some("gone"));
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, 10, Some("origin/main")), &h, ok).why.as_deref(), Some("disk"), "Full needs room for a worktree");
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, crate::tickets::WORKTREE_BYTES, Some("")), &h, ok).why.as_deref(), Some("base"), "no base branch remembered");
+        let mut seen = None;
+        let r = finish_start("c", plan("#7 Fix it", true, crate::tickets::WORKTREE_BYTES, Some("origin/main")), &h, |p| { seen = Some(p.full.clone()); json!({ "ok": true }) });
+        assert_eq!(r.outcome, Outcome::Ok);
+        assert_eq!(seen.unwrap().unwrap().0, "origin/main", "the remembered base is the one started from");
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, 0, None), &h, |_| json!({ "ok": false, "reason": "gone" })).why.as_deref(), Some("folder"));
+        assert_eq!(finish_start("c", plan("#7 Fix it", true, 0, None), &h, |_| json!({ "ok": false, "reason": "exists" })).why.as_deref(), Some("exists"));
+    }
+
+    #[test]
+    fn an_issue_with_a_session_is_not_started_from_a_phone() {
+        let view = json!({ "local": [{ "path": "team/shop", "issues": [{ "project": "team/shop", "iid": 7, "sessions": ["s1"] }, { "project": "team/shop", "iid": 8, "sessions": [] }] }] });
+        assert!(issue_has_session(&view, "team/shop", 7));
+        assert!(!issue_has_session(&view, "team/shop", 8) && !issue_has_session(&view, "team/shop", 9) && !issue_has_session(&view, "other", 7));
+    }
+
+    #[test]
+    fn two_starts_of_one_issue_do_not_both_pass() {
+        // the lock is a set of issue keys: the second insert says the issue is taken
+        let mut st = State::default();
+        assert!(st.starting.insert("team/shop#7".into()));
+        assert!(!st.starting.insert("team/shop#7".into()));
+        assert!(st.starting.insert("team/shop#8".into()), "another issue is free");
     }
 }

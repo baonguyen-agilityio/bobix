@@ -482,6 +482,11 @@ pub fn brief(iid: i64, title: &str, body: &str, url: &str) -> String {
     [format!("#{iid} {title}"), body.trim().to_string(), url.to_string()].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n\n")
 }
 
+// The prompt a ticket flow starts with: the brief, then the models and the rules text, each part trimmed, empty ones left out.
+pub fn flow_prompt(brief: &str, models: &str, rules: &str) -> String {
+    [brief, models, rules].iter().map(|x| x.trim()).filter(|x| !x.is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
 pub fn fetch_body(f: Forge, bin: &str, host: &str, path: &str, iid: i64) -> Result<String, Value> {
     let (api, field) = match f {
         Forge::GitHub => (format!("repos/{path}/issues/{iid}"), "body"),
@@ -700,6 +705,12 @@ impl Work {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_flow_prompt_is_what_the_page_builds() {
+        assert_eq!(super::flow_prompt("#7 Fix", " models ", "\nrules\n"), "#7 Fix\n\nmodels\n\nrules");
+        assert_eq!(super::flow_prompt("#7 Fix", "", ""), "#7 Fix");
+    }
+
     #[test]
     fn the_brief_is_what_the_page_builds() {
         // the same literals are asserted against board.js `brief` in test/core.test.js
