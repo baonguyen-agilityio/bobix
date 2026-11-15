@@ -74,7 +74,15 @@ pub enum Out { Frame(Box<Frame>), Close }
 pub struct LogLine { pub at: u64, pub phone: String, pub what: String, pub result: String }
 
 struct Offered { phone: PublicKeys, sign: SignPublic, name: String, rights: Rights, from: String, link: Link }
-struct Pairing { session: PairingSession, offer: Option<Offered>, warning: bool, opened: bool }
+struct Pairing { session: PairingSession, offer: Option<Offered>, paired: Option<String>, opened: bool } // paired: the name of the phone the owner confirmed
+
+// What the owner is told about a second phone and the code: it answered before the confirmation (the pairing was cancelled), or
+// after it (the pairing with the first phone is fine; the name is that phone's).
+#[derive(Clone, Debug, PartialEq)]
+enum PairWarn { Cancelled, Late(String) }
+fn warning_json(w: &Option<PairWarn>) -> Value {
+    match w { None => Value::Null, Some(PairWarn::Cancelled) => json!({ "kind": "cancelled" }), Some(PairWarn::Late(n)) => json!({ "kind": "late", "name": n }) }
+}
 struct Moving { url: String, waiting: HashMap<String, String>, since: u64 } // pid → phone id
 struct Revoking { pids: HashSet<String>, since: u64 }
 
@@ -85,7 +93,7 @@ pub struct State {
     pub store: Store,
     /// Another phone used the pairing code (a second one before the confirmation, or a different one after it): shown in
     /// Settings until the owner dismisses it, whatever happens to the pairing session.
-    pair_warning: bool,
+    pair_warning: Option<PairWarn>,
     /// The list of phones is safe to change: it was opened, or there never was one. False while a stored list could not be
     /// opened (a keychain that did not answer, a key that is gone): then nothing may overwrite it or make a new key.
     loaded: bool,
@@ -559,13 +567,13 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
 
 // A packet from a phone that is not paired: a `hello` for the open pairing, else nothing.
 fn on_hello(st: &mut State, from: &str, body: &[u8]) -> bool {
-    let mut late = false;
-    let changed = on_hello_in(st, from, body, &mut late);
-    if late { st.pair_warning = true; }
+    let mut warn = None;
+    let changed = on_hello_in(st, from, body, &mut warn);
+    if warn.is_some() { st.pair_warning = warn; }
     changed
 }
 
-fn on_hello_in(st: &mut State, from: &str, body: &[u8], late: &mut bool) -> bool {
+fn on_hello_in(st: &mut State, from: &str, body: &[u8], warn: &mut Option<PairWarn>) -> bool {
     let (Some(p), Some(id)) = (st.pairing.as_mut(), st.identity.as_ref()) else { return false };
     let Some((phone_box, packet)) = split_hello_body(body) else { return false };
     let mut link = Link::new(Direction::ToPhone, *id.box_secret(), phone_box, CURRENT_VERSION, VersionRange::current(), [0; 3], now(), RecvState::default());
@@ -575,8 +583,8 @@ fn on_hello_in(st: &mut State, from: &str, body: &[u8], late: &mut bool) -> bool
     if !valid_name(&hello.name) { return false; }
     match p.session.on_hello(&hello, &phone_box, from, now()) {
         Ok(Offer::New { phone, sign, name, rights, .. }) if valid_name(&name) => { p.offer = Some(Offered { phone, sign, name, rights, from: from.into(), link }); true }
-        Ok(Offer::Cancelled) => { p.offer = None; *late = true; true }
-        Ok(Offer::Late) => { *late = true; true }
+        Ok(Offer::Cancelled) => { p.offer = None; *warn = Some(PairWarn::Cancelled); true }
+        Ok(Offer::Late) => { *warn = Some(PairWarn::Late(p.paired.clone().unwrap_or_default())); true }
         _ => false, // a bad MAC, a duplicate, a name that is not plain text
     }
 }
@@ -874,13 +882,13 @@ pub fn view(b: &Arc<Bobix>) -> Value {
     // A list that could not be opened is tried again when Settings looks (the keychain may be unlocked by now).
     if !st.loaded && t > st.retry_at + 10_000 { st.load_store(); }
     let pairing = match st.pairing.as_ref() {
-        None => json!({ "state": "none", "warning": st.pair_warning }),
+        None => json!({ "state": "none", "warning": warning_json(&st.pair_warning) }),
         Some(p) => {
             let s = p.session.status(t);
             json!({ "state": match s { PairStatus::Open => "open", PairStatus::Offered => "offered", PairStatus::Confirmed => "confirmed", PairStatus::Cancelled => "cancelled", _ => "none" },
                 "uri": if s == PairStatus::Open { json!(p.session.code().to_uri()) } else { Value::Null },
                 "qr": if s == PairStatus::Open { json!(qr_svg(&p.session.code().to_uri())) } else { Value::Null },
-                "name": p.offer.as_ref().map(|o| &o.name), "asked": p.offer.as_ref().map(|o| o.rights), "warning": p.warning || st.pair_warning })
+                "name": p.offer.as_ref().map(|o| &o.name), "asked": p.offer.as_ref().map(|o| o.rights), "warning": warning_json(&st.pair_warning) })
         }
     };
     json!({ "unreadable": !st.loaded, "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
@@ -913,7 +921,7 @@ pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
             for id in ids { out.extend(st.disconnect(&id, "phone access was turned off")); }
             st.cfg.on = false;
             st.pairing = None;
-            st.pair_warning = false;
+            st.pair_warning = None;
             st.awake.release();
             st.status = "off".into();
             if st.revoking.is_none() { st.send_close(); }
@@ -960,15 +968,15 @@ pub fn pair_start(b: &Arc<Bobix>) -> Result<Value, String> {
         let keys = st.identity.as_ref().ok_or("identity")?.public();
         let code = PairingCode::new(&st.cfg.relay, keys).map_err(|_| "relay".to_string())?;
         let frame = Frame::PairOpen { relay_token_hash: b64(&code.relay_token_hash()), ttl: 120 };
-        st.pair_warning = false;
-        st.pairing = Some(Pairing { session: PairingSession::new(code, now()), offer: None, warning: false, opened: st.status == "online" });
+        st.pair_warning = None;
+        st.pairing = Some(Pairing { session: PairingSession::new(code, now()), offer: None, paired: None, opened: st.status == "online" });
         if st.status == "online" { st.send(frame); }
     }
     b.broadcast();
     Ok(view(b))
 }
 // Also what dismisses the warning that another phone used the code.
-pub fn pair_cancel(b: &Arc<Bobix>) -> Value { { let mut c = b.core.lock().unwrap(); c.phones.pairing = None; c.phones.pair_warning = false; } b.broadcast(); view(b) }
+pub fn pair_cancel(b: &Arc<Bobix>) -> Value { { let mut c = b.core.lock().unwrap(); c.phones.pairing = None; c.phones.pair_warning = None; } b.broadcast(); view(b) }
 
 // The owner confirms what the phone asked for, minus what they unticked. Accepted only for the pairing opened in this run.
 pub fn pair_confirm(b: &Arc<Bobix>, granted: Rights) -> Result<Value, String> {
@@ -980,6 +988,7 @@ pub fn pair_confirm(b: &Arc<Bobix>, granted: Rights) -> Result<Value, String> {
         let p = st.pairing.as_mut().ok_or("no pairing")?;
         if p.session.status(now()) != PairStatus::Offered { return Err("no pairing".into()); }
         let o = p.offer.take().ok_or("no pairing")?;
+        p.paired = Some(o.name.clone());
         let asked = o.rights;
         let r = Rights { answer: granted.answer && asked.answer, plan: granted.plan && asked.plan, question: granted.question && asked.question,
             start: granted.start && asked.start, stop: granted.stop && asked.stop, activity: granted.activity && asked.activity };
@@ -1339,6 +1348,38 @@ mod tests {
         let plan = |p: &str| Ok(StartPlan { prompt: p.into(), folder_known: true, free: 0, full: None });
         assert_eq!(finish_start("c", plan(&raw), &h, ok).outcome, Outcome::Ok, "the hash of what was shown starts it");
         assert_eq!(finish_start("c", plan(&raw), &prompt_hash(&raw), ok).outcome, Outcome::Stale, "a hash of the raw text is not what was shown");
+    }
+
+    #[test]
+    fn a_late_phone_and_a_cancelled_pairing_are_told_apart() {
+        assert_eq!(warning_json(&None), Value::Null);
+        assert_eq!(warning_json(&Some(PairWarn::Cancelled)), json!({ "kind": "cancelled" }));
+        assert_eq!(warning_json(&Some(PairWarn::Late("Pixel".into()))), json!({ "kind": "late", "name": "Pixel" }));
+    }
+
+    #[test]
+    fn a_list_that_could_not_be_opened_is_never_overwritten() {
+        let dir = std::env::temp_dir().join(format!("bobix-phones-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(store_file(&dir), b"sealed by a key this run cannot read").unwrap();
+        let mut st = State { dir: dir.clone(), ..Default::default() };
+        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights::default(), since: 0, needs_pairing: false, no_push: false });
+        st.save_store(); // `loaded` is false: the stored list was not opened
+        assert_eq!(std::fs::read(store_file(&dir)).unwrap(), b"sealed by a key this run cannot read", "the stored list is untouched");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_list_is_a_clean_start() {
+        let dir = std::env::temp_dir().join(format!("bobix-phones-new-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut st = State { dir: dir.clone(), ..Default::default() };
+        assert!(!st.loaded);
+        st.load_store();
+        assert!(st.loaded, "no file: nothing was lost, so the list may be written");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

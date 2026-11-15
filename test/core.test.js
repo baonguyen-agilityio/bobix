@@ -1304,3 +1304,15 @@ test('phone pets: the fixtures of the Dart port match creature.js as it is now',
   const run = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'creature-fixtures.js'), '--check'], { encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
 });
+
+test('a second phone after the pairing was used has its own wording: the first pairing is fine, nothing was cancelled', () => {
+  const I18N = require('../src/ui/i18n');
+  for (const lang of ['en', 'vi']) {
+    const late = I18N.STR[lang]['phones.pair.late'], cancelled = I18N.STR[lang]['phones.pair.warn'];
+    assert.ok(late.includes('{name}'), `${lang}: names the phone that is paired`);
+    assert.notEqual(late, cancelled);
+    assert.ok(!/cancel|Start again|huỷ|bắt đầu lại/i.test(late), `${lang}: ${late}`);
+  }
+  const panel = fs.readFileSync(path.join(__dirname, '../src/ui/panel.html'), 'utf8');
+  assert.ok(panel.includes("p.warning?.kind === 'late'"), 'the panel picks the wording by the kind of warning');
+});
