@@ -92,6 +92,13 @@ class PairedComputer {
   );
 }
 
+/// The stored state could not be read. [corrupt] when the file is there but is not valid (it never will be), otherwise
+/// the read failed for now (the next try may work). Never the same as "there is no pairing".
+class LinkStateUnreadable implements Exception {
+  const LinkStateUnreadable({required this.corrupt});
+  final bool corrupt;
+}
+
 /// The paired computer, in one small file. Writes are whole-file and atomic (a temporary file, then a rename), so a crash
 /// leaves the old or the new state, never half of one.
 class LinkStateStore {
@@ -99,14 +106,25 @@ class LinkStateStore {
 
   final File _file;
 
+  /// Whether any state is stored, whatever its content.
+  Future<bool> exists() async =>
+      await FileSystemEntity.type(_file.path) != FileSystemEntityType.notFound;
+
+  /// The paired computer; null only when nothing is stored. A file that cannot be read or understood throws
+  /// [LinkStateUnreadable]: the app must not start a new pairing over it.
   Future<PairedComputer?> load() async {
+    final String text;
     try {
-      if (!await _file.exists()) return null;
-      final j = jsonDecode(await _file.readAsString());
+      if (!await exists()) return null;
+      text = await _file.readAsString();
+    } on FileSystemException {
+      throw const LinkStateUnreadable(corrupt: false);
+    }
+    try {
+      final j = jsonDecode(text) as Map<String, dynamic>;
       return PairedComputer.fromJson(j['computer'] as Map<String, dynamic>);
     } on Object {
-      // An unreadable file is the same as none: the phone asks to pair again, and the Keychain keys are erased with it.
-      return null;
+      throw const LinkStateUnreadable(corrupt: true);
     }
   }
 

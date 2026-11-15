@@ -23,12 +23,20 @@ class MemorySecureKeys implements SecureKeys {
   int signCalls = 0;
   bool erased = false;
 
+  /// When set, reading a secret fails as the Keychain does while the device is locked: "could not read", not "not found".
+  bool failReads = false;
+
   @override
   Future<void> putSecret(String name, Uint8List data) async =>
       secrets[name] = data;
 
   @override
-  Future<Uint8List?> secret(String name) async => secrets[name];
+  Future<Uint8List?> secret(String name) async {
+    if (failReads) {
+      throw const SecureKeysException('keychain read failed (-25308)');
+    }
+    return secrets[name];
+  }
 
   @override
   Future<void> deleteSecret(String name) async => secrets.remove(name);

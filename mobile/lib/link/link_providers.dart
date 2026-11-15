@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +40,12 @@ class Paired extends AppPhase {
   final ComputerLink link;
 }
 
+/// The pairing cannot be opened right now (the Keychain is locked, a read failed): nothing was erased and nothing is paired
+/// over it; the person tries again.
+class Unavailable extends AppPhase {
+  const Unavailable();
+}
+
 /// The phone has a pairing it cannot use any more: [removedByComputer] when the computer itself said so (keys and data are
 /// already erased), otherwise the relay says it may have been disconnected (or the keys are gone).
 class PairAgain extends AppPhase {
@@ -59,13 +66,27 @@ class LinkController extends AsyncNotifier<AppPhase> {
       _status?.cancel();
     });
     final store = await _store();
-    final computer = await store.load();
+    final PairedComputer? computer;
+    try {
+      computer = await store.load();
+    } on LinkStateUnreadable catch (e) {
+      // A state that cannot be read is never "no pairing". One that never will be readable is unusable: pair again.
+      if (!e.corrupt) return const Unavailable();
+      await _forget(store, ref.read(secureKeysProvider));
+      return const PairAgain(computer: '', removedByComputer: false);
+    }
     if (computer == null) return const Unpaired();
     final keys = ref.read(secureKeysProvider);
-    final auth = await keys.secret(SecureKeys.auth);
-    final box = await keys.secret(SecureKeys.box);
+    final Uint8List? auth, box;
+    try {
+      auth = await keys.secret(SecureKeys.auth);
+      box = await keys.secret(SecureKeys.box);
+    } on SecureKeysException {
+      // "Could not read" (a locked device, the app started before the first unlock) is not "gone": keep everything.
+      return const Unavailable();
+    }
     if (auth == null || box == null) {
-      // The Keychain lost what the state needs (a restore, a wiped keychain): nothing works, so pair again.
+      // The platform said the keys are definitely not there (a restore, a wiped keychain): pair again.
       await _forget(store, keys);
       return PairAgain(computer: computer.name, removedByComputer: false);
     }
@@ -116,6 +137,9 @@ class LinkController extends AsyncNotifier<AppPhase> {
     if (now == null || now == AppLifecycleState.resumed) link.resume();
     return Paired(link);
   }
+
+  /// Tries to open the pairing again after [Unavailable].
+  void retry() => ref.invalidateSelf();
 
   /// A pairing just ended well: start the link to the new computer.
   Future<void> paired(PairedComputer computer) async {

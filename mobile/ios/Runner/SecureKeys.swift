@@ -121,12 +121,24 @@ final class KeyStore {
     if status != errSecSuccess { throw KeyError(message: "keychain write failed (\(status))") }
   }
 
-  func secret(_ name: String) -> Data? {
+  /// What a Keychain read status means: found (true), definitely not there (false), or "could not read" (throws). A locked
+  /// device or "interaction not allowed" (the app started before the first unlock) is not "no key".
+  static func readOutcome(_ status: OSStatus) throws -> Bool {
+    switch status {
+    case errSecSuccess: return true
+    case errSecItemNotFound: return false
+    default: throw KeyError(message: "keychain read failed (\(status))")
+    }
+  }
+
+  /// The secret, nil when it is definitely not there; throws when the Keychain cannot be read right now.
+  func secret(_ name: String) throws -> Data? {
     var query = secretQuery(name)
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var out: CFTypeRef?
-    return SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
+    let status = SecItemCopyMatching(query as CFDictionary, &out)
+    return try KeyStore.readOutcome(status) ? out as? Data : nil
   }
 
   func deleteSecret(_ name: String) {
@@ -194,7 +206,7 @@ final class KeyStore {
   }
 
   private func biometricSetChanged() -> Bool {
-    guard let stored = secret(KeyStore.domainStateName) else { return false } // a software key records none
+    guard let stored = try? secret(KeyStore.domainStateName) else { return false } // a software key records none
     let context = LAContext()
     var error: NSError?
     _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
@@ -315,7 +327,7 @@ final class SecureKeysChannel {
     do {
       switch call.method {
       case "putSecret": try store.putSecret(name(), bytes("data")); result(nil)
-      case "secret": result(store.secret(name()).map { FlutterStandardTypedData(bytes: $0) })
+      case "secret": result(try store.secret(name()).map { FlutterStandardTypedData(bytes: $0) })
       case "deleteSecret": store.deleteSecret(name()); result(nil)
       case "createSigningKey": result(FlutterStandardTypedData(bytes: try store.createSigningKey()))
       case "signingPublicKey": result(store.signingPublicKey().map { FlutterStandardTypedData(bytes: $0) })

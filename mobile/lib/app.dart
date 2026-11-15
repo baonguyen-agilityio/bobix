@@ -7,6 +7,7 @@ import 'link/computer_link.dart';
 import 'link/link_providers.dart';
 import 'screens/home_screen.dart';
 import 'screens/pair_again_screen.dart';
+import 'screens/unavailable_screen.dart';
 import 'screens/pairing_screens.dart';
 import 'screens/pets_screen.dart';
 import 'screens/placeholder_screen.dart';
@@ -41,9 +42,10 @@ class RootGate extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final phase = ref.watch(linkControllerProvider);
     return switch (phase.value) {
-      null when phase.hasError => const PairingFlow(),
+      null when phase.hasError => const UnavailableScreen(),
       null => const Scaffold(body: Center(child: CircularProgressIndicator())),
       Unpaired() => const PairingFlow(),
+      Unavailable() => const UnavailableScreen(),
       Paired() => const AppShell(),
       final PairAgain a => PairAgainScreen(phase: a),
     };

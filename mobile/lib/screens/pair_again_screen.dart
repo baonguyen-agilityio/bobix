@@ -18,6 +18,9 @@ class PairAgainScreen extends ConsumerWidget {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     final gone = phase.removedByComputer;
+    final name = phase.computer.isEmpty
+        ? s('phone.pair.thecomputer')
+        : phase.computer;
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
@@ -29,9 +32,7 @@ class PairAgainScreen extends ConsumerWidget {
             Semantics(
               header: true,
               child: Text(
-                gone
-                    ? s('phone.again.gone', {'c': phase.computer})
-                    : s('phone.again.t'),
+                gone ? s('phone.again.gone', {'c': name}) : s('phone.again.t'),
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w700,
@@ -42,9 +43,7 @@ class PairAgainScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              gone
-                  ? s('phone.again.gone.d')
-                  : s('phone.again.d', {'c': phase.computer}),
+              gone ? s('phone.again.gone.d') : s('phone.again.d', {'c': name}),
               style: TextStyle(fontSize: 16, height: 1.4, color: t.ink2),
             ),
             const SizedBox(height: 24),
