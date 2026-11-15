@@ -17,7 +17,7 @@ Today Bobix shows each Claude Code session as a pixel pet, with a panel for the 
 | 3 | Ticket flow: pick, plan, run, log (GitLab first) | [#112](https://github.com/baonguyen-agilityio/bobix/issues/112) |
 | 4 | Habits become personal skills | [#113](https://github.com/baonguyen-agilityio/bobix/issues/113) |
 | 5 + 6 | War room over Tailscale, and its security | [#114](https://github.com/baonguyen-agilityio/bobix/issues/114) |
-| 7 | Phone access (test builds first) | [#252](https://github.com/baonguyen-agilityio/bobix/issues/252) |
+| 7 | Phone access (in development) | [#252](https://github.com/baonguyen-agilityio/bobix/issues/252) |
 
 Steps 2 to 4 rely on step 1, because it adds the opt-in to read session content and the numbers that tune their rules.
 
@@ -32,7 +32,7 @@ These are the places where this direction differs from what [README](../README.m
 | Habit suggestions are simple local rules, "without any AI". | Bobix may ask **Haiku through the user's own `claude -p`** on this machine (task type, summaries, weekly habit scan). The content then goes to Anthropic through the user's own Claude, as any Claude Code use does. | 2, 3, 4 |
 | Bobix opens a session with a prompt you edit; it starts nothing by itself. | After you approve a plan, the session **runs to the end in its own worktree** with Claude's own auto mode. | 3 |
 | Bobix accepts connections on `127.0.0.1` only. | The war room adds a **second port bound to the tailnet interface only**. The panel stays on `127.0.0.1` with its token. | 5, 6 |
-| Bobix opens no connection of its own besides update checks and what you press; "remote control" is a non-goal. | Phone access (test builds only): while its switch is on, **one outbound connection to a relay** you name, so that **your own paired phone** can answer what waits. Off by default, absent from stable releases. | 7 |
+| Bobix opens no connection of its own besides update checks and what you press; "remote control" is a non-goal. | Phone access (in development; only builds from `feat/phone-access` with the `phones` switch on): while its switch is on, **one outbound connection to a relay** you name, so that **your own paired phone** can answer what waits. Off by default, and not in `develop`, `-rc` or stable builds. | 7 |
 
 Stays as it is: Bobix sets no standing rules (use Claude's own auto mode), reads and stores no Claude login credentials and no GitLab or GitHub token, and sends nothing on its own.
 
@@ -189,7 +189,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 **Problem.** A Claude session waits for you and you are away from the computer: a request, a plan, a question. Today the session sits there.
 
 **Decisions** (the code is in `src-tauri/src/phones.rs`, `crates/bobix-link` and `relay/`; what is verified is in the [roadmap](roadmap.md))
-- **Off by default, and a closed beta first.** Settings → Phones exists only in `-rc` test builds and `develop` builds (the Cargo feature `phones`); a stable release contains no section, no command and opens no connection. Removing that switch is part of the later public release.
+- **Off by default, and still in development.** Settings → Phones exists only in a build made from the `feat/phone-access` branch with the Cargo feature `phones` on; `develop` builds, `-rc` tags and stable releases do not have it, and a build without the feature contains no section, no command and opens no connection. Removing that switch is part of the later public release.
 - **Outbound only, through a relay, sealed on this computer for each paired phone.** The relay forwards packets and cannot read them. No inbound port, no LAN path.
 - **Rights per phone, chosen when you confirm the pairing:** answer a request, approve a plan, answer a question, start a ticket, stop a waiting session, see session activity. Starting and stopping start unticked.
 - **What a phone does:** answers what Claude asks (requests, plans, questions), starts a ticket the computer already knows, and stops a session that waits on a held request, only for a phone with both the Stop and the Answer right (the CLI offers no clean stop for a running turn). The first answer, at the computer or on a phone, wins.

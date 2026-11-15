@@ -42,10 +42,10 @@ Run a few Claude Code sessions at once and the day goes to clicking through them
 - When Claude asks for permission, answer **Allow** or **Deny** on the pet, in the panel or on the notification (macOS). The request that has waited longest comes first, and one that deletes or overwrites data is marked. A question Claude asks you (`AskUserQuestion`) shows on the pet with its text; you answer it in Claude.
 - Claude still asks in the terminal at the same time, so you can answer in either place. Bobix sets no standing rules; for that, use Claude's own auto mode.
 
-### Answer from your phone (test builds only)
-- A test build (`-rc` in its name) has **Settings → Phones**. Switch it on, type the address of a [relay](relay/README.md) (Bobix has no built-in one), press **Pair a phone** and scan the code with the Bobix phone app (iOS 18 or Android 10 and later; the app is a closed beta for invited people and is not in the stores yet). It works for 2 minutes. Then choose on the computer what that phone may do and press **Connect**.
+### Answer from your phone (in development)
+- Phone access is in development and not in any release: only a build made from the `feat/phone-access` branch with the `phones` switch on has it ([docs/development.md](docs/development.md)). Such a build has **Settings → Phones**. Switch it on, type the address of a [relay](relay/README.md) (Bobix has no built-in one), press **Pair a phone** and scan the code with the Bobix phone app (iOS 18 or Android 10 and later; the app is a closed beta for invited people and is not in the stores yet). It works for 2 minutes. Then choose on the computer what that phone may do and press **Connect**.
 - The phone shows your sessions and what waits for you, and answers requests, plans and Claude's questions; a phone you allow can also start a ticket or stop a waiting session. Every command, Deny included, asks for Face ID or a fingerprint.
-- Off by default and absent from stable releases. What leaves the computer, sealed so the relay cannot read it, is in [docs/privacy.md](docs/privacy.md); what is not tested yet (a real phone, push, Windows and Linux) is in [docs/roadmap.md](docs/roadmap.md).
+- Off by default, and not in `develop` builds, test (`-rc`) builds or stable releases. What leaves the computer, sealed so the relay cannot read it, is in [docs/privacy.md](docs/privacy.md); what is not tested yet (a real phone, push, Windows and Linux) is in [docs/roadmap.md](docs/roadmap.md).
 
 ### See what each session uses
 - For every live session: tokens, the share spent **re-reading context**, the models it used (subagents too) and its active time, read from the transcripts Claude Code writes on your machine.
@@ -180,7 +180,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 - Linux installers are for Ubuntu 22.04+ and Debian 12+ (they need WebKitGTK 4.1, which `apt` installs with them); other distributions aren't packaged yet.
 - Windows needs the WebView2 runtime: built into Windows 11 and current Windows 10; the installer adds it when it is missing.
 - Installing 0.2 over 0.1 keeps your settings, hooks and saved pet pictures (picture pets are hidden for now), removes the old app, and keeps "start when I log in" on if it was.
-- Phone access (test builds only) is not tested on a real phone, with push through Apple or Google, or on Windows and Linux yet: [docs/roadmap.md](docs/roadmap.md) says exactly what is.
+- Phone access (in development, `feat/phone-access` builds only) is not tested on a real phone, with push through Apple or Google, or on Windows and Linux yet: [docs/roadmap.md](docs/roadmap.md) says exactly what is.
 
 ## License and credits
 

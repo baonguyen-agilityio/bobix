@@ -42,10 +42,10 @@ Chạy vài session Claude Code cùng lúc thì cả ngày sẽ đi vào việc 
 - Khi Claude xin quyền, bấm **Cho phép** hoặc **Từ chối** ngay trên chú thú, trong bảng điều khiển hoặc trên thông báo (macOS). Yêu cầu chờ lâu nhất lên đầu, yêu cầu xoá hoặc ghi đè dữ liệu được đánh dấu. Câu hỏi Claude đặt cho bạn (`AskUserQuestion`) hiện trên chú thú kèm nội dung; bạn trả lời trong Claude.
 - Claude vẫn hỏi trong terminal cùng lúc nên bạn trả lời ở đâu cũng được. Bobix không đặt quy tắc cho phép lâu dài; muốn vậy hãy dùng chế độ auto của chính Claude.
 
-### Trả lời từ điện thoại (chỉ trong bản thử)
-- Bản thử (có `-rc` trong tên) có **Cài đặt → Điện thoại**. Bật “Cho điện thoại kết nối”, nhập địa chỉ một [relay](relay/README.md) (Bobix không có relay dựng sẵn), bấm **Ghép đôi điện thoại** rồi quét mã bằng app Bobix trên điện thoại (iOS 18 hoặc Android 10 trở lên; app đang thử kín cho người được mời, chưa có trên kho ứng dụng). Mã có hiệu lực 2 phút. Sau đó chọn trên máy tính điện thoại đó được làm gì và bấm **Kết nối**.
+### Trả lời từ điện thoại (đang phát triển)
+- Truy cập từ điện thoại đang phát triển và chưa có trong bản phát hành nào: chỉ bản build từ nhánh `feat/phone-access` với công tắc `phones` bật mới có ([docs/development.md](docs/development.md)). Bản build như vậy có **Cài đặt → Điện thoại**. Bật “Cho điện thoại kết nối”, nhập địa chỉ một [relay](relay/README.md) (Bobix không có relay dựng sẵn), bấm **Ghép đôi điện thoại** rồi quét mã bằng app Bobix trên điện thoại (iOS 18 hoặc Android 10 trở lên; app đang thử kín cho người được mời, chưa có trên kho ứng dụng). Mã có hiệu lực 2 phút. Sau đó chọn trên máy tính điện thoại đó được làm gì và bấm **Kết nối**.
 - Điện thoại hiện các session và những gì đang chờ bạn, và trả lời yêu cầu, kế hoạch và câu hỏi của Claude; điện thoại bạn cho phép còn có thể bắt đầu một ticket hoặc dừng một session đang chờ. Mỗi lệnh, kể cả Từ chối, đều hỏi Face ID hoặc vân tay.
-- Mặc định tắt và không có trong bản ổn định. Những gì rời máy tính, được niêm phong để relay không đọc được, nằm ở [docs/privacy.md](docs/privacy.md); những gì chưa được thử (điện thoại thật, push, Windows và Linux) nằm ở [docs/roadmap.md](docs/roadmap.md).
+- Mặc định tắt, và không có trong bản `develop`, bản thử (`-rc`) hay bản ổn định. Những gì rời máy tính, được niêm phong để relay không đọc được, nằm ở [docs/privacy.md](docs/privacy.md); những gì chưa được thử (điện thoại thật, push, Windows và Linux) nằm ở [docs/roadmap.md](docs/roadmap.md).
 
 ### Xem mỗi session dùng bao nhiêu
 - Với mỗi session đang chạy: token, phần dành để **đọc lại ngữ cảnh**, các model đã dùng (cả subagent) và thời gian làm việc, đọc từ transcript mà Claude Code ghi trên máy bạn.
@@ -180,7 +180,7 @@ Claude Code ──hooks──▶ node ~/.claude/bobix/hook.js ──127.0.0.1─
 - File cài cho Linux dành cho Ubuntu 22.04+ và Debian 12+ (cần WebKitGTK 4.1, `apt` tự cài kèm); các bản Linux khác chưa có gói cài.
 - Windows cần WebView2: có sẵn trên Windows 11 và Windows 10 bản mới; trình cài tự thêm nếu thiếu.
 - Cài 0.2 đè lên 0.1 vẫn giữ cài đặt, hook và ảnh thú cưng đã lưu (thú cưng từ ảnh đang tạm ẩn), gỡ app cũ, và giữ "mở khi đăng nhập" nếu đang bật.
-- Truy cập từ điện thoại (chỉ bản thử) chưa được thử trên điện thoại thật, với push qua Apple hay Google, hay trên Windows và Linux: [docs/roadmap.md](docs/roadmap.md) ghi rõ chỗ nào chưa.
+- Truy cập từ điện thoại (đang phát triển, chỉ bản build từ `feat/phone-access`) chưa được thử trên điện thoại thật, với push qua Apple hay Google, hay trên Windows và Linux: [docs/roadmap.md](docs/roadmap.md) ghi rõ chỗ nào chưa.
 
 ## Giấy phép và ghi công
 

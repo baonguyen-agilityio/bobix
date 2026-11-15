@@ -17,7 +17,7 @@ Download the installer for your computer (the links give the newest stable relea
 | Ubuntu / Debian (amd64) | [bobix-linux-amd64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-amd64.deb) |
 | Ubuntu / Debian (ARM64) | [bobix-linux-arm64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-arm64.deb) |
 
-**Phone access (test builds only).** A test build (`-rc` in its name) has **Settings → Phones**, where Bobix can send what waits for you to a phone you pair and take its answers (off until you switch it on; [what it sends](privacy.md)). A stable release does not contain that section. Going from a test build to a stable release: the stable one never reads phone access's keys or files and never connects, so a phone you paired keeps showing the computer as offline. Before you switch, disconnect each phone and turn phone access off in the test build, so the phones are told. You enter the address of a relay there (Bobix has no built-in one): a relay may accept invited computers only, and [relay/README.md](../relay/README.md) explains hosting your own.
+**Phone access (in development).** It is not in any release: only a build made from the `feat/phone-access` branch with the `phones` switch on has **Settings → Phones** ([how to build one](development.md#phone-access-is-a-compile-switch)), where Bobix can send what waits for you to a phone you pair and take its answers (off until you switch it on; [what it sends](privacy.md)). Going from such a build to a release: the release never reads phone access's keys or files and never connects, so a phone you paired keeps showing the computer as offline. Before you switch, disconnect each phone and turn phone access off in the development build, so the phones are told. You enter the address of a relay there (Bobix has no built-in one): a relay may accept invited computers only, and [relay/README.md](../relay/README.md) explains hosting your own.
 
 Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 
@@ -110,7 +110,7 @@ The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl`
 
 ## Phone: install the app and pair it
 
-Only for test builds of Bobix (see "Phone access" in section 1). The phone app (iOS 18 or Android 10 and later) is a closed beta for invited people and is not in the App Store or Google Play yet; the way to build it for your own phone is [Try the phone app on a real iPhone](development.md#try-the-phone-app-on-a-real-iphone) and, for Android, [The phone app on Android](development.md#the-phone-app-on-android). You also need a relay both devices can reach ([relay/README.md](../relay/README.md)).
+Only for development builds of Bobix that have phone access (see "Phone access" in section 1). The phone app (iOS 18 or Android 10 and later) is a closed beta for invited people and is not in the App Store or Google Play yet; the way to build it for your own phone is [Try the phone app on a real iPhone](development.md#try-the-phone-app-on-a-real-iphone) and, for Android, [The phone app on Android](development.md#the-phone-app-on-android). You also need a relay both devices can reach ([relay/README.md](../relay/README.md)).
 
 1. On the computer: Settings → Phones. Type the relay's address in **Relay address**, save, and switch on **Let phones connect**. The status says "connected".
 2. Press **Pair a phone**. A code appears; it works for 2 minutes.
