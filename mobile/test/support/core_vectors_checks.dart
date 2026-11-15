@@ -743,14 +743,10 @@ Future<void> checkMessages(Map<String, dynamic> v) async {
     reason: 'the vector phone was not given the start right',
   );
   // The cap comes from the crate's vectors: a note of exactly that many bytes passes, one more is refused.
-  final maxNote = (protocol['limits'] as Map<String, dynamic>)['maxNote'] as int;
+  final maxNote =
+      (protocol['limits'] as Map<String, dynamic>)['maxNote'] as int;
   Future<PreparedCommand> planWithNote(String note) => prepareCommand(
-    input: CommandInput.plan(
-      id: 'p1',
-      approve: false,
-      note: note,
-      shown: 'h',
-    ),
+    input: CommandInput.plan(id: 'p1', approve: false, note: note, shown: 'h'),
     phoneId: phone['deviceId'],
     computerId: desktop['deviceId'],
     counter: BigInt.one,

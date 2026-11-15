@@ -83,6 +83,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CommandInput dco_decode_box_autoadd_command_input(dynamic raw);
 
   @protected
+  CommandResultInfo dco_decode_box_autoadd_command_result_info(dynamic raw);
+
+  @protected
   DesktopMessage dco_decode_box_autoadd_desktop_message(dynamic raw);
 
   @protected
@@ -96,6 +99,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CommandInput dco_decode_command_input(dynamic raw);
+
+  @protected
+  CommandResultInfo dco_decode_command_result_info(dynamic raw);
 
   @protected
   CoreError dco_decode_core_error(dynamic raw);
@@ -135,6 +141,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  CommandResultInfo? dco_decode_opt_box_autoadd_command_result_info(
+    dynamic raw,
+  );
 
   @protected
   RelaySide? dco_decode_opt_box_autoadd_relay_side(dynamic raw);
@@ -177,6 +188,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RelaySide dco_decode_relay_side(dynamic raw);
+
+  @protected
+  ResultKind dco_decode_result_kind(dynamic raw);
 
   @protected
   SealedPacket dco_decode_sealed_packet(dynamic raw);
@@ -256,6 +270,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CommandResultInfo sse_decode_box_autoadd_command_result_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   DesktopMessage sse_decode_box_autoadd_desktop_message(
     SseDeserializer deserializer,
   );
@@ -271,6 +290,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CommandInput sse_decode_command_input(SseDeserializer deserializer);
+
+  @protected
+  CommandResultInfo sse_decode_command_result_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   CoreError sse_decode_core_error(SseDeserializer deserializer);
@@ -312,6 +336,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  CommandResultInfo? sse_decode_opt_box_autoadd_command_result_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   RelaySide? sse_decode_opt_box_autoadd_relay_side(
@@ -356,6 +385,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RelaySide sse_decode_relay_side(SseDeserializer deserializer);
+
+  @protected
+  ResultKind sse_decode_result_kind(SseDeserializer deserializer);
 
   @protected
   SealedPacket sse_decode_sealed_packet(SseDeserializer deserializer);
@@ -443,6 +475,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_command_result_info(
+    CommandResultInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_desktop_message(
     DesktopMessage self,
     SseSerializer serializer,
@@ -465,6 +503,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_command_input(CommandInput self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_command_result_info(
+    CommandResultInfo self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_core_error(CoreError self, SseSerializer serializer);
@@ -516,6 +560,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_command_result_info(
+    CommandResultInfo? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_relay_side(
@@ -570,6 +620,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_relay_side(RelaySide self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_result_kind(ResultKind self, SseSerializer serializer);
 
   @protected
   void sse_encode_sealed_packet(SealedPacket self, SseSerializer serializer);

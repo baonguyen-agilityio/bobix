@@ -198,8 +198,7 @@ Future<Uint8List?> authBytes({
 );
 
 /// A new command id: 16 random bytes in hex. A command is never sent twice under one id.
-Future<String> newCommandId() =>
-    RustLib.instance.api.crateApiCoreNewCommandId();
+String newCommandId() => RustLib.instance.api.crateApiCoreNewCommandId();
 
 /// The hash an `answer` carries as `shown`: of exactly what this phone displayed (the text, whether it was cut, and the
 /// questions with their options). The computer compares it with what it holds now, and refuses a stale answer.

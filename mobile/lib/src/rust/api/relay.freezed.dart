@@ -730,7 +730,7 @@ extension RelayFramePatterns on RelayFrame {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( RelayFrame_Challenge value)?  challenge,TResult Function( RelayFrame_Msg value)?  msg,TResult Function( RelayFrame_Presence value)?  presence,TResult Function( RelayFrame_Error value)?  error,TResult Function( RelayFrame_Queued value)?  queued,TResult Function( RelayFrame_Delivered value)?  delivered,TResult Function( RelayFrame_Dropped value)?  dropped,TResult Function( RelayFrame_Other value)?  other,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( RelayFrame_Challenge value)?  challenge,TResult Function( RelayFrame_Msg value)?  msg,TResult Function( RelayFrame_Presence value)?  presence,TResult Function( RelayFrame_Error value)?  error,TResult Function( RelayFrame_Queued value)?  queued,TResult Function( RelayFrame_Delivered value)?  delivered,TResult Function( RelayFrame_Dropped value)?  dropped,TResult Function( RelayFrame_Withdrawn value)?  withdrawn,TResult Function( RelayFrame_TooLate value)?  tooLate,TResult Function( RelayFrame_Other value)?  other,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case RelayFrame_Challenge() when challenge != null:
@@ -740,7 +740,9 @@ return presence(_that);case RelayFrame_Error() when error != null:
 return error(_that);case RelayFrame_Queued() when queued != null:
 return queued(_that);case RelayFrame_Delivered() when delivered != null:
 return delivered(_that);case RelayFrame_Dropped() when dropped != null:
-return dropped(_that);case RelayFrame_Other() when other != null:
+return dropped(_that);case RelayFrame_Withdrawn() when withdrawn != null:
+return withdrawn(_that);case RelayFrame_TooLate() when tooLate != null:
+return tooLate(_that);case RelayFrame_Other() when other != null:
 return other(_that);case _:
   return orElse();
 
@@ -759,7 +761,7 @@ return other(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( RelayFrame_Challenge value)  challenge,required TResult Function( RelayFrame_Msg value)  msg,required TResult Function( RelayFrame_Presence value)  presence,required TResult Function( RelayFrame_Error value)  error,required TResult Function( RelayFrame_Queued value)  queued,required TResult Function( RelayFrame_Delivered value)  delivered,required TResult Function( RelayFrame_Dropped value)  dropped,required TResult Function( RelayFrame_Other value)  other,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( RelayFrame_Challenge value)  challenge,required TResult Function( RelayFrame_Msg value)  msg,required TResult Function( RelayFrame_Presence value)  presence,required TResult Function( RelayFrame_Error value)  error,required TResult Function( RelayFrame_Queued value)  queued,required TResult Function( RelayFrame_Delivered value)  delivered,required TResult Function( RelayFrame_Dropped value)  dropped,required TResult Function( RelayFrame_Withdrawn value)  withdrawn,required TResult Function( RelayFrame_TooLate value)  tooLate,required TResult Function( RelayFrame_Other value)  other,}){
 final _that = this;
 switch (_that) {
 case RelayFrame_Challenge():
@@ -769,7 +771,9 @@ return presence(_that);case RelayFrame_Error():
 return error(_that);case RelayFrame_Queued():
 return queued(_that);case RelayFrame_Delivered():
 return delivered(_that);case RelayFrame_Dropped():
-return dropped(_that);case RelayFrame_Other():
+return dropped(_that);case RelayFrame_Withdrawn():
+return withdrawn(_that);case RelayFrame_TooLate():
+return tooLate(_that);case RelayFrame_Other():
 return other(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
@@ -784,7 +788,7 @@ return other(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( RelayFrame_Challenge value)?  challenge,TResult? Function( RelayFrame_Msg value)?  msg,TResult? Function( RelayFrame_Presence value)?  presence,TResult? Function( RelayFrame_Error value)?  error,TResult? Function( RelayFrame_Queued value)?  queued,TResult? Function( RelayFrame_Delivered value)?  delivered,TResult? Function( RelayFrame_Dropped value)?  dropped,TResult? Function( RelayFrame_Other value)?  other,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( RelayFrame_Challenge value)?  challenge,TResult? Function( RelayFrame_Msg value)?  msg,TResult? Function( RelayFrame_Presence value)?  presence,TResult? Function( RelayFrame_Error value)?  error,TResult? Function( RelayFrame_Queued value)?  queued,TResult? Function( RelayFrame_Delivered value)?  delivered,TResult? Function( RelayFrame_Dropped value)?  dropped,TResult? Function( RelayFrame_Withdrawn value)?  withdrawn,TResult? Function( RelayFrame_TooLate value)?  tooLate,TResult? Function( RelayFrame_Other value)?  other,}){
 final _that = this;
 switch (_that) {
 case RelayFrame_Challenge() when challenge != null:
@@ -794,7 +798,9 @@ return presence(_that);case RelayFrame_Error() when error != null:
 return error(_that);case RelayFrame_Queued() when queued != null:
 return queued(_that);case RelayFrame_Delivered() when delivered != null:
 return delivered(_that);case RelayFrame_Dropped() when dropped != null:
-return dropped(_that);case RelayFrame_Other() when other != null:
+return dropped(_that);case RelayFrame_Withdrawn() when withdrawn != null:
+return withdrawn(_that);case RelayFrame_TooLate() when tooLate != null:
+return tooLate(_that);case RelayFrame_Other() when other != null:
 return other(_that);case _:
   return null;
 
@@ -812,7 +818,7 @@ return other(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String nonce)?  challenge,TResult Function( String pid,  String from,  Uint8List packet)?  msg,TResult Function( String peer,  PeerState state)?  presence,TResult Function( RelayError code,  RelaySide? who)?  error,TResult Function( String pid)?  queued,TResult Function( String pid)?  delivered,TResult Function( String pid)?  dropped,TResult Function()?  other,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String nonce)?  challenge,TResult Function( String pid,  String from,  Uint8List packet)?  msg,TResult Function( String peer,  PeerState state)?  presence,TResult Function( RelayError code,  RelaySide? who)?  error,TResult Function( String pid)?  queued,TResult Function( String pid)?  delivered,TResult Function( String pid)?  dropped,TResult Function( String pid)?  withdrawn,TResult Function( String pid)?  tooLate,TResult Function()?  other,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case RelayFrame_Challenge() when challenge != null:
 return challenge(_that.nonce);case RelayFrame_Msg() when msg != null:
@@ -821,7 +827,9 @@ return presence(_that.peer,_that.state);case RelayFrame_Error() when error != nu
 return error(_that.code,_that.who);case RelayFrame_Queued() when queued != null:
 return queued(_that.pid);case RelayFrame_Delivered() when delivered != null:
 return delivered(_that.pid);case RelayFrame_Dropped() when dropped != null:
-return dropped(_that.pid);case RelayFrame_Other() when other != null:
+return dropped(_that.pid);case RelayFrame_Withdrawn() when withdrawn != null:
+return withdrawn(_that.pid);case RelayFrame_TooLate() when tooLate != null:
+return tooLate(_that.pid);case RelayFrame_Other() when other != null:
 return other();case _:
   return orElse();
 
@@ -840,7 +848,7 @@ return other();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String nonce)  challenge,required TResult Function( String pid,  String from,  Uint8List packet)  msg,required TResult Function( String peer,  PeerState state)  presence,required TResult Function( RelayError code,  RelaySide? who)  error,required TResult Function( String pid)  queued,required TResult Function( String pid)  delivered,required TResult Function( String pid)  dropped,required TResult Function()  other,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String nonce)  challenge,required TResult Function( String pid,  String from,  Uint8List packet)  msg,required TResult Function( String peer,  PeerState state)  presence,required TResult Function( RelayError code,  RelaySide? who)  error,required TResult Function( String pid)  queued,required TResult Function( String pid)  delivered,required TResult Function( String pid)  dropped,required TResult Function( String pid)  withdrawn,required TResult Function( String pid)  tooLate,required TResult Function()  other,}) {final _that = this;
 switch (_that) {
 case RelayFrame_Challenge():
 return challenge(_that.nonce);case RelayFrame_Msg():
@@ -849,7 +857,9 @@ return presence(_that.peer,_that.state);case RelayFrame_Error():
 return error(_that.code,_that.who);case RelayFrame_Queued():
 return queued(_that.pid);case RelayFrame_Delivered():
 return delivered(_that.pid);case RelayFrame_Dropped():
-return dropped(_that.pid);case RelayFrame_Other():
+return dropped(_that.pid);case RelayFrame_Withdrawn():
+return withdrawn(_that.pid);case RelayFrame_TooLate():
+return tooLate(_that.pid);case RelayFrame_Other():
 return other();}
 }
 /// A variant of `when` that fallback to returning `null`
@@ -864,7 +874,7 @@ return other();}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String nonce)?  challenge,TResult? Function( String pid,  String from,  Uint8List packet)?  msg,TResult? Function( String peer,  PeerState state)?  presence,TResult? Function( RelayError code,  RelaySide? who)?  error,TResult? Function( String pid)?  queued,TResult? Function( String pid)?  delivered,TResult? Function( String pid)?  dropped,TResult? Function()?  other,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String nonce)?  challenge,TResult? Function( String pid,  String from,  Uint8List packet)?  msg,TResult? Function( String peer,  PeerState state)?  presence,TResult? Function( RelayError code,  RelaySide? who)?  error,TResult? Function( String pid)?  queued,TResult? Function( String pid)?  delivered,TResult? Function( String pid)?  dropped,TResult? Function( String pid)?  withdrawn,TResult? Function( String pid)?  tooLate,TResult? Function()?  other,}) {final _that = this;
 switch (_that) {
 case RelayFrame_Challenge() when challenge != null:
 return challenge(_that.nonce);case RelayFrame_Msg() when msg != null:
@@ -873,7 +883,9 @@ return presence(_that.peer,_that.state);case RelayFrame_Error() when error != nu
 return error(_that.code,_that.who);case RelayFrame_Queued() when queued != null:
 return queued(_that.pid);case RelayFrame_Delivered() when delivered != null:
 return delivered(_that.pid);case RelayFrame_Dropped() when dropped != null:
-return dropped(_that.pid);case RelayFrame_Other() when other != null:
+return dropped(_that.pid);case RelayFrame_Withdrawn() when withdrawn != null:
+return withdrawn(_that.pid);case RelayFrame_TooLate() when tooLate != null:
+return tooLate(_that.pid);case RelayFrame_Other() when other != null:
 return other();case _:
   return null;
 
@@ -1358,6 +1370,142 @@ class _$RelayFrame_DroppedCopyWithImpl<$Res>
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') $Res call({Object? pid = null,}) {
   return _then(RelayFrame_Dropped(
+pid: null == pid ? _self.pid : pid // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class RelayFrame_Withdrawn extends RelayFrame {
+  const RelayFrame_Withdrawn({required this.pid}): super._();
+  
+
+ final  String pid;
+
+/// Create a copy of RelayFrame
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$RelayFrame_WithdrawnCopyWith<RelayFrame_Withdrawn> get copyWith => _$RelayFrame_WithdrawnCopyWithImpl<RelayFrame_Withdrawn>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is RelayFrame_Withdrawn&&(identical(other.pid, pid) || other.pid == pid));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,pid);
+}
+
+@override
+String toString() {
+    return 'RelayFrame.withdrawn(pid: $pid)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $RelayFrame_WithdrawnCopyWith<$Res> implements $RelayFrameCopyWith<$Res> {
+  factory $RelayFrame_WithdrawnCopyWith(RelayFrame_Withdrawn value, $Res Function(RelayFrame_Withdrawn) _then) = _$RelayFrame_WithdrawnCopyWithImpl;
+@useResult
+$Res call({
+ String pid
+});
+
+
+
+
+}
+/// @nodoc
+class _$RelayFrame_WithdrawnCopyWithImpl<$Res>
+    implements $RelayFrame_WithdrawnCopyWith<$Res> {
+  _$RelayFrame_WithdrawnCopyWithImpl(this._self, this._then);
+
+  final RelayFrame_Withdrawn _self;
+  final $Res Function(RelayFrame_Withdrawn) _then;
+
+/// Create a copy of RelayFrame
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? pid = null,}) {
+  return _then(RelayFrame_Withdrawn(
+pid: null == pid ? _self.pid : pid // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class RelayFrame_TooLate extends RelayFrame {
+  const RelayFrame_TooLate({required this.pid}): super._();
+  
+
+ final  String pid;
+
+/// Create a copy of RelayFrame
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$RelayFrame_TooLateCopyWith<RelayFrame_TooLate> get copyWith => _$RelayFrame_TooLateCopyWithImpl<RelayFrame_TooLate>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is RelayFrame_TooLate&&(identical(other.pid, pid) || other.pid == pid));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,pid);
+}
+
+@override
+String toString() {
+    return 'RelayFrame.tooLate(pid: $pid)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $RelayFrame_TooLateCopyWith<$Res> implements $RelayFrameCopyWith<$Res> {
+  factory $RelayFrame_TooLateCopyWith(RelayFrame_TooLate value, $Res Function(RelayFrame_TooLate) _then) = _$RelayFrame_TooLateCopyWithImpl;
+@useResult
+$Res call({
+ String pid
+});
+
+
+
+
+}
+/// @nodoc
+class _$RelayFrame_TooLateCopyWithImpl<$Res>
+    implements $RelayFrame_TooLateCopyWith<$Res> {
+  _$RelayFrame_TooLateCopyWithImpl(this._self, this._then);
+
+  final RelayFrame_TooLate _self;
+  final $Res Function(RelayFrame_TooLate) _then;
+
+/// Create a copy of RelayFrame
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? pid = null,}) {
+  return _then(RelayFrame_TooLate(
 pid: null == pid ? _self.pid : pid // ignore: cast_nullable_to_non_nullable
 as String,
   ));
