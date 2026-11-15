@@ -11,7 +11,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'messages.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `key32`, `limit`, `phone_json`, `sign_public`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`
 
 /// The hash a `start` carries: SHA-256 of the whole prompt the person was shown, in hex.
 Future<String> promptHash({required String prompt}) =>
@@ -114,6 +114,23 @@ Future<PreparedCommand> prepareCommand({
   issuedAt: issuedAt,
 );
 
+/// The same with the command id the screen already shows (it asked for `new_command_id` first): the signature covers it.
+Future<PreparedCommand> prepareCommandFor({
+  required String cid,
+  required CommandInput input,
+  required String phoneId,
+  required String computerId,
+  required BigInt counter,
+  required BigInt issuedAt,
+}) => RustLib.instance.api.crateApiMessagesPrepareCommandFor(
+  cid: cid,
+  input: input,
+  phoneId: phoneId,
+  computerId: computerId,
+  counter: counter,
+  issuedAt: issuedAt,
+);
+
 /// The second step: the `cmd` message, with the signature (DER) the hardware made over `prepare_command`'s bytes. Give it
 /// the same inputs and the same `cid`.
 Future<Uint8List> finishCommand({
@@ -142,6 +159,13 @@ Future<bool> rightsAllow({
   rights: rights,
   input: input,
 );
+
+/// Reads a message of the computer (its JSON, from `parse_desktop_message`) as a command's result; `None` when it is
+/// another kind of message.
+Future<CommandResultInfo?> commandResult({required String messageJson}) =>
+    RustLib.instance.api.crateApiMessagesCommandResult(
+      messageJson: messageJson,
+    );
 
 @freezed
 sealed class CommandInput with _$CommandInput {
@@ -173,6 +197,35 @@ sealed class CommandInput with _$CommandInput {
     required String session,
     required String request,
   }) = CommandInput_Stop;
+}
+
+/// A `result` of the computer, read by the crate.
+class CommandResultInfo {
+  final String cid;
+  final ResultKind outcome;
+  final String? by;
+  final String? why;
+
+  const CommandResultInfo({
+    required this.cid,
+    required this.outcome,
+    this.by,
+    this.why,
+  });
+
+  @override
+  int get hashCode =>
+      cid.hashCode ^ outcome.hashCode ^ by.hashCode ^ why.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CommandResultInfo &&
+          runtimeType == other.runtimeType &&
+          cid == other.cid &&
+          outcome == other.outcome &&
+          by == other.by &&
+          why == other.why;
 }
 
 /// A message from the computer, checked by the shared crate (shape and limits). `kind` is its `kind` (`home`,
@@ -271,6 +324,31 @@ class PreparedCommand {
           kind == other.kind &&
           target == other.target &&
           bytesToSign == other.bytesToSign;
+}
+
+/// What the computer did with a command.
+enum ResultKind {
+  /// Applied.
+  ok,
+
+  /// Someone at the computer answered first.
+  latePc,
+
+  /// Another phone answered first (`by` names it).
+  latePhone,
+  expired,
+
+  /// Someone is at the computer; the request is still answerable here.
+  released,
+
+  /// What the person saw is not what the computer holds now.
+  stale,
+
+  /// Refused (`why` says why: `clock`, `right`, `cut`, ...).
+  refused,
+
+  /// The computer never received that command.
+  unknown,
 }
 
 enum StartMode { full, quick }

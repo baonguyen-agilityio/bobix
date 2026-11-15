@@ -60,6 +60,10 @@ Future<OutFrame> relaySendFrame({
   ttlSeconds: ttlSeconds,
 );
 
+/// Asks the relay to take back a packet it still holds for an offline computer.
+Future<String> relayWithdrawFrame({required String pid}) =>
+    RustLib.instance.api.crateApiRelayRelayWithdrawFrame(pid: pid);
+
 /// The acknowledgement of a packet.
 Future<String> relayAckFrame({required String pid}) =>
     RustLib.instance.api.crateApiRelayRelayAckFrame(pid: pid);
@@ -93,6 +97,10 @@ abstract class PhoneLink implements RustOpaqueInterface {
   String recvState();
 
   SealedPacket seal({required List<int> plaintext});
+
+  /// Seals with a counter taken earlier (`take_counter`): a signed command carries its packet counter inside the
+  /// signature, so it must travel with exactly that one.
+  Uint8List sealWith({required BigInt counter, required List<int> plaintext});
 
   /// The next counter of the `event` stream, for a message that carries its own (the pairing `hello`).
   CounterTake takeCounter();
@@ -194,6 +202,13 @@ sealed class RelayFrame with _$RelayFrame {
   const factory RelayFrame.delivered({required String pid}) =
       RelayFrame_Delivered;
   const factory RelayFrame.dropped({required String pid}) = RelayFrame_Dropped;
+
+  /// The relay took back a packet it still held for an offline peer.
+  const factory RelayFrame.withdrawn({required String pid}) =
+      RelayFrame_Withdrawn;
+
+  /// A withdraw came too late: the packet was already delivered.
+  const factory RelayFrame.tooLate({required String pid}) = RelayFrame_TooLate;
   const factory RelayFrame.other() = RelayFrame_Other;
 }
 

@@ -1190,9 +1190,18 @@ fn open_step(app: &AppHandle, b: &Arc<Bobix>) -> Value {
     // The pet card: hover it, press its Open session button.
     r["card"] = ask_for(app, overlay::LABEL, &format!("(async () => {{ const w = ms => new Promise(o => setTimeout(o, ms)); \
         for (let t = 0; t < 8000 && !pets.get({id:?}); t += 100) await w(100); const p = pets.get({id:?}); if (!p) return {{ error: 'no pet' }}; \
-        let bt; /* point at the pet as the mouse does (another pet under a real pointer would end its hover), and keep doing so until the card is there */ \
-        for (let t = 0; t < 8000 && !(bt = p.el.querySelector('.card [data-open]')); t += 100) {{ const b = p.el.querySelector('.spr').getBoundingClientRect(); mouse.x = b.left + b.width / 2; mouse.y = b.top + b.height / 2; mouseMoved = true; p.hoverUntil = Date.now() + 8000; wake(); await w(100); }} \
-        const r = {{ button: !!bt, label: bt?.getAttribute('aria-label') || '', why: bt ? '' : [p.el.className, p.hover, p.hoverUntil, Date.now(), mouse.x, mouse.y, document.hidden, p.s.state, !!p.el.querySelector('.card')].join(' | ') }}; bt?.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); return r; }})()"), 15);
+        /* The card is pressed only on a pet that is in the line, where its card shows (a hidden pet's card is in the page too, and pressing it would prove nothing). The line brings a waiting pet in at walking pace, about a minute, so a pet that is not in yet is put in the line the way a person does: dragged out of it (lineHold) and set down in the middle. Then it is hovered: the pointer goes on it only if it is the pet the page picks there (another pet under the pointer would end this pet's hover at once), and its hover is held. */ \
+        let held = false; if (p.el.classList.contains('line-off')) {{ lineHold(p); p.x = Math.round(innerWidth / 2); held = true; }} \
+        let bt, shown = () => !!bt && !p.el.classList.contains('line-off') && getComputedStyle(bt).visibility !== 'hidden'; \
+        for (let t = 0; t < 10000 && !(bt = p.el.querySelector('.card [data-open]'), shown()); t += 100) {{ \
+        mouse.x = mouse.y = -9999; \
+        if (!p.el.classList.contains('line-off')) {{ const b = p.el.querySelector('.spr').getBoundingClientRect(); mouse.x = b.left + b.width / 2; mouse.y = b.top + b.height / 2; if (pointedPet([...pets.values()]) !== p) mouse.x = mouse.y = -9999; p.hoverUntil = Date.now() + 8000; }} \
+        mouseMoved = true; wake(); await w(100); }} \
+        const ok = shown(); \
+        const r = {{ button: ok, label: ok ? bt.getAttribute('aria-label') || '' : '', held, why: ok ? '' : 'the pet did not show a card with an Open session button within 10 s: ' + [p.el.className, p.hover, p.hoverUntil, Date.now(), mouse.x, mouse.y, document.hidden, p.s.state, !!p.el.querySelector('.card'), pets.size].join(' | ') }}; \
+        if (ok) bt.dispatchEvent(new PointerEvent('pointerdown', {{ bubbles: true, button: 0 }})); \
+        if (held) try {{ lineDrop(p); }} catch (e) {{}} \
+        return r; }})()"), 30);
     r["cardOpened"] = json!(until(&|| hits() == 3));
     // The Overview's Approve on a session that waits for you: Enter on it keeps its own action, a click opens that session.
     r["approve"] = ask_for(app, panel::LABEL, "(async () => { const w = ms => new Promise(o => setTimeout(o, ms)); showTab('overview'); \

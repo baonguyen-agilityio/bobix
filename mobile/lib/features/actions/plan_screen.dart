@@ -1,0 +1,321 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:markdown/markdown.dart' as md;
+
+import '../../l10n/l10n.dart';
+import '../../theme/tokens.dart';
+import '../../widgets/glass.dart';
+import '../../widgets/status_banner.dart';
+import 'action_widgets.dart';
+import 'actions_models.dart';
+import 'actions_source.dart';
+import 'command_flow.dart';
+
+/// A plan longer than this many lines is collapsed.
+const planCollapseLines = 16;
+
+final planProvider = FutureProvider.autoDispose.family<PlanDoc, String>(
+  (ref, id) => ref.watch(actionsSourceProvider).plan(id),
+);
+
+/// A link written as text: a plan can hold addresses written by text Claude read, so nothing here opens.
+class _LinkAsText extends MarkdownElementBuilder {
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    final href = element.attributes['href'];
+    final text = element.textContent;
+    return Text(
+      href == null || href == text ? text : '$text ($href)',
+      style: parentStyle,
+    );
+  }
+}
+
+/// The plan as markdown: no remote image is ever requested (the alt text is shown) and links are plain text.
+class PlanMarkdown extends StatelessWidget {
+  const PlanMarkdown(this.data, {super.key});
+  final String data;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final base = TextStyle(fontSize: 14, height: 1.5, color: t.ink);
+    return MarkdownBody(
+      data: data,
+      // Autolinked addresses become `a` elements too, and the builder below draws every one of them as text.
+      extensionSet: md.ExtensionSet.gitHubFlavored,
+      builders: {'a': _LinkAsText()},
+      imageBuilder: (uri, title, alt) => Text(
+        alt == null || alt.isEmpty ? '[image]' : '[image: $alt]',
+        style: base.copyWith(color: t.ink3, fontStyle: FontStyle.italic),
+      ),
+      styleSheet: MarkdownStyleSheet(
+        p: base,
+        h1: base.copyWith(fontSize: 22, fontWeight: FontWeight.w700),
+        h2: base.copyWith(fontSize: 19, fontWeight: FontWeight.w700),
+        h3: base.copyWith(fontSize: 16, fontWeight: FontWeight.w600),
+        listBullet: base,
+        strong: base.copyWith(fontWeight: FontWeight.w700),
+        em: base.copyWith(fontStyle: FontStyle.italic),
+        code: base.copyWith(
+          fontFamily: 'Menlo',
+          fontFamilyFallback: const ['Roboto Mono', 'monospace'],
+          fontSize: 12.5,
+          backgroundColor: t.surface3,
+        ),
+        codeblockPadding: const EdgeInsets.all(12),
+        codeblockDecoration: BoxDecoration(
+          color: t.surface2,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(width: .5, color: t.line),
+        ),
+        tableHead: base.copyWith(fontWeight: FontWeight.w700),
+        tableBody: base,
+        tableBorder: TableBorder.all(color: t.lineStrong, width: .5),
+        tableCellsPadding: const EdgeInsets.all(6),
+        blockquoteDecoration: BoxDecoration(
+          color: t.surface2,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        a: base,
+      ),
+    );
+  }
+}
+
+/// A plan waiting for approval: Approve, or Send back with a note.
+class PlanScreen extends ConsumerStatefulWidget {
+  const PlanScreen({super.key, required this.id});
+  final String id;
+
+  @override
+  ConsumerState<PlanScreen> createState() => _PlanScreenState();
+}
+
+class _PlanScreenState extends ConsumerState<PlanScreen> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = ref.watch(stringsProvider);
+    final canSend = ref.watch(canSendProvider);
+    final source = ref.watch(actionsSourceProvider);
+    final plan = ref.watch(planProvider(widget.id));
+    return plan.when(
+      loading: () => ActionPage(
+        title: s('phone.pl.title'),
+        children: const [
+          SizedBox(height: 80),
+          Center(child: CircularProgressIndicator()),
+        ],
+      ),
+      error: (e, _) =>
+          ActionPage(title: s('phone.pl.title'), children: [Text('$e')]),
+      data: (p) {
+        final lines = '\n'.allMatches(p.markdown.trim()).length + 1;
+        final long = lines > planCollapseLines;
+        final collapsed = long && !_open;
+        final c = source.computerName;
+        return ActionPage(
+          title: s('phone.pl.title'),
+          actions: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ActionButton(
+                      s('phone.pl.back'),
+                      onPressed: !canSend
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => PlanNoteScreen(plan: p),
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ActionButton(
+                      s('phone.pl.approve'),
+                      kind: BtnKind.primary,
+                      icon: Icons.lock_outline,
+                      onPressed: !canSend || p.cut
+                          ? null
+                          : () => runCommand(
+                              context,
+                              ref,
+                              kind: CommandKind.approve,
+                              target: p.id,
+                              shown: p.shownHash,
+                              reason: s('phone.un.approve', {'c': c}),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              FinePrint(p.cut ? s('phone.pl.cut.s') : s('phone.pl.auto')),
+            ],
+          ),
+          children: [
+            const SendOffBanner(),
+            if (p.cut)
+              StatusBanner(
+                kind: BannerKind.warn,
+                icon: Icons.content_cut,
+                title: s('phone.pl.cut'),
+                body: s('phone.pl.cut.d'),
+              ),
+            TitleCard(
+              title: s('phone.ask.plan.h'),
+              subtitle: p.sessionName,
+              icon: Icons.fact_check_outlined,
+            ),
+            const SizedBox(height: 12),
+            Glass(
+              padding: const EdgeInsets.all(14),
+              child: collapsed
+                  ? ClipRect(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 320),
+                        child: SingleChildScrollView(
+                          physics: const NeverScrollableScrollPhysics(),
+                          child: PlanMarkdown(p.markdown),
+                        ),
+                      ),
+                    )
+                  : PlanMarkdown(p.markdown),
+            ),
+            if (long)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => setState(() => _open = !_open),
+                  style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
+                  child: Text(
+                    _open
+                        ? s('phone.pl.less')
+                        : s('phone.pl.all', {'n': lines}),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 6),
+            FinePrint(s('phone.pl.text'), align: TextAlign.left),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Send the plan back with a note. The note is optional, as at the computer.
+class PlanNoteScreen extends ConsumerStatefulWidget {
+  const PlanNoteScreen({super.key, required this.plan});
+  final PlanDoc plan;
+
+  @override
+  ConsumerState<PlanNoteScreen> createState() => _PlanNoteScreenState();
+}
+
+class _PlanNoteScreenState extends ConsumerState<PlanNoteScreen> {
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  void _add(String text) {
+    final cur = _note.text;
+    _note.text = cur.isEmpty ? text : '$cur, $text';
+    _note.selection = TextSelection.collapsed(offset: _note.text.length);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = ref.watch(stringsProvider);
+    final t = context.tokens;
+    final canSend = ref.watch(canSendProvider);
+    final c = ref.watch(actionsSourceProvider).computerName;
+    final p = widget.plan;
+    return ActionPage(
+      title: s('phone.pn.title'),
+      actions: SizedBox(
+        width: double.infinity,
+        child: ActionButton(
+          s('phone.pn.send'),
+          kind: BtnKind.primary,
+          icon: Icons.lock_outline,
+          onPressed: !canSend
+              ? null
+              : () => runCommand(
+                  context,
+                  ref,
+                  kind: CommandKind.back,
+                  target: p.id,
+                  shown: p.shownHash,
+                  text: _note.text,
+                  reason: s('phone.un.back', {'c': c}),
+                ),
+        ),
+      ),
+      children: [
+        const SendOffBanner(),
+        Text(
+          s('phone.pn.d', {'n': p.sessionName}),
+          style: TextStyle(fontSize: 14, height: 1.5, color: t.ink2),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          s('phone.pn.l'),
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: t.ink2,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _note,
+          minLines: 4,
+          maxLines: 8,
+          textInputAction: TextInputAction.newline,
+          decoration: InputDecoration(
+            hintText: s('phone.pn.ph'),
+            filled: true,
+            fillColor: t.surface,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: t.lineStrong),
+            ),
+          ),
+          style: TextStyle(fontSize: 16, color: t.ink),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final k in const ['phone.pn.c1', 'phone.pn.c2', 'phone.pn.c3'])
+              ActionChip(
+                label: Text(s(k)),
+                onPressed: () => _add(s(k)),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        FinePrint(s('phone.pn.n'), align: TextAlign.left),
+      ],
+    );
+  }
+}

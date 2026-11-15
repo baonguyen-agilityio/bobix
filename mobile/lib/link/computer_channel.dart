@@ -68,6 +68,10 @@ class ComputerChannel {
     return sealed.packet;
   }
 
+  /// Seals with a counter taken by [nextCounter]: a signed command has its packet counter inside the signature.
+  Uint8List sealWith(BigInt counter, Uint8List plaintext) =>
+      _link.sealWith(counter: counter, plaintext: plaintext);
+
   Future<Opened> open(Uint8List packet) async {
     switch (_link.open(packet: packet)) {
       case OpenedPacket_Message(:final field0):
