@@ -32,6 +32,7 @@ jobs:
           workspaces: |
             src-tauri
             crates/bobix-link
+            relay
       - name: Linux libraries
         if: runner.os == 'Linux'
         timeout-minutes: 8
@@ -81,9 +82,12 @@ jobs:
       - name: Build
         working-directory: src-tauri
         run: cargo build
-      - name: Build the fake phone and the relay stub (cached with the crate's build folder, reused by every run)
+      - name: Build the fake phone (cached with the crate's build folder, reused by every run)
         working-directory: crates/bobix-link
-        run: cargo build --example fake-phone --example relay-stub
+        run: cargo build --example fake-phone
+      - name: Build the relay (cached with its own build folder, reused by every run)
+        working-directory: relay
+        run: cargo build
       - name: Start a virtual display (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -100,14 +104,14 @@ jobs:
           export BOBIX_DATA_DIR="$RUNNER_TEMP/bobix-data" BOBIX_HOME="$RUNNER_TEMP/bobix-home"
           # Linux: take the path of an Ubuntu Wayland desktop (XWayland).
           if [ "$RUNNER_OS" = Linux ]; then export XDG_SESSION_TYPE=wayland; fi
-          # Phone access: the app is driven through pairing, answering and revoking by the fake phone, against the crate's relay
-          # stub (the real relay's `--dev` replaces it once it is in this branch). Keys go to a file in BOBIX_DATA_DIR, never the OS keychain.
-          EX="$(cd crates/bobix-link/target/debug/examples && pwd)"; EXT=""
+          # Phone access: the app is driven through pairing, answering and revoking by the fake phone, against `relay --dev`
+          # (plain ws on loopback). Keys go to a file in BOBIX_DATA_DIR, never the OS keychain.
+          EX="$(cd crates/bobix-link/target/debug/examples && pwd)"; RX="$(cd relay/target/debug && pwd)"; EXT=""
           if [ "$RUNNER_OS" = Windows ]; then EX="$(cygpath -m "$EX")"; EXT=".exe"; fi
-          "$EX/relay-stub$EXT" > relay.log 2>&1 &
+          RELAY_ADDR=127.0.0.1:8787 "$RX/bobix-relay$EXT" --dev > relay.log 2>&1 &
           RELAY_PID=$!
-          for i in $(seq 1 50); do [ -s relay.log ] && break; sleep 0.2; done
-          export BOBIX_SMOKE_PHONES="$(head -1 relay.log)|$EX/fake-phone$EXT"
+          for i in $(seq 1 50); do grep -q listening relay.log && break; sleep 0.2; done
+          export BOBIX_SMOKE_PHONES="ws://127.0.0.1:8787|$EX/fake-phone$EXT"
           ./src-tauri/target/debug/bobix > smoke.log 2>&1 &
           for i in $(seq 1 240); do [ -f smoke-out/done ] && break; sleep 1; done
           kill $RELAY_PID > /dev/null 2>&1 || true

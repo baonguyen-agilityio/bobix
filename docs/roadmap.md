@@ -10,7 +10,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 Nothing yet: `develop` is v0.2.0-rc.9.
 
-On the integration branch `feat/phone-access` (not on `develop`): phone access on the desktop (Settings → Phones, off by default). Verified with `fake-phone` against the link crate's relay stub on macOS; the real relay, Windows, Linux (the keychain, the input time) and the phone app are not verified yet.
+On the integration branch `feat/phone-access` (not on `develop`): phone access on the desktop (Settings → Phones, off by default). Verified with `fake-phone` against `relay --dev` on macOS; Windows, Linux (the keychain, the input time) and the phone app are not verified yet.
 
 ## 2. In the test builds (v0.2.0-rc.1 to rc.9), no stable release yet
 
