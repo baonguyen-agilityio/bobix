@@ -1227,7 +1227,8 @@ test('phone strings: every phone.* key has EN and VI with the same {names}, and 
   const { render, renderInfoPlist } = await import(require('url').pathToFileURL(gen).href); // a Windows path is not a valid import specifier
   assert.throws(() => render({ en: { 'phone.a': 'A' }, vi: {} }), /phone\.a has no vi text/);
   assert.throws(() => renderInfoPlist({ en: { 'phone.faceid.usage': 'x' }, vi: {} }, 'vi'), /no vi text/);
-  assert.ok(renderInfoPlist({ en: { 'phone.faceid.usage': 'say "hi"' } }, 'en').includes('"say \\"hi\\"";'), 'quotes are escaped');
+  assert.throws(() => renderInfoPlist({ en: { 'phone.faceid.usage': 'x' } }, 'en'), /phone\.camera\.usage has no en text/);
+  assert.ok(renderInfoPlist({ en: { 'phone.faceid.usage': 'say "hi"', 'phone.camera.usage': 'cam' } }, 'en').includes('"say \\"hi\\"";'), 'quotes are escaped');
   assert.throws(() => render({ en: { 'phone.a': 'A {n}' }, vi: { 'phone.a': 'B' } }), /different \{placeholders\}/);
   assert.ok(render({ en: { 'phone.a': "it's $5" }, vi: { 'phone.a': 'x' } }).includes("'it\\'s \\$5'"));
 });
