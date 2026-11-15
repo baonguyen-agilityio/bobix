@@ -59,7 +59,7 @@ class SettingsScreen extends ConsumerWidget {
                     }),
                   state(status?.conn),
                 ].join(' · '),
-                trailing: _DisconnectButton(computer: computer.name),
+                below: _DisconnectButton(computer: computer.name),
               ),
               _Row(
                 icon: Icons.qr_code_scanner,
@@ -249,6 +249,7 @@ class _Row extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.trailing,
+    this.below,
     this.onTap,
     this.iconColor,
     this.muted = false,
@@ -261,6 +262,9 @@ class _Row extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? trailing;
+
+  /// Under the text, on its own line, so a large font never pushes it out of the row.
+  final Widget? below;
   final VoidCallback? onTap;
   final Color? iconColor;
   final bool muted, chevron, toggle, toggled;
@@ -298,6 +302,11 @@ class _Row extends StatelessWidget {
                           height: 1.35,
                           color: t.ink3,
                         ),
+                      ),
+                    if (below != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: below!,
                       ),
                   ],
                 ),

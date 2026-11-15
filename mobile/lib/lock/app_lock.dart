@@ -34,6 +34,9 @@ class _AppLockState extends ConsumerState<AppLock> {
   bool _locked = true;
   bool _covered = false;
   bool _asking = false;
+
+  /// The check was already asked for since the app was locked: it is not asked again by itself (the button does).
+  bool _askedThisLock = false;
   AppAuth? _lastAnswer;
 
   @override
@@ -47,6 +50,7 @@ class _AppLockState extends ConsumerState<AppLock> {
       onHide: () => setState(() {
         _covered = true;
         _locked = true;
+        _askedThisLock = false;
       }),
       onResume: () {
         setState(() => _covered = false);
@@ -69,12 +73,15 @@ class _AppLockState extends ConsumerState<AppLock> {
   }
 
   void _askIfNeeded() {
-    if (mounted && _locked && _needed && !_covered) unawaited(_ask());
+    // Not before the settings were read: the switch may be off.
+    if (!mounted || !ref.read(settingsProvider).hasValue) return;
+    if (_locked && _needed && !_covered && !_askedThisLock) unawaited(_ask());
   }
 
   Future<void> _ask() async {
     if (_asking) return;
     _asking = true;
+    _askedThisLock = true;
     final reason = ref.read(stringsProvider)('phone.lock.reason');
     final answer = await ref
         .read(secureKeysProvider)
@@ -95,7 +102,10 @@ class _AppLockState extends ConsumerState<AppLock> {
     // Settings and the pairing change what is needed: asking starts as soon as the app is locked and needs it.
     ref.listen(settingsProvider, (_, _) => _askIfNeeded());
     ref.listen(pairedComputerProvider, (_, _) => _askIfNeeded());
-    final locked = _locked && _needed;
+    // Watched, so the screen follows the switch and the pairing as they change.
+    final paired = ref.watch(pairedComputerProvider) != null;
+    final on = ref.watch(settingsProvider).value?.requireUnlock ?? true;
+    final locked = _locked && paired && on;
     return Stack(
       textDirection: TextDirection.ltr,
       children: [

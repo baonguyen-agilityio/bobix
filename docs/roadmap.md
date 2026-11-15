@@ -15,6 +15,7 @@ On the integration branch `feat/phone-access` (not on `develop`): **phone access
   - macOS: the input time with the screen locked, the tokio wait across a real sleep, and the sleep notice (macOS only; elsewhere the relay's ping shows the computer offline).
   - Sessions opened by the Claude desktop app (Stop, interrupt).
   - Windows: the hint that a command approved at the computer has started (a new child of the Claude process) does not work yet, because `procs::children` lists nothing there ([#253](https://github.com/baonguyen-agilityio/bobix/issues/253)); a phone's answer to such a request is told `ok` until the command ends. The hint is advisory and never closes a request.
+  - The phone app's Settings, app lock, cover and Send feedback: built and tested with widget tests and a run in the iOS Simulator (pairing, Settings, the computer sheet, Vietnamese). **Not verified:** the lock prompt itself (the simulator's debug key mode always answers yes), the cover and lock on a real iPhone, and anything on Android (the biometric prompt and the screen-capture block are written, not compiled). A phone with no passcode or biometrics cannot lock and opens. "Hide details" joins the Safety group once the push branch lands.
   - A real phone: the phone app, push through Apple and Google, and the relay deployed on its own domain with `relay-health.yml` watching it (set the repository variable `RELAY_URL`).
   - The independent security review of the trust boundary and the whole acceptance list on three OSes are the open part of #252.
 

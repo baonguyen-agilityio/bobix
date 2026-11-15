@@ -84,6 +84,8 @@ class AppSettingsStore {
 }
 
 class SettingsController extends AsyncNotifier<AppSettings> {
+  Future<void> _saving = Future.value();
+
   @override
   Future<AppSettings> build() async {
     final AppSettings s;
@@ -98,27 +100,34 @@ class SettingsController extends AsyncNotifier<AppSettings> {
     return s;
   }
 
-  Future<void> _set(AppSettings s) async {
+  /// A change waits for the saved settings to be read first, so it is made on them and the late read cannot undo it.
+  Future<void> _change(AppSettings Function(AppSettings) f) async {
+    final loaded = await future;
+    final s = f(
+      state.value ?? loaded,
+    ); // the latest, when another change came in meanwhile
     state = AsyncData(s);
-    try {
+    // One write after another: two at once would share the temporary file.
+    _saving = _saving.catchError((Object _) {}).then((_) async {
       await AppSettingsStore(await ref.read(supportDirectoryProvider.future))
           .save(s);
+    });
+    try {
+      await _saving;
     } on Object {
       // The choice holds for this run; it is kept again at the next change.
     }
   }
 
-  AppSettings get _now => state.value ?? const AppSettings();
-
-  Future<void> setTheme(ThemeChoice t) => _set(_now.copyWith(theme: t));
+  Future<void> setTheme(ThemeChoice t) => _change((s) => s.copyWith(theme: t));
 
   Future<void> setLanguage(String lang) {
     ref.read(langProvider.notifier).set(lang);
-    return _set(_now.copyWith(language: lang));
+    return _change((s) => s.copyWith(language: lang));
   }
 
   Future<void> setRequireUnlock(bool on) =>
-      _set(_now.copyWith(requireUnlock: on));
+      _change((s) => s.copyWith(requireUnlock: on));
 }
 
 final settingsProvider = AsyncNotifierProvider<SettingsController, AppSettings>(
