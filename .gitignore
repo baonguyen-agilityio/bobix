@@ -24,3 +24,5 @@ crates/*/fuzz/corpus/
 crates/*/fuzz/artifacts/
 # Phone app: the Rust core's build output
 mobile/rust/target/
+# Phone app: per-developer iOS settings (the Apple team), see mobile/ios/Flutter/Local.xcconfig.example
+mobile/ios/Flutter/Local.xcconfig
