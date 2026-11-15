@@ -5,7 +5,8 @@ import UserNotifications
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var secureKeys: SecureKeysChannel?
-  private let push = PushBridge()
+  let push = PushBridge()
+  private let surfaces = SurfacesBridge()
 
   override func application(
     _ application: UIApplication,
@@ -25,6 +26,7 @@ import UserNotifications
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     secureKeys = SecureKeysChannel(messenger: engineBridge.applicationRegistrar.messenger())
     push.attach(messenger: engineBridge.applicationRegistrar.messenger())
+    surfaces.attach(messenger: engineBridge.applicationRegistrar.messenger())
   }
 
   override func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

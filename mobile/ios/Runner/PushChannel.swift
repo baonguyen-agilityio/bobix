@@ -65,9 +65,18 @@ final class PushBridge {
     didTap(userInfo: response.notification.request.content.userInfo)
   }
 
+  /// A widget, activity or control link: the same way a notification tap reaches Dart.
+  func didOpen(url: URL) {
+    guard let tap = SurfaceLink.tap(url) else { return }
+    deliver(tap)
+  }
+
   func didTap(userInfo: [AnyHashable: Any]) {
     guard let r = PushRoute.parse(userInfo) else { return }
-    let tap = ["computer": r.computer, "ref": r.ref, "kind": r.kind]
+    deliver(["computer": r.computer, "ref": r.ref, "kind": r.kind])
+  }
+
+  private func deliver(_ tap: [String: String]) {
     if dartListening, let channel { channel.invokeMethod("tap", arguments: tap) } else { pendingTap = tap }
   }
 

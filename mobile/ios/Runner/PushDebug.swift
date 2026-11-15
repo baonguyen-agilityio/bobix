@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import UIKit
+import ActivityKit
 import UserNotifications
 
 /// Debug builds only. The simulator never starts a notification service extension for `simctl push`, so the same opener
@@ -8,6 +9,8 @@ import UserNotifications
 ///
 ///   -bobix-seed-push <fixtures.json>      stores the fixture's `box` key and paired computer, as pairing will
 ///   -bobix-register-push <file>           asks for permission, registers with APNs and writes the device token to <file>
+///   -bobix-seed-surfaces <folder>         writes a made-up shared list and the pets' images from <folder>/pets for the
+///                                         widgets, reloads them and starts a Live Activity
 ///   -bobix-simulate-push <push.json>      `{"identifier": "...", "sealed": "..."}`: opens it and shows the result as a
 ///                                         notification, the way the extension would, replacing earlier ones of its request
 ///
@@ -17,12 +20,40 @@ enum PushDebug {
     let a = ProcessInfo.processInfo.arguments
     if let i = a.firstIndex(of: "-bobix-seed-push"), i + 1 < a.count { seed(a[i + 1]) }
     if let i = a.firstIndex(of: "-bobix-simulate-push"), i + 1 < a.count { simulate(a[i + 1]) }
+    if let i = a.firstIndex(of: "-bobix-seed-surfaces"), i + 1 < a.count { seedSurfaces(a[i + 1]) }
     if a.contains("-bobix-register-push") {
       UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, e in
         NSLog("bobix register: permission granted=\(granted) error=\(e.map { "\($0)" } ?? "none")")
         DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
       }
     }
+  }
+
+  private static func seedSurfaces(_ folder: String) {
+    guard let dir = SharedListStore.directory() else { return NSLog("bobix surfaces: no app group") }
+    let now = Int64(Date().timeIntervalSince1970 * 1000)
+    let list = SharedList(
+      written: now, computerName: "Studio Mac", computerState: "online", todo: 2, canStart: true,
+      rows: [
+        .init(id: "w0", name: "Add a dark mode switch", project: "shop", state: "waiting", pet: "default", color: 0, ref: "r0", computer: "c1"),
+        .init(id: "w1", name: "Speed up the search page", project: "blog", state: "waiting", pet: "nota", color: 1, ref: "r1", computer: "c1"),
+        .init(id: "x", name: "Fix the cart total", project: "shop", state: "working", pet: "tty", color: 2),
+      ])
+    let fm = FileManager.default
+    try? fm.createDirectory(at: dir.appendingPathComponent("pets"), withIntermediateDirectories: true)
+    for f in (try? fm.contentsOfDirectory(atPath: folder + "/pets")) ?? [] {
+      let to = dir.appendingPathComponent("pets/" + f)
+      try? fm.removeItem(at: to)
+      try? fm.copyItem(atPath: folder + "/pets/" + f, toPath: to.path)
+    }
+    try? SharedListStore.save(list, to: dir)
+    SurfacesBridge.reloadSurfaces()
+    let state = BobixActivityAttributes.ContentState(
+      waiting: 2, names: ["Add a dark mode switch", "Speed up the search page"], written: now, computerName: "Studio Mac")
+    do {
+      let a = try Activity.request(attributes: BobixActivityAttributes(computerId: "c1"), content: .init(state: state, staleDate: nil), pushType: nil)
+      NSLog("bobix surfaces: list written, activity started \(a.id)")
+    } catch { NSLog("bobix surfaces: list written, no activity: \(error)") }
   }
 
   /// Where the debug registration writes the token (the file named after `-bobix-register-push`), or nil.
