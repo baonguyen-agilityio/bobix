@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-phones-enable"
+description = "Enables the phones_enable command without any pre-configured scope."
+commands.allow = ["phones_enable"]
+
+[[permission]]
+identifier = "deny-phones-enable"
+description = "Denies the phones_enable command without any pre-configured scope."
+commands.deny = ["phones_enable"]

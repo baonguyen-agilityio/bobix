@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-phones-pair-confirm"
+description = "Enables the phones_pair_confirm command without any pre-configured scope."
+commands.allow = ["phones_pair_confirm"]
+
+[[permission]]
+identifier = "deny-phones-pair-confirm"
+description = "Denies the phones_pair_confirm command without any pre-configured scope."
+commands.deny = ["phones_pair_confirm"]
