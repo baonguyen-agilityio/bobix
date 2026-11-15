@@ -564,7 +564,7 @@ const Map<String, Map<String, String>> phoneStrings = {
     'phone.res.sending': 'Đang gửi…',
     'phone.res.stale.d': '{c} đang giữ nội dung khác. Chưa có gì được áp dụng. Hãy mở lại, đọc nội dung mới rồi trả lời.',
     'phone.res.stale.t': 'Nội dung đã đổi',
-    'phone.res.title': 'Kết quả',
+    'phone.res.title': 'Đã gửi',
     'phone.res.wd.late.d': '{c} đã thức dậy và đã áp dụng câu trả lời.',
     'phone.res.wd.late.t': 'Rút lại đã muộn',
     'phone.res.wd.t': 'Đã rút lại',
