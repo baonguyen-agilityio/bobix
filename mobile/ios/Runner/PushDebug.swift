@@ -1,11 +1,13 @@
 #if DEBUG
 import Foundation
+import UIKit
 import UserNotifications
 
 /// Debug builds only. The simulator never starts a notification service extension for `simctl push`, so the same opener
 /// the extension runs (`PushOpener`) is driven from launch arguments instead:
 ///
 ///   -bobix-seed-push <fixtures.json>      stores the fixture's `box` key and paired computer, as pairing will
+///   -bobix-register-push <file>           asks for permission, registers with APNs and writes the device token to <file>
 ///   -bobix-simulate-push <push.json>      `{"identifier": "...", "sealed": "..."}`: opens it and shows the result as a
 ///                                         notification, the way the extension would, replacing earlier ones of its request
 ///
@@ -15,6 +17,24 @@ enum PushDebug {
     let a = ProcessInfo.processInfo.arguments
     if let i = a.firstIndex(of: "-bobix-seed-push"), i + 1 < a.count { seed(a[i + 1]) }
     if let i = a.firstIndex(of: "-bobix-simulate-push"), i + 1 < a.count { simulate(a[i + 1]) }
+    if a.contains("-bobix-register-push") {
+      UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, e in
+        NSLog("bobix register: permission granted=\(granted) error=\(e.map { "\($0)" } ?? "none")")
+        DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
+      }
+    }
+  }
+
+  /// Where the debug registration writes the token (the file named after `-bobix-register-push`), or nil.
+  static func recordToken(_ hex: String) {
+    let a = ProcessInfo.processInfo.arguments
+    guard let i = a.firstIndex(of: "-bobix-register-push"), i + 1 < a.count else { return }
+    try? hex.write(toFile: a[i + 1], atomically: true, encoding: .utf8)
+    NSLog("bobix register: token received (\(hex.count) characters)")
+  }
+
+  static func recordFailure(_ error: Error) {
+    NSLog("bobix register: APNs registration failed: \(error)")
   }
 
   private static func json(_ path: String) -> [String: Any]? {

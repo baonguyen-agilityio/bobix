@@ -29,11 +29,17 @@ import UserNotifications
 
   override func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
     push.didRegister(deviceToken: deviceToken)
+    #if DEBUG
+    PushDebug.recordToken(deviceToken.map { String(format: "%02x", $0) }.joined())
+    #endif
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
   }
 
   override func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
     push.didFailToRegister(error)
+    #if DEBUG
+    PushDebug.recordFailure(error)
+    #endif
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
 
