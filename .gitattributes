@@ -3,3 +3,5 @@
 mobile/lib/l10n/strings.g.dart text eol=lf
 mobile/test/fixtures/creature-fixtures.json text eol=lf
 mobile/ios/Runner/*.lproj/InfoPlist.strings text eol=lf
+mobile/ios/Runner/*.lproj/Localizable.strings text eol=lf
+mobile/ios/NotificationService/*.lproj/Localizable.strings text eol=lf
