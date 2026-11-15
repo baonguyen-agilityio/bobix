@@ -33,6 +33,8 @@ pub struct Config {
     pub relay: String,
     // when the pets are hidden or paused: "phone" keeps requests for my phone, "computer" lets Claude ask at the computer
     pub hold: String,
+    // keep the computer awake while a session works or waits (needs the switch on)
+    pub awake: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -97,6 +99,7 @@ pub struct State {
     results: HashMap<String, (CmdResult, u64)>, // by cid, kept 24 hours
     pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
     notified: HashSet<String>,
+    awake: crate::awake::Awake,
     starting: HashSet<String>,                  // issues a start from a phone is running for: one at a time
     last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
     deferred: Vec<(String, String, u64)>, // (pid of a `revoked` message, phone id, when): the relay is told to revoke once the phone has it
@@ -369,6 +372,8 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         st.send_close(); // the link reconnects to the new address
     }
     st.results.retain(|_, r| t < r.1 + RESULT_KEEP_MS);
+    let busy = sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
+    st.awake.set(st.cfg.awake && st.cfg.on && busy);
     let mut flushed = st.flush_revokes(None, t);
     // a request held only for the phones: the first input at the computer marks it released (no more pushes; still answerable)
     if pending.values().any(|p| p.for_phones && !p.released) {
@@ -746,7 +751,7 @@ pub fn view(b: &Arc<Bobix>) -> Value {
                 "name": p.offer.as_ref().map(|o| &o.name), "asked": p.offer.as_ref().map(|o| o.rights), "warning": p.warning })
         }
     };
-    json!({ "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "node": node,
+    json!({ "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
         "canRead": !st.cfg.on || crate::presence::source().idle_ms().is_some(), "deviceId": st.computer_id(), "storage": format!("{:?}", st.storage.unwrap_or(crate::secrets::Storage::Keychain)),
         "phones": st.store.phones.iter().map(|p| json!({ "id": p.id, "name": p.name, "rights": p.rights, "since": p.since, "needsPairing": p.needs_pairing, "noPush": p.no_push })).collect::<Vec<_>>(),
         "revoked": st.store.revoked.len(), "moving": st.moving.is_some(), "linked": st.tx.is_some(), "pairing": pairing })
@@ -767,6 +772,7 @@ pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
             for id in ids { out.extend(st.disconnect(&id, "phone access was turned off")); }
             st.cfg.on = false;
             st.pairing = None;
+            st.awake.release();
             st.status = "off".into();
             if st.revoking.is_none() { st.send_close(); }
         }
@@ -896,6 +902,8 @@ pub fn set_hold(b: &Arc<Bobix>, hold: &str) -> Value {
     { let mut c = b.core.lock().unwrap(); c.phones.cfg.hold = if hold == "computer" { "computer".into() } else { "phone".into() }; c.phones.save_cfg(); }
     view(b)
 }
+
+pub fn set_awake(b: &Arc<Bobix>, on: bool) { let mut c = b.core.lock().unwrap(); c.phones.cfg.awake = on; c.phones.save_cfg(); }
 
 pub fn log(b: &Arc<Bobix>) -> Value { json!(b.core.lock().unwrap().phones.log.iter().rev().collect::<Vec<_>>()) }
 

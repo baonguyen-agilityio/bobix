@@ -1259,6 +1259,7 @@ function phonesSettingsHTML() {
       <p class="note">${esc(T('phones.status'))}: ${esc(T('phones.status.' + statusKey))}${d.moving ? ' · ' + esc(T('phones.relay.moving')) : ''}</p>${phoneErr ? `<p class="note err">${esc(phoneErr)}</p>` : ''}</div></div>
     ${d.deviceId ? `<div class="opt wide"><div><div class="lbl">${esc(T('phones.device'))}</div><div><code>${esc(d.deviceId)}</code> <button class="btn sm" type="button" data-act="phones-copy">${esc(T('phones.copy'))}</button></div><p class="note">${esc(T('phones.invite.hint'))}</p></div></div>` : ''}
     ${d.on && !d.node ? `<div class="opt wide"><p class="note err">${esc(T('phones.node'))}</p></div>` : ''}
+    <div class="opt"><div><div class="lbl" id="l-phonesAwake">${esc(T('phones.awake'))}</div><div class="desc">${esc(T('phones.awake.note'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesAwake" data-phones-awake ${d.awake ? 'checked' : ''}></div></div>
     <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.hold.title'))}</div>${d.canRead === false ? `<p class="note">${esc(T('phones.hold.why'))}</p>` : ''}
       <label class="chk"><input type="radio" name="phone-hold" data-hold="phone" ${d.hold !== 'computer' ? 'checked' : ''}> ${esc(T('phones.hold.phone'))}</label>
       <label class="chk"><input type="radio" name="phone-hold" data-hold="computer" ${d.hold === 'computer' ? 'checked' : ''}> ${esc(T('phones.hold.computer'))}</label></div></div>
@@ -3128,6 +3129,7 @@ $('#settings').addEventListener('change', e => {
     return phonesDo(bridge.phonesEnable(on));
   }
   if (t.dataset.hold) return phonesDo(bridge.phonesEnable(null, t.dataset.hold));
+  if (t.matches('[data-phones-awake]')) return phonesDo(bridge.phonesEnable(null, null, t.checked));
   if (t.dataset.pr === 'new') { phoneRights[t.dataset.r] = t.checked; return; }
   if (t.dataset.pr?.startsWith('row:')) {
     const rights = {};

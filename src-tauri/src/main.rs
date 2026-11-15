@@ -5,6 +5,7 @@
 
 mod answers;
 mod autostart;
+mod awake;
 mod clones;
 mod effects;
 mod feedback;
@@ -1944,8 +1945,9 @@ fn question_answer(id: String, answers: Vec<String>, b: B) -> bool { answers::an
 fn phones_state(b: B) -> Value { phones::view(&b) }
 // on: the switch; hold: "phone" | "computer" (when the pets are hidden or paused). Either may be left out.
 #[tauri::command]
-fn phones_enable(on: Option<bool>, hold: Option<String>, b: B) -> Result<Value, String> {
+fn phones_enable(on: Option<bool>, hold: Option<String>, awake: Option<bool>, b: B) -> Result<Value, String> {
     if let Some(h) = hold { phones::set_hold(&b, &h); }
+    if let Some(a) = awake { phones::set_awake(&b, a); }
     match on { Some(on) => phones::enable(&b, on), None => Ok(phones::view(&b)) }
 }
 #[tauri::command]
