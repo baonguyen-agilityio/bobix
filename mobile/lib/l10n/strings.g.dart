@@ -1085,7 +1085,7 @@ const Map<String, Map<String, String>> phoneStrings = {
     'phone.wgs.rect': 'Chữ nhật',
     'phone.wgs.s.empty': 'Không có việc',
     'phone.wgs.s.normal': 'Bình thường',
-    'phone.wgs.s.offline': 'Offline',
+    'phone.wgs.s.offline': 'Ngoại tuyến',
     'phone.wgs.safe': 'Widget không bao giờ tự trả lời yêu cầu. Mọi nút đều mở Bobix, và trả lời vẫn hỏi {os}.',
     'phone.wgs.small': 'Nhỏ',
     'phone.wgs.state': 'Trạng thái xem thử',

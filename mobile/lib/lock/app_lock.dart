@@ -237,7 +237,7 @@ class CoverScreen extends ConsumerWidget {
       container: true,
       explicitChildNodes: true,
       child: Material(
-        color: Colors.transparent,
+        color: t.bg,
         child: Center(
           child: Text(
             'Bobix',

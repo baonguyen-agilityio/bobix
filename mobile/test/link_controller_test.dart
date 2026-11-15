@@ -9,6 +9,7 @@ import 'package:phone/keys/secure_keys.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/link/pairing_controller.dart';
+import 'package:phone/log/activity_log.dart';
 import 'package:phone/src/rust/api/core.dart';
 import 'package:phone/src/rust/api/messages.dart';
 
@@ -147,5 +148,53 @@ void main() {
     expect(c.read(linkControllerProvider).value, isA<Unpaired>());
     expect(await LinkStateStore(tmp).exists(), isFalse);
     expect(c.read(pairingControllerProvider).step, PairStep.scan);
+  });
+
+  LogEntry old(String session) => LogEntry(
+    at: DateTime(2026, 11, 13, 20, 35),
+    kind: LogKind.allow,
+    sessionId: session,
+    project: 'p',
+    detail: 'npm test',
+  );
+
+  test('disconnect clears the log of that computer and leaves one disconnected line', () async {
+    await storePairing();
+    final c = container();
+    await phaseOf(c);
+    c.read(activityLogProvider.notifier)
+      ..record(old('s1'))
+      ..record(old('s2'));
+    await c.read(linkControllerProvider.notifier).disconnect();
+    final log = c.read(activityLogProvider);
+    expect(log, hasLength(1));
+    expect(log.single.kind, LogKind.disconnect);
+    expect(log.single.detail, 'Studio Mac (demo)');
+    expect(c.read(taskLogProvider('s1')), isEmpty);
+    expect(c.read(appLogProvider), hasLength(1));
+  });
+
+  test('erase and pair again does the same', () async {
+    await storePairing();
+    final c = container();
+    await phaseOf(c);
+    c.read(activityLogProvider.notifier).record(old('s1'));
+    await c.read(linkControllerProvider.notifier).eraseAndPairAgain();
+    expect(c.read(activityLogProvider).map((e) => e.kind), [
+      LogKind.disconnect,
+    ]);
+  });
+
+  test('a pairing that just ended well writes one paired line', () async {
+    final c = container();
+    await phaseOf(c);
+    await storePairing();
+    final stored = (await LinkStateStore(tmp).load())!;
+    await c.read(linkControllerProvider.notifier).paired(stored);
+    final log = c.read(activityLogProvider);
+    expect(log.map((e) => e.kind), [LogKind.pair]);
+    expect(log.single.detail, 'Studio Mac (demo)');
+    final phase = c.read(linkControllerProvider).value;
+    if (phase is Paired) await phase.link.dispose();
   });
 }

@@ -1969,7 +1969,7 @@
       'phone.wgs.state': 'Trạng thái xem thử',
       'phone.wgs.s.normal': 'Bình thường',
       'phone.wgs.s.empty': 'Không có việc',
-      'phone.wgs.s.offline': 'Offline',
+      'phone.wgs.s.offline': 'Ngoại tuyến',
       'phone.wgs.home': 'Widget màn hình chính',
       'phone.wgs.small': 'Nhỏ',
       'phone.wgs.medium': 'Vừa',
