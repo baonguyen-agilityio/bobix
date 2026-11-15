@@ -6,6 +6,7 @@ import java.io.File
 import java.security.KeyPairGenerator
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
+import javax.crypto.AEADBadTagException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -21,6 +22,28 @@ class KeyStoreAndManifestTest {
             val bytes = KeyStore.x963(gen.generateKeyPair().public as ECPublicKey)
             assertEquals(65, bytes.size)
             assertEquals(4, bytes[0].toInt())
+        }
+    }
+
+    @Test
+    fun onlyAKeyThatIsDefinitelyGoneReadsAsNoSecret() {
+        assertEquals(null, KeyStore.guardRead<ByteArray> { throw AEADBadTagException("corrupt") })
+        assertEquals(null, KeyStore.guardRead<ByteArray> { null })
+        assertEquals(3, KeyStore.guardRead { 3 })
+        val temporary = listOf<Exception>(
+            java.security.KeyStoreException("keystore2 is restarting"),
+            java.security.UnrecoverableKeyException("busy"),
+            java.security.InvalidKeyException("busy"),
+            java.io.IOException("disk"),
+            IllegalArgumentException("odd"),
+        )
+        for (e in temporary) {
+            try {
+                KeyStore.guardRead<ByteArray> { throw e }
+                org.junit.Assert.fail("${e::class.simpleName} must not read as gone")
+            } catch (expected: KeyStore.KeyError) {
+                assertTrue(expected.cause === e)
+            }
         }
     }
 
