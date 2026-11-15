@@ -73,6 +73,7 @@ jobs:
         working-directory: .
         run: |
           node mobile/tool/strings.mjs --check
+          node mobile/tool/crate-vectors.mjs --check
           node test/creature-fixtures.js --check
       # The generated bridge (lib/src/rust, rust/src/frb_generated.rs) is committed and is not regenerated here:
       # flutter_rust_bridge_codegen needs `cargo expand` and a second toolchain. Staleness is caught without it: a changed
@@ -82,8 +83,8 @@ jobs:
 
       - name: Rust core
         run: |
-          cargo clippy --manifest-path rust/Cargo.toml -- -D warnings
-          cargo build --manifest-path rust/Cargo.toml
+          cargo clippy --locked --manifest-path rust/Cargo.toml -- -D warnings
+          cargo build --locked --manifest-path rust/Cargo.toml
       - run: flutter analyze
       - name: Dart tests (the shared crate's test vectors through the bridge, on this computer)
         run: flutter test
@@ -110,3 +111,9 @@ jobs:
         run: |
           flutter test integration_test/core_vectors_test.dart -d "${{ steps.sim.outputs.udid }}"
           flutter test integration_test/secure_keys_test.dart -d "${{ steps.sim.outputs.udid }}" --dart-define=BOBIX_SOFTWARE_KEY=true
+
+      # Last, so its build mode does not leak into the steps above: what ships. The Release configuration drops the debug-only
+      # software signing key (`#if !DEBUG` in SecureKeys.swift) and builds the Rust core for a device (aarch64-apple-ios),
+      # neither of which a simulator Debug build compiles. No signing: the job has no certificate.
+      - name: Release build for a device, without signing (prod flavor)
+        run: flutter build ios --release --no-codesign --dart-define=BOBIX_FLAVOR=prod
