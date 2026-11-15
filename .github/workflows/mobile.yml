@@ -65,7 +65,9 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mobile/rust
+          workspaces: |
+            mobile/rust
+            mobile/push-core
       - run: flutter pub get
 
       # Generated files must be what their sources say: the strings and the pets fixtures.
@@ -85,6 +87,11 @@ jobs:
         run: |
           cargo clippy --locked --manifest-path rust/Cargo.toml -- -D warnings
           cargo build --locked --manifest-path rust/Cargo.toml
+      - name: Push core (the receive state both processes share, the notice opener, the grant) and its Swift bindings
+        run: |
+          cargo clippy --locked --manifest-path push-core/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path push-core/Cargo.toml
+          sh tool/push-core.sh bindings --check
       - run: flutter analyze
       - name: Dart tests (the shared crate's test vectors through the bridge, on this computer)
         run: flutter test
@@ -98,9 +105,9 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
       - name: iOS simulator build (cargokit builds the Rust core into the app; the in-app vector test below proves it is there)
         run: flutter build ios --simulator --debug --no-codesign
-      - name: Key store tests (Swift, simulator)
+      - name: Key store and push opener tests (Swift, simulator)
         working-directory: mobile/ios
-        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests -parallel-testing-enabled NO
+        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests -only-testing:RunnerTests/PushOpenerTests -parallel-testing-enabled NO
       # xcodebuild may leave the simulator shut down; Flutter only sees booted simulators, hence "No devices are connected".
       - name: Boot the simulator again and show what Flutter sees
         run: |
