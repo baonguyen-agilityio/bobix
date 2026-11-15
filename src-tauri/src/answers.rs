@@ -152,7 +152,7 @@ fn new_id() -> String {
 
 // Holds session `s`'s request when the person can see it (settings::hold_secs). Called with the core locked.
 // plan: a ticket flow's plan, held until you answer whatever the pets show (it is the flow's one gate).
-pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut HashMap<String, Closed>, phones: &crate::phones::State, settings: &Value, s: &mut Session, e: &Value, plan: bool) -> Option<Reply> {
+pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut HashMap<String, Closed>, phones: &mut crate::phones::State, settings: &Value, s: &mut Session, e: &Value, plan: bool) -> Option<Reply> {
     let mut secs = if plan { f64::INFINITY } else { settings::hold_secs(settings, &s.pet) };
     // nothing is shown to the person here (pets hidden or paused), but a phone is paired and nobody is at the computer: hold it for the phones
     let for_phones = secs == 0.0 && !plan && phones.holds_for_phones(settings, &*crate::presence::source());
@@ -162,6 +162,7 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
     let now = crate::state::now();
     if let Some((oid, old)) = s.answer.as_ref().and_then(|a| a["id"].as_str()).and_then(|id| pending.remove(id).map(|p| (id.to_string(), p))) {
         let _ = old.tx.send(None);
+        phones.closed_events.push((oid.clone(), old.sid.clone(), old.plan)); // the phones told of it are told it is gone
         closed.insert(oid, Closed { plan: old.plan, end: End::Expired, at: now }); // Claude asked again: the old one is moot
     }
     let id = new_id();

@@ -47,6 +47,9 @@ pub struct Phone {
     // a relay move the phone never acknowledged: it has to pair again
     #[serde(default)]
     pub needs_pairing: bool,
+    // the relay said this phone's push grant ended: it gets no notifications until it is opened
+    #[serde(default)]
+    pub no_push: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -94,6 +97,7 @@ pub struct State {
     results: HashMap<String, (CmdResult, u64)>, // by cid, kept 24 hours
     pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
     notified: HashSet<String>,
+    last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
     deferred: Vec<(String, String, u64)>, // (pid of a `revoked` message, phone id, when): the relay is told to revoke once the phone has it
 }
 
@@ -105,6 +109,7 @@ fn store_file(d: &Path) -> PathBuf { d.join("phones.sealed") }
 fn counters_file(d: &Path) -> PathBuf { d.join("phone-counters.json") }
 fn log_file(d: &Path) -> PathBuf { d.join("phone-log.json") }
 fn results_file(d: &Path) -> PathBuf { d.join("phone-results.json") }
+fn deferred_file(d: &Path) -> PathBuf { d.join("phone-revoking.json") }
 
 fn cipher(secrets: &Secrets) -> Result<XChaCha20Poly1305, String> {
     let key = match secrets.get(SEAL_KEY).map_err(|e| e.to_string())? {
@@ -131,6 +136,7 @@ fn write(file: &Path, bytes: &[u8]) {
 }
 
 impl State {
+    fn save_deferred(&self) { write(&deferred_file(&self.dir), &serde_json::to_vec(&self.deferred).unwrap_or_default()); }
     fn save_cfg(&self) { write(&cfg_file(&self.dir), &serde_json::to_vec_pretty(&self.cfg).unwrap_or_default()); }
     fn save_store(&self) {
         let Ok(c) = cipher(&Secrets::open()) else { return };
@@ -190,6 +196,7 @@ impl State {
     // Seals a message to a phone and returns the frame. The counter reservation is stored before the frame leaves.
     pub fn tell(&mut self, id: &str, m: &DesktopMsg, push: Option<Push>, collapse: Option<String>) -> Option<(String, Frame)> {
         let stream = if matches!(m, DesktopMsg::Home(_)) { bobix_link::envelope::Stream::State } else { bobix_link::envelope::Stream::Event };
+        if push.is_some() { self.last_push = Some((id.to_string(), now())); }
         let sealed = self.link_of(id)?.seal(stream, &m.to_json()).ok()?; // a low-order peer key: nothing is sent
         if let Some((s, v)) = sealed.reserve { self.saved.entry(id.into()).or_default().res[s as usize] = v; self.save_counters(); }
         let pid = command::new_cid()[..16].to_string();
@@ -231,6 +238,7 @@ impl State {
             out.push(f);
             self.revoking.get_or_insert_with(|| Revoking { pids: HashSet::new(), since: now() }).pids.insert(pid.clone());
             self.deferred.push((pid, id.into(), now()));
+            self.save_deferred();
         }
         if self.forget(id).is_some() && !delayed { out.extend([Frame::Revoke { id: id.into() }, self.peers_frame()]); }
         out
@@ -246,6 +254,7 @@ impl State {
             } else { keep.push(d); }
         }
         self.deferred = keep;
+        if !out.is_empty() { self.save_deferred(); }
         if !out.is_empty() { out.push(self.peers_frame()); }
         out
     }
@@ -289,8 +298,11 @@ pub fn init(b: &Arc<Bobix>) {
         c.closed = closed;
     }
     let st = &mut c.phones;
+    // revocations that were waiting for the phone's acknowledgement when Bobix closed: connect once to tell the relay
+    st.deferred = read(deferred_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    if !st.deferred.is_empty() { st.revoking = Some(Revoking { pids: st.deferred.iter().map(|d| d.0.clone()).collect(), since: now() }); }
     st.status = if st.cfg.on { "connecting".into() } else { "off".into() };
-    let want = st.cfg.on;
+    let want = st.cfg.on || st.revoking.is_some();
     drop(c);
     if want { start_link(b); }
 }
@@ -394,6 +406,12 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     out
 }
 impl State {
+    // The relay refused a push for an ended grant and names no phone: it is the one the last push went to.
+    fn grant_ended(&mut self, t: u64) {
+        let Some((id, at)) = self.last_push.clone() else { return };
+        if t > at + 10_000 { return; }
+        if let Some(p) = self.store.phones.iter_mut().find(|p| p.id == id) { p.no_push = true; self.save_store(); }
+    }
     // The request was announced to the phones (so a settings change does not hand it back).
     pub fn was_sent(&self, id: &str) -> bool { self.notified.contains(id) }
     #[cfg(test)]
@@ -436,6 +454,7 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
                         ErrorCode::Update => st.status = "update".into(),
                         ErrorCode::RelayUrl => st.status = "url".into(),
                         ErrorCode::Auth => st.status = "auth".into(),
+                        ErrorCode::Grant => st.grant_ended(now()),
                         _ => {}
                     },
                     _ => {}
@@ -466,6 +485,7 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
     let Some(link) = st.link_of(from) else { return vec![] };
     let opened = match link.open(packet) { Ok(o) => o, Err(_) => return vec![] };
     st.remember_recv(from);
+    if let Some(ph) = st.store.phones.iter_mut().find(|p| p.id == from && p.no_push) { ph.no_push = false; st.save_store(); } // it was opened: it can register a new grant
     let Ok(msg) = PhoneMsg::from_json(&opened.plaintext) else { return vec![] };
     if msg.validate().is_err() { return vec![]; }
     let rights = st.store.phones.iter().find(|p| p.id == from).map(|p| p.rights).unwrap_or_default();
@@ -560,7 +580,7 @@ fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, no
     match c.pending.get(id) {
         Some(p) if p.plan != plan => return CmdResult::refused(cid, "kind"),
         Some(p) => {
-            if !plan && p.cut && choice == "allow" { return CmdResult::refused(cid, "cut"); }
+            if p.cut && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too: only what was shown is known
             let rights = Rights { answer: true, plan: true, ..Default::default() };
             match crate::phone_view::detail(&c.pending, id, rights) {
                 Ok(d) if command::shown_matches(&d, shown) => {}
@@ -609,8 +629,8 @@ pub fn view(b: &Arc<Bobix>) -> Value {
         }
     };
     json!({ "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "node": node,
-        "deviceId": st.computer_id(), "storage": format!("{:?}", st.storage.unwrap_or(crate::secrets::Storage::Keychain)),
-        "phones": st.store.phones.iter().map(|p| json!({ "id": p.id, "name": p.name, "rights": p.rights, "since": p.since, "needsPairing": p.needs_pairing })).collect::<Vec<_>>(),
+        "canRead": !st.cfg.on || crate::presence::source().idle_ms().is_some(), "deviceId": st.computer_id(), "storage": format!("{:?}", st.storage.unwrap_or(crate::secrets::Storage::Keychain)),
+        "phones": st.store.phones.iter().map(|p| json!({ "id": p.id, "name": p.name, "rights": p.rights, "since": p.since, "needsPairing": p.needs_pairing, "noPush": p.no_push })).collect::<Vec<_>>(),
         "revoked": st.store.revoked.len(), "moving": st.moving.is_some(), "linked": st.tx.is_some(), "pairing": pairing })
 }
 
@@ -697,7 +717,7 @@ pub fn pair_confirm(b: &Arc<Bobix>, granted: Rights) -> Result<Value, String> {
         if !p.session.confirm(now()) { return Err("no pairing".into()); }
         let id = o.phone.device_id();
         if id != o.from { return Err("no pairing".into()); }
-        st.store.phones.push(Phone { id: id.clone(), name: o.name.clone(), auth: b64(&o.phone.auth), boxk: b64(&o.phone.boxk), sign: b64(&o.sign.to_sec1()), rights: r, since: now(), needs_pairing: false });
+        st.store.phones.push(Phone { id: id.clone(), name: o.name.clone(), auth: b64(&o.phone.auth), boxk: b64(&o.phone.boxk), sign: b64(&o.sign.to_sec1()), rights: r, since: now(), needs_pairing: false, no_push: false });
         st.store.revoked.retain(|x| x.id != id);
         st.links.insert(id.clone(), o.link);
         st.save_store();
@@ -766,7 +786,7 @@ pub fn log(b: &Arc<Bobix>) -> Value { json!(b.core.lock().unwrap().phones.log.it
 pub fn on_notify(b: &Arc<Bobix>, kind: &str, sid: &str) {
     let mut c = b.core.lock().unwrap();
     let crate::Core { phones: st, pending, sessions, settings, .. } = &mut *c;
-    if !st.cfg.on || st.store.phones.is_empty() { return; }
+    if !st.cfg.on || st.store.phones.is_empty() || st.status != "online" { return; } // not while the relay is down: a burst of stale notices on reconnect helps no one
     let dnd = settings["dndUntil"].as_f64().unwrap_or(0.0) > now() as f64;
     if dnd || (kind == "waiting" && settings["notifyWaiting"] != true) || (kind == "done" && settings["notifyDone"] != true) { return; }
     let Some(s) = sessions.get(sid) else { return };
@@ -806,7 +826,7 @@ mod tests {
     #[test]
     fn the_list_of_phones_is_sealed() {
         let c = XChaCha20Poly1305::new_from_slice(&[7u8; 32]).unwrap();
-        let s = Store { phones: vec![Phone { id: "ab".into(), name: "SECRET-NAME".into(), auth: "a".into(), boxk: "b".into(), sign: "c".into(), rights: Rights::default(), since: 1, needs_pairing: false }], revoked: vec![] };
+        let s = Store { phones: vec![Phone { id: "ab".into(), name: "SECRET-NAME".into(), auth: "a".into(), boxk: "b".into(), sign: "c".into(), rights: Rights::default(), since: 1, needs_pairing: false, no_push: false }], revoked: vec![] };
         let bytes = seal_store(&c, &s);
         assert!(!String::from_utf8_lossy(&bytes).contains("SECRET-NAME"), "not readable in the file");
         assert_eq!(open_store(&c, &bytes).unwrap().phones[0].name, "SECRET-NAME");
@@ -822,7 +842,7 @@ mod tests {
     fn on_state() -> State {
         let mut st = State::default();
         st.cfg.on = true; st.cfg.hold = "phone".into();
-        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights::default(), since: 0, needs_pairing: false });
+        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights::default(), since: 0, needs_pairing: false, no_push: false });
         st
     }
 
@@ -860,13 +880,18 @@ mod tests {
         held(&mut c, "req", false, "npm test", false);
         held(&mut c, "plan", true, "1. do it", false);
         held(&mut c, "cutreq", false, "echo hi", true);
+        held(&mut c, "cutplan", true, "1. a plan that was cut", true);
         let a = |c: &mut crate::Core, id: &str, sh: &str, choice: &str, plan: bool, ch: &mut bool| apply(c, "cid", id, sh, choice, "", plan, By::Phone, ch, &Rights::default());
         let (sh, shp, shc) = (shown(&c, "req"), shown(&c, "plan"), shown(&c, "cutreq"));
         assert_eq!(a(&mut c, "plan", &shp, "allow", false, &mut changed).why.as_deref(), Some("kind"), "an answer for a plan id");
         assert_eq!(a(&mut c, "req", &sh, "allow", true, &mut changed).why.as_deref(), Some("kind"), "a plan decision for a request id");
         assert_eq!(a(&mut c, "cutreq", &shc, "allow", false, &mut changed).why.as_deref(), Some("cut"), "allow on a cut request");
+        let shcp = shown(&c, "cutplan");
+        assert_eq!(a(&mut c, "cutplan", &shcp, "allow", true, &mut changed).why.as_deref(), Some("cut"), "a cut plan is not approved from a phone");
+        assert!(c.pending.contains_key("cutplan"));
         assert_eq!(a(&mut c, "req", "not what was shown", "allow", false, &mut changed).outcome, Outcome::Stale);
         assert!(c.pending.contains_key("req") && !changed, "nothing was applied");
+        assert_eq!(a(&mut c, "cutplan", &shcp, "deny", true, &mut changed).outcome, Outcome::Ok, "but a cut plan may be sent back");
         assert_eq!(a(&mut c, "cutreq", &shc, "deny", false, &mut changed).outcome, Outcome::Ok, "deny on a cut request is allowed");
         assert_eq!(a(&mut c, "req", &sh, "allow", false, &mut changed).outcome, Outcome::Ok);
         assert_eq!(a(&mut c, "req", &sh, "deny", false, &mut changed).outcome, Outcome::LatePhone, "the second answer is late, with who answered");
@@ -885,5 +910,19 @@ mod tests {
         assert!(plain_body(&plan("use ints\nand a second line")));
         for bad in ["esc \u{1b}[2J", "bidi \u{202e}x", "zero\u{200b}width", "bell \u{7}"] { assert!(!plain_body(&plan(bad)), "{bad:?}"); }
         assert!(!plain_body(&CommandBody::Question { id: "q".into(), answers: vec!["ok".into(), "bad \u{1b}".into()], shown: String::new() }));
+    }
+
+    #[test]
+    fn an_ended_grant_marks_the_phone_the_last_push_went_to() {
+        let mut st = on_state();
+        st.dir = std::env::temp_dir().join("bobix-grant-test");
+        st.grant_ended(1000);
+        assert!(!st.store.phones[0].no_push, "no push yet");
+        st.last_push = Some(("p".into(), 1000));
+        st.grant_ended(1000 + 11_000);
+        assert!(!st.store.phones[0].no_push, "an old push is not blamed");
+        st.grant_ended(1000 + 5_000);
+        assert!(st.store.phones[0].no_push);
+        let _ = std::fs::remove_dir_all(&st.dir);
     }
 }

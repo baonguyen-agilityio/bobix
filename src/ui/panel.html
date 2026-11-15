@@ -1247,7 +1247,7 @@ function phonesSettingsHTML() {
   const p = d.pairing || { state: 'none' };
   const statusKey = ['off', 'connecting', 'online', 'invite', 'update', 'url', 'auth'].includes(d.status) ? d.status : 'connecting';
   const phones = d.phones.map(x => `<li class="ph" data-phone="${esc(x.id)}"><div class="phr"><b data-ph-name></b> <button class="btn sm" type="button" data-ph-off="${esc(x.id)}">${esc(T('phone.disconnect'))}</button></div>
-      <div class="rights">${phoneRightsHTML(x, 'row:' + esc(x.id), x.rights, false)}</div>${x.needsPairing ? `<p class="note err">${esc(T('phone.needs.pair'))}</p>` : ''}</li>`).join('');
+      <div class="rights">${phoneRightsHTML(x, 'row:' + esc(x.id), x.rights, false)}</div>${x.needsPairing ? `<p class="note err">${esc(T('phone.needs.pair'))}</p>` : ''}${x.noPush ? `<p class="note err">${esc(T('phone.nogrant'))}</p>` : ''}</li>`).join('');
   const pairing = !d.on ? '' : p.state === 'open' ? `<div class="opt wide"><div><p>${esc(T('phone.pair.scan'))}</p><div class="qr" data-qr></div><p><button class="btn sm" type="button" data-act="phones-pair-cancel">${esc(T('phone.pair.cancel'))}</button></p></div></div>`
     : p.state === 'offered' ? `<div class="opt wide"><div><p data-pair-asks></p><div class="rights">${phoneRightsHTML(null, 'new', phoneRights, false)}</div>
         <p><button class="btn pri" type="button" data-act="phones-pair-confirm">${esc(T('phone.pair.confirm'))}</button> <button class="btn" type="button" data-act="phones-pair-cancel">${esc(T('phone.pair.cancel'))}</button></p></div></div>`

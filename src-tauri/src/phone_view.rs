@@ -23,8 +23,10 @@ pub fn pet_of(project: &str, id: &str) -> Pet {
 
 // One line of at most `max` bytes: secrets replaced, hidden characters dropped, whitespace folded.
 pub fn preview(text: &str, max: usize) -> String {
-    let (red, _) = room::redact(text);
-    let line: String = red.chars().filter(|c| !is_odd_char(*c) || c.is_whitespace()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+    // hidden characters go first: one inside a token must not hide it from the redactor, and then join it back together
+    let clean: String = text.chars().filter(|c| !is_odd_char(*c) || c.is_whitespace()).collect();
+    let (red, _) = room::redact(&clean);
+    let line: String = red.split_whitespace().collect::<Vec<_>>().join(" ");
     cut_bytes(&line, max)
 }
 pub fn cut_bytes(s: &str, max: usize) -> String {
@@ -94,6 +96,8 @@ mod tests {
     fn previews_are_redacted_short_and_plain() {
         let tok = format!("ghp_{}", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4");
         let p = preview(&format!("curl -H 'x: {tok}' https://x.y\u{202e}/a  b\n c"), MAX_PREVIEW);
+        let split = format!("ghp_{}\u{200b}{}", "a1B2c3D4e5", "F6g7H8i9J0k1L2m3N4");
+        assert!(!preview(&split, 300).contains("F6g7H8") && !preview(&format!("x \u{feff}{split}"), 300).contains("a1B2c3"), "a token split by a hidden character is still redacted");
         assert!(!p.contains(&tok) && !p.contains('\u{202e}') && !p.contains('\n'), "{p}");
         for t in ["lin_api_abcdefghijklmnopqrstuvwx", "glpat-abcdefghijklmnopqrstu", "ATATT3xFfGF0abcdefghijklmnopqrstuvwx", "sk_live_abcdefghijklmnop", "npm_abcdefghijklmnopqrstuvwxyz0123456789"] {
             assert!(!preview(&format!("export T={t}"), 300).contains(t), "{t}");
