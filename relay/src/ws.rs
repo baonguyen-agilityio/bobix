@@ -70,7 +70,7 @@ fn reply(tx: &Tx, f: Frame) {
 }
 
 fn error(tx: &Tx, code: ErrorCode) {
-    reply(tx, Frame::Error { code, who: None });
+    reply(tx, Frame::Error { code, who: None, peer: None });
 }
 
 async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, slot: &mut Option<String>) {

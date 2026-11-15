@@ -2,7 +2,6 @@ import 'dart:async';
 
 import '../data/models.dart';
 import '../data/phone_data.dart';
-import '../src/rust/api/messages.dart';
 import 'computer_link.dart';
 
 String _clock(int ms) {
@@ -33,7 +32,7 @@ class LinkPhoneData implements PhoneData {
 
   /// A request that was in the previous `home` and is not in this one while time was left: it was answered at the
   /// computer (first answer wins), so the session shows it. Cleared when the session waits again.
-  final _answeredAtComputer = <String>{};
+  final _answeredAtComputer = <String, String>{};
   Map<String, String> _previousWaiting = {};
   Map<String, int?> _previousExpiry = {};
   HomeSnapshot? _seen;
@@ -92,7 +91,7 @@ class LinkPhoneData implements PhoneData {
           !waiting.containsValue(e.value) &&
           sessions.contains(e.value) &&
           timeLeft) {
-        _answeredAtComputer.add(e.value);
+        _answeredAtComputer[e.value] = e.key;
       }
     }
     _firstSeen.removeWhere((id, _) => !waiting.containsKey(id));
@@ -122,79 +121,6 @@ class LinkPhoneData implements PhoneData {
     );
     return out.stream;
   }
-
-  Map<String, dynamic>? _waitingOf(String sessionId, {String? what}) {
-    final snap = link.home;
-    if (snap == null) return null;
-    for (final w
-        in (snap.home['waiting'] as List).cast<Map<String, dynamic>>()) {
-      if (w['session'] == sessionId && (what == null || w['what'] == what)) {
-        return w;
-      }
-    }
-    return null;
-  }
-
-  Session? _sessionOf(String id) {
-    final d = _build();
-    if (d == null) return null;
-    for (final x in d.sessions) {
-      if (x.id == id) return x;
-    }
-    return null;
-  }
-
-  @override
-  Future<RequestDetail?> request(String sessionId) async {
-    final w = _waitingOf(sessionId, what: 'request');
-    final snap = link.home;
-    if (w == null || snap == null) return null;
-    final d = await link.detail(w['id'] as String);
-    if (d == null) return null;
-    final project = [
-      for (final x
-          in (snap.home['sessions'] as List).cast<Map<String, dynamic>>())
-        if (x['id'] == sessionId) x['project'] as String,
-    ].firstOrNull;
-    final left = w['secondsLeft'] as int?;
-    final remaining = left == null
-        ? null
-        : left - (_nowMs - snap.receivedAtMs) ~/ 1000;
-    return RequestDetail(
-      sessionId: sessionId,
-      command: d['text'] as String,
-      folder: project ?? '',
-      expiresMinutes: remaining == null
-          ? null
-          : (remaining / 60).ceil().clamp(0, 1 << 30),
-      destructive: w['risky'] == true,
-      hiddenCharacters: d['odd'] == true,
-    );
-  }
-
-  @override
-  Future<SessionDetail?> session(String sessionId) async {
-    final s = _sessionOf(sessionId);
-    final snap = link.home;
-    if (s == null || snap == null) return null;
-    final held = _waitingOf(sessionId, what: 'request');
-    final canStop =
-        held != null &&
-        await rightsAllow(
-          rights: link.computer.rights,
-          input: CommandInput.stop(
-            session: sessionId,
-            request: held['id'] as String,
-          ),
-        );
-    return SessionDetail(
-      session: s,
-      // A session's last lines travel in their own `detail`; the protocol does not name them in `home` yet.
-      activity: const [],
-      lastContact: _clock(snap.receivedAtMs),
-      canStop: canStop,
-    );
-  }
 }
 
 /// Builds the screens' data from a `home` (its decoded JSON). Pure: the phone's own knowledge comes in as arguments.
@@ -203,7 +129,7 @@ HomeData homeData(
   required ConnState conn,
   required String computerName,
   required Map<String, int> firstSeen,
-  required Set<String> answeredAtComputer,
+  required Map<String, String> answeredAtComputer,
   required int nowMs,
 }) {
   final h = snap.home;
@@ -234,9 +160,10 @@ HomeData homeData(
     final id = x['id'] as String;
     final w = heldBySession[id];
     final pet = x['pet'] as Map<String, dynamic>;
-    final needsYou = w != null || listedAsNeedsYou.contains(id);
-    // Only a request can be answered here for now: a plan or a question is answered at the computer.
-    final atComputerOnly = needsYou && (w == null || w['what'] != 'request');
+    final atComputer = x['state'] == 'atComputer';
+    final needsYou = w != null || atComputer || listedAsNeedsYou.contains(id);
+    // Needing you with nothing held for this phone: it can only be answered at the computer.
+    final atComputerOnly = needsYou && w == null;
     final since = w == null ? null : firstSeen[w['id']];
     sessions.add(
       Session(
@@ -250,7 +177,12 @@ HomeData homeData(
               ),
         needsYou: needsYou,
         answerAtComputer: atComputerOnly,
-        answeredAtComputer: !needsYou && answeredAtComputer.contains(id),
+        answeredAtComputer: !needsYou && answeredAtComputer.containsKey(id),
+        waitingId:
+            w?['id'] as String? ?? (needsYou ? null : answeredAtComputer[id]),
+        waitingKind: w != null
+            ? _kindOf(w['what'] as String)
+            : (answeredAtComputer.containsKey(id) ? WaitingKind.request : null),
         handledAtComputer: w?['atComputer'] == true,
         waitingMinutes: since == null ? 0 : (nowMs - since) ~/ 60000,
         petDesign: pet['design'] as String,
@@ -266,3 +198,9 @@ HomeData homeData(
     sessions: sessions,
   );
 }
+
+WaitingKind _kindOf(String what) => switch (what) {
+  'plan' => WaitingKind.plan,
+  'question' => WaitingKind.question,
+  _ => WaitingKind.request,
+};

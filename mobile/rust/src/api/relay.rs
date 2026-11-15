@@ -74,6 +74,10 @@ pub enum RelayFrame {
     Queued { pid: String },
     Delivered { pid: String },
     Dropped { pid: String },
+    /// The relay took back a packet it still held for an offline peer.
+    Withdrawn { pid: String },
+    /// A withdraw came too late: the packet was already delivered.
+    TooLate { pid: String },
     Other,
 }
 
@@ -91,7 +95,7 @@ pub fn parse_relay_frame(text: String) -> Result<RelayFrame, CoreError> {
                 PresenceState::Asleep => PeerState::Asleep,
             },
         },
-        Frame::Error { code, who } => RelayFrame::Error {
+        Frame::Error { code, who, .. } => RelayFrame::Error {
             code: RelayError::from(&code),
             who: who.map(|w| match w {
                 Who::Relay => RelaySide::Relay,
@@ -102,6 +106,8 @@ pub fn parse_relay_frame(text: String) -> Result<RelayFrame, CoreError> {
         Frame::Queued { pid } => RelayFrame::Queued { pid },
         Frame::Delivered { pid } => RelayFrame::Delivered { pid },
         Frame::Dropped { pid } => RelayFrame::Dropped { pid },
+        Frame::Withdrawn { pid } => RelayFrame::Withdrawn { pid },
+        Frame::TooLate { pid } => RelayFrame::TooLate { pid },
         _ => RelayFrame::Other,
     })
 }
@@ -152,6 +158,11 @@ pub fn relay_send_frame(to: String, packet: Vec<u8>, ttl_seconds: u32) -> Result
     let pid = hex(&random::<8>());
     let text = text(&Frame::Send { pid: pid.clone(), to, ttl: ttl_seconds, collapse: None, push: None, body: b64(&packet) })?;
     Ok(OutFrame { pid, text })
+}
+
+/// Asks the relay to take back a packet it still holds for an offline computer.
+pub fn relay_withdraw_frame(pid: String) -> String {
+    text(&Frame::Withdraw { pid }).expect("a withdraw is small")
 }
 
 /// The acknowledgement of a packet.
@@ -252,6 +263,13 @@ impl PhoneLink {
         Ok(SealedPacket { packet: s.packet, reserve: s.reserve.map(|(_, v)| v) })
     }
 
+    /// Seals with a counter taken earlier (`take_counter`): a signed command carries its packet counter inside the
+    /// signature, so it must travel with exactly that one.
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn seal_with(&self, counter: u64, plaintext: Vec<u8>) -> Result<Vec<u8>, CoreError> {
+        self.0.seal_with(bobix_link::envelope::Stream::Event, counter, &plaintext).map_err(|_| CoreError::InvalidKey)
+    }
+
     #[flutter_rust_bridge::frb(sync)]
     pub fn open(&mut self, packet: Vec<u8>) -> OpenedPacket {
         match self.0.open(&packet) {
@@ -303,7 +321,9 @@ mod tests {
             "a code this build does not know"
         );
         assert_eq!(parse_relay_frame(r#"{"type":"presence","peer":"d","state":"asleep"}"#.into()), Ok(RelayFrame::Presence { peer: "d".into(), state: PeerState::Asleep }));
-        assert_eq!(parse_relay_frame(r#"{"type":"withdrawn","pid":"p"}"#.into()), Ok(RelayFrame::Other));
+        assert_eq!(parse_relay_frame(r#"{"type":"withdrawn","pid":"p"}"#.into()), Ok(RelayFrame::Withdrawn { pid: "p".into() }));
+        assert_eq!(parse_relay_frame(r#"{"type":"tooLate","pid":"p"}"#.into()), Ok(RelayFrame::TooLate { pid: "p".into() }));
+        assert_eq!(parse_relay_frame(r#"{"type":"state","asleep":true}"#.into()), Ok(RelayFrame::Other));
         assert_eq!(parse_relay_frame("not a frame".into()), Err(CoreError::Malformed));
         assert_eq!(parse_relay_frame(r#"{"type":"msg","pid":"p","from":"d","body":"***"}"#.into()), Err(CoreError::Malformed), "a body that is not base64");
         assert_eq!(parse_relay_frame(format!(r#"{{"type":"challenge","nonce":"{}"}}"#, "x".repeat(300_000))), Err(CoreError::Malformed), "too big");
@@ -325,6 +345,7 @@ mod tests {
         let out = relay_send_frame("d".into(), vec![9], 600).unwrap();
         assert!(matches!(Frame::parse(&out.text).unwrap(), Frame::Send { pid, to, ttl: 600, .. } if pid == out.pid && to == "d"));
         assert!(matches!(Frame::parse(&relay_ack_frame("p".into())).unwrap(), Frame::Ack { pid } if pid == "p"));
+        assert!(matches!(Frame::parse(&relay_withdraw_frame("p".into())).unwrap(), Frame::Withdraw { pid } if pid == "p"));
         assert!(matches!(Frame::parse(&relay_peers_frame(vec!["d".into()])).unwrap(), Frame::Peers { allow } if allow == vec!["d".to_string()]));
     }
 

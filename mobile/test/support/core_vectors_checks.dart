@@ -742,21 +742,21 @@ Future<void> checkMessages(Map<String, dynamic> v) async {
     isFalse,
     reason: 'the vector phone was not given the start right',
   );
+  // The cap comes from the crate's vectors: a note of exactly that many bytes passes, one more is refused.
+  final maxNote =
+      (protocol['limits'] as Map<String, dynamic>)['maxNote'] as int;
+  Future<PreparedCommand> planWithNote(String note) => prepareCommand(
+    input: CommandInput.plan(id: 'p1', approve: false, note: note, shown: 'h'),
+    phoneId: phone['deviceId'],
+    computerId: desktop['deviceId'],
+    counter: BigInt.one,
+    issuedAt: BigInt.one,
+  );
+  await planWithNote('n' * maxNote);
   await expectCoreError(
-    () => prepareCommand(
-      input: CommandInput.plan(
-        id: 'p1',
-        approve: false,
-        note: 'n' * 1001,
-        shown: 'h',
-      ),
-      phoneId: phone['deviceId'],
-      computerId: desktop['deviceId'],
-      counter: BigInt.one,
-      issuedAt: BigInt.one,
-    ),
+    () => planWithNote('n' * (maxNote + 1)),
     CoreError.limit,
-    reason: 'a note over 1000 bytes',
+    reason: 'a note over $maxNote bytes',
   );
 
   // The other messages the phone sends.

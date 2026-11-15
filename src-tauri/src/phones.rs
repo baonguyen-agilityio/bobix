@@ -425,10 +425,17 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     out
 }
 impl State {
-    // The relay refused a push for an ended grant and names no phone: it is the one the last push went to.
-    fn grant_ended(&mut self, t: u64) {
-        let Some((id, at)) = self.last_push.clone() else { return };
-        if t > at + 10_000 { return; }
+    // The relay refused a push for an ended grant. It names the phone (`peer`); an older relay names none, and then it is
+    // the phone the last push went to.
+    fn grant_ended(&mut self, t: u64, peer: Option<&str>) {
+        let id = match peer {
+            Some(p) => p.to_string(),
+            None => {
+                let Some((id, at)) = self.last_push.clone() else { return };
+                if t > at + 10_000 { return; }
+                id
+            }
+        };
         if let Some(p) = self.store.phones.iter_mut().find(|p| p.id == id) { p.no_push = true; self.save_store(); }
     }
     // The request was announced to the phones (so a settings change does not hand it back).
@@ -468,12 +475,12 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
                     Frame::Presence { peer, state } => {
                         if state == bobix_link::relay_frames::PresenceState::Online { if st.online.insert(peer.clone()) { st.home_now.insert(peer); } } else { st.online.remove(&peer); }
                     }
-                    Frame::Error { code, .. } => match code {
+                    Frame::Error { code, peer, .. } => match code {
                         ErrorCode::Invite => st.status = "invite".into(),
                         ErrorCode::Update => st.status = "update".into(),
                         ErrorCode::RelayUrl => st.status = "url".into(),
                         ErrorCode::Auth => st.status = "auth".into(),
-                        ErrorCode::Grant => st.grant_ended(now()),
+                        ErrorCode::Grant => st.grant_ended(now(), peer.as_deref()),
                         _ => {}
                     },
                     _ => {}
@@ -1107,12 +1114,22 @@ mod tests {
     fn an_ended_grant_marks_the_phone_the_last_push_went_to() {
         let mut st = on_state();
         st.dir = std::env::temp_dir().join("bobix-grant-test");
-        st.grant_ended(1000);
+        st.grant_ended(1000, None);
         assert!(!st.store.phones[0].no_push, "no push yet");
         st.last_push = Some(("p".into(), 1000));
-        st.grant_ended(1000 + 11_000);
+        st.grant_ended(1000 + 11_000, None);
         assert!(!st.store.phones[0].no_push, "an old push is not blamed");
-        st.grant_ended(1000 + 5_000);
+        st.grant_ended(1000 + 5_000, None);
+        assert!(st.store.phones[0].no_push);
+        let _ = std::fs::remove_dir_all(&st.dir);
+    }
+
+    #[test]
+    fn an_ended_grant_that_names_the_phone_marks_that_phone_whatever_was_pushed_last() {
+        let mut st = on_state();
+        st.dir = std::env::temp_dir().join("bobix-grant-peer-test");
+        st.last_push = Some(("other".into(), 1));
+        st.grant_ended(1_000_000, Some("p"));
         assert!(st.store.phones[0].no_push);
         let _ = std::fs::remove_dir_all(&st.dir);
     }

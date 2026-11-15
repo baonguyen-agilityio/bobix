@@ -177,7 +177,7 @@ fn desktop_messages_round_trip_with_documented_names() {
     let home = DesktopMsg::Home(Home {
         sent_at: NOW,
         computer: Computer { name: "Studio".into(), state: ComputerState::Online, unfinished: 0 },
-        sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 } }],
+        sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 }, can_stop: false }],
         waiting: vec![waiting],
         groups: vec![Group { group: GroupKind::NeedsYou, ids: vec!["r1".into()] }],
     });
@@ -264,6 +264,32 @@ fn limits_are_measured_in_bytes() {
     assert!(home("é".repeat(151)).validate().is_err()); // 302 bytes
     let note = CommandBody::Plan { id: "p".into(), decision: Decision::Back, note: Some("n".repeat(MAX_NOTE + 1)), shown: String::new() };
     assert!(note.validate().is_err());
+    assert_eq!(MAX_NOTE, 2_000);
+    let ok = CommandBody::Plan { id: "p".into(), decision: Decision::Back, note: Some("n".repeat(2_000)), shown: String::new() };
+    assert!(ok.validate().is_ok());
+    let answer = |a: String| CommandBody::Question { id: "q".into(), answers: vec![a], shown: String::new() };
+    assert!(answer("a".repeat(2_000)).validate().is_ok());
+    assert!(answer("a".repeat(2_001)).validate().is_err());
+    assert!(answer("é".repeat(1_001)).validate().is_err()); // 2002 bytes
+}
+
+#[test]
+fn session_info_says_whether_stop_is_possible() {
+    let info = |can_stop| SessionInfo { id: "s".into(), title: "t".into(), project: "p".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 1 }, can_stop };
+    assert_eq!(serde_json::to_value(info(true)).unwrap()["canStop"], true);
+    assert_eq!(serde_json::to_value(info(false)).unwrap()["canStop"], false);
+    // a desktop from before the flag omits it: that reads as "not possible"
+    let old: SessionInfo = serde_json::from_value(json!({"id":"s","title":"t","project":"p","state":"idle","pet":{"design":"cat","color":1}})).unwrap();
+    assert!(!old.can_stop);
+}
+
+#[test]
+fn error_grant_names_the_phone() {
+    let f = Frame::Error { code: ErrorCode::Grant, who: Some(Who::Phone), peer: Some("phone-id".into()) };
+    assert_eq!(serde_json::to_value(&f).unwrap(), json!({"type":"error","code":"grant","who":"phone","peer":"phone-id"}));
+    assert_eq!(Frame::parse(&f.to_text().unwrap()).unwrap(), f);
+    // an older relay sends no peer
+    assert_eq!(Frame::parse(r#"{"type":"error","code":"grant","who":"phone"}"#), Ok(Frame::Error { code: ErrorCode::Grant, who: Some(Who::Phone), peer: None }));
 }
 
 #[test]
@@ -285,7 +311,7 @@ fn a_peer_one_version_behind_works_and_two_behind_gets_update() {
     assert_eq!(ours.negotiate(&VersionRange { min: 1, max: 2 }), Ok(2));
     assert_eq!(ours.negotiate(&VersionRange { min: 1, max: 1 }), Err(Update::Peer));
     // and the relay frame that says so
-    let f = Frame::Error { code: ErrorCode::Update, who: Some(Who::Phone) };
+    let f = Frame::Error { code: ErrorCode::Update, who: Some(Who::Phone), peer: None };
     assert_eq!(serde_json::to_value(&f).unwrap(), json!({"type":"error","code":"update","who":"phone"}));
 }
 
@@ -481,7 +507,7 @@ fn every_frame_round_trips_with_documented_names() {
             Frame::PushToken { platform: Platform::Ios, env: ApnsEnv::Sandbox, kind: TokenKind::PushToStart, r#ref: Some("r".into()), token: "t".into(), grant: "g".into() },
             json!({"type":"pushToken","platform":"ios","env":"sandbox","kind":"pushToStart","ref":"r","token":"t","grant":"g"}),
         ),
-        (Frame::Error { code: ErrorCode::Grant, who: None }, json!({"type":"error","code":"grant"})),
+        (Frame::Error { code: ErrorCode::Grant, who: None, peer: None }, json!({"type":"error","code":"grant"})),
     ];
     for (f, expected) in frames {
         assert_eq!(serde_json::to_value(&f).unwrap(), expected);
@@ -491,7 +517,7 @@ fn every_frame_round_trips_with_documented_names() {
         assert_eq!(serde_json::to_value(&c).unwrap(), name);
     }
     // an error code a newer relay invents still parses
-    assert_eq!(Frame::parse(r#"{"type":"error","code":"brandNew"}"#), Ok(Frame::Error { code: ErrorCode::Other, who: None }));
+    assert_eq!(Frame::parse(r#"{"type":"error","code":"brandNew"}"#), Ok(Frame::Error { code: ErrorCode::Other, who: None, peer: None }));
 }
 
 #[test]

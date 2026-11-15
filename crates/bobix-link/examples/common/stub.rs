@@ -77,7 +77,7 @@ async fn serve(ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, st
     let Some(Ok(Message::Text(t))) = first else { return Err("no auth".into()) };
     let Ok(Frame::Auth { id, key, relay, sig, .. }) = Frame::parse(t.as_str()) else { return Err("no auth".into()) };
     if let Err(refusal) = bobix_link::command::verify_auth_frame(public, &nonce, &id, &key, &relay, &sig) {
-        let _ = tx.send(Frame::Error { code: refusal.code(), who: None });
+        let _ = tx.send(Frame::Error { code: refusal.code(), who: None, peer: None });
         tokio::time::sleep(Duration::from_millis(50)).await; // let the writer task send the error before the socket closes
         return Err(format!("auth refused: {refusal:?}"));
     }
@@ -96,8 +96,8 @@ async fn serve(ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, st
         let Message::Text(t) = m else { continue };
         match Frame::parse(t.as_str()) {
             Ok(f) => handle(&st, &id, &tx, f),
-            Err(FrameError::Oversize) => drop(tx.send(Frame::Error { code: ErrorCode::Oversize, who: None })),
-            Err(_) => drop(tx.send(Frame::Error { code: ErrorCode::Malformed, who: None })),
+            Err(FrameError::Oversize) => drop(tx.send(Frame::Error { code: ErrorCode::Oversize, who: None, peer: None })),
+            Err(_) => drop(tx.send(Frame::Error { code: ErrorCode::Malformed, who: None, peer: None })),
         }
     }
     let mut s = st.lock().unwrap();
@@ -119,12 +119,12 @@ fn handle(st: &Shared, me: &str, tx: &UnboundedSender<Frame>, f: Frame) {
                 a.remove(&id);
             }
             s.queue.remove(&id);
-            tell(&s, &id, Frame::Error { code: ErrorCode::Revoked, who: None });
+            tell(&s, &id, Frame::Error { code: ErrorCode::Revoked, who: None, peer: None });
         }
         Frame::State { asleep } => presence(&s, me, if asleep { PresenceState::Asleep } else { PresenceState::Online }),
         Frame::Send { pid, to, body, .. } => {
             if !s.allow.get(&to).is_some_and(|a| a.contains(me)) {
-                let _ = tx.send(Frame::Error { code: ErrorCode::NoPeer, who: None });
+                let _ = tx.send(Frame::Error { code: ErrorCode::NoPeer, who: None, peer: None });
                 return;
             }
             s.senders.insert(pid.clone(), me.into());
@@ -155,8 +155,8 @@ fn handle(st: &Shared, me: &str, tx: &UnboundedSender<Frame>, f: Frame) {
         Frame::PairSend { relay_token, body } => {
             let hash = b64_decode(&relay_token).map(|t| b64(&sha256(&[&t]))).unwrap_or_default();
             match s.pairs.get(&hash).cloned() {
-                None => drop(tx.send(Frame::Error { code: ErrorCode::NoPeer, who: None })),
-                Some((_, until)) if until < Instant::now() => drop(tx.send(Frame::Error { code: ErrorCode::PairExpired, who: None })),
+                None => drop(tx.send(Frame::Error { code: ErrorCode::NoPeer, who: None, peer: None })),
+                Some((_, until)) if until < Instant::now() => drop(tx.send(Frame::Error { code: ErrorCode::PairExpired, who: None, peer: None })),
                 Some((desktop, _)) => tell(&s, &desktop, Frame::Msg { pid: super::pid(), from: me.into(), body }),
             }
         }

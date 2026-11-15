@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:pointycastle/export.dart';
 import 'package:phone/keys/secure_keys.dart';
 
 /// The generator point of P-256 (SEC1, uncompressed): a valid public key for a pairing's `hello`. The tests never sign.
@@ -59,10 +60,18 @@ class MemorySecureKeys implements SecureKeys {
   Future<Uint8List?> signingPublicKey() async =>
       hasSigningKey ? _publicKey : null;
 
+  /// What [sign] answers; null signs for real with the private key 1, whose public key is [_publicKey] (the generator
+  /// point), so a computer that verifies the signature accepts it.
+  SignResult? signAnswer;
+
+  /// The reasons [sign] was asked with, in order.
+  final signReasons = <String>[];
+
   @override
   Future<SignResult> sign(Uint8List data, {required String reason}) async {
     signCalls++;
-    return const SignCancelled();
+    signReasons.add(reason);
+    return signAnswer ?? Signed(_sign(data));
   }
 
   @override
@@ -74,4 +83,25 @@ class MemorySecureKeys implements SecureKeys {
     hasSigningKey = false;
     erased = true;
   }
+}
+
+/// ECDSA P-256 over SHA-256 with the private key 1, as an X9.62 DER signature.
+Uint8List _sign(Uint8List data) {
+  final curve = ECCurve_secp256r1();
+  final signer = ECDSASigner(SHA256Digest(), HMac(SHA256Digest(), 64))
+    ..init(true, PrivateKeyParameter(ECPrivateKey(BigInt.one, curve)));
+  final sig = signer.generateSignature(data) as ECSignature;
+  Uint8List integer(BigInt v) {
+    var bytes = <int>[];
+    var x = v;
+    while (x > BigInt.zero) {
+      bytes.insert(0, (x & BigInt.from(0xff)).toInt());
+      x >>= 8;
+    }
+    if (bytes.isEmpty || bytes.first & 0x80 != 0) bytes = [0, ...bytes];
+    return Uint8List.fromList([0x02, bytes.length, ...bytes]);
+  }
+
+  final body = [...integer(sig.r), ...integer(sig.s)];
+  return Uint8List.fromList([0x30, body.length, ...body]);
 }
