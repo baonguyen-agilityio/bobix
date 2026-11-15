@@ -69,6 +69,13 @@ Credentials are read from the files named, never from the image or the repositor
 only on a relay that has its own APNs or FCM credentials, so a relay without them is never an open proxy. Limits
 (queue sizes, frame rate, global caps) are described in `docs/development.md`, "The relay".
 
+## What has and has not been tried
+
+Tried: the relay's own tests (`cd relay && cargo test`), `relay --dev` with the link crate's fake desktop and fake phone, and the
+phone app's tests against `relay --dev`. **Not tried:** a relay deployed on a public domain behind TLS, the Railway steps below,
+real push through Apple (APNs) or Google (FCM) from this relay, the push gateway between two relays, and `relay-health.yml`
+watching a live address. Treat the deployment steps as a checklist to follow and confirm, not as a record of a working setup.
+
 ## Railway (for the owner, later)
 
 Nothing here has been done yet; it needs your Railway account.
