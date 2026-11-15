@@ -28,7 +28,7 @@ case "${1:-}" in
     esac
     # The host's build tools must not see the iOS SDK that Xcode puts in the environment.
     unset SDKROOT LIBRARY_PATH
-    (cd "$core" && IPHONEOS_DEPLOYMENT_TARGET=18.0 cargo build --quiet --release --target "$triple")
+    (cd "$core" && IPHONEOS_DEPLOYMENT_TARGET=18.0 cargo build --locked --quiet --release --target "$triple")
     ;;
   bindings)
     if [ "${2:-}" = "--check" ]; then

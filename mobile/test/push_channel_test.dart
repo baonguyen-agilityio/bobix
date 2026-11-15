@@ -79,6 +79,7 @@ void main() {
         );
     await fromNative('token', 'beef');
     await fromNative('tap', {'computer': 'c', 'ref': 'r', 'kind': 'closed'});
+    await fromNative('tap', {'computer': 'c', 'ref': 'r', 'kind': 'anything'});
     await Future<void>.delayed(Duration.zero);
     expect(tokens, ['beef']);
     expect(taps.single, const PushTap(computerId: 'c', ref: 'r', kind: 'closed'));

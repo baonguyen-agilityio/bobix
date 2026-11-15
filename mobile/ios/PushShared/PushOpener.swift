@@ -93,12 +93,22 @@ struct PushOpener {
     PushOpener(storePath: PushPaths.storePath(), boxSecret: PushBoxKey.read(), strings: .bundled())
   }
 
+  /// A route is only ever written by this opener, from a notice that opened. A route that arrived in a push the opener
+  /// did not open came from the sender of that push, not from the computer, so it is dropped.
+  static func withoutRoute(_ content: UNNotificationContent) -> UNNotificationContent {
+    guard content.userInfo[PushRoute.key] != nil, let out = content.mutableCopy() as? UNMutableNotificationContent else { return content }
+    var info = content.userInfo
+    info.removeValue(forKey: PushRoute.key)
+    out.userInfo = info
+    return out
+  }
+
   /// Opens the sealed notice of `content` and writes its text. Anything it cannot open leaves the content as the relay
   /// made it, which already carries the generic text through its loc-keys; the receive state is never touched then.
   func shape(_ content: UNNotificationContent) -> PushShaped {
     guard let sealed = content.userInfo["sealed"] as? String, let storePath, let boxSecret,
       let out = content.mutableCopy() as? UNMutableNotificationContent
-    else { return PushShaped(content: content, supersedes: nil) }
+    else { return PushShaped(content: PushOpener.withoutRoute(content), supersedes: nil) }
 
     let notice: OpenedNotice
     do {
@@ -109,10 +119,13 @@ struct PushOpener {
       out.body = strings.genericBody
       out.sound = nil
       out.interruptionLevel = .passive
+      // As harmless as iOS allows: it cannot drop an alert push without Apple's filtering entitlement, so the copy
+      // sinks to the bottom of the summary and says nothing.
+      out.relevanceScore = 0
       out.userInfo = [:]
       return PushShaped(content: out, supersedes: nil)
     } catch {
-      return PushShaped(content: content, supersedes: nil)
+      return PushShaped(content: PushOpener.withoutRoute(content), supersedes: nil)
     }
 
     // A failure to read the switch shows the less revealing text.

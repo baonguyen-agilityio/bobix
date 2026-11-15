@@ -12,11 +12,16 @@ class PushTap {
     required this.kind,
   });
 
-  factory PushTap.fromMap(Map<Object?, Object?> m) => PushTap(
-    computerId: '${m['computer']}',
-    ref: '${m['ref']}',
-    kind: '${m['kind']}',
-  );
+  /// A tap is input: a notification's data can come from anything that can send this phone a push, so only a
+  /// well-formed route is taken. Anything else is null and opens nothing.
+  static PushTap? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final c = raw['computer'], r = raw['ref'], k = raw['kind'];
+    if (c is! String || r is! String || k is! String) return null;
+    if (c.isEmpty || r.isEmpty || c.length > 128 || r.length > 256) return null;
+    if (k != 'waiting' && k != 'closed' && k != 'done') return null;
+    return PushTap(computerId: c, ref: r, kind: k);
+  }
 
   final String computerId;
   final String ref;
@@ -128,7 +133,8 @@ class ChannelPushPlatform implements PushPlatform {
       case 'token':
         _tokens.add(call.arguments as String);
       case 'tap':
-        _taps.add(PushTap.fromMap(call.arguments as Map<Object?, Object?>));
+        final t = PushTap.tryParse(call.arguments);
+        if (t != null) _taps.add(t);
     }
     return null;
   }
@@ -175,8 +181,9 @@ class ChannelPushPlatform implements PushPlatform {
 
   @override
   Future<PushTap?> initialTap() async {
-    final m = await _channel.invokeMethod<Map<Object?, Object?>>('initialTap');
-    return m == null ? null : PushTap.fromMap(m);
+    return PushTap.tryParse(
+      await _channel.invokeMethod<Map<Object?, Object?>>('initialTap'),
+    );
   }
 
   @override

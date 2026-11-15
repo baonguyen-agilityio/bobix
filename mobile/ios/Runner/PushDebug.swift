@@ -81,7 +81,7 @@ enum PushDebug {
     original.sound = .default
     original.userInfo = ["sealed": sealed]
     let shaped = PushOpener.live().shape(original)
-    NSLog("bobix simulate: title=\(shaped.content.title) | body=\(shaped.content.body) | level=\(shaped.content.interruptionLevel.rawValue)")
+    NSLog("bobix simulate: level=\(shaped.content.interruptionLevel.rawValue) supersedes=\(shaped.supersedes != nil)")
     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in
       PushDelivered.removeSuperseded(shaped.supersedes, current: identifier) {
         let request = UNNotificationRequest(

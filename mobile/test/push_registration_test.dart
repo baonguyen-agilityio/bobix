@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/push/push_platform.dart';
 import 'package:phone/push/push_registration.dart';
 
 import 'support/fake_push_platform.dart';
+
+FakePushPlatform platform_() => FakePushPlatform()..currentToken = 'ab12cd';
 
 void main() {
   late FakePushPlatform platform;
@@ -16,7 +19,7 @@ void main() {
     platform = FakePushPlatform()..currentToken = 'ab12cd';
     clock = DateTime.utc(2026, 11, 15);
     sent = [];
-    reg = PushRegistration(platform, now: () => clock);
+    reg = PushRegistration(platform, now: () => clock, platform: 'ios');
   });
   tearDown(() => reg.dispose());
 
@@ -146,7 +149,47 @@ void main() {
   });
 
   test('a tap carries the computer, the request and the kind', () {
-    final t = PushTap.fromMap({'computer': 'c', 'ref': 'r1', 'kind': 'waiting'});
+    final t = PushTap.tryParse({'computer': 'c', 'ref': 'r1', 'kind': 'waiting'});
     expect(t, const PushTap(computerId: 'c', ref: 'r1', kind: 'waiting'));
+  });
+
+  test('a tap that is not a well-formed route opens nothing', () {
+    for (final bad in <Object?>[
+      null,
+      'x',
+      {'computer': 'c', 'ref': 'r'},
+      {'computer': 'c', 'ref': 'r', 'kind': 'answer'},
+      {'computer': '', 'ref': 'r', 'kind': 'waiting'},
+      {'computer': 'c', 'ref': 'r' * 300, 'kind': 'waiting'},
+      {'computer': 1, 'ref': 'r', 'kind': 'waiting'},
+    ]) {
+      expect(PushTap.tryParse(bad), isNull, reason: '$bad');
+    }
+  });
+
+  group('platform', () {
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    test('an Android phone registers as android, an iPhone as ios', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final a = PushRegistration(platform_(), now: () => clock);
+      final out = <Map<String, Object?>>[];
+      await a.connected('r', (f) async => out.add(f));
+      a.dispose();
+      expect(out.single['platform'], 'android');
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final i = PushRegistration(platform_(), now: () => clock);
+      await i.connected('r', (f) async => out.add(f));
+      i.dispose();
+      expect(out.last['platform'], 'ios');
+    });
+
+    test('the platform can be given', () async {
+      final r = PushRegistration(platform_(), now: () => clock, platform: 'android');
+      final out = <Map<String, Object?>>[];
+      await r.connected('r', (f) async => out.add(f));
+      r.dispose();
+      expect(out.single['platform'], 'android');
+    });
   });
 }

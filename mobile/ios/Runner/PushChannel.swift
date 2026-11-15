@@ -96,9 +96,10 @@ final class PushBridge {
     switch call.method {
     case "setComputer":
       do {
-        try storeSetComputer(
-          storePath: path, computerId: str("id"), peerBoxPublic: bytes("boxPublic"),
-          versionMin: UInt8(args["versionMin"] as? Int ?? 1), versionMax: UInt8(args["versionMax"] as? Int ?? 1))
+        guard let lo = UInt8(exactly: args["versionMin"] as? Int ?? 1), let hi = UInt8(exactly: args["versionMax"] as? Int ?? 1) else {
+          return result(FlutterError(code: "bad_version", message: "the version range is outside 0 to 255", details: nil))
+        }
+        try storeSetComputer(storePath: path, computerId: str("id"), peerBoxPublic: bytes("boxPublic"), versionMin: lo, versionMax: hi)
         result(nil)
       } catch { fail(error) }
     case "removeComputer":
@@ -146,11 +147,11 @@ final class PushBridge {
     case "grant":
       func str(_ k: String) -> String { args[k] as? String ?? "" }
       // `auth` never leaves this process: Dart gets the signed grant, not the key.
-      guard let store = try? KeyStore(), let auth = store.secret("auth"), let box = store.secret("box") else {
+      guard let store = try? KeyStore(), let auth = (try? store.secret("auth")) ?? nil, let box = (try? store.secret("box")) ?? nil else {
         return result(FlutterError(code: "no_key", message: "the device keys are not there", details: nil))
       }
       do {
-        let g = try makeGrant(authSeed: auth, boxSecret: box, token: str("token"), relayId: str("relayId"), expiresUnixMs: UInt64(args["expiresMs"] as? Int ?? 0))
+        let g = try makeGrant(authSeed: auth, boxSecret: box, token: str("token"), relayId: str("relayId"), expiresUnixMs: UInt64(exactly: args["expiresMs"] as? Int ?? 0) ?? 0)
         result(g)
       } catch { result(FlutterError(code: "push_error", message: String(describing: error), details: nil)) }
     case "token": result(token)

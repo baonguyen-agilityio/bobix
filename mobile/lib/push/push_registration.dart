@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import 'push_platform.dart';
 
 /// Sends one relay frame (its JSON) over the connection the pairing code owns.
@@ -15,11 +17,20 @@ class PushRegistration {
   PushRegistration(
     this._platform, {
     DateTime Function()? now,
+    String? platform,
     this.validity = const Duration(days: 29),
     this.renewWithin = const Duration(days: 7),
-  }) : _now = now ?? DateTime.now;
+  }) : _now = now ?? DateTime.now,
+       _kind =
+           platform ??
+           (defaultTargetPlatform == TargetPlatform.android
+               ? 'android'
+               : 'ios');
 
   final PushPlatform _platform;
+
+  /// What the relay is told this token is: `ios` (APNs) or `android` (FCM).
+  final String _kind;
   final DateTime Function() _now;
 
   /// How long a grant lasts (the relay accepts up to 30 days).
@@ -105,7 +116,7 @@ class PushRegistration {
       );
       await send({
         'type': 'pushToken',
-        'platform': 'ios',
+        'platform': _kind,
         'env': await _platform.environment(),
         'kind': 'device',
         'token': token,

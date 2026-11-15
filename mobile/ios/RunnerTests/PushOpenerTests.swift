@@ -227,6 +227,20 @@ final class PushOpenerTests: XCTestCase {
     XCTAssertNil(PushRoute.parse(["other": 1]))
   }
 
+  func testARouteThatCameInAPushTheOpenerDidNotOpenIsDropped() {
+    let forged = UNMutableNotificationContent()
+    forged.title = strings.genericTitle
+    forged.userInfo = ["sealed": sealed("tampered"), PushRoute.key: ["computer": "desk1", "ref": "r1", "kind": "waiting"]]
+    XCTAssertNil(PushRoute.parse(opener().shape(forged).content.userInfo), "unopenable: the sender's route is not the computer's")
+    forged.userInfo = [PushRoute.key: ["computer": "desk1", "ref": "r1", "kind": "waiting"]]
+    XCTAssertNil(PushRoute.parse(opener().shape(forged).content.userInfo), "no sealed notice at all")
+    // A replayed copy is quiet, sinks in the summary and carries no route.
+    _ = opener().shape(request("waiting"))
+    let again = opener().shape(request("waiting")).content
+    XCTAssertEqual(again.relevanceScore, 0)
+    XCTAssertNil(PushRoute.parse(again.userInfo))
+  }
+
   // MARK: taps
 
   func testATapBeforeDartListensWaitsForInitialTapAndIsTakenOnce() {
