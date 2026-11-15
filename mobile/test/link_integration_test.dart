@@ -165,8 +165,8 @@ void main() {
         reason: 'it holds a request, which a phone can answer',
       );
 
-      final req = await data.request('s1');
-      expect(req!.command, 'npm test -- --watch=false');
+      final req = await link.detail('req1');
+      expect(req!['text'], 'npm test -- --watch=false');
       expect(
         phone.keys.signCalls,
         0,
@@ -180,7 +180,7 @@ void main() {
       final c = await phone.pair(d.qr);
       final link = await started(phone, c);
       await until(() => link.home, what: 'home');
-      await LinkPhoneData(link).request('s1');
+      await link.detail('req1');
       final shown = link.detailCache['req1']!['shown'] as String;
       final text = File('${tmp.path}/link-state.json').readAsStringSync();
       expect(

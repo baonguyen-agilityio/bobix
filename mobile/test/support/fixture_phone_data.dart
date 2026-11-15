@@ -104,57 +104,6 @@ const _sessions = <Session>[
   ),
 ];
 
-const _longCommand =
-    'npm test -- --coverage --runInBand \\\n'
-    '  && npm run lint -- --max-warnings 0 \\\n'
-    '  && npm run build -- --mode production \\\n'
-    '  && git add -A \\\n'
-    '  && git commit -m "Add a dark mode switch to the settings page" \\\n'
-    '  && git push origin feature/dark-mode-switch \\\n'
-    '  && echo done';
-
-const _requests = <String, RequestDetail>{
-  's9': RequestDetail(
-    sessionId: 's9',
-    tool: 'Edit',
-    command: 'src/uploads/resize.ts',
-    folder: '~/work/blog',
-    expiresMinutes: 7,
-  ),
-  's8': RequestDetail(
-    sessionId: 's8',
-    tool: 'Bash',
-    command: 'npm run export -- --orders',
-    folder: '~/work/shop',
-    expiresMinutes: 0,
-  ),
-  's1': RequestDetail(
-    sessionId: 's1',
-    tool: 'Bash',
-    command: _longCommand,
-    folder: '~/work/shop',
-    expiresMinutes: 8,
-  ),
-  's6': RequestDetail(
-    sessionId: 's6',
-    tool: 'Bash',
-    command: 'rm -rf ./build ./out ./node_modules/.cache',
-    folder: '~/work/blog',
-    expiresMinutes: 6,
-    destructive: true,
-    dangerous: ['rm -rf'],
-  ),
-};
-
-const _activity = <String>[
-  '21:13  Edit  src/checkout/form.ts',
-  '21:12  Bash  npm test -- checkout',
-  '21:11  Read  src/checkout/total.ts',
-  '21:10  Grep  "applyCoupon"',
-  '21:08  Prompt  #38 Fix the cart total rounding',
-];
-
-/// The `BOBIX_FIXTURE_CONN` define picks the connection state a run shows (ok, noNetwork, relayDown, asleep, offline).
 const _conn = String.fromEnvironment('BOBIX_FIXTURE_CONN');
 
 class FixturePhoneData implements PhoneData {
@@ -187,21 +136,4 @@ class FixturePhoneData implements PhoneData {
       sessions: _sessions,
     ),
   );
-
-  @override
-  Future<RequestDetail?> request(String sessionId) async =>
-      _requests[sessionId];
-
-  @override
-  Future<SessionDetail?> session(String sessionId) async {
-    final s = _sessions.where((x) => x.id == sessionId).firstOrNull;
-    return s == null
-        ? null
-        : SessionDetail(
-            session: s,
-            activity: _activity,
-            lastContact: _contact,
-            canStop: mayAnswer && mayStop && s.needsYou && !s.answerAtComputer,
-          );
-  }
 }
