@@ -41,43 +41,54 @@ class GlassTabBar extends StatelessWidget {
         child: InkResponse(
           onTap: () => onSelect(i),
           radius: 30,
-          child: Container(
-            width: 56,
+          // 48 x 36 item of the capsule, in a 44 pt high touch target.
+          child: SizedBox(
+            width: 48,
             height: minTouch,
-            decoration: BoxDecoration(
-              color: on ? t.ink.withValues(alpha: .06) : null,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Icon(s.icon, size: 22, color: on ? t.accentInk : t.ink2),
-                if (s.badge > 0)
-                  Positioned(
-                    top: 4,
-                    right: 8,
-                    child: Container(
-                      constraints: const BoxConstraints(
-                        minWidth: 16,
-                        minHeight: 16,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: t.accentSolid,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${s.badge}',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: t.onAccent,
+            child: Center(
+              child: Container(
+                width: 48,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: on
+                      ? (t.isDark
+                            ? const Color(0x14FFFFFF)
+                            : t.ink.withValues(alpha: .06))
+                      : null,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(s.icon, size: 20, color: on ? t.accentInk : t.ink2),
+                    if (s.badge > 0)
+                      Positioned(
+                        top: 1,
+                        right: 4,
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: t.accentSolid,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${s.badge}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: t.onAccent,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -95,7 +106,7 @@ class GlassTabBar extends StatelessWidget {
         children: [
           Glass(
             blur: true,
-            radius: 24,
+            radius: 21,
             padding: const EdgeInsets.all(3),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -140,9 +151,9 @@ class GlassTabBar extends StatelessWidget {
                     ),
                   ),
                   child: SizedBox(
-                    width: 50,
-                    height: 50,
-                    child: Icon(start.icon, size: 24, color: t.onAccent),
+                    width: minTouch,
+                    height: minTouch,
+                    child: Icon(start.icon, size: 22, color: t.onAccent),
                   ),
                 ),
               ),

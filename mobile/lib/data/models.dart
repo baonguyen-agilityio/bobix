@@ -66,7 +66,7 @@ class Session {
       ? 'waiting'
       : switch (stage) {
           Stage.doing => 'working',
-          Stage.verify => 'idle',
+          Stage.verify => 'done',
           Stage.stuck => 'failed',
           _ => 'done',
         };

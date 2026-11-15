@@ -30,6 +30,13 @@ ThemeData bobixTheme(Brightness brightness) {
                 ? Typography.material2021().white
                 : Typography.material2021().black)
             .apply(bodyColor: t.ink, displayColor: t.ink),
+    switchTheme: SwitchThemeData(
+      thumbColor: const WidgetStatePropertyAll(Color(0xFFFFFFFF)),
+      trackColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.selected) ? t.ok : t.n300,
+      ),
+      trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+    ),
     extensions: [t],
   );
 }

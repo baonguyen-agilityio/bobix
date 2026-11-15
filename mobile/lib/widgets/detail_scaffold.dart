@@ -36,7 +36,7 @@ class DetailScaffold extends ConsumerWidget {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     return Scaffold(
-      backgroundColor: t.bg,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Column(
           children: [

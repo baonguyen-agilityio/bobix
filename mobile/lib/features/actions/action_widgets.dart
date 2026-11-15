@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +8,7 @@ import '../../l10n/l10n.dart';
 import '../../theme/oklch.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
+import '../../pets/pet_view.dart';
 import '../../widgets/glass.dart';
 import '../../data/models.dart';
 import '../../lock/secure_scope.dart';
@@ -30,6 +33,8 @@ class ActionPage extends ConsumerWidget {
     required this.children,
     this.actions,
     this.showBack = true,
+    this.onLog,
+    this.banner,
   });
 
   final String title;
@@ -37,52 +42,29 @@ class ActionPage extends ConsumerWidget {
   final Widget? actions;
   final bool showBack;
 
+  /// Opens this task's log; when set, a "Log" pill sits at the right of the header.
+  final VoidCallback? onLog;
+
+  /// Pinned above the content (a notice that is about the whole screen).
+  final Widget? banner;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     return SecureScope(
       child: Scaffold(
-        backgroundColor: t.bg,
+        backgroundColor: Colors.transparent,
         body: SafeArea(
           child: Column(
             children: [
               SizedBox(
                 height: 52,
-                child: Row(
+                child: Stack(
+                  alignment: Alignment.center,
                   children: [
-                    SizedBox(
-                      width: 96,
-                      child: showBack
-                          ? Padding(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Semantics(
-                                  button: true,
-                                  label: s('phone.a.back'),
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(22),
-                                    onTap: () =>
-                                        Navigator.of(context).maybePop(),
-                                    child: Glass(
-                                      radius: 22,
-                                      child: const SizedBox(
-                                        width: minTouch,
-                                        height: minTouch,
-                                        child: Icon(
-                                          Icons.arrow_back_ios_new,
-                                          size: 18,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            )
-                          : null,
-                    ),
-                    Expanded(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 100),
                       child: Semantics(
                         header: true,
                         child: Text(
@@ -98,26 +80,104 @@ class ActionPage extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 96),
+                    if (showBack)
+                      Positioned(
+                        left: 8,
+                        child: HeaderPill(
+                          label: s('phone.a.back'),
+                          icon: Icons.chevron_left,
+                          onTap: () => Navigator.of(context).maybePop(),
+                        ),
+                      ),
+                    if (onLog != null)
+                      Positioned(
+                        right: 8,
+                        child: HeaderPill(
+                          label: s('phone.tab.log'),
+                          icon: Icons.format_list_bulleted,
+                          onTap: onLog!,
+                        ),
+                      ),
                   ],
                 ),
               ),
+              ?banner,
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
                   children: children,
                 ),
               ),
-              if (actions != null)
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  decoration: BoxDecoration(
-                    color: t.surface.withValues(alpha: .86),
-                    border: Border(top: BorderSide(width: .5, color: t.line)),
-                  ),
-                  child: actions,
-                ),
+              if (actions != null) GlassActionBar(child: actions!),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The glass bar at the bottom of a page: the page's actions, over the content that scrolls under it.
+class GlassActionBar extends StatelessWidget {
+  const GlassActionBar({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: BoxDecoration(
+            color: t.surface.withValues(alpha: t.isDark ? .7 : .42),
+            border: Border(top: BorderSide(width: .5, color: t.line)),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// A glass capsule in a screen's header: "‹ Back" on the left, "Log" on the right.
+class HeaderPill extends StatelessWidget {
+  const HeaderPill({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Glass(
+          radius: 22,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: SizedBox(
+            height: 38,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 20, color: t.accentInk),
+                const SizedBox(width: 2),
+                Text(label, style: TextStyle(fontSize: 16, color: t.accentInk)),
+              ],
+            ),
           ),
         ),
       ),
@@ -151,46 +211,79 @@ class ActionButton extends StatelessWidget {
       BtnKind.danger => (t.surface, t.err, t.err.withValues(alpha: .45)),
       BtnKind.normal => (t.surface, t.ink, t.lineStrong),
     };
-    return Opacity(
-      opacity: onPressed == null ? .42 : 1,
-      child: Material(
-        color: bg,
-        shape: StadiumBorder(
-          side: border == null
-              ? BorderSide.none
-              : BorderSide(width: .5, color: border),
-        ),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: onPressed,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 50),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (icon != null) ...[
-                    Icon(icon, size: 18, color: fg),
-                    const SizedBox(width: 8),
-                  ],
-                  Flexible(
-                    child: Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: fg,
-                      ),
+    final shape = StadiumBorder(
+      side: border == null
+          ? BorderSide.none
+          : BorderSide(width: .5, color: border),
+    );
+    final primary = kind == BtnKind.primary;
+    final button = Material(
+      color: primary ? Colors.transparent : bg,
+      shape: shape,
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onPressed,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 50),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 18, color: fg),
+                  const SizedBox(width: 8),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: fg,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
       ),
+    );
+    return Opacity(
+      opacity: onPressed == null ? .42 : 1,
+      // The primary button of the prototype: a glass sheen on the accent and a soft accent shadow.
+      child: primary
+          ? DecoratedBox(
+              decoration: ShapeDecoration(
+                shape: const StadiumBorder(),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.alphaBlend(const Color(0x38FFFFFF), bg),
+                    bg,
+                    bg,
+                  ],
+                  stops: const [0, .55, 1],
+                ),
+                shadows: [
+                  BoxShadow(
+                    color: t.accent.withValues(alpha: .28),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                  const BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 2,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: button,
+            )
+          : button,
     );
   }
 }
@@ -452,6 +545,108 @@ class TitleCard extends StatelessWidget {
           if (chips.isNotEmpty) ...[
             const SizedBox(height: 10),
             Wrap(spacing: 6, runSpacing: 6, children: chips),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The header card of a request, plan, question or session: the session's pet, its name, where it belongs, and a chip
+/// that says what it is doing now.
+class SessionCard extends StatelessWidget {
+  const SessionCard({
+    super.key,
+    required this.petDesign,
+    required this.petColor,
+    required this.petState,
+    required this.title,
+    required this.subtitle,
+    this.chip,
+    this.chipColor,
+    this.chipBg,
+    this.halo = false,
+    this.extraChips = const [],
+  });
+
+  final String petDesign, petState, title, subtitle;
+  final int petColor;
+  final String? chip;
+  final Color? chipColor, chipBg;
+  final bool halo;
+
+  /// More chips beside [chip] (a countdown).
+  final List<Widget> extraChips;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Glass(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              PetView(
+                design: petDesign,
+                color: petColor,
+                state: petState,
+                size: 60,
+                halo: halo,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
+                        color: t.ink,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: TextStyle(fontSize: 13, color: t.ink2),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (chip != null || extraChips.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (chip != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 1,
+                    ),
+                    constraints: const BoxConstraints(minHeight: 22),
+                    decoration: BoxDecoration(
+                      color: chipBg ?? t.accentBg,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      chip!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: chipColor ?? t.accentInk,
+                      ),
+                    ),
+                  ),
+                ...extraChips,
+              ],
+            ),
           ],
         ],
       ),
