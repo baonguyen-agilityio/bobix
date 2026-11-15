@@ -105,3 +105,7 @@ The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl`
    - macOS: `~/Library/Application Support/Bobix`
    - Windows: `%APPDATA%\Bobix`
    - Linux: `~/.config/bobix`
+
+## Phone: notifications on Android
+
+The Bobix phone app on Android receives its notices as data messages through Firebase Cloud Messaging; what Google carries is encrypted, and the phone opens it. Some makers' battery managers (Samsung's "sleeping apps", Xiaomi's autostart and battery saver) stop an app's background work, and a push sent to an app the system has force-stopped is not delivered until the app is opened again. This has not yet been measured on a Samsung or a Xiaomi phone for Bobix: when the experiment is done, its outcome (what arrives after the app is swiped away from the recents screen) belongs here. Until then, if notices stop arriving on such a phone, allow Bobix to run in the background in the phone's battery settings and open the app once; a computer whose phone has not opened the app for 30 days stops sending pushes and says so under Settings → Phones.
