@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'features/actions/actions_gallery.dart';
+import 'features/actions/start_screen.dart';
 import 'fixtures/fixtures.dart';
 import 'l10n/l10n.dart';
 import 'screens/home_screen.dart';
@@ -19,7 +21,7 @@ class BobixApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: bobixTheme(Brightness.light),
       darkTheme: bobixTheme(Brightness.dark),
-      home: const AppShell(),
+      home: ActionsGallery.enabled ? const ActionsGallery() : const AppShell(),
     );
   }
 }
@@ -58,10 +60,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                     bodyKey: 'phone.pets.empty',
                     detailKey: 'phone.pets.empty.d',
                   ),
-                  PlaceholderScreen(
-                    titleKey: 'phone.start.title',
-                    bodyKey: 'phone.start.soon',
-                  ),
+                  StartScreen(),
                   PlaceholderScreen(
                     titleKey: 'phone.settings.title',
                     bodyKey: 'phone.settings.soon',
