@@ -74,7 +74,7 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     // Settings → Phones through the real panel and IPC: the section draws, the commands are granted to the page, and a name
     // with markup is shown as text.
     r["panel"] = crate::smoke::ask_for(app, crate::panel::LABEL, "(async () => { bsel.settings = 'set:phones'; showTab('settings'); \
-        await new Promise(r => setTimeout(r, 2500)); const st = await bridge.phonesState(); const n = document.querySelector('[data-ph-name]'); \
+        for (let t = 0; t < 8000 && !document.querySelector('[data-ph-name]'); t += 100) await new Promise(r => setTimeout(r, 100)); const st = await bridge.phonesState(); const n = document.querySelector('[data-ph-name]'); \
         return { section: !!document.querySelector('#sec-phones'), ipc: st.on === true && st.phones.length === 1, name: n ? n.textContent : null, noMarkup: n ? n.children.length === 0 : false }; })()", 12);
     r["panelOk"] = json!(r["panel"]["section"] == true && r["panel"]["ipc"] == true && r["panel"]["name"] == "Demo <b>phone</b>" && r["panel"]["noMarkup"] == true);
     r["pairedSeen"] = json!(until(10, || fake.saw("paired with")));
@@ -150,7 +150,8 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     { let mut c = b.core.lock().unwrap(); if let Some(s) = c.sessions.get_mut("ph12") { s.pid_is_claude = s.claude_pid; } }
     r["watchBase"] = json!(until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.child_base.is_some())));
     let mut sleeper = Command::new("sleep").arg("30").spawn().expect("sleep");
-    r["startedNoticed"] = json!(until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.released))
+    // Windows cannot list a process's children (procs::children is empty there), so this hint is not asserted on it
+    r["startedNoticed"] = json!(cfg!(windows) || until(10, || b.core.lock().unwrap().pending.get(&r12).is_some_and(|p| p.released))
         && until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains(&r12) && l.contains("\"atComputer\":true"))));
     let _ = sleeper.kill();
     let _ = sleeper.wait();

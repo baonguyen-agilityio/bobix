@@ -246,4 +246,15 @@ mod tests {
         assert_eq!(n.len(), 1);
         assert_ne!(n[0], "?");
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_started_child_is_listed_and_where_it_cannot_be_listed_nothing_is() {
+        let mut child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+        let kids = super::children(std::process::id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(kids.contains(&child.id()), "{kids:?}");
+        assert!(super::children(u32::MAX - 1).is_empty(), "no such process: no children");
+    }
 }
