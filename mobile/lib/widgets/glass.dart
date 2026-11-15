@@ -45,15 +45,6 @@ class Glass extends StatelessWidget {
     final body = DecoratedBox(
       decoration: BoxDecoration(
         color: fill,
-        // The prototype's specular sheen: bright at the top edge, gone by the middle.
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: t.isDark
-              ? const [Color(0x0DFFFFFF), Color(0x00FFFFFF)]
-              : const [Color(0xBFFFFFFF), Color(0x1FFFFFFF), Color(0x00FFFFFF)],
-          stops: t.isDark ? const [0, .48] : const [0, .42, .6],
-        ),
         borderRadius: shape,
         border: Border.all(
           width: .5,
@@ -62,7 +53,26 @@ class Glass extends StatelessWidget {
               (t.isDark ? const Color(0x17FFFFFF) : const Color(0xE6FFFFFF)),
         ),
       ),
-      child: content,
+      // The prototype's specular sheen: bright at the top edge, gone by the middle. Its own layer, because a gradient
+      // in the same decoration would replace the fill.
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: shape,
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: t.isDark
+                ? const [Color(0x0DFFFFFF), Color(0x00FFFFFF)]
+                : const [
+                    Color(0xBFFFFFFF),
+                    Color(0x1FFFFFFF),
+                    Color(0x00FFFFFF),
+                  ],
+            stops: t.isDark ? const [0, .48] : const [0, .42, .6],
+          ),
+        ),
+        child: content,
+      ),
     );
     final blurred = blur && blurEnabled;
     return CustomPaint(
