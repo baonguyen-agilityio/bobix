@@ -112,6 +112,9 @@ Future<Uint8List> openPacket({
   packet: packet,
 );
 
+Future<ProtocolVersions> protocolVersions() =>
+    RustLib.instance.api.crateApiCoreProtocolVersions();
+
 /// For a packet that authenticated: is its version one this app understands?
 Future<void> checkVersion({
   required int min,
@@ -398,6 +401,31 @@ class PairingInfo {
           desktopDeviceId == other.desktopDeviceId &&
           relayToken == other.relayToken &&
           macKey == other.macKey;
+}
+
+/// The protocol versions this build understands (`min` to `max`) and the one it seals with.
+class ProtocolVersions {
+  final int min;
+  final int max;
+  final int current;
+
+  const ProtocolVersions({
+    required this.min,
+    required this.max,
+    required this.current,
+  });
+
+  @override
+  int get hashCode => min.hashCode ^ max.hashCode ^ current.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtocolVersions &&
+          runtimeType == other.runtimeType &&
+          min == other.min &&
+          max == other.max &&
+          current == other.current;
 }
 
 /// One question of a request, as shown.

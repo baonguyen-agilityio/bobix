@@ -2,17 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/app.dart';
-import 'package:phone/fixtures/fixtures.dart';
+import 'package:phone/data/models.dart';
+import 'package:phone/data/phone_data.dart';
+
+import 'support/fixture_phone_data.dart';
+
 import 'package:phone/l10n/l10n.dart';
 import 'package:phone/l10n/strings.g.dart';
-import 'package:phone/screens/home_screen.dart';
-
-class _Conn extends Conn {
-  _Conn(this.value);
-  final ConnState value;
-  @override
-  ConnState build() => value;
-}
+import 'package:phone/screens/session_screen.dart';
+import 'package:phone/theme/theme.dart';
 
 class _Lang extends Lang {
   _Lang(this.value);
@@ -26,21 +24,38 @@ Widget app({String lang = 'en', ConnState conn = ConnState.ok}) =>
       key: UniqueKey(),
       overrides: [
         langProvider.overrideWith(() => _Lang(lang)),
-        connProvider.overrideWith(() => _Conn(conn)),
+        phoneDataProvider.overrideWithValue(FixturePhoneData(connection: conn)),
       ],
-      child: const BobixApp(),
+      child: const BobixApp(home: AppShell()),
     );
+
+/// A tall phone so a lazy list builds every row.
+void tallScreen(WidgetTester tester) {
+  tester.view.physicalSize = const Size(400, 2400);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+}
+
+/// Frames enough for a route to slide in and its providers to answer. (Pets keep animating, so nothing "settles".)
+Future<void> settle(WidgetTester tester) async {
+  for (var i = 0; i < 4; i++) {
+    await tester.pump(const Duration(milliseconds: 300));
+  }
+}
 
 void main() {
   testWidgets('Home shows the made-up sessions grouped, and the tabs switch', (
     tester,
   ) async {
+    tallScreen(tester);
     await tester.pumpWidget(app());
+    await tester.pump();
     expect(find.text('Needs you'), findsOneWidget);
     expect(find.text('Add a dark mode switch'), findsOneWidget);
-    expect(find.text('Bash wants to run'), findsOneWidget);
+    expect(find.text('Bash wants to run'), findsNWidgets(2));
+    expect(find.text('Answer it at the computer'), findsOneWidget);
     expect(find.text('Pull request #57 waits for a review'), findsOneWidget);
-    expect(find.text(fixtureComputer), findsOneWidget);
+    expect(find.text('Studio Mac'), findsOneWidget);
 
     await tester.tap(find.bySemanticsLabel('Settings'));
     await tester.pump();
@@ -54,8 +69,10 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(app(lang: 'vi'));
+    await tester.pump();
     expect(find.text('Cần bạn'), findsOneWidget);
-    expect(find.text('Bash muốn chạy'), findsOneWidget);
+    expect(find.text('Bash muốn chạy'), findsNWidgets(2));
+    expect(find.text('Hãy trả lời tại máy tính'), findsOneWidget);
   });
 
   testWidgets(
@@ -64,14 +81,13 @@ void main() {
       const titles = {
         ConnState.noNetwork: 'No network on this phone',
         ConnState.relayDown: 'Can’t reach the Bobix relay',
-        ConnState.asleep: '$fixtureComputer is asleep',
-        ConnState.offline: '$fixtureComputer is offline',
+        ConnState.asleep: 'Studio Mac is asleep',
+        ConnState.offline: 'Studio Mac is offline',
       };
-      tester.view.physicalSize = const Size(400, 2400);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
+      tallScreen(tester);
       for (final e in titles.entries) {
         await tester.pumpWidget(app(conn: e.key));
+        await tester.pump();
         expect(find.text(e.value), findsOneWidget, reason: e.key.name);
         expect(
           find.text('Showing what the computer sent at 21:02.'),
@@ -79,12 +95,236 @@ void main() {
         );
       }
       await tester.pumpWidget(app());
+      await tester.pump();
       expect(
         find.text('Showing what the computer sent at 21:02.'),
         findsNothing,
       );
     },
   );
+
+  testWidgets(
+    'a request opens from Home: a long command is cut short until it is opened',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(app());
+      await tester.pump();
+      await tester.tap(find.text('Add a dark mode switch'));
+      await settle(tester);
+      expect(find.text('Permission request'), findsOneWidget);
+      expect(find.text('Bash wants to run'), findsOneWidget);
+      expect(find.text('Expires in 8 min'), findsOneWidget);
+      expect(
+        find.text('Open the whole command to turn on Allow'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Show the whole command (', findRichText: true),
+        findsOneWidget,
+      );
+      expect(find.text('~/work/shop'), findsOneWidget);
+
+      await tester.tap(find.textContaining('Show the whole command ('));
+      await tester.pump();
+      expect(find.text('Show less'), findsOneWidget);
+      // Both answers stay wide enough to read, even though Deny is the smaller one.
+      final deny = tester.getSize(
+        find
+            .ancestor(of: find.text('Deny'), matching: find.byType(Material))
+            .first,
+      );
+      expect(deny.width, greaterThan(100));
+      expect(
+        find.text('Open the whole command to turn on Allow'),
+        findsNothing,
+      );
+
+      await tester.tap(find.bySemanticsLabel('Back'));
+      await settle(tester);
+      expect(find.text('Home'), findsOneWidget);
+    },
+  );
+
+  testWidgets('a destructive request says so and puts the safe answer first', (
+    tester,
+  ) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app());
+    await tester.pump();
+    await tester.tap(find.text('Clean the build folders'));
+    await settle(tester);
+    expect(find.text('Destructive command'), findsOneWidget);
+    expect(find.text('Allow anyway'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Deny')).dy,
+      lessThan(tester.getTopLeft(find.text('Allow anyway')).dy),
+    );
+    expect(find.textContaining('rm -rf', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets(
+    'a session the computer does not hold for phones says to answer at the computer',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(app());
+      await tester.pump();
+      await tester.tap(find.text('Rename the settings page'));
+      await settle(tester);
+      expect(find.text('Session'), findsOneWidget);
+      expect(
+        find.text('Answer it at the computer'),
+        findsNWidgets(2),
+      ); // the badge and the banner
+      expect(find.textContaining('went back to Claude'), findsOneWidget);
+      expect(find.text('Activity'), findsOneWidget);
+    },
+  );
+
+  testWidgets('a working session shows its last lines, read only', (
+    tester,
+  ) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app());
+    await tester.pump();
+    await tester.tap(find.text('Fix the cart total rounding'));
+    await settle(tester);
+    expect(find.text('Now Edit'), findsOneWidget);
+    expect(
+      find.textContaining(
+        '21:13  Edit  src/checkout/form.ts',
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('The last lines Studio Mac sent, at 21:14. Read only.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'a request answered at the computer first is withdrawn: nothing to confirm',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(app());
+      await tester.pump();
+      expect(find.text('Closed without you'), findsOneWidget);
+      await tester.tap(find.text('Add the order export'));
+      await settle(tester);
+      expect(
+        find.text('Answered at the computer'),
+        findsNWidgets(2),
+      ); // the badge and the banner title
+      expect(
+        find.textContaining('answered this request first'),
+        findsOneWidget,
+      );
+      expect(find.text('Deny'), findsNothing);
+      expect(find.text('Allow'), findsNothing);
+      expect(find.text('Back to Home'), findsOneWidget);
+      await tester.tap(find.text('Back to Home'));
+      await settle(tester);
+      expect(find.text('Home'), findsOneWidget);
+    },
+  );
+
+  testWidgets('in Vietnamese the withdrawn request says so too', (
+    tester,
+  ) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app(lang: 'vi'));
+    await tester.pump();
+    await tester.tap(find.text('Add the order export'));
+    await settle(tester);
+    expect(find.text('Đã trả lời trên máy tính'), findsNWidgets(2));
+    expect(find.text('Về Trang chủ'), findsOneWidget);
+  });
+
+  testWidgets(
+    'a request being handled at the computer can still be answered here',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(app());
+      await tester.pump();
+      expect(
+        find.text('Being handled at the computer'),
+        findsOneWidget,
+      ); // the Home row
+      await tester.tap(find.text('Tidy the image uploads'));
+      await settle(tester);
+      expect(
+        find.text('Being handled at the computer'),
+        findsNWidgets(2),
+      ); // the badge and the banner
+      expect(find.textContaining('the first answer wins'), findsOneWidget);
+      expect(find.text('Deny'), findsOneWidget);
+      expect(find.text('Allow'), findsOneWidget);
+      expect(find.text('Back to Home'), findsNothing);
+    },
+  );
+
+  testWidgets('in Vietnamese the state is named too', (tester) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app(lang: 'vi'));
+    await tester.pump();
+    await tester.tap(find.text('Tidy the image uploads'));
+    await settle(tester);
+    expect(find.text('Đang được xử lý trên máy tính'), findsNWidgets(2));
+    expect(find.text('Cho phép'), findsOneWidget);
+  });
+
+  Widget sessionPage(
+    String id, {
+    FixturePhoneData data = const FixturePhoneData(),
+  }) => ProviderScope(
+    key: UniqueKey(),
+    overrides: [phoneDataProvider.overrideWithValue(data)],
+    child: MaterialApp(
+      theme: bobixTheme(Brightness.light),
+      home: SessionScreen(sessionId: id),
+    ),
+  );
+
+  testWidgets(
+    'Stop is offered only to a session that waits on a held request',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(sessionPage('s1')); // waits, request held
+      await settle(tester);
+      expect(find.text('Stop'), findsOneWidget);
+      // Stop needs both the Stop and the Answer right, even on a held request.
+      for (final data in const [
+        FixturePhoneData(mayStop: false),
+        FixturePhoneData(mayAnswer: false),
+      ]) {
+        await tester.pumpWidget(sessionPage('s1', data: data));
+        await settle(tester);
+        expect(find.text('Stop'), findsNothing);
+      }
+      for (final id in ['s2', 's7', 's8']) {
+        // running turn without a request / answered at the computer / not held for phones
+        await tester.pumpWidget(sessionPage(id));
+        await settle(tester);
+        expect(find.text('Stop'), findsNothing, reason: id);
+      }
+    },
+  );
+
+  testWidgets('Pets lists every session and opens it', (tester) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app());
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('Pets'));
+    await tester.pump();
+    expect(
+      find.text('Tap a pet. The ones with a coral ring need you.'),
+      findsOneWidget,
+    );
+    expect(find.text('Update the sign-up email'), findsOneWidget);
+    await tester.tap(find.text('Update the sign-up email'));
+    await settle(tester);
+    expect(find.text('Done!'), findsOneWidget);
+  });
 
   test('every key exists in both languages with the same {names}', () {
     final names = RegExp(r'\{(\w+)\}');
@@ -99,6 +339,7 @@ void main() {
 
   testWidgets('touch targets are at least 44 points', (tester) async {
     await tester.pumpWidget(app());
+    await tester.pump();
     for (final label in ['Home', 'Pets', 'Settings', 'Start']) {
       final size = tester.getSize(find.bySemanticsLabel(label));
       expect(
@@ -109,14 +350,32 @@ void main() {
     }
   });
 
-  testWidgets('the largest system font size does not overflow Home', (
-    tester,
-  ) async {
-    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    await tester.pumpWidget(app(lang: 'vi', conn: ConnState.asleep));
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'the largest system font size does not overflow Home or the detail screens, in both languages',
+    (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      tallScreen(tester);
+      for (final lang in ['en', 'vi']) {
+        await tester.pumpWidget(app(lang: lang, conn: ConnState.asleep));
+        await tester.pump();
+        expect(tester.takeException(), isNull, reason: 'home $lang');
+        for (final name in [
+          'Add a dark mode switch',
+          'Clean the build folders',
+          'Rename the settings page',
+        ]) {
+          await tester.tap(find.text(name));
+          await settle(tester);
+          expect(tester.takeException(), isNull, reason: '$name $lang');
+          await tester.tap(
+            find.bySemanticsLabel(lang == 'en' ? 'Back' : 'Quay lại'),
+          );
+          await settle(tester);
+        }
+      }
+    },
+  );
 
   testWidgets(
     'pets animate by frame, and stand still when the system asks for reduced motion',
@@ -135,7 +394,7 @@ void main() {
         tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
       );
       await tester.pumpWidget(app());
-      await tester.pumpAndSettle();
+      await settle(tester);
     },
   );
 

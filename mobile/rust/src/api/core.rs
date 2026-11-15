@@ -251,6 +251,18 @@ pub fn open_packet(receiver_box_secret: Vec<u8>, sender_box_public: Vec<u8>, pac
     Ok(envelope::open(&receiver, &sender, &packet)?)
 }
 
+/// The protocol versions this build understands (`min` to `max`) and the one it seals with.
+pub struct ProtocolVersions {
+    pub min: u8,
+    pub max: u8,
+    pub current: u8,
+}
+
+pub fn protocol_versions() -> ProtocolVersions {
+    let r = VersionRange::current();
+    ProtocolVersions { min: r.min, max: r.max, current: envelope::CURRENT_VERSION }
+}
+
 /// For a packet that authenticated: is its version one this app understands?
 pub fn check_version(min: u8, max: u8, version: u8) -> Result<(), CoreError> {
     Ok(envelope::check_version(&VersionRange { min, max }, version)?)
