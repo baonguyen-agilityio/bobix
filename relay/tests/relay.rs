@@ -506,6 +506,32 @@ async fn a_signature_made_for_another_relay_address_is_refused_with_its_own_erro
     ok.none(|f| matches!(f, Frame::Error { code: ErrorCode::RelayUrl | ErrorCode::Auth, .. }), 300).await;
 }
 
+#[tokio::test]
+async fn a_relay_listening_on_every_address_checks_signatures_against_the_lan_address_it_was_given() {
+    // `relay --dev` on the home Wi-Fi: it listens on all addresses (here: loopback, a free port), and the address the phone
+    // and the computer connect to is the one in RELAY_PUBLIC_URL.
+    let mut c = cfg();
+    c.public_url = "ws://192.168.1.20:8787".into();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = bobix_relay::App::with_fake(c);
+    tokio::spawn(bobix_relay::run(app.clone(), listener));
+    let s = Server { addr, app };
+    let id = ident();
+
+    let mut ok = Dev::raw(&s).await;
+    let Frame::Challenge { nonce } = ok.next(2000).await else { panic!() };
+    ok.send(&auth_frame(&id, "ws://192.168.1.20:8787", &nonce)).await;
+    ok.sync().await;
+    ok.none(|f| matches!(f, Frame::Error { code: ErrorCode::RelayUrl | ErrorCode::Auth, .. }), 300).await;
+
+    // A device that signs the address it happens to reach the relay at (loopback here) is told it is the wrong relay address.
+    let mut other = Dev::raw(&s).await;
+    let Frame::Challenge { nonce } = other.next(2000).await else { panic!() };
+    other.send(&auth_frame(&id, &format!("ws://{addr}"), &nonce)).await;
+    other.expect(is_err(ErrorCode::RelayUrl), 1000).await;
+}
+
 fn s_url(addr: &str) -> String {
     format!("ws://{addr}")
 }
