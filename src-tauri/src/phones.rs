@@ -580,7 +580,7 @@ fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, no
     match c.pending.get(id) {
         Some(p) if p.plan != plan => return CmdResult::refused(cid, "kind"),
         Some(p) => {
-            if p.cut && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too: only what was shown is known
+            if crate::phone_view::shown_cut(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too: only what was shown is known
             let rights = Rights { answer: true, plan: true, ..Default::default() };
             match crate::phone_view::detail(&c.pending, id, rights) {
                 Ok(d) if command::shown_matches(&d, shown) => {}
@@ -881,6 +881,7 @@ mod tests {
         held(&mut c, "plan", true, "1. do it", false);
         held(&mut c, "cutreq", false, "echo hi", true);
         held(&mut c, "cutplan", true, "1. a plan that was cut", true);
+        held(&mut c, "escplan", true, &"\u{200b}".repeat(12_000), false); // not cut by the hook; its escaped form crosses the cap
         let a = |c: &mut crate::Core, id: &str, sh: &str, choice: &str, plan: bool, ch: &mut bool| apply(c, "cid", id, sh, choice, "", plan, By::Phone, ch, &Rights::default());
         let (sh, shp, shc) = (shown(&c, "req"), shown(&c, "plan"), shown(&c, "cutreq"));
         assert_eq!(a(&mut c, "plan", &shp, "allow", false, &mut changed).why.as_deref(), Some("kind"), "an answer for a plan id");
@@ -889,6 +890,9 @@ mod tests {
         let shcp = shown(&c, "cutplan");
         assert_eq!(a(&mut c, "cutplan", &shcp, "allow", true, &mut changed).why.as_deref(), Some("cut"), "a cut plan is not approved from a phone");
         assert!(c.pending.contains_key("cutplan"));
+        let shep = shown(&c, "escplan");
+        assert_eq!(a(&mut c, "escplan", &shep, "allow", true, &mut changed).why.as_deref(), Some("cut"), "a plan that detail itself shortened is not approved either");
+        assert!(c.pending.contains_key("escplan"));
         assert_eq!(a(&mut c, "req", "not what was shown", "allow", false, &mut changed).outcome, Outcome::Stale);
         assert!(c.pending.contains_key("req") && !changed, "nothing was applied");
         assert_eq!(a(&mut c, "cutplan", &shcp, "deny", true, &mut changed).outcome, Outcome::Ok, "but a cut plan may be sent back");

@@ -51,7 +51,7 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
         id: id.clone(), session: p.sid.clone(), what: if p.plan { WaitingKind::Plan } else { WaitingKind::Request },
-        preview: preview(p.raw.lines().next().unwrap_or(""), MAX_PREVIEW), cut: p.cut, risky: p.risky || p.cut, at_computer: p.released,
+        preview: preview(p.raw.lines().next().unwrap_or(""), MAX_PREVIEW), cut: shown_cut(p), risky: p.risky || shown_cut(p), at_computer: p.released,
         seconds_left: p.until.map(|u| u.saturating_sub(now) / 1000),
     }).collect();
     waiting.sort_by(|a, b| a.id.cmp(&b.id));
@@ -67,18 +67,27 @@ pub fn fit(mut h: Home) -> Home {
     h
 }
 
+// Whether what a phone is shown is cut: the hook dropped part of the input, or escaping hidden characters made the text
+// longer than the cap and `detail` shortened it. The one place that says so; a remote Allow or approve is refused for it.
+pub fn shown_cut(p: &Pending) -> bool { built("", p.plan, &p.raw, p.cut).cut }
+
 // One held item, whole, with the hash of what is held. Err: "unknown" (not held) or "right" (the phone lacks the right).
 pub fn detail(pending: &HashMap<String, Pending>, id: &str, rights: Rights) -> Result<Detail, &'static str> {
     let p = pending.get(id).ok_or("unknown")?;
     if !(if p.plan { rights.plan } else { rights.answer }) { return Err("right"); }
-    let (what, limit) = if p.plan { (DetailKind::Plan, MAX_PLAN) } else { (DetailKind::ToolInput, MAX_TOOL_INPUT) };
-    let (mut raw, mut cut) = (p.raw.clone(), p.cut);
+    Ok(built(id, p.plan, &p.raw, p.cut))
+}
+
+// The text a phone is shown for a held item. The desktop's escaper runs first (it knows more hidden characters than the
+// crate's), so the phone shows what the panel shows; text that escaping makes longer than the cap is shortened, and cut says so.
+fn built(id: &str, plan: bool, raw: &str, cut: bool) -> Detail {
+    let (what, limit) = if plan { (DetailKind::Plan, MAX_PLAN) } else { (DetailKind::ToolInput, MAX_TOOL_INPUT) };
+    let (mut raw, mut cut) = (raw.to_string(), cut);
     loop {
-        // the desktop's own escaper first (it knows more hidden characters than the crate's), so the phone shows what the panel shows
         let mut d = Detail::build(id, what, &crate::answers::escape_hidden(&raw), cut, vec![]);
         d.odd |= crate::answers::odd(&serde_json::Value::String(raw.clone()));
-        if d.text.len() <= limit { return Ok(d); }
-        raw = cut_bytes(&raw, raw.len() * 3 / 4); // escapes made it longer than the limit: shorter, and cut says so
+        if d.text.len() <= limit { return d; }
+        raw = cut_bytes(&raw, raw.len() * 3 / 4);
         cut = true;
     }
 }
