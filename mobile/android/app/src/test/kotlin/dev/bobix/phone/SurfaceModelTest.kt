@@ -53,16 +53,14 @@ class SurfaceModelTest {
     }
 
     @Test
-    fun aReachableComputerStaysFreshWithoutATimedWait() {
-        assertEquals(SurfaceState.NEEDS_YOU, SurfaceModel.of(list(waiting = listOf(waits())), t0 + 600 * min, false, utc).state)
-    }
-
-    @Test
-    fun anUnreachableComputerMakesDataStaleAfterFifteenMinutes() {
-        val l = list(online = false, waiting = listOf(waits()))
-        assertEquals(SurfaceState.NEEDS_YOU, SurfaceModel.of(l, t0 + 14 * min, false, utc).state)
-        assertEquals(SurfaceState.STALE, SurfaceModel.of(l, t0 + 16 * min, false, utc).state)
-        assertEquals(t0 + 15 * min, SurfaceModel.staleAt(l))
+    fun contentOlderThanFifteenMinutesIsStaleWhateverTheLinkSaid() {
+        for (online in listOf(true, false)) {
+            val l = list(online = online, waiting = listOf(waits()))
+            assertEquals(SurfaceState.NEEDS_YOU, SurfaceModel.of(l, t0 + 14 * min, false, utc).state)
+            assertEquals("online=$online", SurfaceState.STALE, SurfaceModel.of(l, t0 + 16 * min, false, utc).state)
+            assertEquals(t0 + 15 * min, SurfaceModel.staleAt(l))
+        }
+        assertEquals("nothing waiting is stale too", SurfaceState.STALE, SurfaceModel.of(list(), t0 + 16 * min, false, utc).state)
     }
 
     @Test
@@ -72,13 +70,13 @@ class SurfaceModelTest {
         val stale = SurfaceModel.of(l, t0 + 130_000, false, utc)
         assertEquals(SurfaceState.STALE, stale.state)
         assertEquals(t0 + 120_000, SurfaceModel.staleAt(l))
-        // The earliest of the two wins, and an unreachable computer with a long wait still dims at fifteen minutes.
-        assertEquals(t0 + 15 * min, SurfaceModel.staleAt(list(online = false, waiting = listOf(waits(left = 3600)))))
+        // The earliest of the two wins: a long wait still dims at fifteen minutes.
+        assertEquals(t0 + 15 * min, SurfaceModel.staleAt(list(waiting = listOf(waits(left = 3600)))))
     }
 
     @Test
     fun staleDataNeverSaysNeedsYouAndShowsWhenItWasWritten() {
-        val v = SurfaceModel.of(list(at = t0, online = false, waiting = listOf(waits(), waits(name = "api"))), t0 + 20 * min, false, utc)
+        val v = SurfaceModel.of(list(at = t0, waiting = listOf(waits(), waits(name = "api"))), t0 + 20 * min, false, utc)
         assertEquals(SurfaceState.STALE, v.state)
         assertEquals(0, v.count)
         assertTrue(v.rows.isEmpty() && v.others.isEmpty())

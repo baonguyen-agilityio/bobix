@@ -45,4 +45,42 @@ class SurfaceResourcesTest {
         assertTrue(Regex("""\.surfaces\.StaleReceiver"\s+android:exported="false"""").containsMatchIn(m))
         assertTrue(m.contains("POST_PROMOTED_NOTIFICATIONS"))
     }
+
+    private fun kotlin(path: String) = File(main, "kotlin/dev/bobix/phone/$path").readText()
+
+    @Test
+    fun nothingRelaySuppliedIsDrawnWhenTheSealedBoxDoesNotOpen() {
+        // The list changes by a push only for a notice that opened; its title and body are never copied into it.
+        val service = kotlin("push/PushService.kt")
+        assertTrue(service.contains("opened?.let { dev.bobix.phone.surfaces.Surfaces.onNotice(context, it.computerId, it.notice.what, it.notice.reference) }"))
+        assertTrue("the opener returns null for a box that does not open", service.contains(".open(sealed)"))
+        val list = kotlin("surfaces/SurfaceList.kt")
+        assertTrue(!list.contains(".title") && !list.contains(".body"))
+        // A surface draws names only from the list the app wrote, or the generic text.
+        assertTrue(kotlin("surfaces/Surfaces.kt").contains("fun onNotice(context: Context, computerId: String, what: String, ref: String)"))
+    }
+
+    @Test
+    fun hideDetailsRedrawsEverySurfaceAtOnce() {
+        assertTrue(kotlin("push/PushChannel.kt").contains("prefs.hideDetails = call.argument<Boolean>(\"hide\") ?: false"))
+        assertTrue(kotlin("push/PushChannel.kt").contains("Surfaces.refresh(activity.applicationContext)"))
+        val refresh = kotlin("surfaces/Surfaces.kt")
+        for (part in listOf("BobixWidget(", "LiveUpdate.apply", "requestListeningState")) assertTrue("refresh covers $part", refresh.contains(part))
+        for (file in listOf("surfaces/LiveUpdate.kt", "surfaces/Tiles.kt", "surfaces/widgets/BobixWidget.kt")) {
+            assertTrue("$file reads the switch through the shared view", kotlin(file).contains("Surfaces.view") || kotlin(file).contains("v.hidden") || kotlin(file).contains("SurfaceView"))
+        }
+    }
+
+    @Test
+    fun aTapOnlyOpensAScreenAndGoesThroughTheApp() {
+        // Every surface taps through one intent to MainActivity, signed with the app's secret; no surface code touches keys,
+        // signing, the relay or a command, so the answer still needs the fingerprint inside the app.
+        val forbidden = listOf("KeyStore", "BiometricPrompt", "SecureKeys", "makeGrant", "openPacket", "sign(", "Signature")
+        val dir = File(main, "kotlin/dev/bobix/phone/surfaces")
+        for (f in dir.walkTopDown().filter { it.extension == "kt" }) {
+            for (w in forbidden) assertTrue("${f.name} must not use $w", !f.readText().contains(w))
+        }
+        assertTrue(kotlin("surfaces/SurfacesChannel.kt").contains("EXTRA_TOKEN) != PushPrefs(context).tapToken"))
+        assertTrue(kotlin("surfaces/Surfaces.kt").contains("Intent(context, MainActivity::class.java)"))
+    }
 }

@@ -5,11 +5,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/models.dart';
 import '../data/phone_data.dart';
 import '../link/link_providers.dart';
 import 'pet_png.dart';
 import 'surface_list.dart';
 import 'surface_sink.dart';
+
+/// How often the list is written again while the computer is reachable, so that content never reaches the 15 minutes after
+/// which every surface draws it stale just because nothing changed. Well under 15 minutes.
+final surfaceHeartbeatProvider = Provider<Duration>(
+  (ref) => const Duration(minutes: 5),
+);
 
 final surfaceSinkProvider = Provider<SurfaceSink>(
   (ref) => platformSurfaceSink(),
@@ -31,6 +38,7 @@ final surfaceSyncProvider = Provider<void>((ref) {
   final draw = ref.watch(petPngProvider);
   final written = <String>{};
   var queue = Future<void>.value();
+  HomeData? last;
 
   Future<void> write(Map<String, Object?> list) async {
     for (final (design, color, state) in petsOf(list)) {
@@ -47,12 +55,23 @@ final surfaceSyncProvider = Provider<void>((ref) {
     await sink.writeList(jsonEncode(list));
   }
 
-  ref.listen(homeProvider, (_, next) {
-    final data = next.value;
-    if (data == null) return;
+  void push(HomeData data) {
+    last = data;
     final list = surfaceListJson(data, nowMs: now().millisecondsSinceEpoch);
     queue = queue.then((_) => write(list)).catchError((Object _) {});
+  }
+
+  ref.listen(homeProvider, (_, next) {
+    final data = next.value;
+    if (data != null) push(data);
   });
+  // The computer is reachable and said what it said: that is still true a few minutes later, so say it again (the clock
+  // time on a stale surface is when this was last written). Not while it is not reachable: that must age into stale.
+  final heartbeat = Timer.periodic(ref.watch(surfaceHeartbeatProvider), (_) {
+    final data = last;
+    if (data != null && data.conn == ConnState.ok) push(data);
+  });
+  ref.onDispose(heartbeat.cancel);
   ref.listen(linkControllerProvider, (_, next) {
     final phase = next.value;
     if (phase is Unpaired || phase is PairAgain) {

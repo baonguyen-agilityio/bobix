@@ -39,26 +39,25 @@ class SurfaceView(
 }
 
 object SurfaceModel {
-    /** Data older than this, with the computer not reachable, is stale. */
-    const val STALE_OFFLINE_MS = 15 * 60_000L
+    /** Content older than this is stale. */
+    const val MAX_AGE_MS = 15 * 60_000L
 
     /**
-     * The staleness rule: the list is stale when it is older than the wait the computer still had for a waiting item
-     * (`leftSeconds`: after that the request may be gone, so it must not still say "needs you"), or older than 15 minutes
-     * while the computer was not reachable when it was written. A wait shorter than 15 minutes dims at the wait. Fresh data
-     * of a reachable computer with nothing timed stays fresh: the link rewrites the list whenever the computer says
-     * something.
+     * The staleness rule (decision 24): content older than 15 minutes is drawn stale, and so is content older than the wait
+     * the computer still had for a waiting item (`leftSeconds`: after that the request may be gone), so a wait under 15
+     * minutes dims at the wait. Stale means the dimmed "Updated hh:mm" and never "needs you". The app rewrites the list
+     * whenever the computer says something and every few minutes while the computer is reachable, so a reachable computer
+     * does not go stale while the app runs; a phone that cannot reach it, or an app that is not running, does.
      */
     fun staleAfter(list: SurfaceList): Long {
         val own = list.waiting.mapNotNull { it.leftSeconds }.minOrNull()?.let { it * 1000L }
-        val offline = if (list.online) Long.MAX_VALUE else STALE_OFFLINE_MS
-        return minOf(own ?: Long.MAX_VALUE, offline).coerceAtLeast(0)
+        return minOf(own ?: Long.MAX_VALUE, MAX_AGE_MS).coerceAtLeast(0)
     }
 
     fun isStale(list: SurfaceList, now: Long) = now - list.writtenAt > staleAfter(list)
 
-    /** The moment the list turns stale, or null when it never does on its own. */
-    fun staleAt(list: SurfaceList): Long? = staleAfter(list).takeIf { it != Long.MAX_VALUE }?.let { list.writtenAt + it }
+    /** The moment the list turns stale. */
+    fun staleAt(list: SurfaceList): Long = list.writtenAt + staleAfter(list)
 
     fun clock(at: Long, zone: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault()): String =
         SimpleDateFormat("HH:mm", locale).apply { timeZone = zone }.format(Date(at))

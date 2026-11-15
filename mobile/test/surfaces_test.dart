@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -124,7 +125,7 @@ void main() {
 
   test('a pet is drawn to a PNG', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
-    final png = await renderPetPng('default', 3, 'waiting', size: 64);
+    final png = await renderPetPng('default', 3, 'waiting', px: 64);
     expect(png.sublist(0, 4), [0x89, 0x50, 0x4e, 0x47]);
     expect(png.length, greaterThan(200));
     expect(png.length, lessThan(200 * 1024));
@@ -172,6 +173,60 @@ void main() {
       expect(sink.calls.where((c) => c == 'list').length, 2);
     },
   );
+
+  test('a reachable computer is written again every few minutes; an unreachable one is not', () async {
+    for (final (conn, rewritten) in [
+      (ConnState.ok, true),
+      (ConnState.offline, false),
+    ]) {
+      final sink = FakeSink();
+      final controller = StreamController<HomeData>();
+      var clock = DateTime.utc(2027, 1, 15, 8);
+      final container = ProviderContainer(
+        overrides: [
+          surfaceSinkProvider.overrideWithValue(sink),
+          surfaceHeartbeatProvider.overrideWithValue(
+            const Duration(milliseconds: 40),
+          ),
+          petPngProvider.overrideWithValue((d, c, s) async => Uint8List(4)),
+          phoneDataProvider.overrideWithValue(_Data(controller.stream)),
+          clockProvider.overrideWithValue(
+            () => clock = clock.add(const Duration(minutes: 5)),
+          ),
+        ],
+      );
+      container.listen(surfaceSyncProvider, (_, _) {});
+      container.listen(homeProvider, (_, _) {});
+      controller.add(home(conn: conn));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      final lists = sink.calls.where((c) => c == 'list').length;
+      expect(lists > 1, rewritten, reason: '$conn wrote $lists lists');
+      container.dispose();
+      await controller.close();
+    }
+  });
+
+  test('a tap from a surface is handled only inside the app shell, behind the gate', () {
+    // The pairing, the "pair again" screen and (when built) the app lock all come before `AppShell`: a surface can only ask,
+    // and the shell is what opens a screen, and nothing answers from there.
+    final users =
+        Directory('lib')
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where(
+              (f) => f.path.endsWith('.dart') && !f.path.contains('lib/src/'),
+            )
+            .where((f) => f.readAsStringSync().contains('surfaceOpenProvider'))
+            .map((f) => f.path)
+            .toList()
+          ..sort();
+    expect(users, ['lib/app.dart', 'lib/surfaces/surface_sync.dart']);
+    final shell = File('lib/app.dart').readAsStringSync();
+    expect(
+      shell.indexOf('class AppShell'),
+      lessThan(shell.indexOf('surfaceOpenProvider, (_, o)')),
+    );
+  });
 
   test(
     'a tap from outside is only a known screen, and a request needs its id',
