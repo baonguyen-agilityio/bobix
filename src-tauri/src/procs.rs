@@ -124,6 +124,13 @@ pub fn process_names(pids: &[u32]) -> Vec<String> {
 }
 
 // claude → shell → … → terminal / IDE / app. Walked when a pet is clicked (the hook only sends the claude pid).
+// The processes a process started (direct children), through pgrep; empty where it cannot tell (Windows).
+pub fn children(pid: u32) -> Vec<u32> {
+    if cfg!(windows) { return vec![]; }
+    let r = exec("pgrep", &["-P", &pid.to_string()], 3, &[]);
+    r.out.lines().filter_map(|l| l.trim().parse().ok()).collect()
+}
+
 pub fn ancestors(pid: u32) -> Vec<u32> {
     let mut chain = vec![];
     if pid <= 1 { return chain; }
@@ -238,5 +245,16 @@ mod tests {
         let n = super::process_names(&[std::process::id()]);
         assert_eq!(n.len(), 1);
         assert_ne!(n[0], "?");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_started_child_is_listed_and_where_it_cannot_be_listed_nothing_is() {
+        let mut child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+        let kids = super::children(std::process::id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(kids.contains(&child.id()), "{kids:?}");
+        assert!(super::children(u32::MAX - 1).is_empty(), "no such process: no children");
     }
 }

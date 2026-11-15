@@ -47,8 +47,9 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
         let project = s.project.as_deref().map(folder).unwrap_or_else(|| folder(&s.cwd));
         // waiting with nothing held: it is answered at the computer
         let held = s.state == "waiting" && pending.values().any(|p| p.sid == s.id);
+        let held_request = pending.values().any(|p| p.sid == s.id && p.kind() == Kind::Request); // Stop is only for a plain request
         let state = if s.state == "waiting" && !held { "atComputer".to_string() } else { s.state.clone() };
-        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held }
+        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held_request }
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
         id: id.clone(), session: p.sid.clone(), what: match p.kind() { Kind::Plan => WaitingKind::Plan, Kind::Question => WaitingKind::Question, Kind::Request => WaitingKind::Request },
@@ -77,6 +78,13 @@ pub fn groups(work: &crate::work::Work, settings: &serde_json::Value, sessions: 
     let stuck: Vec<String> = crate::model::stuck(&model.json(), &list, &settings.clone(), now as f64).iter().filter_map(|x| x["session"].as_str().map(String::from)).fold(vec![], |mut a, s| { if !a.contains(&s) { a.push(s); } a });
     [(GroupKind::NeedsYou, needs), (GroupKind::InProgress, ids_of("doing")), (GroupKind::WaitingForReview, ids_of("verify")), (GroupKind::Stuck, stuck)]
         .into_iter().filter(|(_, ids)| !ids.is_empty()).map(|(group, ids)| Group { group, ids }).collect()
+}
+
+// The home as one phone gets it: Stop is offered only where the phone holds both the Stop and the Answer right (the desktop
+// refuses it otherwise).
+pub fn for_phone(mut h: Home, rights: Rights) -> Home {
+    if !(rights.stop && rights.answer) { for s in &mut h.sessions { s.can_stop = false; } }
+    h
 }
 
 // A sealed `home` must fit a frame: previews go first, then the oldest sessions.
@@ -231,5 +239,26 @@ mod tests {
         for (id, st) in [("a", "working"), ("b", "waiting"), ("c", "idle")] { let mut s = crate::state::Session::default(); s.id = id.into(); s.state = st.into(); sessions.insert(id.into(), s); }
         let h = home(&sessions, &HashMap::new(), "Studio", 1, ComputerState::Asleep, vec![]);
         assert_eq!((h.computer.state, h.computer.unfinished), (ComputerState::Asleep, 2));
+    }
+
+    #[test]
+    fn stop_is_offered_only_for_a_plain_request_and_a_phone_with_both_rights() {
+        let mut sessions = Sessions::new();
+        for id in ["r", "p", "q", "n"] { let mut s = crate::state::Session::default(); s.id = id.into(); s.state = "waiting".into(); sessions.insert(id.into(), s); }
+        let mut pending = HashMap::new();
+        for (id, sid, plan, q) in [("1", "r", false, false), ("2", "p", true, false), ("3", "q", false, true)] {
+            let (tx, _rx) = tokio::sync::oneshot::channel();
+            let mut p = Pending::for_test(sid, plan, tx, "x", false);
+            if q { p.input = Some(serde_json::json!({})); }
+            pending.insert(id.to_string(), p);
+        }
+        let h = home(&sessions, &pending, "Studio", 1, ComputerState::Online, vec![]);
+        let stop = |h: &Home, id: &str| h.sessions.iter().find(|s| s.id == id).unwrap().can_stop;
+        assert!(stop(&h, "r") && !stop(&h, "p") && !stop(&h, "q") && !stop(&h, "n"), "a plain request only");
+        let both = Rights { stop: true, answer: true, ..Default::default() };
+        assert!(stop(&for_phone(h.clone(), both), "r"));
+        for r in [Rights { stop: true, ..Default::default() }, Rights { answer: true, ..Default::default() }, Rights::default()] {
+            assert!(!stop(&for_phone(h.clone(), r), "r"), "{r:?}: the desktop would refuse it");
+        }
     }
 }
