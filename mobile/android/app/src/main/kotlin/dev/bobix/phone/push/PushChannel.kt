@@ -27,7 +27,8 @@ import uniffi.bobix_phone_core.makeGrant
  *   when this build has no Firebase project (`google-services.json` missing) or none has been handed over yet.
  * - `environment` -> always "production" (APNs has sandbox and production; FCM has one).
  * - `grant({token, relayId, expiresMs})` -> the signed grant; the `auth` seed stays on this side.
- * - `initialTap` -> {computer, ref, kind} of the notification tap that started the app, once, or null.
+ * - `initialTap` -> {computer, ref, kind} of the notification tap that started the app, once, or null. Calling it also
+ *   tells native that Dart now listens for `tap`; a tap that arrives before that waits for this call.
  * - `setComputer({id, boxPublic, versionMin, versionMax})`, `removeComputer({id})`, `openPacket({packet})` ->
  *   {computer, stream, counter, plaintext} or {error: replayed|version|unreadable|noKey}: the receive window shared with
  *   the push service, which is a separate entry point into this app.
@@ -42,6 +43,8 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
     private val prefs = PushPrefs(activity.applicationContext)
     private val peers = PeerStore(PushService.peerDir(activity.applicationContext))
     private var initialTap: Map<String, String>? = null
+    /** Dart's first `initialTap` call is also its "I am listening" signal (as on iOS): until then no tap goes over the channel. */
+    private var dartListening = false
     private var permissionResult: MethodChannel.Result? = null
     private var lastToken: String? = null
 
@@ -68,7 +71,7 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
             "ref" to (intent.getStringExtra(NoticePoster.EXTRA_REF) ?: ""),
             "kind" to (intent.getStringExtra(NoticePoster.EXTRA_KIND) ?: ""),
         )
-        if (started) initialTap = tap else channel.invokeMethod("tap", tap)
+        if (started || !dartListening) initialTap = tap else channel.invokeMethod("tap", tap)
     }
 
     /** A token the system handed over (first time, or changed). */
@@ -122,7 +125,7 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
                 "token" -> result.success(lastToken)
                 "environment" -> result.success("production")
                 "grant" -> grant(call, result)
-                "initialTap" -> { result.success(initialTap); initialTap = null }
+                "initialTap" -> { dartListening = true; result.success(initialTap); initialTap = null }
                 "openSettings" -> {
                     activity.startActivity(
                         Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName),
@@ -157,6 +160,7 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
             val box = store.secret("box")
             if (auth == null || box == null) return result.error("no_key", "the device keys are not there", null)
             val expires = (call.argument<Number>("expiresMs") ?: 0).toLong()
+            if (expires <= 0) return result.error("push_error", "expiresMs must be a positive time in milliseconds", null)
             result.success(makeGrant(auth, box, call.argument<String>("token") ?: "", call.argument<String>("relayId") ?: "", expires.toULong()))
         } catch (e: Exception) {
             result.error("push_error", e.message, null)
