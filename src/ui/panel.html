@@ -1239,34 +1239,34 @@ function phonePoll() {
 }
 const phoneFail = e => { phoneErr = String(e?.message || e || ''); return null; };
 function phoneRightsHTML(ph, prefix, on, disabled) {
-  return PHONE_RIGHTS.map(r => `<label class="chk"><input type="checkbox" data-pr="${prefix}" data-r="${r}" ${on[r] ? 'checked' : ''} ${disabled ? 'disabled' : ''}> ${esc(T('phone.right.' + r))}</label>`).join('');
+  return PHONE_RIGHTS.map(r => `<label class="chk"><input type="checkbox" data-pr="${prefix}" data-r="${r}" ${on[r] ? 'checked' : ''} ${disabled ? 'disabled' : ''}> ${esc(T('phones.right.' + r))}</label>`).join('');
 }
 function phonesSettingsHTML() {
   const d = phoneData;
-  if (!d) return `<section class="sec" id="sec-phones"><h2>${esc(T('phone.title'))}</h2><p class="note">${esc(T('work.loading'))}</p></section>`;
+  if (!d) return `<section class="sec" id="sec-phones"><h2>${esc(T('phones.title'))}</h2><p class="note">${esc(T('work.loading'))}</p></section>`;
   const p = d.pairing || { state: 'none' };
   const statusKey = ['off', 'connecting', 'online', 'invite', 'update', 'url', 'auth'].includes(d.status) ? d.status : 'connecting';
-  const phones = d.phones.map(x => `<li class="ph" data-phone="${esc(x.id)}"><div class="phr"><b data-ph-name></b> <button class="btn sm" type="button" data-ph-off="${esc(x.id)}">${esc(T('phone.disconnect'))}</button></div>
-      <div class="rights">${phoneRightsHTML(x, 'row:' + esc(x.id), x.rights, false)}</div>${x.needsPairing ? `<p class="note err">${esc(T('phone.needs.pair'))}</p>` : ''}${x.noPush ? `<p class="note err">${esc(T('phone.nogrant'))}</p>` : ''}</li>`).join('');
-  const pairing = !d.on ? '' : p.state === 'open' ? `<div class="opt wide"><div><p>${esc(T('phone.pair.scan'))}</p><div class="qr" data-qr></div><p><button class="btn sm" type="button" data-act="phones-pair-cancel">${esc(T('phone.pair.cancel'))}</button></p></div></div>`
+  const phones = d.phones.map(x => `<li class="ph" data-phone="${esc(x.id)}"><div class="phr"><b data-ph-name></b> <button class="btn sm" type="button" data-ph-off="${esc(x.id)}">${esc(T('phones.disconnect'))}</button></div>
+      <div class="rights">${phoneRightsHTML(x, 'row:' + esc(x.id), x.rights, false)}</div>${x.needsPairing ? `<p class="note err">${esc(T('phones.needs.pair'))}</p>` : ''}${x.noPush ? `<p class="note err">${esc(T('phones.nogrant'))}</p>` : ''}</li>`).join('');
+  const pairing = !d.on ? '' : p.state === 'open' ? `<div class="opt wide"><div><p>${esc(T('phones.pair.scan'))}</p><div class="qr" data-qr></div><p><button class="btn sm" type="button" data-act="phones-pair-cancel">${esc(T('phones.pair.cancel'))}</button></p></div></div>`
     : p.state === 'offered' ? `<div class="opt wide"><div><p data-pair-asks></p><div class="rights">${phoneRightsHTML(null, 'new', phoneRights, false)}</div>
-        <p><button class="btn pri" type="button" data-act="phones-pair-confirm">${esc(T('phone.pair.confirm'))}</button> <button class="btn" type="button" data-act="phones-pair-cancel">${esc(T('phone.pair.cancel'))}</button></p></div></div>`
-    : p.state === 'confirmed' ? `<div class="opt wide"><p class="note">${esc(T('phone.pair.wait'))}</p></div>`
-    : `${p.warning || p.state === 'cancelled' ? `<div class="opt wide"><p class="note err">${esc(T('phone.pair.warn'))}</p></div>` : ''}<div class="opt wide"><button class="btn" type="button" data-act="phones-pair-start">${esc(T('phone.pair'))}</button></div>`;
-  return `<section class="sec" id="sec-phones"><h2>${esc(T('phone.title'))}</h2>
-    <div class="opt"><div><div class="lbl" id="l-phonesOn">${esc(T('phone.switch'))}</div><div class="desc">${esc(T('phone.promise'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesOn" data-phones-on ${d.on ? 'checked' : ''}></div></div>
-    <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phone.relay'))}</div><div class="acts" style="margin:6px 0 0"><input type="text" id="phones-relay" value="" placeholder="${esc(T('phone.relay.ph'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0"><button class="btn" type="button" data-act="phones-relay">${esc(T('phone.relay.change'))}</button></div>
-      <p class="note">${esc(T('phone.status'))}: ${esc(T('phone.status.' + statusKey))}${d.moving ? ' · ' + esc(T('phone.relay.moving')) : ''}</p>${phoneErr ? `<p class="note err">${esc(phoneErr)}</p>` : ''}</div></div>
-    ${d.deviceId ? `<div class="opt wide"><div><div class="lbl">${esc(T('phone.device'))}</div><div><code>${esc(d.deviceId)}</code> <button class="btn sm" type="button" data-act="phones-copy">${esc(T('phone.copy'))}</button></div><p class="note">${esc(T('phone.invite.hint'))}</p></div></div>` : ''}
-    ${d.on && !d.node ? `<div class="opt wide"><p class="note err">${esc(T('phone.node'))}</p></div>` : ''}
-    <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phone.hold.title'))}</div>${d.canRead === false ? `<p class="note">${esc(T('phone.hold.why'))}</p>` : ''}
-      <label class="chk"><input type="radio" name="phone-hold" data-hold="phone" ${d.hold !== 'computer' ? 'checked' : ''}> ${esc(T('phone.hold.phone'))}</label>
-      <label class="chk"><input type="radio" name="phone-hold" data-hold="computer" ${d.hold === 'computer' ? 'checked' : ''}> ${esc(T('phone.hold.computer'))}</label></div></div>
-    <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phone.phones'))}</div>${d.phones.length ? `<ul class="rows">${phones}</ul>` : `<p class="note">${esc(T('phone.none'))}</p>`}</div></div>
+        <p><button class="btn pri" type="button" data-act="phones-pair-confirm">${esc(T('phones.pair.confirm'))}</button> <button class="btn" type="button" data-act="phones-pair-cancel">${esc(T('phones.pair.cancel'))}</button></p></div></div>`
+    : p.state === 'confirmed' ? `<div class="opt wide"><p class="note">${esc(T('phones.pair.wait'))}</p></div>`
+    : `${p.warning || p.state === 'cancelled' ? `<div class="opt wide"><p class="note err">${esc(T('phones.pair.warn'))}</p></div>` : ''}<div class="opt wide"><button class="btn" type="button" data-act="phones-pair-start">${esc(T('phones.pair'))}</button></div>`;
+  return `<section class="sec" id="sec-phones"><h2>${esc(T('phones.title'))}</h2>
+    <div class="opt"><div><div class="lbl" id="l-phonesOn">${esc(T('phones.switch'))}</div><div class="desc">${esc(T('phones.promise'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesOn" data-phones-on ${d.on ? 'checked' : ''}></div></div>
+    <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.relay'))}</div><div class="acts" style="margin:6px 0 0"><input type="text" id="phones-relay" value="" placeholder="${esc(T('phones.relay.ph'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0"><button class="btn" type="button" data-act="phones-relay">${esc(T('phones.relay.change'))}</button></div>
+      <p class="note">${esc(T('phones.status'))}: ${esc(T('phones.status.' + statusKey))}${d.moving ? ' · ' + esc(T('phones.relay.moving')) : ''}</p>${phoneErr ? `<p class="note err">${esc(phoneErr)}</p>` : ''}</div></div>
+    ${d.deviceId ? `<div class="opt wide"><div><div class="lbl">${esc(T('phones.device'))}</div><div><code>${esc(d.deviceId)}</code> <button class="btn sm" type="button" data-act="phones-copy">${esc(T('phones.copy'))}</button></div><p class="note">${esc(T('phones.invite.hint'))}</p></div></div>` : ''}
+    ${d.on && !d.node ? `<div class="opt wide"><p class="note err">${esc(T('phones.node'))}</p></div>` : ''}
+    <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.hold.title'))}</div>${d.canRead === false ? `<p class="note">${esc(T('phones.hold.why'))}</p>` : ''}
+      <label class="chk"><input type="radio" name="phone-hold" data-hold="phone" ${d.hold !== 'computer' ? 'checked' : ''}> ${esc(T('phones.hold.phone'))}</label>
+      <label class="chk"><input type="radio" name="phone-hold" data-hold="computer" ${d.hold === 'computer' ? 'checked' : ''}> ${esc(T('phones.hold.computer'))}</label></div></div>
+    <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.phones'))}</div>${d.phones.length ? `<ul class="rows">${phones}</ul>` : `<p class="note">${esc(T('phones.none'))}</p>`}</div></div>
     ${pairing}
-    <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phone.log.title'))}</div>${phoneLog.length ? `<ul class="rows plog">${phoneLog.slice(0, 50).map((l, i) => `<li data-log="${i}"><span class="t"></span> <b></b> <span class="w"></span> <span class="r"></span></li>`).join('')}</ul>` : `<p class="note">${esc(T('phone.log.empty'))}</p>`}</div></div>
-    <div class="opt wide"><div><p class="note">${esc(T('phone.storage.' + (['Keychain', 'FileDataDir', 'FileNoKeychain'].includes(d.storage) ? d.storage : 'Keychain')))}</p>
-      <button class="btn sm danger" type="button" data-act="phones-newid" ${d.on || d.phones.length ? 'disabled' : ''}>${esc(T('phone.newid'))}</button> <span class="note">${esc(T('phone.newid.hint'))}</span></div></div></section>`;
+    <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.log.title'))}</div>${phoneLog.length ? `<ul class="rows plog">${phoneLog.slice(0, 50).map((l, i) => `<li data-log="${i}"><span class="t"></span> <b></b> <span class="w"></span> <span class="r"></span></li>`).join('')}</ul>` : `<p class="note">${esc(T('phones.log.empty'))}</p>`}</div></div>
+    <div class="opt wide"><div><p class="note">${esc(T('phones.storage.' + (['Keychain', 'FileDataDir', 'FileNoKeychain'].includes(d.storage) ? d.storage : 'Keychain')))}</p>
+      <button class="btn sm danger" type="button" data-act="phones-newid" ${d.on || d.phones.length ? 'disabled' : ''}>${esc(T('phones.newid'))}</button> <span class="note">${esc(T('phones.newid.hint'))}</span></div></div></section>`;
 }
 // Everything a phone sent goes in with textContent.
 function fillPhoneText(box) {
@@ -1276,7 +1276,7 @@ function fillPhoneText(box) {
   if (rel && !rel.dataset.set) { rel.value = d.relay || ''; rel.dataset.set = '1'; }
   for (const li of box.querySelectorAll('[data-phone]')) { const x = d.phones.find(y => y.id === li.dataset.phone); if (x) li.querySelector('[data-ph-name]').textContent = x.name; }
   const asks = box.querySelector('[data-pair-asks]');
-  if (asks) asks.textContent = T('phone.pair.asks', { name: d.pairing.name || '' });
+  if (asks) asks.textContent = T('phones.pair.asks', { name: d.pairing.name || '' });
   const qr = box.querySelector('[data-qr]');
   if (qr && d.pairing.qr) { const img = document.createElement('img'); img.alt = ''; img.width = 200; img.height = 200; img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(d.pairing.qr); qr.replaceChildren(img); }
   for (const li of box.querySelectorAll('[data-log]')) {
@@ -3069,7 +3069,7 @@ function settingItems() {
   return [...SECTIONS.map(([title, rows]) => ({ id: 'set:' + secKey(title), kind: 'settings', lead: ico(SET_ICON[secKey(title)] || 'settings'), label: T(title),
       sub: rows.filter(r => !['zone', 'prices', 'keys', 'port', 'reset'].includes(r.type)).map(r => T('set.' + r.k)).join(', ') })),
     { id: 'set:habits', kind: 'settings', lead: ico('bulb'), label: T('hab.set.title'), sub: T('hab.set.switch') },
-    { id: 'set:phones', kind: 'settings', lead: ico('plug'), label: T('phone.title'), sub: T('phone.switch') },
+    { id: 'set:phones', kind: 'settings', lead: ico('plug'), label: T('phones.title'), sub: T('phones.switch') },
     { id: 'setup', kind: 'setup', lead: ico('plug', hooksOk ? 'ok' : 'hot'), label: T('setup.title'), sub: hookText(h) },
     { id: 'feedback', kind: 'settings', lead: ico('chat'), label: T('fb.title'), sub: T('fb.body') }];
 }
@@ -3095,13 +3095,13 @@ function renderSettings() {
 }
 $('#settings').addEventListener('click', e => { if (e.target.closest('[data-act="feedback"]')) openFeedback(); });
 
-const phonesDo = (p, keepErr) => p.then(v => { if (v) { phoneData = v; if (!keepErr) phoneErr = ''; } return loadPhones(); }).catch(e => { phoneErr = ({ relay: T('phone.relay.bad'), off: T('phone.err.off'), busy: T('phone.err.busy'), moving: T('phone.err.moving') })[String(e)] || T('phone.err.other'); renderSettings(); });
+const phonesDo = (p, keepErr) => p.then(v => { if (v) { phoneData = v; if (!keepErr) phoneErr = ''; } return loadPhones(); }).catch(e => { phoneErr = ({ relay: T('phones.relay.bad'), off: T('phones.err.off'), busy: T('phones.err.busy'), moving: T('phones.err.moving') })[String(e)] || T('phones.err.other'); renderSettings(); });
 $('#settings').addEventListener('change', e => {
   const t = e.target;
   if (!bridge || cur?.id !== 'set:phones') return;
   if (t.matches('[data-phones-on]')) {
     const on = t.checked;
-    if (on && !(phoneData?.relay)) { t.checked = false; phoneErr = T('phone.relay.set'); return renderSettings(); }
+    if (on && !(phoneData?.relay)) { t.checked = false; phoneErr = T('phones.relay.set'); return renderSettings(); }
     return phonesDo(bridge.phonesEnable(on));
   }
   if (t.dataset.hold) return phonesDo(bridge.phonesEnable(null, t.dataset.hold));
@@ -3117,12 +3117,12 @@ $('#settings').addEventListener('click', e => {
   if (!t || !bridge || cur?.id !== 'set:phones') return;
   if (t.dataset.phOff) return phonesDo(bridge.phonesDisconnect(t.dataset.phOff));
   const a = t.dataset.act;
-  if (a === 'phones-relay') { const v = $('#phones-relay')?.value.trim() || ''; if (!v) { phoneErr = T('phone.relay.set'); return renderSettings(); } return phonesDo(bridge.phonesRelay(v)); }
+  if (a === 'phones-relay') { const v = $('#phones-relay')?.value.trim() || ''; if (!v) { phoneErr = T('phones.relay.set'); return renderSettings(); } return phonesDo(bridge.phonesRelay(v)); }
   if (a === 'phones-pair-start') return phonesDo(bridge.phonesPairStart());
   if (a === 'phones-pair-cancel') return phonesDo(bridge.phonesPairCancel());
   if (a === 'phones-pair-confirm') return phonesDo(bridge.phonesPairConfirm(phoneRights));
   if (a === 'phones-newid') return phonesDo(bridge.phonesNewIdentity());
-  if (a === 'phones-copy' && phoneData?.deviceId) return navigator.clipboard.writeText(phoneData.deviceId).then(() => toast(T('phone.copied')), () => toast(phoneData.deviceId));
+  if (a === 'phones-copy' && phoneData?.deviceId) return navigator.clipboard.writeText(phoneData.deviceId).then(() => toast(T('phones.copied')), () => toast(phoneData.deviceId));
 });
 
 // ---------- drawing ----------

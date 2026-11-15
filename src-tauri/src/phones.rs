@@ -808,8 +808,8 @@ pub fn on_notify(b: &Arc<Bobix>, kind: &str, sid: &str) {
 // A desktop notification says when the list of phones changes.
 fn phones_changed_note(b: &Arc<Bobix>, name: &str, added: bool) {
     let (l, sound) = { let c = b.core.lock().unwrap(); (crate::lang(&c.settings), c.settings["sound"] == true) };
-    let key = if added { "phone.note.added" } else { "phone.note.removed" };
-    crate::notify::show(crate::notify::Note { title: crate::i18n::t(&l, "phone.note.title", &[]), body: crate::i18n::t(&l, key, &[("name", name)]), sound, buttons: None, open: crate::i18n::t(&l, "notify.open", &[]) }, |_| {});
+    let key = if added { "phones.note.added" } else { "phones.note.removed" };
+    crate::notify::show(crate::notify::Note { title: crate::i18n::t(&l, "phones.note.title", &[]), body: crate::i18n::t(&l, key, &[("name", name)]), sound, buttons: None, open: crate::i18n::t(&l, "notify.open", &[]) }, |_| {});
 }
 
 #[cfg(test)]
