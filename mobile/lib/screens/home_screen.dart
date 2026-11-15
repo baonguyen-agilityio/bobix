@@ -47,7 +47,7 @@ class HomeScreen extends ConsumerWidget {
         petState: x.petState,
         title: x.name,
         subtitle: subtitle,
-        meta: meta ?? '${x.project} #${x.issue}',
+        meta: meta ?? x.ref,
         needsYou: x.needsYou,
         muted: muted,
         subtitleColor: subtitleColor,
@@ -196,7 +196,9 @@ class HomeScreen extends ConsumerWidget {
                   ? s('phone.home.atpc')
                   : x.handledAtComputer
                   ? s('phone.hc.short')
-                  : s('phone.ask.h', {'tool': x.tool ?? ''}),
+                  : x.tool == null
+                  ? s('phone.ask.h0')
+                  : s('phone.ask.h', {'tool': x.tool!}),
               meta:
                   '${x.project} · ${s('phone.home.waited', {'n': minutes(x.waitingMinutes)})}',
             ),

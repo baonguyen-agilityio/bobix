@@ -1,4 +1,4 @@
-/// What the screens show. The connection to the computer produces these; until it exists [FixturePhoneData] does.
+/// What the screens show. The link to the computer produces these (`LinkPhoneData`).
 enum Stage { doing, verify, stuck, todo, done }
 
 enum ConnState { ok, noNetwork, relayDown, asleep, offline }
@@ -8,7 +8,7 @@ class Session {
     required this.id,
     required this.name,
     required this.project,
-    required this.issue,
+    this.issue,
     required this.stage,
     this.needsYou = false,
     this.answerAtComputer = false,
@@ -22,7 +22,9 @@ class Session {
   });
 
   final String id, name, project;
-  final int issue;
+
+  /// The ticket number, when the computer says one.
+  final int? issue;
   final Stage stage;
 
   /// A permission request waits for the person.
@@ -42,6 +44,9 @@ class Session {
   final int? pullRequest;
   final String petDesign;
   final int petColor;
+
+  /// `project #12`, or just the project when there is no ticket.
+  String get ref => issue == null ? project : '$project #$issue';
 
   /// The pet's state: what it acts out.
   String get petState => needsYou
@@ -73,17 +78,22 @@ class HomeData {
 class RequestDetail {
   const RequestDetail({
     required this.sessionId,
-    required this.tool,
+    this.tool,
     required this.command,
     required this.folder,
-    required this.expiresMinutes,
+    this.expiresMinutes,
     this.destructive = false,
     this.hiddenCharacters = false,
     this.dangerous = const [],
   });
 
-  final String sessionId, tool, command, folder;
-  final int expiresMinutes;
+  final String sessionId, command, folder;
+
+  /// The tool asking, when the computer says it.
+  final String? tool;
+
+  /// Minutes left to answer; null when the computer waits for as long as it takes.
+  final int? expiresMinutes;
 
   /// The command deletes things that cannot be brought back.
   final bool destructive;

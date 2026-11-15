@@ -70,7 +70,7 @@ class PetsScreen extends ConsumerWidget {
                   width: (MediaQuery.sizeOf(context).width - 32 - 12) / 2,
                   child: Semantics(
                     button: true,
-                    label: '${x.name}. ${x.project} #${x.issue}',
+                    label: '${x.name}. ${x.ref}',
                     excludeSemantics: true,
                     child: Glass(
                       radius: 20,
@@ -110,7 +110,7 @@ class PetsScreen extends ConsumerWidget {
                                 ),
                               ),
                               Text(
-                                '${x.project} #${x.issue}',
+                                x.ref,
                                 style: TextStyle(fontSize: 12, color: t.ink2),
                               ),
                             ],

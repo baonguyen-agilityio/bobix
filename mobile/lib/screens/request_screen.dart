@@ -59,7 +59,8 @@ class _RequestScreenState extends ConsumerState<RequestScreen> {
                     }),
                     tone: PillTone.accent,
                   ),
-                  Pill(s('phone.rq.exp', {'n': r.expiresMinutes})),
+                  if (r.expiresMinutes != null)
+                    Pill(s('phone.rq.exp', {'n': r.expiresMinutes!})),
                   if (sess.handledAtComputer)
                     Pill(s('phone.hc.short'), tone: PillTone.info),
                 ],
@@ -89,7 +90,9 @@ class _RequestScreenState extends ConsumerState<RequestScreen> {
           child: Semantics(
             header: true,
             child: Text(
-              s('phone.ask.h', {'tool': r.tool}),
+              r.tool == null
+                  ? s('phone.ask.h0')
+                  : s('phone.ask.h', {'tool': r.tool!}),
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,

@@ -1,6 +1,6 @@
 // Made-up data. Nothing here is a real session, project or path.
-import 'models.dart';
-import 'phone_data.dart';
+import 'package:phone/data/models.dart';
+import 'package:phone/data/phone_data.dart';
 
 const _sessions = <Session>[
   Session(

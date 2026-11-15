@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/app.dart';
-import 'package:phone/data/fixture_phone_data.dart';
 import 'package:phone/data/models.dart';
 import 'package:phone/data/phone_data.dart';
+
+import 'support/fixture_phone_data.dart';
+
 import 'package:phone/l10n/l10n.dart';
 import 'package:phone/l10n/strings.g.dart';
 import 'package:phone/screens/session_screen.dart';
@@ -24,7 +26,7 @@ Widget app({String lang = 'en', ConnState conn = ConnState.ok}) =>
         langProvider.overrideWith(() => _Lang(lang)),
         phoneDataProvider.overrideWithValue(FixturePhoneData(connection: conn)),
       ],
-      child: const BobixApp(),
+      child: const BobixApp(home: AppShell()),
     );
 
 /// A tall phone so a lazy list builds every row.

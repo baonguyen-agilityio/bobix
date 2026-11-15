@@ -34,8 +34,7 @@ class SessionScreen extends ConsumerWidget {
       children: [
         WhoCard(
           session: x,
-          subtitle:
-              '${x.project} #${x.issue} · ${s('phone.rq.on', {'c': computer})}',
+          subtitle: '${x.ref} · ${s('phone.rq.on', {'c': computer})}',
           badges: [Pill(label, tone: tone)],
         ),
         if (x.answerAtComputer)
@@ -53,7 +52,9 @@ class SessionScreen extends ConsumerWidget {
             padding: const EdgeInsets.only(top: 12),
             child: PillButton(
               compact: true,
-              label: s('phone.ask.h', {'tool': x.tool ?? ''}),
+              label: x.tool == null
+                  ? s('phone.ask.h0')
+                  : s('phone.ask.h', {'tool': x.tool!}),
               icon: Icons.chevron_right,
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
