@@ -8,7 +8,7 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 ## 1. Done on `develop`, not released yet (after rc.9)
 
-Nothing yet: `develop` is v0.2.0-rc.9.
+- **A new web page that shows all of Bobix** ([#260](https://github.com/baonguyen-agilityio/bobix/issues/260)): `site/index.html` and `site/vi/index.html` get a floating header with a status chip, a hero with one link per area, and cards for pets, approvals, usage, skills, tickets, habits and the Room, notifications, updates, languages and platforms, install and privacy. Three pets walk along the bottom of the window: they follow the scroll, can be dragged and flicked (springs, soft walls at the edges) and the first one waits on the approval card's Allow / Deny. Illustrations that are not screenshots are built in HTML with made-up data. Checked in a browser on EN and VI, light and dark, at 1292 and 375 px (no sideways scroll, every asset loads, no console errors); a real touch screen and Windows / Linux browsers not tried. The page goes live only when it reaches `main` (`pages.yml`).
 
 ## 2. In the test builds (v0.2.0-rc.1 to rc.9), no stable release yet
 
