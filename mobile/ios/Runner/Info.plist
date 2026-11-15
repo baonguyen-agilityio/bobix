@@ -30,6 +30,8 @@
 	<string>Bobix reads the pairing code on your computer with the camera. It keeps no picture.</string>
 	<key>BobixKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
+	<key>BobixAppGroup</key>
+	<string>$(BOBIX_APP_GROUP)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
