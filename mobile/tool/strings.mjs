@@ -29,7 +29,7 @@ export function render(STR) {
 // The iOS permission texts the system shows (Info.plist keys) in each language: en.lproj / vi.lproj InfoPlist.strings.
 const plistLit = (s) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
 export function renderInfoPlist(STR, lang) {
-  const usage = { NSFaceIDUsageDescription: 'phone.faceid.usage', NSCameraUsageDescription: 'phone.camera.usage' };
+  const usage = { NSFaceIDUsageDescription: 'phone.faceid.usage', NSCameraUsageDescription: 'phone.camera.usage', NSLocalNetworkUsageDescription: 'phone.localnet.usage' };
   const lines = Object.entries(usage).map(([plistKey, key]) => {
     if (!STR[lang][key]) throw new Error(`${key} has no ${lang} text`);
     return `"${plistKey}" = ${plistLit(STR[lang][key])};\n`;

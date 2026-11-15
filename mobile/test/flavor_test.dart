@@ -1,16 +1,21 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/config/flavor.dart';
+import 'package:phone/src/rust/api/core.dart';
 
 import 'support/core_library.dart';
 
 void main() {
   setUpAll(initCoreLibrary);
 
-  test('prod refuses a plain connection, even to this computer; dev allows it only there', () async {
+  test('prod refuses a plain connection, even to this computer; dev allows it only on this computer and the home network', () async {
     const plainLocal = [
       'ws://localhost:8787',
       'ws://127.0.0.1:8787',
       'ws://[::1]:8787',
+      'ws://192.168.1.20:8787',
+      'ws://10.0.0.5:8787',
+      'ws://172.16.4.2:8787',
+      'ws://[fd12:3456::1]:8787',
     ];
     for (final url in plainLocal) {
       expect(
@@ -23,6 +28,10 @@ void main() {
     for (final url in [
       'ws://relay.example',
       'ws://relay.example:8787',
+      'ws://203.0.113.5:8787',
+      'ws://192.168.1.20.evil.example:8787',
+      'ws://192.168.1.20@evil.example',
+      'ws://mac.local:8787',
       'ws://localhost@evil.example',
       'http://relay.example',
     ]) {
@@ -34,7 +43,7 @@ void main() {
       expect(
         await relayAllowed(url, Flavor.dev),
         isFalse,
-        reason: 'dev $url: plain only to localhost',
+        reason: 'dev $url: plain only to this computer or a private address',
       );
     }
   });
@@ -71,6 +80,24 @@ void main() {
       }
     },
   );
+
+  test('a pairing code for a relay on the home network is read, and only dev may use it', () async {
+    // The crate's test-vector keys with the relay address replaced by a private-network one.
+    const keys =
+        '&a=iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w&b=zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk&t=BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY';
+    final info = await parsePairingCode(
+      uri: 'bobix://pair?r=ws%3A%2F%2F192.168.1.20%3A8787$keys',
+    );
+    expect(info.relay, 'ws://192.168.1.20:8787');
+    expect(await relayAllowed(info.relay, Flavor.dev), isTrue);
+    expect(await relayAllowed(info.relay, Flavor.prod), isFalse);
+    await expectLater(
+      parsePairingCode(
+        uri: 'bobix://pair?r=ws%3A%2F%2F203.0.113.5%3A8787$keys',
+      ),
+      throwsA(CoreError.insecureRelay),
+    );
+  });
 
   test('a build without the flag, or with an unknown one, is prod', () {
     expect(flavorOf('dev'), Flavor.dev);
