@@ -42,6 +42,13 @@ pub struct Config {
     /// Unauthenticated sockets one client address may hold, and new connections it may open per minute.
     pub max_unauth_per_ip: usize,
     pub conns_per_ip_per_min: u32,
+    /// Sockets one client address may hold open in all (authenticated ones too), and the bounds over all addresses: sockets
+    /// that have not authenticated, and sockets open at all. An IPv6 address counts by its /64.
+    pub max_open_per_ip: usize,
+    pub max_unauth_total: usize,
+    pub max_open_total: usize,
+    /// With invitations on, how long a guest has to name an invited computer in `peers` before the socket is closed.
+    pub guest_within: Duration,
     /// How long the allow-list and push tokens of a device that left are kept.
     pub state_keep: Duration,
     /// Global bounds: mailboxes that exist at once, and bytes held in all of them.
@@ -108,6 +115,10 @@ impl Config {
             device_frames_per_sec: 100,
             max_unauth_per_ip: 8,
             conns_per_ip_per_min: 120,
+            max_open_per_ip: 32,
+            max_unauth_total: 256,
+            max_open_total: 4096,
+            guest_within: Duration::from_secs(30),
             state_keep: Duration::from_secs(3600),
             max_mailboxes: 1000,
             max_total_bytes: 256 * 1024 * 1024,
@@ -148,6 +159,13 @@ impl Config {
         c.gateway_keys_file = var("GATEWAY_KEYS_FILE").map(Into::into);
         c.log_dir = var("LOG_DIR").map(Into::into);
         c.gateway_url = var("PUSH_GATEWAY_URL");
+        // The bearer key, the push tokens and the grants travel to the gateway: only over TLS (plain http only with --dev).
+        if let Some(u) = &c.gateway_url {
+            if !dev && !u.to_ascii_lowercase().starts_with("https://") {
+                return Err(format!("PUSH_GATEWAY_URL {u} must be an https:// address (plain http only with --dev)"));
+            }
+        }
+
         c.gateway_key_file = var("PUSH_GATEWAY_KEY_FILE").map(Into::into);
         if let Some(key_file) = var("APNS_KEY_FILE") {
             c.apns = Some(ApnsConfig {

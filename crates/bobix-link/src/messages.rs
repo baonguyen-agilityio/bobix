@@ -37,13 +37,18 @@ fn within(field: &'static str, s: &str, max: usize) -> Result<(), LimitError> {
     }
 }
 
-/// True for control characters and for format characters that can hide or reorder text (bidirectional controls,
-/// zero-width characters, tags, the byte order mark).
+/// True for control characters, for format characters that can hide or reorder text (bidirectional controls, zero-width
+/// characters, tags, the byte order mark, the other `Cf` characters), and for the characters that are not format characters
+/// but draw nothing or change nothing visible: the combining grapheme joiner, the Hangul fillers (letters that render
+/// blank, usable as an invisible name) and the variation selectors. The one list: the desktop's escaper and the previews
+/// use it too, so a request, a plan and a name are judged by the same rule.
 pub fn is_odd_char(c: char) -> bool {
     c.is_control()
         || matches!(c as u32,
-            0x00AD | 0x061C | 0x180E | 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x206F
-            | 0xFEFF | 0xFFF9..=0xFFFB | 0xE0000..=0xE007F)
+            0x00AD | 0x034F | 0x0600..=0x0605 | 0x061C | 0x06DD | 0x070F | 0x08E2 | 0x115F | 0x1160
+            | 0x180B..=0x180F | 0x200B..=0x200F | 0x2028..=0x202E | 0x2060..=0x2064 | 0x2066..=0x206F
+            | 0x3164 | 0xFE00..=0xFE0F | 0xFEFF | 0xFFA0 | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A | 0xE0000..=0xE007F | 0xE0100..=0xE01EF)
 }
 
 /// `text` with every odd character replaced by a visible escape (`\u{202e}`), and whether any was found.
@@ -277,9 +282,14 @@ pub struct StartPrompt {
     pub project: String,
     pub iid: String,
     pub mode: Mode,
+    /// The prompt as the person must read it: every hidden character written as a visible escape (the text that runs is
+    /// this one, hidden characters and all).
     pub prompt: String,
-    /// See `prompt_hash`; `start` sends it back.
+    /// See `prompt_hash`; `start` sends it back. Over [prompt] as shown.
     pub prompt_hash: String,
+    /// The prompt held a hidden character (the phone says so, next to the escapes).
+    #[serde(default)]
+    pub odd: bool,
     pub folder_known: bool,
     /// Free disk space on that repository's volume, in bytes.
     pub free_disk: u64,

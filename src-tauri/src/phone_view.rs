@@ -155,6 +155,15 @@ mod tests {
         let split = format!("ghp_{}\u{200b}{}", "a1B2c3D4e5", "F6g7H8i9J0k1L2m3N4");
         assert!(!preview(&split, 300).contains("F6g7H8") && !preview(&format!("x \u{feff}{split}"), 300).contains("a1B2c3"), "a token split by a hidden character is still redacted");
         assert!(!p.contains(&tok) && !p.contains('\u{202e}') && !p.contains('\n'), "{p}");
+        for line in [
+            "export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCY", "PGPASSWORD=hunter2hunter psql -h db", "GITHUB_TOKEN=abcd1234efgh", "DB_PASSWORD: s3cr3tvalue",
+            "MYSQL_PWD=hunter2hunter mysql", "curl --password hunter2hunter x", "mysql -u root -phunter2hunter db", "docker login --password=hunter2hunter",
+        ] {
+            let p = preview(line, 300);
+            assert!(!p.contains("hunter2") && !p.contains("wJalr") && !p.contains("abcd1234") && !p.contains("s3cr3t"), "{line} -> {p}");
+        }
+        assert_eq!(preview("password=hunter2hunter", 300), "password=[redacted]");
+        assert!(preview("the token_count was 5 and the secretary left", 300).contains("secretary left"), "plain words stay");
         for t in ["lin_api_abcdefghijklmnopqrstuvwx", "glpat-abcdefghijklmnopqrstu", "ATATT3xFfGF0abcdefghijklmnopqrstuvwx", "sk_live_abcdefghijklmnop", "npm_abcdefghijklmnopqrstuvwxyz0123456789"] {
             assert!(!preview(&format!("export T={t}"), 300).contains(t), "{t}");
         }

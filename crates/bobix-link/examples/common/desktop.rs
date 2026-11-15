@@ -174,6 +174,7 @@ impl Desktop {
         match self.pairing.on_hello(&hello, &phone_box, from, now_ms()) {
             Err(e) => self.note(format!("hello refused: {e:?}")),
             Ok(Offer::Duplicate) => {}
+            Ok(Offer::Late) => self.note("a second phone answered after the confirmation".into()),
             Ok(Offer::New { phone, sign, name, rights, .. }) => {
                 self.note(format!("phone '{name}' asks for rights {:#08b}", rights.to_mask()));
                 self.phones.insert(from.into(), Known { link, sign: Some(sign), keys: Some(phone), name, rights, confirmed: false });
@@ -370,7 +371,7 @@ impl Desktop {
             PhoneMsg::StartPreview { project, iid, mode } => {
                 let prompt = format!("Implement ticket {iid} of {project} in {mode:?} mode.\nKeep the change small and add a test.");
                 let (known, disk) = (self.scenario != Scenario::FolderMissing, if self.scenario == Scenario::LowDisk { 40_000_000 } else { 80_000_000_000 });
-                let m = DesktopMsg::StartPrompt(StartPrompt { project, iid, mode, prompt_hash: prompt_hash(&prompt), prompt, folder_known: known, free_disk: disk });
+                let m = DesktopMsg::StartPrompt(StartPrompt { project, iid, mode, prompt_hash: prompt_hash(&prompt), odd: false, prompt, folder_known: known, free_disk: disk });
                 self.tell(from, &m).await;
             }
             PhoneMsg::Cmd(cmd) => {

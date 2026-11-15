@@ -116,9 +116,8 @@ fn odd_char(c: char, next: Option<char>) -> bool {
     match c {
         '\n' | '\t' => false,
         '\r' => next != Some('\n'),
-        c => c.is_control() || matches!(c as u32, 0xAD | 0x600..=0x605 | 0x61C | 0x6DD | 0x70F | 0x8E2 | 0x180E | 0x200B..=0x200F | 0x2028..=0x202E
-            | 0x2060..=0x2064 | 0x2066..=0x206F | 0xFEFF | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD | 0x13430..=0x1343F | 0x1BCA0..=0x1BCA3
-            | 0x1D173..=0x1D17A | 0xE0001 | 0xE0020..=0xE007F),
+        // One list, in the crate (it also covers the invisible letters and the variation selectors).
+        c => bobix_link::messages::is_odd_char(c),
     }
 }
 fn odd_str(s: &str) -> bool { let mut it = s.chars().peekable(); while let Some(c) = it.next() { if odd_char(c, it.peek().copied()) { return true; } } false }

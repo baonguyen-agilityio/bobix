@@ -26,6 +26,8 @@ const MOVE_WAIT_MS: u64 = 10 * 60 * 1000;
 const LOG_KEEP: usize = 300;
 const RESULT_KEEP_MS: u64 = 24 * 3600 * 1000;
 pub const MAX_PHONE_NAME: usize = 40;
+/// The longest project name (a path such as `group/sub/repo`) a phone may name in a `start`.
+pub const MAX_PROJECT: usize = 200;
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 #[serde(default)]
@@ -81,7 +83,10 @@ pub struct State {
     dir: PathBuf,
     pub cfg: Config,
     pub store: Store,
+    /// The list of phones is safe to change: it was opened, or there never was one. False while a stored list could not be
+    /// opened (a keychain that did not answer, a key that is gone): then nothing may overwrite it or make a new key.
     loaded: bool,
+    retry_at: u64,
     identity: Option<Identity>,
     links: HashMap<String, Link>,
     saved: HashMap<String, Saved>,
@@ -118,10 +123,14 @@ fn log_file(d: &Path) -> PathBuf { d.join("phone-log.json") }
 fn results_file(d: &Path) -> PathBuf { d.join("phone-results.json") }
 fn deferred_file(d: &Path) -> PathBuf { d.join("phone-revoking.json") }
 
-fn cipher(secrets: &Secrets) -> Result<XChaCha20Poly1305, String> {
+// The key that seals the list of phones. A new one is made only when asked (`create`), and the caller asks only when no list
+// file exists: a key that reads as absent while a list exists means the keychain did not answer, and a new key would make the
+// old list unreadable for good.
+fn cipher(secrets: &Secrets, create: bool) -> Result<XChaCha20Poly1305, String> {
     let key = match secrets.get(SEAL_KEY).map_err(|e| e.to_string())? {
         Some(k) if k.len() == 32 => k,
-        _ => { let k = bobix_link::random::<32>().to_vec(); secrets.set(SEAL_KEY, &k).map_err(|e| e.to_string())?; k }
+        _ if create => { let k = bobix_link::random::<32>().to_vec(); secrets.set(SEAL_KEY, &k).map_err(|e| e.to_string())?; k }
+        _ => return Err("no seal key".into()),
     };
     XChaCha20Poly1305::new_from_slice(&key).map_err(|_| "bad key".to_string())
 }
@@ -146,8 +155,30 @@ impl State {
     fn save_deferred(&self) { write(&deferred_file(&self.dir), &serde_json::to_vec(&self.deferred).unwrap_or_default()); }
     fn save_cfg(&self) { write(&cfg_file(&self.dir), &serde_json::to_vec_pretty(&self.cfg).unwrap_or_default()); }
     fn save_store(&self) {
-        let Ok(c) = cipher(&Secrets::open()) else { return };
+        // Never over a list that could not be opened, and never with a key made while a list file exists.
+        if !self.loaded { return; }
+        let Ok(c) = cipher(&Secrets::open(), !store_file(&self.dir).exists()) else { return };
         write(&store_file(&self.dir), &seal_store(&c, &self.store));
+    }
+
+    // Reads the stored list: nothing stored is fine (a computer never paired), a list that opens is loaded, anything else leaves
+    // `loaded` false and the memory empty. Run at start and again (at most every 10 seconds) while it is false.
+    fn load_store(&mut self) {
+        self.retry_at = now();
+        let bytes = match std::fs::read(store_file(&self.dir)) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => { self.loaded = true; return; }
+            Err(_) => { eprintln!("[bobix] phones: the list of phones could not be read"); return; }
+        };
+        match cipher(&Secrets::open(), false).ok().and_then(|ci| open_store(&ci, &bytes)) {
+            Some(store) => {
+                self.store = store;
+                self.loaded = true;
+                self.saved = std::fs::read(counters_file(&self.dir)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+                let _ = self.ensure_identity(false);
+            }
+            None => eprintln!("[bobix] phones: the list of phones could not be opened"),
+        }
     }
     fn save_counters(&self) { write(&counters_file(&self.dir), &serde_json::to_vec(&self.saved).unwrap_or_default()); }
     fn save_log(&self) { write(&log_file(&self.dir), &serde_json::to_vec(&self.log).unwrap_or_default()); }
@@ -171,7 +202,8 @@ impl State {
         let s = Secrets::open();
         match s.get(IDENTITY).map_err(|e| e.to_string())? {
             Some(b) if b.len() == 64 => self.identity = Some(Identity::from_secrets(b[..32].try_into().unwrap(), b[32..].try_into().unwrap())),
-            _ if create => {
+            // A new identity only for a list that is safe to change and has no phone: it would orphan every pairing.
+            _ if create && self.loaded && self.store.phones.is_empty() => {
                 let id = Identity::generate();
                 let mut b = id.auth_seed().to_vec();
                 b.extend(id.box_secret().iter());
@@ -334,14 +366,7 @@ pub fn init(b: &Arc<Bobix>) {
     if st.cfg.hold != "computer" { st.cfg.hold = "phone".into(); }
     st.log = read(log_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     // Only a computer that was ever paired has anything stored; nothing is created here.
-    if let Some(bytes) = read(store_file(&dir)) {
-        let s = Secrets::open();
-        match cipher(&s).ok().and_then(|ci| open_store(&ci, &bytes)) {
-            Some(store) => { st.store = store; st.loaded = true; let _ = st.ensure_identity(false); }
-            None => eprintln!("[bobix] phones: the list of phones could not be opened"),
-        }
-        st.saved = read(counters_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    }
+    st.load_store();
     if let Some(v) = read(results_file(&dir)).and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
         st.results = v["results"].as_array().into_iter().flatten().filter_map(|x| Some((x["key"].as_str()?.to_string(), (serde_json::from_value(x["result"].clone()).ok()?, x["at"].as_u64()?)))).collect();
         let closed = crate::answers::closed_from_json(&v["closed"]);
@@ -368,9 +393,11 @@ pub fn link_ended(b: &Arc<Bobix>) {
     c.phones.tx = None;
     if !c.phones.cfg.on { c.phones.status = "off".into(); }
 }
-pub fn relay_url(b: &Arc<Bobix>) -> String { b.core.lock().unwrap().phones.cfg.relay.clone() }
+// The address the link connects to: Settings' address, held to the same rule as when it was typed (a `ws://` address on a
+// private network only in a debug build), so a release build never opens plain text because a debug run saved the address.
+pub fn relay_url(b: &Arc<Bobix>) -> String { let c = b.core.lock().unwrap(); relay_norm(&c.phones.cfg.relay, cfg!(debug_assertions)).unwrap_or_default() }
 // The address in Settings is no longer the one this connection was opened to.
-pub fn url_changed(b: &Arc<Bobix>, url: &str) -> bool { b.core.lock().unwrap().phones.cfg.relay != url }
+pub fn url_changed(b: &Arc<Bobix>, url: &str) -> bool { relay_url(b) != url }
 
 // The `auth` frame for the relay at `url`: what the desktop signs is the address in its Settings.
 pub fn auth_frame(b: &Arc<Bobix>, url: &str, nonce: &str) -> Option<Frame> {
@@ -532,9 +559,12 @@ fn on_hello(st: &mut State, from: &str, body: &[u8]) -> bool {
     let mut link = Link::new(Direction::ToPhone, *id.box_secret(), phone_box, CURRENT_VERSION, VersionRange::current(), [0; 3], now(), RecvState::default());
     let Ok(opened) = link.open(packet) else { return false };
     let Ok(PhoneMsg::Hello(hello)) = PhoneMsg::from_json(&opened.plaintext) else { return false };
+    // The name is judged before the session moves on: a pairing never sits Offered with nothing to confirm.
+    if !valid_name(&hello.name) { return false; }
     match p.session.on_hello(&hello, &phone_box, from, now()) {
         Ok(Offer::New { phone, sign, name, rights, .. }) if valid_name(&name) => { p.offer = Some(Offered { phone, sign, name, rights, from: from.into(), link }); true }
         Ok(Offer::Cancelled) => { p.warning = true; p.offer = None; true }
+        Ok(Offer::Late) => { p.warning = true; true }
         _ => false, // a bad MAC, a duplicate, a name that is not plain text
     }
 }
@@ -544,6 +574,8 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
     let Some(link) = st.link_of(from) else { return vec![] };
     let opened = match link.open(packet) { Ok(o) => o, Err(_) => return vec![] };
     st.remember_recv(from);
+    // A phone seals everything on `event`: a packet on another stream is not from the phone app (the counters of `activity` accept an equal counter).
+    if opened.stream != bobix_link::envelope::Stream::Event { return vec![]; }
     if let Some(ph) = st.store.phones.iter_mut().find(|p| p.id == from && p.no_push) { ph.no_push = false; st.save_store(); } // it was opened: it can register a new grant
     let Ok(msg) = PhoneMsg::from_json(&opened.plaintext) else { return vec![] };
     if msg.validate().is_err() { return vec![]; }
@@ -557,7 +589,7 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
         PhoneMsg::Bye { sig } => {
             let (Some(cid), Some(p)) = (st.computer_id(), st.store.phones.iter().find(|p| p.id == from)) else { return vec![] };
             let keys = b64_decode(&p.auth).and_then(|a| <[u8; 32]>::try_from(a).ok());
-            let bytes = command::bye_bytes(CURRENT_VERSION, from, &cid, opened.counter);
+            let bytes = command::bye_bytes(opened.version, from, &cid, opened.counter);
             if keys.is_some_and(|k| b64_decode(&sig).is_some_and(|s| bobix_link::keys::verify_auth(&k, &bytes, &s))) {
                 st.forget(from);
                 out.extend([Frame::Revoke { id: from.into() }, st.peers_frame()]);
@@ -573,14 +605,14 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
         }
         PhoneMsg::StartPreview { project, iid, mode } => {
             let m = if !rights.start { Some(DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }) }
-                else if iid.parse::<i64>().is_err() { Some(DesktopMsg::Error { code: "encoding".into(), who: Some(Who::Desktop) }) } else { None };
+                else if iid.parse::<i64>().is_err() || project.len() > MAX_PROJECT { Some(DesktopMsg::Error { code: "encoding".into(), who: Some(Who::Desktop) }) } else { None };
             match m {
                 Some(m) => { if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); } }
                 None => {
                     let (b2, from2, iid) = (b.clone(), from.to_string(), iid.parse::<i64>().unwrap_or(0));
                     std::thread::spawn(move || {
                         let m = match start_plan(&b2, &project, iid, mode) {
-                            Ok(p) => DesktopMsg::StartPrompt(StartPrompt { project, iid: iid.to_string(), mode, prompt_hash: prompt_hash(&p.prompt), prompt: p.prompt, folder_known: p.folder_known, free_disk: p.free }),
+                            Ok(p) => DesktopMsg::StartPrompt(StartPrompt { project, iid: iid.to_string(), mode, prompt_hash: prompt_hash(&shown_prompt(&p.prompt)), odd: crate::answers::odd(&Value::String(p.prompt.clone())), prompt: shown_prompt(&p.prompt), folder_known: p.folder_known, free_disk: p.free }),
                             Err(code) => DesktopMsg::Error { code: code.into(), who: Some(Who::Desktop) },
                         };
                         tell_later(&b2, &from2, &m);
@@ -594,7 +626,7 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
             for r in results { if let Some((_, f)) = st.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); } }
         }
         PhoneMsg::Cmd(cmd) => {
-            if let Some(r) = on_command(b, c, from, opened.counter, &cmd, changed) {
+            if let Some(r) = on_command(b, c, from, opened.version, opened.counter, &cmd, changed) {
                 if let Some((_, f)) = c.phones.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); }
             } // None: a start, whose result is sent when it is done
         }
@@ -603,10 +635,11 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
     out
 }
 
-// A command from a phone, checked in this order: signature (with phone id, computer id, age), counter (already by the
-// link), a `cid` seen before (the stored result), the phone's right for the kind of thing held, `cut`, the `shown`
-// hash against what is held, and the request still open. Every result is stored per `cid` for 24 hours and logged.
-fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Command, changed: &mut bool) -> Option<CmdResult> {
+// A command from a phone, checked in this order: counter (already by the link), a `cid` seen before (the stored result: the
+// packet already authenticated the sender with its box key, and the store is per phone), the signature (with the packet's
+// version, phone id, computer id, age), the phone's right for the kind of thing held, `cut`, the `shown` hash against what is
+// held, and the request still open. Every result is stored per `cid` for 24 hours and logged.
+fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, version: u8, counter: u64, cmd: &command::Command, changed: &mut bool) -> Option<CmdResult> {
     use crate::answers::By;
     let key = format!("{from}:{}", cmd.cid);
     if let Some(stored) = c.phones.results.get(&key) { return Some(stored.0.clone()); }
@@ -614,7 +647,7 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, counter: u64, cmd
     let t = now();
     let Some(phone) = c.phones.store.phones.iter().find(|p| p.id == from).cloned() else { return Some(CmdResult::refused(&cmd.cid, "unknown")) };
     let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return Some(CmdResult::refused(&cmd.cid, "encoding")) };
-    let ctx = command::VerifyCtx { version: CURRENT_VERSION, phone_id: from, computer_id: &cid, sign_key: &sign, counter, now_ms: t };
+    let ctx = command::VerifyCtx { version, phone_id: from, computer_id: &cid, sign_key: &sign, counter, now_ms: t };
     let mut later = false;
     let (result, what) = match command::verify(&ctx, cmd) {
         Err(r) => (CmdResult::refused(&cmd.cid, r.why()), "command".to_string()),
@@ -658,6 +691,10 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, counter: u64, cmd
     Some(result)
 }
 
+// The prompt as the phone shows it: hidden characters (tag characters, bidirectional overrides, invisible letters) written as
+// visible escapes, so the person reads what Claude would read. The hash a start carries is over this text.
+fn shown_prompt(prompt: &str) -> String { crate::answers::escape_hidden(prompt) }
+
 // What a start of an issue would run and need, read off the core's lock (it reads the issue's body from the tracker).
 pub struct StartPlan { pub prompt: String, pub folder_known: bool, pub free: u64, pub full: Option<(String, Value)> } // Full: (the base branch remembered for the repository, the models)
 
@@ -695,7 +732,7 @@ fn issue_has_session(view: &Value, project: &str, iid: i64) -> bool {
 fn finish_start(cid: &str, plan: Result<StartPlan, &'static str>, hash: &str, start: impl FnOnce(&StartPlan) -> Value) -> CmdResult {
     let p = match plan { Ok(p) => p, Err(why) => return CmdResult::refused(cid, why) };
     if !p.folder_known { return CmdResult::refused(cid, "folder"); }
-    if prompt_hash(&p.prompt) != hash { return CmdResult::new(cid, Outcome::Stale); }
+    if prompt_hash(&shown_prompt(&p.prompt)) != hash { return CmdResult::new(cid, Outcome::Stale); }
     if let Some((base, _)) = &p.full {
         if base.is_empty() { return CmdResult::refused(cid, "base"); }
         if p.free < crate::tickets::WORKTREE_BYTES { return CmdResult::refused(cid, "disk"); }
@@ -717,6 +754,8 @@ fn tell_later(b: &Arc<Bobix>, to: &str, m: &DesktopMsg) {
 #[allow(clippy::too_many_arguments)]
 fn begin_start(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, name: &str, cid: &str, project: &str, iid: &str, mode: Mode, hash: &str) -> Option<CmdResult> {
     let Ok(n) = iid.parse::<i64>() else { return Some(CmdResult::refused(cid, "encoding")) };
+    // A project the work view does not know is refused before anything is kept or logged: its text is the phone's.
+    if project.len() > MAX_PROJECT || c.work.source_of(&c.settings, project, n).is_none() { return Some(CmdResult::refused(cid, "gone")); }
     let key = format!("{project}#{n}");
     if c.phones.starting.contains(&key) { return Some(CmdResult::refused(cid, "busy")); }
     let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
@@ -733,7 +772,7 @@ fn begin_start(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, name: &str, cid:
         c.phones.starting.remove(&key);
         c.phones.inflight.remove(&format!("{from}:{cid}"));
         let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
-        c.phones.push_log(&name, &format!("start {project}#{n}"), &if let Some(w) = &result.why { format!("{word} ({w})") } else { word });
+        c.phones.push_log(&name, &format!("start {}#{n}", crate::phone_view::preview(&project, 60)), &if let Some(w) = &result.why { format!("{word} ({w})") } else { word });
         c.phones.results.insert(format!("{from}:{cid}"), (result.clone(), now()));
         if let Some((_, f)) = c.phones.tell(&from, &DesktopMsg::Result(result), None, None) { c.phones.send(f); }
         drop(c);
@@ -819,6 +858,8 @@ pub fn view(b: &Arc<Bobix>) -> Value {
     let node = c.node_path.is_some();
     let st = &mut c.phones;
     let t = now();
+    // A list that could not be opened is tried again when Settings looks (the keychain may be unlocked by now).
+    if !st.loaded && t > st.retry_at + 10_000 { st.load_store(); }
     let pairing = match st.pairing.as_ref() {
         None => json!({ "state": "none" }),
         Some(p) => {
@@ -829,7 +870,7 @@ pub fn view(b: &Arc<Bobix>) -> Value {
                 "name": p.offer.as_ref().map(|o| &o.name), "asked": p.offer.as_ref().map(|o| o.rights), "warning": p.warning })
         }
     };
-    json!({ "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
+    json!({ "unreadable": !st.loaded, "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
         "canRead": !st.cfg.on || crate::presence::source().idle_ms().is_some(), "deviceId": st.computer_id(), "storage": format!("{:?}", st.storage.unwrap_or(crate::secrets::Storage::Keychain)),
         "phones": st.store.phones.iter().map(|p| json!({ "id": p.id, "name": p.name, "rights": p.rights, "since": p.since, "needsPairing": p.needs_pairing, "noPush": p.no_push })).collect::<Vec<_>>(),
         "revoked": st.store.revoked.len(), "moving": st.moving.is_some(), "linked": st.tx.is_some(), "pairing": pairing })
@@ -850,6 +891,7 @@ pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
         let st = &mut c.phones;
         if on {
             if relay_norm(&st.cfg.relay, cfg!(debug_assertions)).is_none() { return Err("relay".into()); }
+            if !st.loaded { return Err("unreadable".into()); }
             st.ensure_identity(true)?;
             st.cfg.on = true;
             st.status = "connecting".into();
@@ -900,6 +942,7 @@ pub fn pair_start(b: &Arc<Bobix>) -> Result<Value, String> {
         let mut c = b.core.lock().unwrap();
         let st = &mut c.phones;
         if !st.cfg.on { return Err("off".into()); }
+        if !st.loaded { return Err("unreadable".into()); }
         let keys = st.identity.as_ref().ok_or("identity")?.public();
         let code = PairingCode::new(&st.cfg.relay, keys).map_err(|_| "relay".to_string())?;
         let frame = Frame::PairOpen { relay_token_hash: b64(&code.relay_token_hash()), ttl: 120 };
@@ -930,6 +973,7 @@ pub fn pair_confirm(b: &Arc<Bobix>, granted: Rights) -> Result<Value, String> {
         st.store.phones.push(Phone { id: id.clone(), name: o.name.clone(), auth: b64(&o.phone.auth), boxk: b64(&o.phone.boxk), sign: b64(&o.sign.to_sec1()), rights: r, since: now(), needs_pairing: false, no_push: false });
         st.store.revoked.retain(|x| x.id != id);
         st.links.insert(id.clone(), o.link);
+        st.remember_recv(&id); // the counters of the hello are kept now, not at the next packet
         st.save_store();
         st.send(st.peers_frame());
         if let Some((_, f)) = st.tell(&id, &DesktopMsg::Paired { computer, rights: r }, None, None) { st.send(f); }
@@ -972,6 +1016,7 @@ pub fn new_identity(b: &Arc<Bobix>) -> Result<Value, String> {
     {
         let mut c = b.core.lock().unwrap();
         let st = &mut c.phones;
+        if !st.loaded { return Err("unreadable".into()); }
         if st.cfg.on || !st.store.phones.is_empty() { return Err("busy".into()); }
         let s = Secrets::open();
         s.delete(IDENTITY).map_err(|e| e.to_string())?;
@@ -1262,6 +1307,20 @@ mod tests {
         assert_eq!(seen.unwrap().unwrap().0, "origin/main", "the remembered base is the one started from");
         assert_eq!(finish_start("c", plan("#7 Fix it", true, 0, None), &h, |_| json!({ "ok": false, "reason": "gone" })).why.as_deref(), Some("folder"));
         assert_eq!(finish_start("c", plan("#7 Fix it", true, 0, None), &h, |_| json!({ "ok": false, "reason": "exists" })).why.as_deref(), Some("exists"));
+    }
+
+    #[test]
+    fn the_start_preview_shows_hidden_characters_and_the_hash_covers_what_is_shown() {
+        // a tag-character payload after a normal task, a bidirectional override and an invisible Hangul letter
+        let raw = format!("#7 Fix the login\n{}{}{}", '\u{E0049}', '\u{202E}', '\u{3164}');
+        let shown = shown_prompt(&raw);
+        assert!(shown.starts_with("#7 Fix the login\n") && shown.contains("\\u{E0049}") && shown.contains("\\u202E") && shown.contains("\\u3164"), "{shown}");
+        assert!(crate::answers::odd(&Value::String(raw.clone())) && !crate::answers::odd(&Value::String("#7 Fix it\r\nbody".into())));
+        let h = prompt_hash(&shown);
+        let ok = |_: &StartPlan| json!({ "ok": true });
+        let plan = |p: &str| Ok(StartPlan { prompt: p.into(), folder_known: true, free: 0, full: None });
+        assert_eq!(finish_start("c", plan(&raw), &h, ok).outcome, Outcome::Ok, "the hash of what was shown starts it");
+        assert_eq!(finish_start("c", plan(&raw), &prompt_hash(&raw), ok).outcome, Outcome::Stale, "a hash of the raw text is not what was shown");
     }
 
     #[test]

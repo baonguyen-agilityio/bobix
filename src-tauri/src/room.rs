@@ -71,7 +71,11 @@ fn patterns() -> &'static [(fancy_regex::Regex, &'static str)] {
         (r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}", "[redacted]"),
         (r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._\-~+/]{16,}=*", "$1 [redacted]"),
         (r"(?i)\b([a-z][a-z0-9+.\-]*://)[^\s/:@]+:[^\s/@]+@", "$1[redacted]@"),
-        (r#"(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|private[_-]?key)(["']?\s*[:=]\s*)(["']?)[^\s"',;]{4,}"#, "$1$2$3[redacted]"),
+        // NAME=value with the keyword anywhere in a name (`AWS_SECRET_ACCESS_KEY`, `PGPASSWORD`, `DB_PASSWORD:`, `MYSQL_PWD`).
+        (r#"(?i)\b([a-z0-9_]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|private[_-]?key)[a-z0-9_]*)(["']?\s*[:=]\s*)(["']?)[^\s"',;]{4,}"#, "$1$2$3[redacted]"),
+        // command-line forms: `--password hunter2`, `--token=x`, `mysql -phunter2`
+        (r"(?i)(\s--(?:password|passwd|pass|token|secret|api[_-]?key|access[_-]?key)(?:=|\s+))[^\s]{4,}", "$1[redacted]"),
+        (r"(?i)\b(mysql(?:dump|admin)?\b[^\n|;&]*?\s-p)[^\s]{2,}", "$1[redacted]"),
     ].into_iter().map(|(p, r)| (fancy_regex::Regex::new(p).expect("redaction pattern"), r)).collect())
 }
 // The text with secrets replaced, cut at MAX_TEXT characters, and how many were replaced.

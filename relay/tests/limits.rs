@@ -230,3 +230,42 @@ async fn removing_a_desktop_from_the_invitation_file_takes_its_rights_away_while
     d.expect(is_err(ErrorCode::Invite), 1000).await;
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn authenticated_sockets_are_capped_per_address_and_in_total() {
+    let mut c = cfg();
+    c.max_open_per_ip = 2;
+    let s = start(c).await;
+    let _a = Dev::connect(&s, ident()).await;
+    let _b = Dev::connect(&s, ident()).await;
+    let url = format!("ws://{}/v1/ws", s.addr);
+    assert!(tokio_tungstenite::connect_async(&url).await.is_err(), "a third open socket from one address, though both others authenticated");
+
+    let mut c = cfg();
+    c.max_open_total = 2;
+    let s = start(c).await;
+    let (_x, _y) = (Dev::connect(&s, ident()).await, Dev::connect(&s, ident()).await);
+    assert!(tokio_tungstenite::connect_async(format!("ws://{}/v1/ws", s.addr)).await.is_err(), "the relay-wide total");
+}
+
+#[tokio::test]
+async fn a_guest_that_names_no_invited_computer_in_time_is_closed() {
+    let dir = scratch("guest-time");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("invites.txt");
+    let desktop = ident();
+    std::fs::write(&file, format!("{}\n", desktop.device_id())).unwrap();
+    let mut c = cfg();
+    c.invite_file = Some(file);
+    c.guest_within = Duration::from_millis(300);
+    c.dead_after = Duration::from_secs(5); // the silence check ticks at a tenth of this; the guest check rides on it
+    let s = start(c).await;
+    let mut idle = Dev::connect(&s, ident()).await;
+    let mut asks = Dev::connect(&s, ident()).await;
+    asks.send(&Frame::Peers { allow: vec![desktop.device_id()] }).await;
+    asks.sync().await;
+    idle.closed(2500).await;
+    asks.send(&Frame::Withdraw { pid: "still-here".into() }).await;
+    asks.expect(|f| matches!(f, Frame::TooLate { .. }), 1000).await;
+    std::fs::remove_dir_all(dir).unwrap();
+}

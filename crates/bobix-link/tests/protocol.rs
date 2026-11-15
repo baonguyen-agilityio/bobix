@@ -149,6 +149,10 @@ fn shown_covers_the_options_their_order_and_cut() {
 #[test]
 fn sync_gives_unknown_for_a_command_never_received() {
     let known = CmdResult::new("aaaa", Outcome::LatePc);
+    let many: Vec<String> = (0..150).map(|i| format!("c{i}")).collect();
+    let capped = command::sync_results(&many, |_| None);
+    assert_eq!(capped.len(), command::MAX_SYNC_ANSWERS);
+    assert_eq!(capped[0].cid, "c0", "the first ones listed are answered");
     let out = command::sync_results(&["aaaa".into(), "bbbb".into()], |cid| (cid == "aaaa").then(|| known.clone()));
     assert_eq!(out[0], known);
     assert_eq!(out[1], CmdResult::new("bbbb", Outcome::Unknown));
@@ -203,7 +207,7 @@ fn desktop_messages_round_trip_with_documented_names() {
 
     let prompt = DesktopMsg::StartPrompt(StartPrompt {
         project: "demo".into(), iid: "12".into(), mode: Mode::Quick, prompt: "Do it".into(),
-        prompt_hash: prompt_hash("Do it"), folder_known: true, free_disk: 5_000_000_000,
+        prompt_hash: prompt_hash("Do it"), odd: false, folder_known: true, free_disk: 5_000_000_000,
     });
     let v = round_trip(&prompt);
     assert_eq!((v["kind"].as_str(), v["promptHash"].is_string(), v["folderKnown"].as_bool()), (Some("startPrompt"), true, Some(true)));
@@ -435,6 +439,22 @@ fn a_pairing_runs_open_offered_confirmed_done() {
     assert_eq!(s.status(NOW + 3000), PairStatus::Confirmed);
     assert!(s.ack(NOW + 4000));
     assert_eq!(s.status(NOW + 4000), PairStatus::Done);
+}
+
+#[test]
+fn a_different_phone_after_the_confirmation_is_reported_and_changes_nothing() {
+    let w = world();
+    let mut s = PairingSession::new(code(&w), NOW);
+    let first = hello(&w, s.code(), "Pixel", rights());
+    assert!(matches!(offer(&mut s, &first, &w.phone.device_id(), NOW), Ok(Offer::New { .. })));
+    assert!(s.confirm(NOW + 1000));
+    let second = world();
+    let h2 = Hello::new(s.code(), &second.phone.public(), &second.signer.public(), "Mine", rights(), VersionRange::current());
+    assert_eq!(offer(&mut s, &h2, &second.phone.device_id(), NOW + 2000), Ok(Offer::Late));
+    assert_eq!(offer(&mut s, &first, &w.phone.device_id(), NOW + 2000), Ok(Offer::Duplicate), "the confirmed phone saying it again");
+    assert_eq!(s.status(NOW + 2000), PairStatus::Confirmed, "still confirmed, waiting for its acknowledgement");
+    assert!(s.ack(NOW + 3000));
+    assert_eq!(offer(&mut s, &h2, &second.phone.device_id(), NOW + 4000), Err(PairError::Expired), "once done, nothing is answered");
 }
 
 #[test]
@@ -704,4 +724,19 @@ fn a_signature_made_for_relay_a_is_refused_by_relay_b() {
     assert_eq!(command::verify_auth_frame("wss://b.example", "another", &i, &k, &r, &s), Err(AuthRefusal::Invalid));
     assert_eq!(command::verify_auth_frame("wss://b.example", ch, &i, "!!", &r, &s), Err(AuthRefusal::Invalid));
     assert_eq!(AuthRefusal::Invalid.code(), ErrorCode::Auth);
+}
+
+#[test]
+fn invisible_letters_and_variation_selectors_are_hidden_characters_too() {
+    // not `Cf`, so only a list catches them: Hangul fillers, the combining grapheme joiner, variation selectors (both blocks), the
+    // Mongolian free variation selectors, and the format characters the desktop's own list had that the crate's lacked
+    for c in ['\u{115F}', '\u{1160}', '\u{3164}', '\u{FFA0}', '\u{034F}', '\u{FE00}', '\u{FE0F}', '\u{E0100}', '\u{E01EF}', '\u{180B}', '\u{180D}', '\u{180F}',
+              '\u{2028}', '\u{0600}', '\u{110BD}', '\u{1D173}'] {
+        assert!(bobix_link::messages::is_odd_char(c), "{:x}", c as u32);
+        let (shown, odd) = bobix_link::messages::visible_escapes(&format!("const {{ a,{c} }} = q; exec({c})"));
+        assert!(odd && !shown.contains(c) && shown.contains(&format!("\\u{{{:x}}}", c as u32)), "{:x}: {shown}", c as u32);
+    }
+    for c in ['a', 'é', '한', ' ', '\u{1F600}', '中'] {
+        assert!(!bobix_link::messages::is_odd_char(c), "{c:?}");
+    }
 }

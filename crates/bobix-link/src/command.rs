@@ -230,8 +230,14 @@ pub fn shown_matches(held: &crate::messages::Detail, shown: &str) -> bool {
     held.shown_now() == shown
 }
 
+/// How many commands one `sync` is answered for.
+pub const MAX_SYNC_ANSWERS: usize = 50;
+
 /// The desktop's reply to `sync { waiting }`: the stored result of each command it knows, and `unknown` for the
 /// others (never received; they may still arrive within 10 minutes, or be withdrawn).
+///
+/// At most [`MAX_SYNC_ANSWERS`] are answered, the first ones listed: one frame each goes to the relay (which closes a socket
+/// that sends over 100 in a second), and a phone's mailbox holds 64. A phone sends a `sync` again when it reconnects.
 pub fn sync_results(waiting: &[String], stored: impl Fn(&str) -> Option<CmdResult>) -> Vec<CmdResult> {
-    waiting.iter().map(|cid| stored(cid).unwrap_or_else(|| CmdResult::new(cid, Outcome::Unknown))).collect()
+    waiting.iter().take(MAX_SYNC_ANSWERS).map(|cid| stored(cid).unwrap_or_else(|| CmdResult::new(cid, Outcome::Unknown))).collect()
 }

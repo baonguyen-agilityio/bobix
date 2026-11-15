@@ -207,6 +207,11 @@ impl Hub {
         self.invites.as_mut().is_some_and(|i| !i.contains(id))
     }
 
+    /// The device has told the relay whom it allows (and, for a guest, at least one of them is an invited computer).
+    pub fn has_peers(&self, id: &str) -> bool {
+        self.allow.get(id).is_some_and(|a| !a.is_empty())
+    }
+
     fn invited(&mut self, id: &str) -> bool {
         self.invites.as_mut().is_none_or(|i| i.contains(id))
     }

@@ -1251,12 +1251,12 @@ function phonesSettingsHTML() {
   const pairing = !d.on ? '' : p.state === 'open' ? `<div class="opt wide"><div><p>${esc(T('phones.pair.scan'))}</p><div class="qr" data-qr></div><p><button class="btn sm" type="button" data-act="phones-pair-cancel">${esc(T('phones.pair.cancel'))}</button></p></div></div>`
     : p.state === 'offered' ? `<div class="opt wide"><div><p data-pair-asks></p><div class="rights">${phoneRightsHTML(null, 'new', phoneRights, false)}</div>
         <p><button class="btn pri" type="button" data-act="phones-pair-confirm">${esc(T('phones.pair.confirm'))}</button> <button class="btn" type="button" data-act="phones-pair-cancel">${esc(T('phones.pair.cancel'))}</button></p></div></div>`
-    : p.state === 'confirmed' ? `<div class="opt wide"><p class="note">${esc(T('phones.pair.wait'))}</p></div>`
+    : p.state === 'confirmed' ? `<div class="opt wide"><p class="note">${esc(T('phones.pair.wait'))}</p>${p.warning ? `<p class="note err">${esc(T('phones.pair.late'))}</p>` : ''}</div>`
     : `${p.warning || p.state === 'cancelled' ? `<div class="opt wide"><p class="note err">${esc(T('phones.pair.warn'))}</p></div>` : ''}<div class="opt wide"><button class="btn" type="button" data-act="phones-pair-start">${esc(T('phones.pair'))}</button></div>`;
   return `<section class="sec" id="sec-phones"><h2>${esc(T('phones.title'))}</h2>
     <div class="opt"><div><div class="lbl" id="l-phonesOn">${esc(T('phones.switch'))}</div><div class="desc">${esc(T('phones.promise'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesOn" data-phones-on ${d.on ? 'checked' : ''}></div></div>
     <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.relay'))}</div><div class="acts" style="margin:6px 0 0"><input type="text" id="phones-relay" value="" placeholder="${esc(T('phones.relay.ph'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0"><button class="btn" type="button" data-act="phones-relay">${esc(T('phones.relay.change'))}</button></div>
-      <p class="note">${esc(T('phones.status'))}: ${esc(T('phones.status.' + statusKey))}${d.moving ? ' · ' + esc(T('phones.relay.moving')) : ''}</p>${phoneErr ? `<p class="note err">${esc(phoneErr)}</p>` : ''}</div></div>
+      <p class="note">${esc(T('phones.status'))}: ${esc(T('phones.status.' + statusKey))}${d.moving ? ' · ' + esc(T('phones.relay.moving')) : ''}</p>${d.unreadable ? `<p class="note err">${esc(T('phones.unreadable'))}</p>` : ''}${phoneErr ? `<p class="note err">${esc(phoneErr)}</p>` : ''}</div></div>
     ${d.deviceId ? `<div class="opt wide"><div><div class="lbl">${esc(T('phones.device'))}</div><div><code>${esc(d.deviceId)}</code> <button class="btn sm" type="button" data-act="phones-copy">${esc(T('phones.copy'))}</button></div><p class="note">${esc(T('phones.invite.hint'))}</p></div></div>` : ''}
     ${d.on && !d.node ? `<div class="opt wide"><p class="note err">${esc(T('phones.node'))}</p></div>` : ''}
     <div class="opt"><div><div class="lbl" id="l-phonesAwake">${esc(T('phones.awake'))}</div><div class="desc">${esc(T('phones.awake.note'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesAwake" data-phones-awake ${d.awake ? 'checked' : ''}></div></div>
@@ -3119,7 +3119,7 @@ function renderSettings() {
 }
 $('#settings').addEventListener('click', e => { if (e.target.closest('[data-act="feedback"]')) openFeedback(); });
 
-const phonesDo = (p, keepErr) => p.then(v => { if (v) { phoneData = v; if (!keepErr) phoneErr = ''; } return loadPhones(); }).catch(e => { phoneErr = ({ relay: T('phones.relay.bad'), off: T('phones.err.off'), busy: T('phones.err.busy'), moving: T('phones.err.moving') })[String(e)] || T('phones.err.other'); renderSettings(); });
+const phonesDo = (p, keepErr) => p.then(v => { if (v) { phoneData = v; if (!keepErr) phoneErr = ''; } return loadPhones(); }).catch(e => { phoneErr = ({ relay: T('phones.relay.bad'), off: T('phones.err.off'), busy: T('phones.err.busy'), moving: T('phones.err.moving'), unreadable: T('phones.unreadable') })[String(e)] || T('phones.err.other'); renderSettings(); });
 $('#settings').addEventListener('change', e => {
   const t = e.target;
   if (!bridge || cur?.id !== 'set:phones') return;
