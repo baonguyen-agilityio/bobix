@@ -76,12 +76,15 @@ final class KeyStore {
     Data("\(service).sign\(software ? ".software" : "")".utf8)
   }
 
-  static func signQuery(tag: Data) -> [String: Any] {
-    [
+  /// With a [group] the query reaches only that group; without one it reaches every group the app lists (for deletes).
+  static func signQuery(tag: Data, group: String? = nil) -> [String: Any] {
+    var query: [String: Any] = [
       kSecClass as String: kSecClassKey,
       kSecAttrApplicationTag as String: tag,
       kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
     ]
+    if let group { query[kSecAttrAccessGroup as String] = group }
+    return query
   }
 
   private static func defaultMarkerURL() throws -> URL {
@@ -175,11 +178,15 @@ final class KeyStore {
 
   // MARK: sign
 
-  private var keyQuery: [String: Any] { KeyStore.signQuery(tag: signTag) }
+  /// Where the key is read and signed with: the app's own group only, so a key an earlier build left in the shared group
+  /// is never used.
+  private var keyQuery: [String: Any] { KeyStore.signQuery(tag: signTag, group: appGroup) }
+  /// Every group the app lists, the shared one included: deleting reaches a key an earlier build left there.
+  private var anyGroupKeyQuery: [String: Any] { KeyStore.signQuery(tag: signTag) }
 
   /// Makes the signing key (replacing any earlier one) and returns its public key in X9.63 form.
   func createSigningKey() throws -> Data {
-    SecItemDelete(keyQuery as CFDictionary)
+    SecItemDelete(anyGroupKeyQuery as CFDictionary)
     var attributes: [String: Any] = [
       kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
       kSecAttrKeySizeInBits as String: 256,
@@ -335,7 +342,7 @@ final class KeyStore {
   }
 
   func deleteSigningKey() {
-    SecItemDelete(keyQuery as CFDictionary)
+    SecItemDelete(anyGroupKeyQuery as CFDictionary)
   }
 
   /// Removes every key. The query names no access group, so it reaches the items in all the groups the app can see: the
