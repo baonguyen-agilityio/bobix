@@ -420,10 +420,12 @@ void main() {
         final phone = TestPhone(tmp);
         final c = await phone.pair(d.qr);
         final link = await started(phone, c);
+        // movedHost is set after the new relay is saved; c.relay changes one await earlier, before the store has it.
         await until(
-          () => c.relay == 'wss://new-relay.example/ws' ? true : null,
+          () => link.status.movedHost == 'new-relay.example' ? true : null,
           what: 'the move',
         );
+        expect(c.relay, 'wss://new-relay.example/ws');
         expect((await phone.store.load())!.relay, 'wss://new-relay.example/ws');
         expect(link.status.revokedByComputer, isFalse);
       },

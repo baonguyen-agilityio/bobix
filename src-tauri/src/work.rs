@@ -105,18 +105,16 @@ pub const PAR_READS: usize = 8; // GitLab projects read at the same time, at mos
 // Each host on its own, all at once: `<cli> auth status --hostname <host>`. The hosts signed in, and the others with why
 // (named in the Work tab, ignored for the read), and the account each one signed in reads with. None when the CLI is missing.
 pub fn check_hosts(f: Forge, bin: &str, hosts: &[String], secs: u64) -> Option<(Vec<String>, Vec<Value>, HashMap<String, String>)> {
-    let rs: Vec<(procs::Ran, bool)> = std::thread::scope(|s| {
-        let js: Vec<_> = hosts.iter().map(|h| s.spawn(move || {
-            let t = std::time::Instant::now();
-            let r = procs::exec(bin, &["auth", "status", "--hostname", h], secs, f.env());
-            let late = !r.ok && t.elapsed().as_secs() >= secs;
-            (r, late)
-        })).collect();
+    // `late` is what exec saw (it stopped the command at the limit), not the wall clock around the call: a command that
+    // failed at once but whose thread was starved past the limit is "not signed in", not "no answer".
+    let rs: Vec<procs::Ran> = std::thread::scope(|s| {
+        let js: Vec<_> = hosts.iter().map(|h| s.spawn(move || procs::exec(bin, &["auth", "status", "--hostname", h], secs, f.env()))).collect();
         js.into_iter().map(|j| j.join().unwrap()).collect()
     });
-    if rs.iter().any(|(r, _)| r.missing) { return None; }
+    if rs.iter().any(|r| r.missing) { return None; }
     let (mut ok, mut skipped, mut who) = (vec![], vec![], HashMap::new());
-    for (h, (r, late)) in hosts.iter().zip(rs) {
+    for (h, r) in hosts.iter().zip(rs) {
+        let late = r.late;
         let text = format!("{}\n{}", r.out, r.err);
         let signed = if f == Forge::GitLab { logged_in_hosts(&text) } else { gh_logged_in_hosts(&text) };
         if signed.contains(h) { ok.push(h.clone()); if let Some(n) = logins(&text).remove(h) { who.insert(h.clone(), n); } }
