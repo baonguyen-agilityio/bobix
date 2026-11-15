@@ -16,7 +16,8 @@ pub const MAX_PREVIEW: usize = 300;
 /// A push body above this (after encoding) is replaced by a short sealed "open the app" notice.
 pub const MAX_PUSH_BODY: usize = 3_500;
 pub const MAX_NAME: usize = 64;
-pub const MAX_NOTE: usize = 1_000;
+/// A note on a plan and each answer to a question.
+pub const MAX_NOTE: usize = 2_000;
 
 /// A command is accepted from this long before to this long after the receiver's clock.
 pub const COMMAND_MAX_AGE_MS: u64 = 10 * 60 * 1000;
@@ -157,6 +158,10 @@ pub struct SessionInfo {
     /// A short label the desktop chooses (working, waiting, idle, closed...).
     pub state: String,
     pub pet: Pet,
+    /// The desktop sets it: Stop is possible for this session. Stop exists only for a session that waits on a held
+    /// request, and the phone shows its button from this flag. An older desktop omits it, which reads as `false`.
+    #[serde(default)]
+    pub can_stop: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -301,7 +306,8 @@ pub struct CmdResult {
     /// Who answered first, for `latePc` and `latePhone`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
-    /// For `refused`: `clock`, `computer`, `signature`, `encoding`, `cut`, `right`, and the like.
+    /// For `refused`: `clock`, `computer`, `signature`, `encoding`, `cut`, `right`, and the like. For a refused `start`:
+    /// `folder` (the repository's folder is missing) or `disk` (not enough free space).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
 }

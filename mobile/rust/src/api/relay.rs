@@ -91,7 +91,7 @@ pub fn parse_relay_frame(text: String) -> Result<RelayFrame, CoreError> {
                 PresenceState::Asleep => PeerState::Asleep,
             },
         },
-        Frame::Error { code, who } => RelayFrame::Error {
+        Frame::Error { code, who, .. } => RelayFrame::Error {
             code: RelayError::from(&code),
             who: who.map(|w| match w {
                 Who::Relay => RelaySide::Relay,
