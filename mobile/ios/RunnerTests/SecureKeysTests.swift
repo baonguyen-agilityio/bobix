@@ -115,6 +115,31 @@ final class SecureKeysTests: XCTestCase {
     XCTAssertEqual(find(shared), errSecItemNotFound, "the extensions' group no longer holds it")
   }
 
+  func testANewSigningKeyReplacesOneAnEarlierBuildLeftInTheSharedGroup() throws {
+    let shared = try XCTUnwrap(KeyStore.bundleGroup())
+    let own = try XCTUnwrap(KeyStore.bundleAppGroup())
+    let s = try makeStore()
+    let tag = KeyStore.signTag(service: service, software: true)
+    let legacyAttributes: [String: Any] = [
+      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom, kSecAttrKeySizeInBits as String: 256,
+      kSecPrivateKeyAttrs as String: [
+        kSecAttrIsPermanent as String: true, kSecAttrApplicationTag as String: tag, kSecAttrAccessGroup as String: shared,
+        kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+      ] as [String: Any],
+    ]
+    var error: Unmanaged<CFError>?
+    XCTAssertNotNil(SecKeyCreateRandomKey(legacyAttributes as CFDictionary, &error))
+    func holds(_ g: String) -> Bool {
+      SecItemCopyMatching(KeyStore.signQuery(tag: tag, group: g) as CFDictionary, nil) == errSecSuccess
+    }
+    XCTAssertTrue(holds(shared))
+    XCTAssertNil(s.signingPublicKey(), "a key in the shared group is not the app's signing key")
+    let made = try s.createSigningKey()
+    XCTAssertFalse(holds(shared), "the extensions' group no longer holds a signing key")
+    XCTAssertTrue(holds(own))
+    XCTAssertEqual(s.signingPublicKey(), made)
+  }
+
   func testEraseAllAlsoClearsAnItemWrittenToTheDefaultGroup() throws {
     let s = try makeStore()
     // What an earlier build did: no access group, so the app's own default one.
