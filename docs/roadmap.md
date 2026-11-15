@@ -10,7 +10,13 @@ What Bobix still lacks, what is done but not released, and what nobody has verif
 
 Nothing yet: `develop` is v0.2.0-rc.9.
 
-On the integration branch `feat/phone-access` (not on `develop`): phone access on the desktop (Settings → Phones, off by default). Verified with `fake-phone` against `relay --dev` on macOS; Windows, Linux (the keychain, the input time) and the phone app are not verified yet.
+On the integration branch `feat/phone-access` (not on `develop`): **phone access** ([#252](https://github.com/baonguyen-agilityio/bobix/issues/252) and the issues it closes out; design in [product-direction.md](product-direction.md), section 7; what leaves the computer in [privacy.md](privacy.md)). Settings → Phones lets a paired phone answer requests, plans and Claude's questions, start a ticket and stop a session that waits on a held request, through a relay you name, sealed end to end; off by default. It is a **compile switch**: present in `develop` builds and `-rc` tags, absent from stable tags (no section, no `phones_*` command, no relay connection), checked by the smoke run's `phoneSwitch` step and by the tag kind in `release.yml`. Verified: the desktop with `fake-phone` against `relay --dev` on macOS, the switch built both ways on macOS, the answers to `AskUserQuestion` and the deny-with-interrupt stop through a hook (a macOS spike with the CLI; the terminal still shows its own prompt while a request is held, and the first answer wins). **Not verified yet, and not claimed:**
+  - Windows and Linux: the keychain (Credential Manager, Secret Service), the input time (`GetLastInputInfo` on Windows; on Linux only `xprintidle`, so none on most Wayland sessions, where Settings asks instead), keep awake, Stop, Start with the screen locked, and the hook path without Node.js (watch only).
+  - macOS: the input time with the screen locked, the tokio wait across a real sleep, and the sleep notice (macOS only; elsewhere the relay's ping shows the computer offline).
+  - Sessions opened by the Claude desktop app (Stop, interrupt).
+  - Windows: the hint that a command approved at the computer has started (a new child of the Claude process) does not work yet, because `procs::children` lists nothing there ([#253](https://github.com/baonguyen-agilityio/bobix/issues/253)); a phone's answer to such a request is told `ok` until the command ends. The hint is advisory and never closes a request.
+  - A real phone: the phone app, push through Apple and Google, and the relay deployed on its own domain with `relay-health.yml` watching it (set the repository variable `RELAY_URL`).
+  - The independent security review of the trust boundary and the whole acceptance list on three OSes are the open part of #252.
 
 ## 2. In the test builds (v0.2.0-rc.1 to rc.9), no stable release yet
 

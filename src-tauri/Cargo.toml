@@ -4,6 +4,12 @@ version = "0.0.0" # the app's version comes from package.json (tauri.conf.json)
 edition = "2021"
 publish = false
 
+[features]
+# Phone access (Settings -> Phones, the phones_* commands, the relay link). On by default, so a develop build and a -rc tag
+# have it; release.yml builds a stable tag with --no-default-features. Removing this switch belongs to the public release.
+default = ["phones"]
+phones = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
