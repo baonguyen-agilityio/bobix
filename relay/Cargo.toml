@@ -2,7 +2,7 @@
 name = "bobix-relay"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 license = "MIT"
 description = "Forwards end-to-end encrypted Bobix packets between a desktop and its phones; holds no key that opens one"
 publish = false

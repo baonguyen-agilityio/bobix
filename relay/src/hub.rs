@@ -106,7 +106,7 @@ trait OlderThan {
 
 impl OlderThan for Option<Instant> {
     fn is_none_or_older(&self, d: Duration) -> bool {
-        self.map_or(true, |t| t.elapsed() >= d)
+        self.is_none_or(|t| t.elapsed() >= d)
     }
 }
 
@@ -203,7 +203,7 @@ impl Hub {
     }
 
     fn invited(&mut self, id: &str) -> bool {
-        self.invites.as_mut().map_or(true, |i| i.contains(id))
+        self.invites.as_mut().is_none_or(|i| i.contains(id))
     }
 
     // ---- connection life -----------------------------------------------------------------------------------------

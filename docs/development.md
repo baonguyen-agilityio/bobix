@@ -148,7 +148,7 @@ cargo run -- --dev          # plain ws on 127.0.0.1:8787, recording push fake, G
 - A desktop can revoke only a device that confirmed a pairing with it, meaning it sent the desktop a packet the desktop had allowed; that record is kept next to the revoked list (`<desktop id>.paired` in `REVOKED_DIR`, 90 days), so a revoke works after a relay restart. A desktop that merely received a `hello` cannot affect the phone. A fresh pairing the desktop opens lifts an old cut.
 - `--dev` also serves the socket on `/`, because the fake tools of the link crate connect to exactly the address they are given: `fake-desktop --relay ws://127.0.0.1:8787`. A real client connects to `/v1/ws`.
 - Logs hold device ids and counts, never a body or a token (`tests/push.rs` checks this).
-- Not built yet: the Dockerfile, the README and the deploy.
+- Deploy: [`relay/README.md`](../relay/README.md) covers what the relay can see, self-hosting, every setting and the Railway steps; `relay/Dockerfile` is built from the repository root (`docker build -f relay/Dockerfile .`). Not done yet: the deploy itself.
 
 [The relay workflow](../.github/workflows/relay.yml) mirrors the link workflow: it skips its jobs when nothing under `relay/` or `crates/bobix-link/` changed; jobs `relay` (clippy and tests on macOS and Ubuntu), `audit` (cargo-deny) and `relay-ok`, the one check to require.
 
