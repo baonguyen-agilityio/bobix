@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
+
 import '../src/rust/api/messages.dart';
 
 /// URL-safe base64 without padding: how the protocol writes keys, ids and packets.
@@ -35,14 +37,15 @@ class PairedComputer {
     required this.relay,
     required this.phoneName,
     required this.desktopBoxPublic,
-    required this.rights,
+    required PhoneRights rights,
     required this.recvState,
     required this.eventReservation,
     this.home,
     this.homeAt,
     this.pairedAt,
     Set<String>? pending,
-  }) : pending = pending ?? {};
+  }) : _rights = ValueNotifier(rights),
+       pending = pending ?? {};
 
   /// The computer's device id.
   final String id;
@@ -53,8 +56,14 @@ class PairedComputer {
   final String phoneName;
   final Uint8List desktopBoxPublic;
 
-  /// What the computer granted.
-  final PhoneRights rights;
+  final ValueNotifier<PhoneRights> _rights;
+
+  /// What the computer granted. Changes when a `home` says the owner changed it on the computer.
+  PhoneRights get rights => _rights.value;
+  set rights(PhoneRights r) => _rights.value = r;
+
+  /// Screens that show the rights listen here, so a change made on the computer redraws them.
+  ValueListenable<PhoneRights> get rightsListenable => _rights;
 
   /// The receive counters of what the computer sends (JSON of the Rust core).
   String recvState;

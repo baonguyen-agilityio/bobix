@@ -5,6 +5,7 @@ import android.os.Build
 import android.view.WindowManager
 import dev.bobix.phone.keys.SecureKeysChannel
 import dev.bobix.phone.push.PushChannel
+import dev.bobix.phone.surfaces.SurfacesChannel
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -16,6 +17,7 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : FlutterFragmentActivity() {
     private var push: PushChannel? = null
+    private var surfaces: SurfacesChannel? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,6 +30,7 @@ class MainActivity : FlutterFragmentActivity() {
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         SecureKeysChannel(messenger, this)
         push = PushChannel(messenger, this).also { it.onIntent(intent, started = true) }
+        surfaces = SurfacesChannel(messenger, applicationContext)
         MethodChannel(messenger, WINDOW_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "setSecure" -> {
@@ -52,6 +55,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         push?.dispose()
+        surfaces?.dispose()
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

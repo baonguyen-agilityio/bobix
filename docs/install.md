@@ -17,7 +17,7 @@ Download the installer for your computer (the links give the newest stable relea
 | Ubuntu / Debian (amd64) | [bobix-linux-amd64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-amd64.deb) |
 | Ubuntu / Debian (ARM64) | [bobix-linux-arm64.deb](https://github.com/baonguyen-agilityio/bobix/releases/latest/download/bobix-linux-arm64.deb) |
 
-**Phone access (in development).** It is not in any release: only a build made from the `feat/phone-access` branch with the `phones` switch on has **Settings → Phones** ([how to build one](development.md#phone-access-is-a-compile-switch)), where Bobix can send what waits for you to a phone you pair and take its answers (off until you switch it on; [what it sends](privacy.md)). Going from such a build to a release: the release never reads phone access's keys or files and never connects, so a phone you paired keeps showing the computer as offline. Before you switch, disconnect each phone and turn phone access off in the development build, so the phones are told. You enter the address of a relay there (Bobix has no built-in one): a relay may accept invited computers only, and [relay/README.md](../relay/README.md) explains hosting your own.
+**Phone access (not in any release yet).** Phone access (Settings → Phones, where Bobix would send what waits for you to a phone you pair and take its answers; [what it sends](privacy.md)) is still in development: neither a stable release nor a test build (`-rc`) contains it, and a build made from source has it only with `--features phones`. A build that has it, when you later move to one that does not: the other never reads phone access's keys or files and never connects, so a phone you paired keeps showing the computer as offline. Before you switch, disconnect each phone and turn phone access off, so the phones are told. You enter the address of a relay there (Bobix has no built-in one): a relay may accept invited computers only, and [relay/README.md](../relay/README.md) explains hosting your own.
 
 Not sure which Mac you have? Apple menu → About This Mac → "Chip".
 
@@ -110,15 +110,15 @@ The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl`
 
 ## Phone: install the app and pair it
 
-Only for development builds of Bobix that have phone access (see "Phone access" in section 1). The phone app (iOS 18 or Android 10 and later) is a closed beta for invited people and is not in the App Store or Google Play yet; the way to build it for your own phone is [Try the phone app on a real iPhone](development.md#try-the-phone-app-on-a-real-iphone) and, for Android, [The phone app on Android](development.md#the-phone-app-on-android). You also need a relay both devices can reach ([relay/README.md](../relay/README.md)).
+Only for a development build of Bobix made with `--features phones` (see "Phone access" in section 1). The phone app (iOS 18 or Android 10 and later) is a closed beta for invited people and is not in the App Store or Google Play yet; the way to build it for your own phone is [Try the phone app on a real iPhone](development.md#try-the-phone-app-on-a-real-iphone) and, for Android, [The phone app on Android](development.md#the-phone-app-on-android). You also need a relay both devices can reach ([relay/README.md](../relay/README.md)).
 
-1. On the computer: Settings → Phones. Type the relay's address in **Relay address**, save, and switch on **Let phones connect**. The status says "connected".
+1. On the computer: Settings → Phones. Type the relay's address in **Relay address** and press **Change**, then switch on **Let phones connect**. The status says "connected".
 2. Press **Pair a phone**. A code appears; it works for 2 minutes.
-3. In the phone app, choose to connect a computer and scan the code with the app's own scanner (pairing is meant to start only from the app's own scanner). The app shows the relay's address and says to go on only if you set that relay up yourself or trust whoever did.
+3. In the phone app press **Scan the code** and point the camera at the code (pairing is meant to start only from the app's own scanner). The app shows the relay's address and says to go on only if you set that relay up yourself or trust whoever did; press **Continue**, name the phone, choose what it asks for and press **Ask the computer**.
 4. Back on the computer, the phone's name appears with what it asks for. Tick what it may do (starting a ticket and stopping a session start unticked) and press **Connect**. Nothing works on the phone until you do.
-5. The phone asks for Face ID or a fingerprint every time it sends an answer, and when it opens if "Require Face ID / fingerprint to open" is on (the default).
+5. The phone asks for Face ID or a fingerprint for every command it sends (an answer, Deny included, a start or a stop), and when it opens if "Require Face ID to open" (on Android, "Require fingerprint to open") is on, which is the default.
 
-To remove a phone: **Disconnect** in the phone app's Settings, or remove it in Settings → Phones on the computer; either side tells the other, and the phone erases its keys. The phone's Settings also has "Erase and pair again", which erases everything it kept about the computer.
+To remove a phone: **Disconnect** in the phone app's Settings, or remove it in Settings → Phones on the computer; either side tells the other, and the phone erases its keys. When the computer may have removed the phone, the app shows **Pair again**, where **Erase and pair again** erases what it kept so you can pair afresh.
 
 A real iPhone, a real Android phone, push through Apple or Google, and a relay on a public domain have not been tried yet: [roadmap.md](roadmap.md) lists what is verified.
 

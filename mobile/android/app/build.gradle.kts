@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 // The owner's Firebase project (milestone 2): `android/app/google-services.json`, which git ignores. Without it the app
@@ -76,6 +77,8 @@ dependencies {
     // Push: data messages only, no analytics. `firebase_messaging_auto_init_enabled` is off in the manifest.
     implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
     implementation("com.google.firebase:firebase-messaging")
+    // The home screen widgets (Glance: Compose that becomes RemoteViews).
+    implementation("androidx.glance:glance-appwidget:1.2.0")
     // UniFFI's Kotlin binding (uniffi/bobix_phone_core) loads libbobix_phone_core.so, the one library the app already
     // ships for flutter_rust_bridge, through JNA.
     implementation("net.java.dev.jna:jna:5.17.0@aar")

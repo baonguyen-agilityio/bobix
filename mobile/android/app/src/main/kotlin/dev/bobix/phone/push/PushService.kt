@@ -37,6 +37,8 @@ class PushService : FirebaseMessagingService() {
             val store = keys ?: KeyStore(context)
             val opened = NoticeHandler(PeerStore(peerDir(context))) { store.secret("box") }.open(sealed)
             val action = opened?.let { planFor(it, PushPrefs(context).hideDetails) }
+            // The surfaces outside the app follow the notice, whether or not it is shown as a notification.
+            opened?.let { dev.bobix.phone.surfaces.Surfaces.onNotice(context, it.computerId, it.notice.what, it.notice.reference) }
             if (action != null) NoticePoster(context).apply(action)
             action != null
         } catch (e: Exception) {

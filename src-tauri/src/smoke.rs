@@ -1040,7 +1040,7 @@ fn skills_panel(app: &AppHandle, sid: &str) -> Value {
 fn ask(app: &AppHandle, label: &str, expr: &str) -> Value { ask_for(app, label, expr, 5) }
 
 // The compile switch for phone access: the Settings item and the phones_* commands exist exactly when the build has the
-// `phones` feature. release.yml also compares `compiled` with the kind of the tag it built.
+// `phones` feature. release.yml requires `compiled` to be false: no release has it.
 fn phone_switch(app: &AppHandle) -> Value {
     let compiled = cfg!(feature = "phones");
     let seen = ask_for(app, crate::panel::LABEL, "(async () => { const item = settingItems().some(i => i.id === 'set:phones'); \

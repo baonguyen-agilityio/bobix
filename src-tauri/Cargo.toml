@@ -5,9 +5,10 @@ edition = "2021"
 publish = false
 
 [features]
-# Phone access (Settings -> Phones, the phones_* commands, the relay link). On by default, so a develop build and a -rc tag
-# have it; release.yml builds a stable tag with --no-default-features. Removing this switch belongs to the public release.
-default = ["phones"]
+# Phone access (Settings -> Phones, the phones_* commands, the relay link) is still in development: it is in a build only when
+# this feature is asked for (`--features phones`: local development and the smoke run on a pull request). No release build and
+# no develop build asks for it. Removing this switch belongs to the public release.
+default = []
 phones = []
 
 [build-dependencies]

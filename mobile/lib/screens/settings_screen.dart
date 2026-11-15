@@ -7,6 +7,7 @@ import '../keys/platform_secure_keys.dart';
 import '../keys/secure_keys.dart';
 import '../l10n/l10n.dart';
 import '../push/hide_details.dart';
+import '../src/rust/api/messages.dart' show PhoneRights;
 import '../link/link_providers.dart';
 import '../link/link_state.dart';
 import '../settings/app_settings.dart';
@@ -100,20 +101,26 @@ class SettingsScreen extends ConsumerWidget {
           _Section(s('phone.perm.sec')),
           _Group(
             children: [
-              _Row(
-                icon: Icons.shield_outlined,
-                title: s('phone.perm.title'),
-                subtitle: s('phone.perm.sum', {
-                  'n': '${_rights(computer).where((r) => r.$2).length}',
-                  'all': '${_rights(computer).length}',
-                  'c': computer.name,
-                }),
-                chevron: true,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const PermissionsScreen(),
-                  ),
-                ),
+              ValueListenableBuilder<PhoneRights>(
+                valueListenable: computer.rightsListenable,
+                builder: (context, granted, _) {
+                  final rights = _rights(granted);
+                  return _Row(
+                    icon: Icons.shield_outlined,
+                    title: s('phone.perm.title'),
+                    subtitle: s('phone.perm.sum', {
+                      'n': '${rights.where((r) => r.$2).length}',
+                      'all': '${rights.length}',
+                      'c': computer.name,
+                    }),
+                    chevron: true,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const PermissionsScreen(),
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -178,8 +185,7 @@ class SettingsScreen extends ConsumerWidget {
 }
 
 /// The rights the computer granted this phone, in the order Settings lists them.
-List<(String, bool)> _rights(PairedComputer c) {
-  final r = c.rights;
+List<(String, bool)> _rights(PhoneRights r) {
   return [
     ('answer', r.answer),
     ('plan', r.plan),
@@ -198,12 +204,24 @@ class PermissionsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
-    final t = context.tokens;
     final computer = ref.watch(pairedComputerProvider);
     if (computer == null) {
       return DetailScaffold(title: s('phone.perm.title'), children: const []);
     }
-    final rights = _rights(computer);
+    return ValueListenableBuilder<PhoneRights>(
+      valueListenable: computer.rightsListenable,
+      builder: (context, granted, _) =>
+          _permissions(context, s, computer, _rights(granted)),
+    );
+  }
+
+  Widget _permissions(
+    BuildContext context,
+    Strings s,
+    PairedComputer computer,
+    List<(String, bool)> rights,
+  ) {
+    final t = context.tokens;
     final on = [
       for (final r in rights)
         if (r.$2) r.$1,

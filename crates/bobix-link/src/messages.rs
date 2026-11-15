@@ -124,6 +124,10 @@ pub struct Home {
     pub sessions: Vec<SessionInfo>,
     pub waiting: Vec<Waiting>,
     pub groups: Vec<Group>,
+    /// What this phone may do right now. The desktop sets it in every `home` so a change made on the computer reaches the
+    /// phone; absent (an older desktop) means keep the rights the phone already has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rights: Option<Rights>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

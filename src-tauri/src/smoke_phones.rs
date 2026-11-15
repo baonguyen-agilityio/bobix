@@ -71,6 +71,12 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     r["confirmed"] = json!(phones::pair_confirm(b, granted).is_ok() && until(10, || v()["phones"].as_array().is_some_and(|a| a.len() == 1)));
     let phone = v()["phones"][0].clone();
     r["rights"] = json!(phone["rights"]["answer"] == true && phone["rights"]["stop"] == true && phone["rights"]["start"] == false && phone["rights"]["activity"] == true);
+    // The rights travel in the home: the one the phone got at pairing, then a change made on the computer, then back.
+    let rights_line = |has: &'static str| until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains(has)));
+    let (all_but_start, no_stop) = ("\"rights\":{\"answer\":true,\"plan\":true,\"question\":true,\"start\":false,\"stop\":true,\"activity\":true}", "\"rights\":{\"answer\":true,\"plan\":true,\"question\":true,\"start\":false,\"stop\":false,\"activity\":true}");
+    let pid = phone["id"].as_str().unwrap_or_default().to_string();
+    let fewer = phones::rights_of(&json!({ "answer": true, "plan": true, "question": true, "start": false, "stop": false, "activity": true }));
+    r["rightsInHome"] = json!(rights_line(all_but_start) && phones::set_rights(b, &pid, fewer).is_ok() && rights_line(no_stop) && phones::set_rights(b, &pid, granted).is_ok());
     // Settings → Phones through the real panel and IPC: the section draws, the commands are granted to the page, and a name
     // with markup is shown as text.
     r["panel"] = crate::smoke::ask_for(app, crate::panel::LABEL, "(async () => { bsel.settings = 'set:phones'; showTab('settings'); \
@@ -211,6 +217,6 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     let busy = b.core.lock().unwrap().sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
     r["awakeHeld"] = json!(!busy || (until(10, || v()["awakeHeld"] == true) && (!cfg!(target_os = "macos") || until(5, caff))));
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "watchBase", "startedNoticed", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "rightsInHome", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "watchBase", "startedNoticed", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }
