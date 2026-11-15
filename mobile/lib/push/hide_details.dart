@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/l10n.dart';
+import '../widgets/switch_row.dart';
 import 'push_providers.dart';
 
 /// The "Hide details" switch: with it on, a notification says only that a session needs you (no project, no command).
@@ -29,9 +30,9 @@ class HideDetailsSwitch extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
     final on = ref.watch(hideDetailsProvider).value ?? false;
-    return SwitchListTile(
-      title: Text(s('phone.push.hide.title')),
-      subtitle: Text(s('phone.push.hide.hint')),
+    return SwitchRow(
+      title: s('phone.push.hide.title'),
+      subtitle: s('phone.push.hide.hint'),
       value: on,
       onChanged: (v) => ref.read(hideDetailsProvider.notifier).set(v),
     );
