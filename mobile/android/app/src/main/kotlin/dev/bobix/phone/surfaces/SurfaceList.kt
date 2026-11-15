@@ -72,6 +72,10 @@ class SurfaceList(
         }))
         .toString()
 
+    /** The same list with no session or project name: what is stored while Hide details is on (a name hidden only when drawn would still sit in the file). */
+    fun withoutNames(): SurfaceList =
+        SurfaceList(writtenAt, computer, computerState, todo, canStart, rows.map { Item(it.id, "", "", it.state, it.pet, it.color, it.ref, it.computer, it.holdSecs, it.at) })
+
     /** When [w] was last confirmed. */
     fun confirmedAt(w: Waiting): Long = w.at
 
@@ -120,7 +124,11 @@ class SurfaceList(
 }
 
 /** The list and the pet images in the app's private, never backed up, files. */
-class SurfaceStore(private val dir: File) {
+/**
+ * [hideNames] says whether Hide details is on: then no write keeps a session or project name (the file is readable by every
+ * surface and survives until the next write).
+ */
+class SurfaceStore(private val dir: File, private val hideNames: () -> Boolean = { false }) {
     private val list = File(dir, "list.json")
 
     fun read(): SurfaceList? = try {
@@ -141,9 +149,10 @@ class SurfaceStore(private val dir: File) {
     }
 
     private fun put(text: String): Boolean {
+        val kept = if (hideNames()) SurfaceList.parse(text)?.withoutNames()?.toJson() ?: return false else text
         dir.mkdirs()
         val tmp = File(dir, "list-${System.nanoTime()}.tmp")
-        tmp.writeText(text)
+        tmp.writeText(kept)
         return tmp.renameTo(list).also { if (!it) tmp.delete() }
     }
 

@@ -21,7 +21,9 @@ Tailscale address only), and nothing goes to Bobix's author. Text goes to Anthro
 press, through your own Claude. What it reads, writes and sends is in [docs/privacy.md](docs/privacy.md). A report about that boundary, the
 local server, the hooks Bobix installs in `~/.claude/settings.json`, or a file Bobix writes is in scope.
 
-Phone access (test builds only for now) is in scope as well: the relay in `relay/` (what it accepts before a device authenticates,
+Phone access (in development; only builds from the `feat/phone-access` branch have it) is in scope as well: the relay in `relay/` (what it accepts before a device authenticates,
 its limits, push grants and the gateway), the sealed packets and signed commands of `crates/bobix-link/`, pairing and the rights
-a phone is given, and the keys Bobix keeps for it. The relay's own deployment (your host, your domain) is yours to secure; a
+a phone is given, and the keys Bobix keeps for it. The phone app in `mobile/` is in scope too: how it stores its keys and uses
+the biometric gate, its app lock, how it draws a plan or a tool input, and what its notification extension and push service do
+with a sealed notice. The app has not been security-reviewed on a real iPhone or Android phone yet. The relay's own deployment (your host, your domain) is yours to secure; a
 weakness in the code that every deployment runs is what to report.

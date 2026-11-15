@@ -108,6 +108,20 @@ The hook is a tiny Node.js script. If Node.js isn't installed, Bobix uses `curl`
    - Windows: `%APPDATA%\Bobix`
    - Linux: `~/.config/bobix`
 
+## Phone: install the app and pair it
+
+Only for a development build of Bobix made with `--features phones` (see "Phone access" in section 1). The phone app (iOS 18 or Android 10 and later) is a closed beta for invited people and is not in the App Store or Google Play yet; the way to build it for your own phone is [Try the phone app on a real iPhone](development.md#try-the-phone-app-on-a-real-iphone) and, for Android, [The phone app on Android](development.md#the-phone-app-on-android). You also need a relay both devices can reach ([relay/README.md](../relay/README.md)).
+
+1. On the computer: Settings → Phones. Type the relay's address in **Relay address** and press **Change**, then switch on **Let phones connect**. The status says "connected".
+2. Press **Pair a phone**. A code appears; it works for 2 minutes.
+3. In the phone app press **Scan the code** and point the camera at the code (pairing is meant to start only from the app's own scanner). The app shows the relay's address and says to go on only if you set that relay up yourself or trust whoever did; press **Continue**, name the phone, choose what it asks for and press **Ask the computer**.
+4. Back on the computer, the phone's name appears with what it asks for. Tick what it may do (starting a ticket and stopping a session start unticked) and press **Connect**. Nothing works on the phone until you do.
+5. The phone asks for Face ID or a fingerprint for every command it sends (an answer, Deny included, a start or a stop), and when it opens if "Require Face ID to open" (on Android, "Require fingerprint to open") is on, which is the default.
+
+To remove a phone: **Disconnect** in the phone app's Settings, or remove it in Settings → Phones on the computer; either side tells the other, and the phone erases its keys. When the computer may have removed the phone, the app shows **Pair again**, where **Erase and pair again** erases what it kept so you can pair afresh.
+
+A real iPhone, a real Android phone, push through Apple or Google, and a relay on a public domain have not been tried yet: [roadmap.md](roadmap.md) lists what is verified.
+
 ## Phone: notifications on Android
 
 The Bobix phone app on Android receives its notices as data messages through Firebase Cloud Messaging; what Google carries is encrypted, and the phone opens it. Some makers' battery managers (Samsung's "sleeping apps", Xiaomi's autostart and battery saver) stop an app's background work, and a push sent to an app the system has force-stopped is not delivered until the app is opened again. This has not yet been measured on a Samsung or a Xiaomi phone for Bobix: when the experiment is done, its outcome (what arrives after the app is swiped away from the recents screen) belongs here. Until then, if notices stop arriving on such a phone, allow Bobix to run in the background in the phone's battery settings and open the app once; a computer whose phone has not opened the app for 30 days stops sending pushes and says so under Settings → Phones.

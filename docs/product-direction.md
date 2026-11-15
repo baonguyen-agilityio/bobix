@@ -17,7 +17,7 @@ Today Bobix shows each Claude Code session as a pixel pet, with a panel for the 
 | 3 | Ticket flow: pick, plan, run, log (GitLab first) | [#112](https://github.com/baonguyen-agilityio/bobix/issues/112) |
 | 4 | Habits become personal skills | [#113](https://github.com/baonguyen-agilityio/bobix/issues/113) |
 | 5 + 6 | War room over Tailscale, and its security | [#114](https://github.com/baonguyen-agilityio/bobix/issues/114) |
-| 7 | Phone access (test builds first) | [#252](https://github.com/baonguyen-agilityio/bobix/issues/252) |
+| 7 | Phone access (in development) | [#252](https://github.com/baonguyen-agilityio/bobix/issues/252) |
 
 Steps 2 to 4 rely on step 1, because it adds the opt-in to read session content and the numbers that tune their rules.
 
@@ -32,7 +32,7 @@ These are the places where this direction differs from what [README](../README.m
 | Habit suggestions are simple local rules, "without any AI". | Bobix may ask **Haiku through the user's own `claude -p`** on this machine (task type, summaries, weekly habit scan). The content then goes to Anthropic through the user's own Claude, as any Claude Code use does. | 2, 3, 4 |
 | Bobix opens a session with a prompt you edit; it starts nothing by itself. | After you approve a plan, the session **runs to the end in its own worktree** with Claude's own auto mode. | 3 |
 | Bobix accepts connections on `127.0.0.1` only. | The war room adds a **second port bound to the tailnet interface only**. The panel stays on `127.0.0.1` with its token. | 5, 6 |
-| Bobix opens no connection of its own besides update checks and what you press; "remote control" is a non-goal. | Phone access (test builds only): while its switch is on, **one outbound connection to a relay** you name, so that **your own paired phone** can answer what waits. Off by default, absent from stable releases. | 7 |
+| Bobix opens no connection of its own besides update checks and what you press; "remote control" is a non-goal. | Phone access (in development; only builds from `feat/phone-access` with the `phones` switch on): while its switch is on, **one outbound connection to a relay** you name, so that **your own paired phone** can answer what waits. Off by default, and not in `develop`, `-rc` or stable builds. | 7 |
 
 Stays as it is: Bobix sets no standing rules (use Claude's own auto mode), reads and stores no Claude login credentials and no GitLab or GitHub token, and sends nothing on its own.
 
@@ -193,6 +193,7 @@ Measured on the owner's Mac. Cost figures are **API-equivalent estimates** (toke
 - **Outbound only, through a relay, sealed on this computer for each paired phone.** The relay forwards packets and cannot read them. No inbound port, no LAN path.
 - **Rights per phone, chosen when you confirm the pairing:** answer a request, approve a plan, answer a question, start a ticket, stop a waiting session, see session activity. Starting and stopping start unticked.
 - **What a phone does:** answers what Claude asks (requests, plans, questions), starts a ticket the computer already knows, and stops a session that waits on a held request, only for a phone with both the Stop and the Answer right (the CLI offers no clean stop for a running turn). The first answer, at the computer or on a phone, wins.
+- **The phone app** (`mobile/`, Flutter, iOS 18 and Android 10 or later): pairing starts only from the app's own scanner; every command, Deny included, is signed in secure hardware behind Face ID or a fingerprint; the app can be locked behind the same check (on by default); a plan is drawn without remote images or tappable links, and hidden characters in a tool input are shown as visible escapes. On iOS it adds a notification extension, widgets, a Live Activity and controls; on Android a push service, home screen widgets, a Live Update and Quick Settings tiles. It controls only the computer you paired it with. Distribution is a closed beta for a few invited people first; public store listings belong to the public release.
 - **While the pets are hidden or paused,** a request is held for the phones when nobody is at the computer (10 seconds without input), unless Settings says to let Claude ask at the computer.
 
 **Out of scope**

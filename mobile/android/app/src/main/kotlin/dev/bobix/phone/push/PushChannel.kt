@@ -170,7 +170,11 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
                 "setHideDetails" -> {
                     prefs.hideDetails = call.argument<Boolean>("hide") ?: false
                     result.success(null)
-                    Thread { dev.bobix.phone.surfaces.Surfaces.refresh(activity.applicationContext) }.start()
+                    Thread {
+                        // Names already stored go now (the write drops them while the switch is on), then every surface follows.
+                        dev.bobix.phone.surfaces.Surfaces.store(activity.applicationContext).update { it }
+                        dev.bobix.phone.surfaces.Surfaces.refresh(activity.applicationContext)
+                    }.start()
                 }
                 else -> result.notImplemented()
             }
