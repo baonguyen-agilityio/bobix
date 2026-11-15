@@ -5,6 +5,7 @@
 
 mod answers;
 mod autostart;
+mod awake;
 mod clones;
 mod effects;
 mod feedback;
@@ -33,6 +34,7 @@ mod habit_skills;
 mod room;
 mod secrets;
 mod skills;
+mod sleepwatch;
 mod smoke;
 mod smoke_phones;
 mod state;
@@ -195,8 +197,8 @@ impl Bobix {
                         if start && f.place.is_empty() && f.status != "starting" { follow = Some((f.key.clone(), id.clone(), s.cwd.clone())); }
                     }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
-                    // AskUserQuestion is never held: an "Allow" from Bobix would skip the question; Claude asks in its own window
-                    let reply = if wait && ev == "PermissionRequest" && tool != "AskUserQuestion" { answers::wait(self, pending, closed, phones, settings, s, &e, plan) }
+                    // AskUserQuestion is held as a question (answered with its answers, never with a bare Allow), whole or not at all
+                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, closed, phones, settings, s, &e, plan) }
                         // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
                         // way /rename names it; one that has a name keeps it. One new where a start waits is named by its
                         // first prompt, once that names the issue (Work::claim): not one you opened there yourself.
@@ -233,6 +235,7 @@ impl Bobix {
             thread::spawn(move || { thread::sleep(Duration::from_secs(3)); read_claude_list(&b); b.broadcast(); });
         }
         let is_stop = ev == "Stop";
+        let (ev2, tool2, input2) = (ev.to_string(), e["tool_name"].as_str().unwrap_or("").to_string(), e["tool_input"].clone());
         let b = self.clone();
         let finish = move || {
             let stale = {
@@ -248,6 +251,9 @@ impl Bobix {
                     None => is_stop,
                 }
             };
+            // a held item the session went on from (answered in Claude's own prompt, first): closed as answered at the computer
+            let moved = id.as_deref().map(|sid| answers::moved_ids(&b.core.lock().unwrap().pending, sid, &ev2, &tool2, &input2)).unwrap_or_default();
+            for hid in moved { answers::done(&b, &hid, None, answers::End::Computer); }
             b.broadcast();
             if let Some(n) = notice.filter(|_| !stale) { phones::on_notify(&b, n.kind, &n.id); b.notify(n.kind, &n.id); }
         };
@@ -1332,16 +1338,18 @@ fn code_of(path: &str, code: Option<String>) -> String { code.map(|c| c.trim().t
 #[tauri::command]
 async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let code = code_of(&path, code);
-        let (repo, _, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
+    tauri::async_runtime::spawn_blocking(move || prep_issue(&b, &path, iid, code)).await.map_err(|_| ())
+}
+// What the ticket flow needs before a start: the repository, worktree and branch, the rules and models text, the free space.
+pub fn prep_issue(b: &Arc<Bobix>, path: &str, iid: i64, code: Option<String>) -> Value {
+        let code = code_of(path, code);
+        let (repo, _, wt, branch) = match ticket_place(b, path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let free = tickets::free_bytes(std::path::Path::new(&repo));
-        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(&path, iid, &code)).is_some_and(|f| !f.cleaned);
+        let exists = b.core.lock().unwrap().tickets.list.get(&tickets::flow_key(path, iid, &code)).is_some_and(|f| !f.cleaned);
         // where new work starts from: the branches the remote has right now, and the one remembered for this repository
         let remembered = b.core.lock().unwrap().settings["workBase"][&code].as_str().map(String::from);
         let from = match tickets::branches(&repo) { Ok(l) => json!({ "ok": true, "branches": l }), Err(e) => json!({ "ok": false, "kind": e.kind, "detail": e.detail }) };
         json!({ "ok": true, "code": code, "from": from, "remembered": remembered, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
-    }).await.map_err(|_| ())
 }
 
 // Why a start from a picked branch stopped, as the page reads it: { ok: false, reason: base-<kind>, detail, branch }.
@@ -1355,7 +1363,12 @@ fn base_failed(e: tickets::BaseErr, branch: &str) -> Value { json!({ "ok": false
 #[tauri::command]
 async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: String, models: Value, how: String, anyway: Option<bool>, base: Option<String>, keep: Option<bool>, b: B<'_>) -> Result<Value, ()> {
     let b = b.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || start_flow(&b, &path, iid, code, &prompt, models, &how, anyway, base, keep)).await.map_err(|_| ())
+}
+// Start: see the comment above ticket_start. Called by the panel's command and by a Full start from a phone.
+#[allow(clippy::too_many_arguments)]
+pub fn start_flow(b: &Arc<Bobix>, path: &str, iid: i64, code: Option<String>, prompt: &str, models: Value, how: &str, anyway: Option<bool>, base: Option<String>, keep: Option<bool>) -> Value {
+    let (path, how, prompt) = (path.to_string(), how.to_string(), prompt.to_string());
         let code = code_of(&path, code);
         let (repo, i, wt, branch) = match ticket_place(&b, &path, iid, &code) { Ok(x) => x, Err(e) => return e };
         let key = tickets::flow_key(&path, iid, &code);
@@ -1399,7 +1412,6 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
             Ok(_) => json!({ "ok": true, "mode": "new", "key": key, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
             Err(e) => json!({ "ok": false, "mode": "new", "key": key, "reason": e, "dir": dir, "cmd": cmd, "fetch": fetch, "tests": tests }),
         }
-    }).await.map_err(|_| ())
 }
 
 // Only on your click: Haiku classifies the ticket through your own `claude -p` (no tools, no hooks). { ok, size, why, steps } | { ok: false, error }
@@ -1939,11 +1951,14 @@ fn pet_reset(id: String, b: B) -> Value {
 
 // ---------- phone access (phones.rs) ----------
 #[tauri::command]
+fn question_answer(id: String, answers: Vec<String>, b: B) -> bool { answers::answer_question_now(&b, &id, &answers) }
+#[tauri::command]
 fn phones_state(b: B) -> Value { phones::view(&b) }
 // on: the switch; hold: "phone" | "computer" (when the pets are hidden or paused). Either may be left out.
 #[tauri::command]
-fn phones_enable(on: Option<bool>, hold: Option<String>, b: B) -> Result<Value, String> {
+fn phones_enable(on: Option<bool>, hold: Option<String>, awake: Option<bool>, b: B) -> Result<Value, String> {
     if let Some(h) = hold { phones::set_hold(&b, &h); }
+    if let Some(a) = awake { phones::set_awake(&b, a); }
     match on { Some(on) => phones::enable(&b, on), None => Ok(phones::view(&b)) }
 }
 #[tauri::command]
@@ -1967,7 +1982,7 @@ pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answe
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
     "work_brief", "work_link", "work_find", "work_clone", "work_repos", "work_page", "work_new_review", "skills_mine", "skills_audit", "skills_change", "skills_backups", "skills_undo", "skills_rules", "habit_skills", "room", "process_status", "process_import", "pet_choose", "pet_original", "pet_save", "pet_reset", "habits_read", "habits_clear", "habits_note", "show_board", "usage_prices",
     "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act",
-    "phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
+    "question_answer", "phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -2075,6 +2090,7 @@ fn main() {
     }
 
     phones::init(&b);
+    sleepwatch::start(&b);
     let rb = b.clone();
     tauri::Builder::default()
         .manage(b.clone())
@@ -2082,7 +2098,7 @@ fn main() {
             settings_set, update_act, settings_reset, reveal_settings, diagnostics_copy, feedback_info, feedback_send, work_refresh, work_open, work_cancel, work_start, work_brief, work_link, work_find, work_clone, work_repos, work_page, work_new_review, skills_mine, skills_audit, skills_change, skills_backups, skills_undo, skills_rules, habit_skills, room, process_status, process_import, habits_read, habits_clear, habits_note, show_board, usage_prices,
             ticket_prep, ticket_start, ticket_classify, ticket_answer, ticket_seen, ticket_summary, ticket_clean, ticket_review, ticket_mr, claude_tests, ticket_ci, ticket_detail, ticket_remove, usage_effects,
             pet_choose, pet_original, pet_save, pet_reset,
-            phones_state, phones_enable, phones_relay, phones_pair_start, phones_pair_cancel, phones_pair_confirm, phones_rights, phones_disconnect, phones_new_identity, phones_log])
+            question_answer, phones_state, phones_enable, phones_relay, phones_pair_start, phones_pair_cancel, phones_pair_confirm, phones_rights, phones_disconnect, phones_new_identity, phones_log])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement

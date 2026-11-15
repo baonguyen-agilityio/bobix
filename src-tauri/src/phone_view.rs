@@ -2,7 +2,7 @@
 // Nothing leaves the computer that is not built here. Every string in a preview or a notice passes the shared redactor
 // (room.rs) and loses its hidden characters; the whole input is only in `detail`, for a phone with the matching right.
 // Never in anything built here: the transcript path, the prompt text, git remotes, usage.
-use crate::{answers::Pending, room, state::Sessions};
+use crate::{answers::{Kind, Pending}, room, state::Sessions};
 use bobix_link::{messages::*, pairing::Rights};
 use std::collections::HashMap;
 
@@ -39,7 +39,7 @@ pub fn cut_bytes(s: &str, max: usize) -> String {
 fn folder(p: &str) -> String { p.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or("").into() }
 
 // The sessions and what waits. `groups` stay empty here (the Home groups come with the remote actions).
-pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &str, now: u64) -> Home {
+pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &str, now: u64, state: ComputerState, groups: Vec<Group>) -> Home {
     let mut list: Vec<&crate::state::Session> = sessions.values().collect();
     list.sort_by(|a, b| b.updated.cmp(&a.updated));
     let unfinished = sessions.values().filter(|s| matches!(s.state.as_str(), "working" | "waiting")).count() as u32;
@@ -51,12 +51,32 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
         SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held }
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
-        id: id.clone(), session: p.sid.clone(), what: if p.plan { WaitingKind::Plan } else { WaitingKind::Request },
+        id: id.clone(), session: p.sid.clone(), what: match p.kind() { Kind::Plan => WaitingKind::Plan, Kind::Question => WaitingKind::Question, Kind::Request => WaitingKind::Request },
         preview: preview(p.raw.lines().next().unwrap_or(""), MAX_PREVIEW), cut: shown_cut(p), risky: p.risky || shown_cut(p), at_computer: p.released,
         seconds_left: p.until.map(|u| u.saturating_sub(now) / 1000),
     }).collect();
     waiting.sort_by(|a, b| a.id.cmp(&b.id));
-    fit(Home { sent_at: now, computer: Computer { name: preview(computer, 64), state: ComputerState::Online, unfinished }, sessions: infos, groups: vec![], waiting })
+    fit(Home { sent_at: now, computer: Computer { name: preview(computer, 64), state, unfinished }, sessions: infos, groups, waiting })
+}
+
+// The Home groups a phone can carry: its entries are session or waiting ids, so an issue with no session (To do, Done) has
+// no entry yet (the crate's `home` has no issue list). Needs you: what waits; In progress and Waiting for review: the sessions
+// on those issues; Stuck: the session of each stuck item. Empty groups are left out.
+pub fn groups(work: &crate::work::Work, settings: &serde_json::Value, sessions: &Sessions, pending: &HashMap<String, Pending>, now: u64) -> Vec<Group> {
+    let model = crate::model::Model::build(settings, sessions, work);
+    let view = work.view(settings, &model);
+    let list: Vec<serde_json::Value> = sessions.values().map(|s| serde_json::json!({ "id": s.id, "state": s.state, "st": s.state, "since": s.since, "updated": s.updated, "git": s.git })).collect();
+    let st = crate::model::stages(&view, &list, now as f64, &crate::model::local_day);
+    let ids_of = |k: &str| -> Vec<String> {
+        let mut out: Vec<String> = vec![];
+        for x in st[k].as_array().into_iter().flatten() { for id in x[2].as_array().into_iter().flatten().filter_map(|i| i.as_str()) { if !out.iter().any(|o| o == id) { out.push(id.into()); } } }
+        out
+    };
+    let mut needs: Vec<String> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, _)| id.clone()).collect();
+    needs.sort();
+    let stuck: Vec<String> = crate::model::stuck(&model.json(), &list, &settings.clone(), now as f64).iter().filter_map(|x| x["session"].as_str().map(String::from)).fold(vec![], |mut a, s| { if !a.contains(&s) { a.push(s); } a });
+    [(GroupKind::NeedsYou, needs), (GroupKind::InProgress, ids_of("doing")), (GroupKind::WaitingForReview, ids_of("verify")), (GroupKind::Stuck, stuck)]
+        .into_iter().filter(|(_, ids)| !ids.is_empty()).map(|(group, ids)| Group { group, ids }).collect()
 }
 
 // A sealed `home` must fit a frame: previews go first, then the oldest sessions.
@@ -70,27 +90,44 @@ pub fn fit(mut h: Home) -> Home {
 
 // Whether what a phone is shown is cut: the hook dropped part of the input, or escaping hidden characters made the text
 // longer than the cap and `detail` shortened it. The one place that says so; a remote Allow or approve is refused for it.
-pub fn shown_cut(p: &Pending) -> bool { built("", p.plan, &p.raw, p.cut).cut }
+pub fn shown_cut(p: &Pending) -> bool { built("", p).cut }
 
 // One held item, whole, with the hash of what is held. Err: "unknown" (not held) or "right" (the phone lacks the right).
 pub fn detail(pending: &HashMap<String, Pending>, id: &str, rights: Rights) -> Result<Detail, &'static str> {
     let p = pending.get(id).ok_or("unknown")?;
-    if !(if p.plan { rights.plan } else { rights.answer }) { return Err("right"); }
-    Ok(built(id, p.plan, &p.raw, p.cut))
+    if !(match p.kind() { Kind::Plan => rights.plan, Kind::Question => rights.question, Kind::Request => rights.answer }) { return Err("right"); }
+    Ok(built(id, p))
 }
 
 // The text a phone is shown for a held item. The desktop's escaper runs first (it knows more hidden characters than the
 // crate's), so the phone shows what the panel shows; text that escaping makes longer than the cap is shortened, and cut says so.
-fn built(id: &str, plan: bool, raw: &str, cut: bool) -> Detail {
-    let (what, limit) = if plan { (DetailKind::Plan, MAX_PLAN) } else { (DetailKind::ToolInput, MAX_TOOL_INPUT) };
-    let (mut raw, mut cut) = (raw.to_string(), cut);
+fn built(id: &str, p: &Pending) -> Detail {
+    let (what, limit) = match p.kind() { Kind::Plan => (DetailKind::Plan, MAX_PLAN), Kind::Question => (DetailKind::Question, MAX_TOOL_INPUT), Kind::Request => (DetailKind::ToolInput, MAX_TOOL_INPUT) };
+    // the questions as shown: hidden characters escaped in each text and option
+    let questions: Vec<Question> = p.questions.iter().map(|q| Question { text: crate::answers::escape_hidden(&q.text), options: q.options.iter().map(|o| crate::answers::escape_hidden(o)).collect(), multi_select: q.multi_select }).collect();
+    let (mut raw, mut cut) = (p.raw.clone(), p.cut);
     loop {
-        let mut d = Detail::build(id, what, &crate::answers::escape_hidden(&raw), cut, vec![]);
-        d.odd |= crate::answers::odd(&serde_json::Value::String(raw.clone()));
+        let mut d = Detail::build(id, what, &crate::answers::escape_hidden(&raw), cut, questions.clone());
+        d.odd |= crate::answers::odd(&serde_json::Value::String(raw.clone())) || p.questions.iter().any(|q| crate::answers::odd(&serde_json::Value::String(q.text.clone())) || q.options.iter().any(|o| crate::answers::odd(&serde_json::Value::String(o.clone()))));
         if d.text.len() <= limit { return d; }
         raw = cut_bytes(&raw, raw.len() * 3 / 4);
         cut = true;
     }
+}
+
+// A session's last lines (at most 40, the prompt lines left out), redacted, for a phone with "See session activity".
+pub fn session_detail(sessions: &Sessions, id: &str, rights: Rights) -> Result<Detail, &'static str> {
+    let s = sessions.get(id).ok_or("unknown")?;
+    if !rights.activity { return Err("right"); }
+    let mut text = s.log.iter().filter(|l| l.kind != "prompt" && l.kind != "system").map(|l| {
+        let line = if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) };
+        room::redact(&line.chars().filter(|c| !is_odd_char(*c) || *c == '\n' || *c == '\t').collect::<String>()).0.replace('\n', " ")
+    }).collect::<Vec<_>>().join("\n");
+    let cut = text.len() > MAX_TOOL_INPUT;
+    if cut { text = cut_bytes(&text, MAX_TOOL_INPUT / 2); } // escapes of hidden characters may grow it; half is safe for what remains
+    let mut d = Detail::build(id, DetailKind::LastLines, &text, cut, vec![]);
+    while d.text.len() > MAX_TOOL_INPUT { text = cut_bytes(&text, text.len() * 3 / 4); d = Detail::build(id, DetailKind::LastLines, &text, true, vec![]); }
+    Ok(d)
 }
 
 // The notice of a held request: the session and what it asks, redacted and without hidden characters.
@@ -152,7 +189,7 @@ mod tests {
         s.git = Some(serde_json::json!({ "remotes": ["git@host:team/repo.git"] }));
         sessions.insert("s1".into(), s);
         let p = held("rm -rf build && echo ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4", false, false);
-        let h = home(&sessions, &p, "Studio", 1000);
+        let h = home(&sessions, &p, "Studio", 1000, ComputerState::Online, vec![]);
         let json = String::from_utf8(DesktopMsg::Home(h.clone()).to_json()).unwrap();
         for never in ["/Users/someone", "SECRET PROMPT", "remotes", "git@host", "usage", ".jsonl", "ghp_a1B2"] { assert!(!json.contains(never), "{never} in {json}"); }
         assert_eq!(h.sessions[0].project, "app");
@@ -166,7 +203,33 @@ mod tests {
         let mut p = HashMap::new();
         for i in 0..1200 { let (tx, _rx) = tokio::sync::oneshot::channel(); p.insert(format!("{i:032}"), Pending::for_test("s1", false, tx, &"x".repeat(300), false)); }
         sessions.get_mut("s1").unwrap().state = "waiting".into();
-        let h = home(&sessions, &p, "Studio", 1);
+        let h = home(&sessions, &p, "Studio", 1, ComputerState::Online, vec![]);
         assert!(DesktopMsg::Home(h.clone()).to_json().len() <= MAX_FRAME / 4 * 3 - 2048 && h.waiting.iter().all(|w| w.preview.is_empty()));
+    }
+
+    #[test]
+    fn last_lines_have_no_prompts_and_no_secrets_and_need_the_right() {
+        let mut sessions = Sessions::new();
+        let mut s = crate::state::Session::default();
+        s.id = "s1".into();
+        let l = |kind: &str, text: &str, tool: &str| crate::state::LogLine { t: 1, kind: kind.into(), text: text.into(), tool: tool.into() };
+        s.log = vec![l("prompt", "SECRET PROMPT", ""), l("tool", "npm test ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4", "Bash"), l("tool", "src/a.rs", "Edit")];
+        sessions.insert("s1".into(), s);
+        let rights = Rights { activity: true, ..Default::default() };
+        let d = session_detail(&sessions, "s1", rights).unwrap();
+        assert_eq!(d.what, DetailKind::LastLines);
+        assert!(d.text.contains("Bash npm test") && d.text.contains("Edit src/a.rs") && !d.text.contains("SECRET PROMPT") && !d.text.contains("ghp_a1B2"), "{}", d.text);
+        assert_eq!(session_detail(&sessions, "s1", Rights::default()), Err("right"));
+        assert_eq!(session_detail(&sessions, "nope", rights), Err("unknown"));
+        sessions.get_mut("s1").unwrap().log.clear();
+        assert_eq!(session_detail(&sessions, "s1", rights).unwrap().text, "", "no lines: an empty answer");
+    }
+
+    #[test]
+    fn a_sleeping_computer_says_asleep_with_what_is_unfinished() {
+        let mut sessions = Sessions::new();
+        for (id, st) in [("a", "working"), ("b", "waiting"), ("c", "idle")] { let mut s = crate::state::Session::default(); s.id = id.into(); s.state = st.into(); sessions.insert(id.into(), s); }
+        let h = home(&sessions, &HashMap::new(), "Studio", 1, ComputerState::Asleep, vec![]);
+        assert_eq!((h.computer.state, h.computer.unfinished), (ComputerState::Asleep, 2));
     }
 }

@@ -1259,6 +1259,7 @@ function phonesSettingsHTML() {
       <p class="note">${esc(T('phones.status'))}: ${esc(T('phones.status.' + statusKey))}${d.moving ? ' · ' + esc(T('phones.relay.moving')) : ''}</p>${phoneErr ? `<p class="note err">${esc(phoneErr)}</p>` : ''}</div></div>
     ${d.deviceId ? `<div class="opt wide"><div><div class="lbl">${esc(T('phones.device'))}</div><div><code>${esc(d.deviceId)}</code> <button class="btn sm" type="button" data-act="phones-copy">${esc(T('phones.copy'))}</button></div><p class="note">${esc(T('phones.invite.hint'))}</p></div></div>` : ''}
     ${d.on && !d.node ? `<div class="opt wide"><p class="note err">${esc(T('phones.node'))}</p></div>` : ''}
+    <div class="opt"><div><div class="lbl" id="l-phonesAwake">${esc(T('phones.awake'))}</div><div class="desc">${esc(T('phones.awake.note'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesAwake" data-phones-awake ${d.awake ? 'checked' : ''}></div></div>
     <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.hold.title'))}</div>${d.canRead === false ? `<p class="note">${esc(T('phones.hold.why'))}</p>` : ''}
       <label class="chk"><input type="radio" name="phone-hold" data-hold="phone" ${d.hold !== 'computer' ? 'checked' : ''}> ${esc(T('phones.hold.phone'))}</label>
       <label class="chk"><input type="radio" name="phone-hold" data-hold="computer" ${d.hold === 'computer' ? 'checked' : ''}> ${esc(T('phones.hold.computer'))}</label></div></div>
@@ -1724,7 +1725,8 @@ let scope = 'overview', bq = '', items = [], cur = null, curKey = '', nextFocus 
 let st = BOARD.stages(null, []), logo = '';
 const bsel = {}, lastIdx = {};
 const narrow = () => matchMedia('(max-width:720px)').matches;
-const held = s => !!(s && secsLeft(s) && bridge); // Bobix holds the request, so it can answer it here
+const held = s => !!(s && secsLeft(s) && bridge && s.answer?.kind !== 'question');
+const heldQ = s => !!(s?.answer?.kind === 'question' && bridge); // Claude's question: answered with its answers, never with a bare Allow // Bobix holds the request, so it can answer it here
 const pet = (s, cls = '', extra = '') => `<span class="av ${cls}${look(s) === 'waiting' ? ' ring' : ''}" aria-hidden="true">${petArt(list.find(x => x.id === s.parent) || s, look(s), petColor(s, list))}${extra}</span>`;
 const lowCtx = hp => (hp != null && hp < 25 ? `<span class="hot" title="${esc(T('ctx'))}">${esc(T('ctx'))} ${hp}%</span>` : ''); // context only when low
 const ticketOf = s => [...st.doing, ...st.verify].find(x => x[2].some(y => y.id === s.id));
@@ -1789,9 +1791,31 @@ function askHTML(s, t, text, h) {
     <pre class="b-code">${esc(text)}</pre>${s.answer?.risky && !s.answer.cut ? `<p class="risk">${esc(T('day.risky'))}</p>` : ''}${s.answer?.cut ? `<p class="risk">${esc(T('ask.cut'))}</p>` : ''}${s.answer?.odd ? `<p class="risk">${esc(T('ask.odd'))}</p>` : ''}
     <dl class="kv"><dt>${esc(T('b.waited'))}</dt><dd>${waitedHTML(s)}</dd><dt>${esc(T('b.session'))}</dt><dd><button class="lnk" type="button" data-sel="${esc(s.id)}">${esc(s.title || s.name)}</button></dd>
       ${t ? `<dt>${esc(T('b.ticket'))}</dt><dd>#${t[0].iid} ${esc(t[0].title)}</dd>` : ''}</dl>
+    ${heldQ(s) ? questionFormHTML(s) : ''}
     ${h ? `<div class="acts" style="margin:0"><button class="btn pri" type="button" ${answerAttrs(s, 'allow')} data-f="allow:${esc(s.id)}">${esc(T('ask.allow'))}</button><button class="btn" type="button" ${answerAttrs(s, 'deny')}>${esc(T('ask.deny'))}</button></div><p class="note">${esc(T('b.ask.note'))}</p>`
       : `<p class="note">${esc(T(approveWhere(s)))}</p>`}`;
 }
+// Claude's question: each question with its options (a choice, or several when it allows) and a field of your own words.
+function questionFormHTML(s) {
+  const qs = s.answer.questions || [];
+  return `<form class="qform" data-qform="${esc(s.answer.id)}">${qs.map((q, i) => `<fieldset><legend>${esc(q.question)}</legend>${q.options.map((o, j) => `<label class="chk"><input type="${q.multi ? 'checkbox' : 'radio'}" name="q${i}" data-qopt="${j}"> ${esc(o)}</label>`).join('')}
+    <input type="text" data-qtext="${i}" placeholder="${esc(T('ask.q.other'))}" maxlength="2000" autocomplete="off"></fieldset>`).join('')}
+    <div class="acts" style="margin:0"><button class="btn pri" type="submit">${esc(T('ask.q.send'))}</button></div><p class="note" data-qerr hidden>${esc(T('ask.q.need'))}</p></form>`;
+}
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('[data-qform]');
+  if (!f || !bridge) return;
+  e.preventDefault();
+  const s = list.find(x => x.answer?.id === f.dataset.qform);
+  if (!s) return;
+  const answers = (s.answer.questions || []).map((q, i) => {
+    const own = f.querySelector(`[data-qtext="${i}"]`).value.trim();
+    if (own) return own;
+    return [...f.querySelectorAll(`[name="q${i}"]:checked`)].map(c => q.options[+c.dataset.qopt]).join(', ');
+  });
+  if (answers.some(a => !a)) return void (f.querySelector('[data-qerr]').hidden = false);
+  await bridge.questionAnswer(s.answer.id, answers);
+});
 function stuckItem(x) {
   const can = bridge || x.kind === 'noreview', title = `${x.iid != null ? '#' + x.iid + ' ' : ''}${x.title}`;
   return { id: 'stuck:' + x.id, grp: x.old ? 'stuckOld' : 'stuck', kind: 'board', lead: ico('clock'), label: title, sub: stuckWhy(x),
@@ -3105,6 +3129,7 @@ $('#settings').addEventListener('change', e => {
     return phonesDo(bridge.phonesEnable(on));
   }
   if (t.dataset.hold) return phonesDo(bridge.phonesEnable(null, t.dataset.hold));
+  if (t.matches('[data-phones-awake]')) return phonesDo(bridge.phonesEnable(null, null, t.checked));
   if (t.dataset.pr === 'new') { phoneRights[t.dataset.r] = t.checked; return; }
   if (t.dataset.pr?.startsWith('row:')) {
     const rights = {};

@@ -1,16 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'fixtures/fixtures.dart';
+import 'data/phone_data.dart';
 import 'l10n/l10n.dart';
+import 'link/computer_link.dart';
+import 'link/link_providers.dart';
 import 'screens/home_screen.dart';
+import 'screens/pair_again_screen.dart';
+import 'screens/unavailable_screen.dart';
+import 'screens/pairing_screens.dart';
+import 'screens/pets_screen.dart';
 import 'screens/placeholder_screen.dart';
 import 'theme/theme.dart';
 import 'theme/tokens.dart';
 import 'widgets/glass_tab_bar.dart';
+import 'widgets/status_banner.dart';
 
 class BobixApp extends ConsumerWidget {
-  const BobixApp({super.key});
+  const BobixApp({super.key, this.home = const RootGate()});
+
+  /// The first screen: the gate that picks pairing, the app or "pair again". Tests give the shell directly.
+  final Widget home;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -19,8 +29,26 @@ class BobixApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: bobixTheme(Brightness.light),
       darkTheme: bobixTheme(Brightness.dark),
-      home: const AppShell(),
+      home: home,
     );
+  }
+}
+
+/// Not paired: the pairing flow. Paired: the app. A pairing that cannot be used any more: "pair again".
+class RootGate extends ConsumerWidget {
+  const RootGate({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final phase = ref.watch(linkControllerProvider);
+    return switch (phase.value) {
+      null when phase.hasError => const UnavailableScreen(),
+      null => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      Unpaired() => const PairingFlow(),
+      Unavailable() => const UnavailableScreen(),
+      Paired() => const AppShell(),
+      final PairAgain a => PairAgainScreen(phase: a),
+    };
   }
 }
 
@@ -41,7 +69,14 @@ class _AppShellState extends ConsumerState<AppShell> {
   Widget build(BuildContext context) {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
-    final need = fixtureSessions.where((x) => x.needsYou).length;
+    final need =
+        ref
+            .watch(homeProvider)
+            .value
+            ?.sessions
+            .where((x) => x.needsYou)
+            .length ??
+        0;
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
@@ -53,11 +88,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 index: _index,
                 children: const [
                   HomeScreen(),
-                  PlaceholderScreen(
-                    titleKey: 'phone.pets.title',
-                    bodyKey: 'phone.pets.empty',
-                    detailKey: 'phone.pets.empty.d',
-                  ),
+                  PetsScreen(),
                   PlaceholderScreen(
                     titleKey: 'phone.start.title',
                     bodyKey: 'phone.start.soon',
@@ -69,6 +100,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 ],
               ),
             ),
+            Positioned(left: 0, right: 0, top: 0, child: _LinkProblem()),
             Positioned(
               left: 0,
               right: 0,
@@ -97,6 +129,53 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A problem with the link that the person has to act on: an update, or an invitation the relay wants.
+class _LinkProblem extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(stringsProvider);
+    final status = ref.watch(linkStatusProvider).value;
+    final the = s('phone.pair.thecomputer');
+    final (String, String)? text = switch (status?.problem) {
+      LinkProblem.updatePhone => (
+        s('phone.link.update.phone'),
+        s('phone.link.update.phone.d'),
+      ),
+      LinkProblem.updateComputer => (
+        s('phone.link.update.computer', {'c': the}),
+        s('phone.link.update.computer.d'),
+      ),
+      LinkProblem.invite => (
+        s('phone.link.invite', {'c': the}),
+        s('phone.link.invite.d'),
+      ),
+      _ => null,
+    };
+    final moved = status?.movedHost;
+    if (text == null && moved == null) return const SizedBox.shrink();
+    if (text == null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: StatusBanner(
+          kind: BannerKind.info,
+          icon: Icons.swap_horiz,
+          title: s('phone.link.moved', {'h': moved!}),
+          body: s('phone.link.moved.d'),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: StatusBanner(
+        kind: BannerKind.warn,
+        icon: Icons.system_update_alt,
+        title: text.$1,
+        body: text.$2,
       ),
     );
   }

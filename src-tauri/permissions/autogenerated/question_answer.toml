@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-question-answer"
+description = "Enables the question_answer command without any pre-configured scope."
+commands.allow = ["question_answer"]
+
+[[permission]]
+identifier = "deny-question-answer"
+description = "Denies the question_answer command without any pre-configured scope."
+commands.deny = ["question_answer"]
