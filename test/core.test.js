@@ -754,6 +754,13 @@ test('hook.js forwards a trimmed event, with the token, and prints a session tit
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('hook.js waits as long as the app says, not at most five minutes', () => {
+  const { waitSecs } = require('../src/hook/hook.js');
+  assert.equal(waitSecs('20'), 20);
+  assert.equal(waitSecs('600'), 600, 'a wait setting over five minutes is followed');
+  assert.deepEqual([waitSecs('forever'), waitSecs(undefined), waitSecs('0'), waitSecs('-5'), waitSecs('x')], [0, 0, 0, 0, 0]);
+});
+
 test('board: minutes Claude waited for you today, per project, in the report', () => {
   const B = require('../src/ui/board');
   const now = new Date(2026, 10, 8, 17, 0).getTime(), min = 60e3, midnight = new Date(2026, 10, 8).getTime();
@@ -1217,6 +1224,16 @@ test('ticket flow: steps, the Start prompt, disk sizes', () => {
   assert.strictEqual(p, '#7 Add subtract\n\nNext to add.\n\nhttps://gitlab.example.test/demo/shop/-/issues/7\n\nModels: small.\n\nHow to work: plan first.');
   assert.strictEqual(B.flowPrompt({ iid: 8, title: 't' }, '', '', 'r'), '#8 t\n\nr');
   assert.deepStrictEqual([B.gb(5 * 1024 ** 3), B.gb(123 * 1024 ** 3), B.gb(null)], ['5.0', '123', '?']);
+});
+
+// Which tags build phone access in (.github/scripts/build-kind.mjs): branches and -rc tags do, a stable tag does not, and a tag it
+// does not recognise never switches it on.
+test('the build kind: phone access in for branches and -rc tags, out for stable and unknown tags', async () => {
+  const { kindOf } = await import('../.github/scripts/build-kind.mjs');
+  const on = ref => kindOf(ref).phones;
+  assert.deepEqual(['refs/heads/develop', 'refs/heads/feat/x', 'refs/tags/v0.2.0-rc.8'].map(on), [true, true, true]);
+  assert.deepEqual(['refs/tags/v0.2.0', 'refs/tags/v10.20.30', 'refs/tags/v0.2.0-beta.1', 'refs/tags/v0.2', 'refs/tags/v0.2.0-rc', 'refs/tags/v0.2.0-rc.1.x', 'refs/tags/release', 'refs/tags/v0.2.0 '].map(on), Array(8).fill(false));
+  assert.equal(kindOf('refs/tags/v0.2.0').kind, 'stable');
 });
 
 // The update manifest (.github/scripts/update-manifest.mjs): the version, a signature and a link per system; a release

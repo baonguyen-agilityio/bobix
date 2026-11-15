@@ -177,6 +177,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_NAME") { report["name"] = name_step(&app, b.port, &dir, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_FOLLOW") { report["follow"] = follow_step(&app, &b, &dir, &spec); }
         if let Ok(spec) = std::env::var("BOBIX_SMOKE_PHONES") { report["phones"] = crate::smoke_phones::run(&app, &b, &spec); }
+        report["phoneSwitch"] = phone_switch(&app);
         report["open"] = open_step(&app, &b);
         report["pageErrors"] = json!(b.core.lock().unwrap().page_errors); // both pages
         let pass = report["answer"] == "ok" && report["hooks"]["complete"] == true && report["visible"] == true && report["onTop"] == true && report["onScreen"] == true && report["pets"].as_u64().unwrap_or(0) >= 2
@@ -188,6 +189,7 @@ pub fn run(app: AppHandle, b: Arc<Bobix>, dir: PathBuf) {
             && report["skills"]["uses"] == 1 && report["skills"]["removed"] == true && report["skills"]["undone"] == true && report["skills"]["rules"] == true
             && ["audit", "disable", "undoDisable", "remove", "undoRemove", "lines", "rulesAdd", "rulesRemove"].iter().all(|k| report["skillsPanel"][k] == true)
             && report["open"]["pass"] == true
+            && report["phoneSwitch"]["pass"] == true
             && (report.get("ticket").is_none() || report["ticket"]["pass"] == true)
             && (report.get("clones").is_none() || report["clones"]["pass"] == true)
             && (report.get("repos").is_none() || report["repos"]["pass"] == true)
@@ -1036,6 +1038,15 @@ fn skills_panel(app: &AppHandle, sid: &str) -> Value {
 
 // The value of a page expression (awaited), through the bridge like the pets' own calls.
 fn ask(app: &AppHandle, label: &str, expr: &str) -> Value { ask_for(app, label, expr, 5) }
+
+// The compile switch for phone access: the Settings item and the phones_* commands exist exactly when the build has the
+// `phones` feature. release.yml also compares `compiled` with the kind of the tag it built.
+fn phone_switch(app: &AppHandle) -> Value {
+    let compiled = cfg!(feature = "phones");
+    let seen = ask_for(app, crate::panel::LABEL, "(async () => { const item = settingItems().some(i => i.id === 'set:phones'); \
+        let command = false; try { await window.__TAURI_INTERNALS__.invoke('phones_log'); command = true; } catch {} return { item, command }; })()", 10);
+    json!({ "compiled": compiled, "item": seen["item"], "command": seen["command"], "pass": seen["item"] == compiled && seen["command"] == compiled })
+}
 
 pub fn ask_for(app: &AppHandle, label: &str, expr: &str, secs: u64) -> Value {
     let Some(w) = app.get_webview_window(label) else { return json!("no window") };

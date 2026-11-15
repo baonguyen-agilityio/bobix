@@ -79,6 +79,10 @@ jobs:
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
+      # A stable release is built without the `phones` feature (release.yml): keep that configuration compiling and passing.
+      - name: Rust tests without phone access
+        working-directory: src-tauri
+        run: cargo test --no-default-features
       - name: Build
         working-directory: src-tauri
         run: cargo build

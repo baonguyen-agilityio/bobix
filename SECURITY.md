@@ -20,3 +20,8 @@ Bobix runs on your computer. Its local server listens on `127.0.0.1` only (a war
 Tailscale address only), and nothing goes to Bobix's author. Text goes to Anthropic only for the features you switch on or
 press, through your own Claude. What it reads, writes and sends is in [docs/privacy.md](docs/privacy.md). A report about that boundary, the
 local server, the hooks Bobix installs in `~/.claude/settings.json`, or a file Bobix writes is in scope.
+
+Phone access (test builds only for now) is in scope as well: the relay in `relay/` (what it accepts before a device authenticates,
+its limits, push grants and the gateway), the sealed packets and signed commands of `crates/bobix-link/`, pairing and the rights
+a phone is given, and the keys Bobix keeps for it. The relay's own deployment (your host, your domain) is yours to secure; a
+weakness in the code that every deployment runs is what to report.

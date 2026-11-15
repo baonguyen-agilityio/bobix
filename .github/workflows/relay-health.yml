@@ -1,0 +1,29 @@
+# Watches the deployed relay: GET <RELAY_URL>/healthz must answer 200 "ok". The relay answers 503 when its invitation file or
+# its gateway keys file (when set) is missing or unreadable, so one check covers all three. A failed run is how the owner is told
+# (GitHub mails the failure of a scheduled workflow to the person who last edited its schedule).
+# Set the repository variable RELAY_URL to the relay's https address (Settings → Secrets and variables → Actions → Variables);
+# without it the check does nothing.
+name: relay-health
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  healthz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RELAY_URL: ${{ vars.RELAY_URL }}
+    steps:
+      - name: Check /healthz
+        run: |
+          if [ -z "$RELAY_URL" ]; then echo "::notice::RELAY_URL is not set: nothing to check"; exit 0; fi
+          case "$RELAY_URL" in https://*) ;; *) echo "::error::RELAY_URL must start with https://"; exit 1 ;; esac
+          for try in 1 2 3; do
+            body="$(curl -sS --max-time 20 -w '\n%{http_code}' "${RELAY_URL%/}/healthz" 2>&1)" && [ "$(printf '%s' "$body" | tail -1)" = 200 ] && [ "$(printf '%s' "$body" | head -1)" = ok ] && { echo "relay ok"; exit 0; }
+            echo "try $try: $(printf '%s' "$body" | tr '\n' ' ')"; sleep 20
+          done
+          echo "::error::the relay did not answer ok on /healthz"; exit 1
