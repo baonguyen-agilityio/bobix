@@ -29,7 +29,6 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
-    final t = context.tokens;
     final computer = ref.watch(pairedComputerProvider);
     final status = ref.watch(linkStatusProvider).value;
     final settings = ref.watch(settingsProvider).value ?? const AppSettings();
@@ -98,24 +97,25 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
         if (computer != null) ...[
-          _Section(s('phone.settings.may', {'c': computer.name})),
+          _Section(s('phone.perm.sec')),
           _Group(
             children: [
-              for (final (name, granted) in _rights(computer))
-                _Row(
-                  icon: granted ? Icons.check : Icons.close,
-                  iconColor: granted ? t.ok : t.ink3,
-                  title: s('phone.right.$name'),
-                  muted: !granted,
+              _Row(
+                icon: Icons.shield_outlined,
+                title: s('phone.perm.title'),
+                subtitle: s('phone.perm.sum', {
+                  'n': '${_rights(computer).where((r) => r.$2).length}',
+                  'all': '${_rights(computer).length}',
+                  'c': computer.name,
+                }),
+                chevron: true,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const PermissionsScreen(),
+                  ),
                 ),
+              ),
             ],
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 6, left: 4),
-            child: Text(
-              s('phone.settings.may.n'),
-              style: TextStyle(fontSize: 12, color: t.ink3),
-            ),
           ),
         ],
         _Section(s('phone.settings.look')),
@@ -175,18 +175,114 @@ class SettingsScreen extends ConsumerWidget {
     }
     await ref.read(settingsProvider.notifier).setRequireUnlock(on);
   }
+}
 
-  /// The rights the computer granted this phone, in the order Settings lists them.
-  List<(String, bool)> _rights(PairedComputer c) {
-    final r = c.rights;
-    return [
-      ('answer', r.answer),
-      ('plan', r.plan),
-      ('question', r.question),
-      ('start', r.start),
-      ('stop', r.stop),
-      ('activity', r.activity),
+/// The rights the computer granted this phone, in the order Settings lists them.
+List<(String, bool)> _rights(PairedComputer c) {
+  final r = c.rights;
+  return [
+    ('answer', r.answer),
+    ('plan', r.plan),
+    ('question', r.question),
+    ('start', r.start),
+    ('stop', r.stop),
+    ('activity', r.activity),
+  ];
+}
+
+/// "What this phone may do": what the computer allowed and did not allow, and what always holds. Read only: the
+/// rights are set on the computer.
+class PermissionsScreen extends ConsumerWidget {
+  const PermissionsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(stringsProvider);
+    final t = context.tokens;
+    final computer = ref.watch(pairedComputerProvider);
+    if (computer == null) {
+      return DetailScaffold(title: s('phone.perm.title'), children: const []);
+    }
+    final rights = _rights(computer);
+    final on = [
+      for (final r in rights)
+        if (r.$2) r.$1,
     ];
+    final off = [
+      for (final r in rights)
+        if (!r.$2) r.$1,
+    ];
+    _Row row(String name, bool granted) => _Row(
+      icon: granted ? Icons.check : Icons.close,
+      iconColor: granted ? t.ok : t.ink3,
+      title: s('phone.right.$name'),
+      subtitle: s('phone.perm.$name.d'),
+      muted: !granted,
+    );
+    return DetailScaffold(
+      title: s('phone.perm.title'),
+      children: [
+        _Group(
+          children: [
+            _Row(
+              icon: Icons.computer,
+              title: computer.name,
+              subtitle: s('phone.perm.who', {'p': computer.phoneName}),
+              trailing: Text(
+                '${on.length}/${rights.length}',
+                style: TextStyle(fontWeight: FontWeight.w600, color: t.ink2),
+              ),
+            ),
+          ],
+        ),
+        _Section(s('phone.perm.on')),
+        if (on.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text(
+              s('phone.perm.none'),
+              style: TextStyle(fontSize: 14, color: t.ink2),
+            ),
+          )
+        else
+          _Group(children: [for (final n in on) row(n, true)]),
+        if (off.isNotEmpty) ...[
+          _Section(s('phone.perm.off')),
+          _Group(children: [for (final n in off) row(n, false)]),
+        ],
+        _Section(s('phone.perm.always')),
+        _Group(
+          children: [
+            _Row(
+              icon: Icons.fingerprint,
+              title: s('phone.perm.bio', {'os': bioName(s)}),
+              subtitle: s('phone.perm.bio.d'),
+            ),
+            _Row(
+              icon: Icons.shield_outlined,
+              title: s('phone.settings.never'),
+              subtitle: s('phone.settings.never.d'),
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 12, left: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.computer, size: 16, color: t.ink3),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  s('phone.perm.note'),
+                  style: TextStyle(fontSize: 12, height: 1.35, color: t.ink3),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
