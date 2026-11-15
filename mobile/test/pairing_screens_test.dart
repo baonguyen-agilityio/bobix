@@ -49,11 +49,13 @@ class _Fixed extends PairingController {
 class _FakeLink extends LinkController {
   _FakeLink(this.initial);
   final AppPhase initial;
-  int erased = 0;
+  int erased = 0, forgotten = 0;
   @override
   Future<AppPhase> build() async => initial;
   @override
   Future<void> eraseAndPairAgain() async => erased++;
+  @override
+  Future<void> forgetComputer() async => forgotten++;
 }
 
 const rights = PhoneRights(
@@ -381,6 +383,9 @@ void main() {
     );
     await tester.tap(find.text('Erase and pair again'));
     expect(link.erased, 1);
+    expect(link.forgotten, 0);
+    await tester.tap(find.text('Erase and forget this computer'));
+    expect(link.forgotten, 1);
 
     await tester.pumpWidget(
       host(
@@ -393,6 +398,8 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(find.text('When'), findsNothing, reason: 'no time known, no row');
+    expect(find.text('Erase and forget this computer'), findsNothing);
     expect(find.text('This phone was disconnected'), findsOneWidget);
     expect(find.text('Disconnected on Studio Mac (demo)'), findsOneWidget);
     expect(find.text('Nothing. The log was erased too.'), findsOneWidget);
@@ -518,6 +525,33 @@ void main() {
     await tester.pump();
     expect(find.text('What to do'), findsOneWidget);
     expect(find.text('Try again'), findsNothing);
+  });
+
+  testWidgets('disconnected: the When row says today, or the day', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 11, 15, 22, 0);
+    Future<void> show(DateTime at) async {
+      await tester.pumpWidget(
+        host(
+          home: PairAgainScreen(
+            phase: PairAgain(
+              computer: 'Studio Mac (demo)',
+              removedByComputer: true,
+              removedAt: at,
+            ),
+          ),
+          overrides: [clockProvider.overrideWithValue(() => now)],
+        ),
+      );
+      await tester.pump();
+    }
+
+    await show(DateTime(2026, 11, 15, 21, 14));
+    expect(find.text('When'), findsOneWidget);
+    expect(find.text('21:14 · today'), findsOneWidget);
+    await show(DateTime(2026, 11, 3, 8, 5));
+    expect(find.text('08:05 · 3 Nov'), findsOneWidget);
   });
 
   testWidgets(

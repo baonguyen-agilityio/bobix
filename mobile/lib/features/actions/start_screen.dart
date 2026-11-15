@@ -74,10 +74,7 @@ class _StartScreenState extends ConsumerState<StartScreen> {
     final full = _mode == StartMode.full;
     final steps = full
         ? [
-            s('phone.sp.f1', {
-              'b': picked == null ? '' : '${picked.number}-${picked.project}',
-              'd': picked?.project ?? '',
-            }),
+            s('phone.sp.f1', {'c': computer}),
             s('phone.sp.f2'),
             s('phone.sp.f3'),
             s('phone.sp.f4'),

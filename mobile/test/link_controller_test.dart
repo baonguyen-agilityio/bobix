@@ -8,6 +8,7 @@ import 'package:phone/keys/platform_secure_keys.dart';
 import 'package:phone/keys/secure_keys.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
+import 'package:phone/link/pairing_controller.dart';
 import 'package:phone/src/rust/api/core.dart';
 import 'package:phone/src/rust/api/messages.dart';
 
@@ -122,5 +123,29 @@ void main() {
   test('a stored state that is not valid at all: pair again', () async {
     File('${tmp.path}/link-state.json').writeAsStringSync('{ not json');
     expect(await phaseOf(container()), isA<PairAgain>());
+  });
+
+  test(
+    'forget erases everything and lands on the welcome screen, no scanner',
+    () async {
+      await storePairing();
+      final c = container();
+      await phaseOf(c);
+      await c.read(linkControllerProvider.notifier).forgetComputer();
+      expect(c.read(linkControllerProvider).value, isA<Unpaired>());
+      expect(keys.erased, isTrue);
+      expect(await LinkStateStore(tmp).exists(), isFalse);
+      expect(c.read(pairingControllerProvider).step, PairStep.welcome);
+    },
+  );
+
+  test('erase and pair again erases, then opens the scanner', () async {
+    await storePairing();
+    final c = container();
+    await phaseOf(c);
+    await c.read(linkControllerProvider.notifier).eraseAndPairAgain();
+    expect(c.read(linkControllerProvider).value, isA<Unpaired>());
+    expect(await LinkStateStore(tmp).exists(), isFalse);
+    expect(c.read(pairingControllerProvider).step, PairStep.scan);
   });
 }

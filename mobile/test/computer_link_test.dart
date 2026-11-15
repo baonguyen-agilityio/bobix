@@ -174,6 +174,7 @@ void main() {
       await fromComputer({'kind': 'revoked', 'why': 'removed on the computer'}),
     );
     await until(() => link.status.revokedByComputer);
+    expect(link.status.revokedAtMs, isNotNull, reason: 'the moment is kept');
     expect(keys.erased, isTrue);
     expect(keys.secrets, isEmpty);
     expect(await store.load(), isNull);

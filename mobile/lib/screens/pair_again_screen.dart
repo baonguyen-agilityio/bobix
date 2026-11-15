@@ -21,7 +21,8 @@ class PairAgainScreen extends ConsumerWidget {
     final name = phase.computer.isEmpty
         ? s('phone.pair.thecomputer')
         : phase.computer;
-    final erase = ref.read(linkControllerProvider.notifier).eraseAndPairAgain;
+    final link = ref.read(linkControllerProvider.notifier);
+    final at = phase.removedAt;
     return PairPage(
       showTitle: false,
       children: gone
@@ -34,6 +35,8 @@ class PairAgainScreen extends ConsumerWidget {
               ),
               KeyValueCard([
                 (s('phone.dc.k1'), s('phone.dc.v1', {'c': name})),
+                if (at != null)
+                  (s('phone.dc.k2'), _when(s, at, ref.read(clockProvider)())),
                 (s('phone.dc.k3'), s('phone.dc.v3')),
               ]),
               const SizedBox(height: 12),
@@ -49,12 +52,40 @@ class PairAgainScreen extends ConsumerWidget {
               const SizedBox(height: 12),
               ShieldNote(s('phone.again.n'), center: false),
             ],
-      actions: PillButton(
-        label: gone ? s('phone.dc.again') : s('phone.again.erase'),
-        primary: true,
-        icon: Icons.qr_code_scanner,
-        onPressed: erase,
+      actions: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PillButton(
+            label: gone ? s('phone.dc.again') : s('phone.again.erase'),
+            primary: true,
+            icon: Icons.qr_code_scanner,
+            onPressed: link.eraseAndPairAgain,
+          ),
+          if (!gone) ...[
+            const SizedBox(height: 8),
+            PillButton(
+              label: s('phone.again.forget'),
+              danger: true,
+              onPressed: link.forgetComputer,
+            ),
+          ],
+        ],
       ),
     );
   }
+}
+
+/// "21:14 · today", or "21:14 · 11 Nov" when it was another day.
+String _when(Strings s, DateTime at, DateTime now) {
+  final time =
+      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+  final today =
+      at.year == now.year && at.month == now.month && at.day == now.day;
+  return today
+      ? s('phone.dc.when.today', {'t': time})
+      : s('phone.dc.when.on', {
+          't': time,
+          'd': '${at.day} ${s('phone.mon.${at.month}')}',
+        });
 }

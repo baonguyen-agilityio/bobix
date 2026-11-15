@@ -281,6 +281,24 @@ void main() {
       expect(find.text(tr('en', 'sp.go.full')), findsOneWidget);
     });
 
+    testWidgets('the Full steps name no branch the phone cannot know', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        const Scaffold(body: SafeArea(child: StartScreen())),
+      );
+      await reveal(
+        tester,
+        find.textContaining('Makes a worktree and a branch for the issue on'),
+      );
+      expect(
+        find.textContaining('Makes a worktree and a branch for the issue on'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('and the branch'), findsNothing);
+    });
+
     testWidgets(
       'the button says Start Full or Start Quick and follows the choice',
       (tester) async {
