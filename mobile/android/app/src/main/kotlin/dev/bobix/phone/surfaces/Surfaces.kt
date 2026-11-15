@@ -29,7 +29,6 @@ object Surfaces {
     const val EXTRA_TARGET = "target"
     const val EXTRA_COMPUTER = "computer"
     const val EXTRA_ID = "id"
-    const val EXTRA_KIND = "kind"
     const val EXTRA_TOKEN = "token"
 
     fun dir(context: Context) = File(context.noBackupFilesDir, "surfaces")
@@ -40,21 +39,20 @@ object Surfaces {
         SurfaceModel.of(store(context).read(), now, PushPrefs(context).hideDetails)
 
     /** The intent every tap uses: open the app on [target] (`home`, `start`, or `request` with the item), signed with the app's secret. */
-    fun openIntent(context: Context, target: String, computer: String = "", id: String = "", kind: String = ""): Intent =
+    fun openIntent(context: Context, target: String, computer: String = "", id: String = ""): Intent =
         Intent(context, MainActivity::class.java)
             .setAction(ACTION_OPEN)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra(EXTRA_TARGET, target)
             .putExtra(EXTRA_COMPUTER, computer)
             .putExtra(EXTRA_ID, id)
-            .putExtra(EXTRA_KIND, kind)
             .putExtra(EXTRA_TOKEN, PushPrefs(context).tapToken)
 
     /** The tap that opens the first waiting request, or Home when nothing waits (or the data is stale). */
     fun openFirst(context: Context, v: SurfaceView): Intent {
         val f = v.first
         return if (f == null) openIntent(context, "home")
-        else openIntent(context, "request", store(context).read()?.computerId.orEmpty(), f.id, f.kind)
+        else openIntent(context, "request", store(context).read()?.computerId.orEmpty(), f.id)
     }
 
     fun pending(context: Context, intent: Intent, code: Int): PendingIntent =

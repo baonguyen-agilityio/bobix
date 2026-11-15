@@ -19,16 +19,16 @@ class SurfaceModelTest {
     private val min = 60_000L
     private val t0 = 1_800_000_000_000L
     private val utc = TimeZone.getTimeZone("UTC")
-    private val pet = SurfaceList.Pet("default", 3, "waiting")
 
     private fun list(
         at: Long = t0,
         online: Boolean = true,
-        waiting: List<SurfaceList.Waiting> = emptyList(),
-        sessions: List<SurfaceList.Row> = listOf(SurfaceList.Row("api", pet)),
-    ) = SurfaceList(at, "c1", "Studio Mac (demo)", online, 2, waiting, sessions)
+        waiting: List<SurfaceList.Item> = emptyList(),
+        sessions: List<SurfaceList.Item> = listOf(SurfaceList.Item("s1", "api", "web", "working", "default", 3, "", "c1", 900, 0)),
+    ) = SurfaceList(at, "Studio Mac (demo)", if (online) "online" else "offline", 2, true, waiting + sessions)
 
-    private fun waits(left: Int? = null, name: String = "demo-app") = SurfaceList.Waiting("r1", "request", name, 3, left, pet)
+    private fun waits(left: Int = 900, name: String = "demo-app", id: String = "r1") =
+        SurfaceList.Item("s-$id", name, "web", "waiting", "default", 3, id, "c1", left, 0)
 
     @Test
     fun noListMeansNothingIsPaired() {
@@ -76,7 +76,7 @@ class SurfaceModelTest {
 
     @Test
     fun staleDataNeverSaysNeedsYouAndShowsWhenItWasWritten() {
-        val v = SurfaceModel.of(list(at = t0, waiting = listOf(waits(), waits(name = "api"))), t0 + 20 * min, false, utc)
+        val v = SurfaceModel.of(list(at = t0, waiting = listOf(waits(), waits(name = "api", id = "r2"))), t0 + 20 * min, false, utc)
         assertEquals(SurfaceState.STALE, v.state)
         assertEquals(0, v.count)
         assertTrue(v.rows.isEmpty() && v.others.isEmpty())
@@ -86,7 +86,7 @@ class SurfaceModelTest {
 
     @Test
     fun hideDetailsLeavesCountsOnly() {
-        val v = SurfaceModel.of(list(waiting = listOf(waits(), waits(name = "api"))), t0, hideDetails = true, zone = utc)
+        val v = SurfaceModel.of(list(waiting = listOf(waits(), waits(name = "api", id = "r2"))), t0, hideDetails = true, zone = utc)
         assertEquals(2, v.count)
         assertTrue(v.rows.isEmpty() && v.others.isEmpty())
         assertEquals("", v.computer)
@@ -104,7 +104,7 @@ class SurfaceModelTest {
         }
         walk(JSONObject(list(waiting = listOf(waits())).toJson()))
         assertEquals(
-            setOf("v", "writtenAt", "computerId", "computer", "online", "todo", "waiting", "sessions", "id", "kind", "name", "waitMinutes", "leftSeconds", "pet", "design", "color", "state"),
+            setOf("written", "computerName", "computerState", "todo", "canStart", "rows", "id", "name", "project", "state", "pet", "color", "ref", "computer", "holdSecs", "at"),
             keys,
         )
     }
@@ -114,11 +114,11 @@ class SurfaceModelTest {
         val original = list(waiting = listOf(waits(left = 300)))
         val back = SurfaceList.parse(original.toJson())!!
         assertEquals(original.toJson(), back.toJson())
-        assertEquals(300, back.waiting.single().leftSeconds)
+        assertEquals(300, back.waiting.single().holdSecs)
         assertEquals("default-3-waiting.png", back.waiting.single().pet?.petFile)
         assertNull(SurfaceList.parse("{"))
-        assertNull(SurfaceList.parse("""{"v":2,"writtenAt":1}"""))
-        assertNull(SurfaceList.parse("""{"v":1}"""))
+        assertNull(SurfaceList.parse("{}"))
+        assertNull(SurfaceList.parse("""{"written":1,"rows":[{"id":"a"}]}"""))
     }
 
     @Test

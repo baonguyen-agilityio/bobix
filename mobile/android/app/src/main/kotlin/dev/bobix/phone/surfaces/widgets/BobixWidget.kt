@@ -42,6 +42,8 @@ import dev.bobix.phone.surfaces.SurfaceState
 import dev.bobix.phone.surfaces.SurfaceTick
 import dev.bobix.phone.surfaces.SurfaceView
 import dev.bobix.phone.surfaces.Surfaces
+import dev.bobix.phone.surfaces.needText
+import dev.bobix.phone.surfaces.stateText
 import dev.bobix.phone.surfaces.tileText
 
 enum class WidgetSize(val rows: Int, val others: Int) { SMALL(0, 0), WIDE(2, 0), LARGE(4, 2) }
@@ -146,14 +148,13 @@ private fun Head(context: Context, v: SurfaceView, ink: ColorProvider, sub: Colo
                     Image(pet, contentDescription = null, modifier = GlanceModifier.size(if (big) 34.dp else 30.dp))
                     Spacer(GlanceModifier.width(6.dp))
                 }
-                Text(v.count.toString(), style = TextStyle(color = accent, fontSize = if (big) 34.sp else 30.sp, fontWeight = FontWeight.Bold))
+                Text(needText(context, v.count), style = TextStyle(color = accent, fontSize = if (big) 15.sp else 17.sp, fontWeight = FontWeight.Bold), maxLines = 2)
             }
-            Text(context.getString(R.string.phone_widget_waiting, "").trim(), style = TextStyle(color = ink, fontSize = if (big) 11.sp else 13.sp, fontWeight = FontWeight.Medium), maxLines = 2)
-            if (v.hidden) Text(context.getString(R.string.phone_widget_hidden), style = TextStyle(color = sub, fontSize = 11.sp), maxLines = 1)
+            if (v.hidden) Text(context.getString(R.string.phone_wg_hidden), style = TextStyle(color = sub, fontSize = 11.sp), maxLines = 1)
         }
         SurfaceState.STALE -> {
-            Text(context.getString(R.string.phone_widget_updated, v.updatedAt), style = TextStyle(color = ink, fontSize = if (big) 15.sp else 17.sp, fontWeight = FontWeight.Medium), maxLines = 2)
-            Text(context.getString(R.string.phone_widget_refresh), style = TextStyle(color = sub, fontSize = 11.sp), maxLines = 2)
+            Text(context.getString(R.string.phone_wg_updated, v.updatedAt), style = TextStyle(color = ink, fontSize = if (big) 15.sp else 17.sp, fontWeight = FontWeight.Medium), maxLines = 2)
+            stateText(context, v)?.let { Text(it, style = TextStyle(color = sub, fontSize = 11.sp), maxLines = 2) }
         }
         else -> Text(tileText(context, v), style = TextStyle(color = ink, fontSize = if (big) 15.sp else 17.sp, fontWeight = FontWeight.Medium), maxLines = 3)
     }
@@ -169,7 +170,6 @@ private fun Rows(context: Context, v: SurfaceView, size: WidgetSize, pets: Map<S
                 Spacer(GlanceModifier.width(6.dp))
             }
             Text(r.name ?: context.getString(R.string.phone_push_generic), style = TextStyle(color = ink, fontSize = 13.sp), maxLines = 1, modifier = GlanceModifier.defaultWeight())
-            Text(context.getString(R.string.phone_min, r.minutes.toString()), style = TextStyle(color = sub, fontSize = 11.sp))
         }
     }
 }

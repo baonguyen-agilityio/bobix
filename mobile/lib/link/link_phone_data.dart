@@ -192,7 +192,7 @@ HomeData homeData(
             : (answeredAtComputer.containsKey(id) ? WaitingKind.request : null),
         handledAtComputer: w?['atComputer'] == true,
         waitingMinutes: since == null ? 0 : (nowMs - since) ~/ 60000,
-        waitingLeftSeconds: _secondsLeft(w, snap.receivedAtMs, nowMs),
+        holdSecs: _secondsLeft(w, snap.receivedAtMs, nowMs),
         petDesign: pet['design'] as String,
         petColor: pet['color'] as int,
       ),

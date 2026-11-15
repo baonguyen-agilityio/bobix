@@ -9,5 +9,5 @@
     android:resizeMode="none"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen"
-    android:description="@string/phone_widget_desc"
+    android:description="@string/phone_wg_kind_home_d"
     android:initialLayout="@layout/widget_loading" />

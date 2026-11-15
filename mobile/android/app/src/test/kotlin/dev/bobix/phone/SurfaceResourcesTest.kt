@@ -18,9 +18,9 @@ class SurfaceResourcesTest {
         val en = strings("values")
         val vi = strings("values-vi")
         val keys = listOf(
-            "phone_widget_waiting", "phone_widget_nothing", "phone_widget_updated", "phone_widget_refresh", "phone_widget_unpaired",
-            "phone_widget_open", "phone_widget_desc", "phone_widget_hidden", "phone_live_channel", "phone_live_channel_d",
-            "phone_tile_bobix_label", "phone_tab_start", "phone_min",
+            "phone_wg_need_1", "phone_wg_need_n", "phone_wg_none", "phone_wg_updated", "phone_wg_offline", "phone_wg_asleep",
+            "phone_wg_hidden", "phone_wg_kind_home", "phone_wg_kind_home_d", "phone_wg_unpaired", "phone_wg_open",
+            "phone_live_channel", "phone_live_channel_d", "phone_tab_start",
         )
         for (k in keys) {
             assertTrue("en $k", en[k]?.isNotEmpty() == true)
@@ -28,8 +28,9 @@ class SurfaceResourcesTest {
             val args = Regex("%\\d[$]s")
             assertEquals("arguments of $k", args.findAll(en[k]!!).map { it.value }.toSet(), args.findAll(vi[k]!!).map { it.value }.toSet())
         }
-        assertTrue(en["phone_widget_updated"]!!.contains("%1\$s"))
-        assertTrue(vi["phone_widget_nothing"]!! != en["phone_widget_nothing"]!!)
+        assertTrue(en["phone_wg_updated"]!!.contains("%1\$s"))
+        assertTrue(vi["phone_wg_none"]!! != en["phone_wg_none"]!!)
+        assertTrue("the duplicates of the shared widget strings are gone", en.keys.none { it.startsWith("phone_widget_") })
     }
 
     @Test
@@ -101,7 +102,8 @@ class SurfaceResourcesTest {
         for (f in dir.walkTopDown().filter { it.extension == "kt" }) {
             for (w in forbidden) assertTrue("${f.name} must not use $w", !f.readText().contains(w))
         }
-        assertTrue(kotlin("surfaces/SurfacesChannel.kt").contains("EXTRA_TOKEN) != PushPrefs(context).tapToken"))
+        // A tap reaches Dart as a tap of the push channel, and only with the app's secret.
+        assertTrue(kotlin("push/PushChannel.kt").contains("Surfaces.ACTION_OPEN ->") && kotlin("push/PushChannel.kt").contains("Surfaces.EXTRA_TOKEN) != prefs.tapToken"))
         assertTrue(kotlin("surfaces/Surfaces.kt").contains("Intent(context, MainActivity::class.java)"))
     }
 }

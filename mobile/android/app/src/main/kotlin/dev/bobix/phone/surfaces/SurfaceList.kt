@@ -5,101 +5,115 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * The small list every surface outside the app reads (home screen widgets, the Live Update, the Quick Settings tiles).
- * The app writes it (`lib/surfaces`) from what the computer last said; the push service updates it when a notice arrives.
- * It holds what waits, by name, and counts: never a command, a tool input or a plan. Nothing in here is protocol: it is
- * bookkeeping over data the app already decided to show.
+ * The shared list every surface outside the app reads (home screen widgets, the Live Update, the Quick Settings tiles): the
+ * same JSON the iOS widgets read (`lib/surfaces/shared_list.dart` writes it, `ios/WidgetsShared/SharedList.swift` decodes it).
+ * The app writes it from what the computer last said; the push service changes it when a notice arrives. It holds names and
+ * counts: never a command, a tool input or a plan.
  */
 class SurfaceList(
+    /** When the app last wrote the whole list, in unix milliseconds. */
     val writtenAt: Long,
-    val computerId: String,
     val computer: String,
-    /** The computer is reachable now (the link's state was fine when this was written). */
-    val online: Boolean,
+    /** `online`, `offline` or `asleep`. */
+    val computerState: String,
     val todo: Int,
-    val waiting: List<Waiting>,
-    val sessions: List<Row>,
+    val canStart: Boolean,
+    val rows: List<Item>,
 ) {
+    /** One session as the app lists it. [ref] is what a tap opens (empty: nothing is held for this phone). */
+    class Item(
+        val id: String,
+        val name: String,
+        val project: String,
+        /** The pet's state: `waiting`, `working`, `idle`, `failed` or `done`. */
+        val state: String,
+        val pet: String,
+        val color: Int,
+        val ref: String,
+        val computer: String,
+        /** Seconds the computer still holds the request for phones as of [at]; at most 15 minutes count. */
+        val holdSecs: Int,
+        /** When this row was last confirmed, in unix milliseconds; 0: when the list was written. */
+        val at: Long,
+    ) {
+        val waits get() = state == "waiting" && ref.isNotEmpty()
+    }
+
     /** A pet as the app draws it: the image file name is [petFile]. */
     class Pet(val design: String, val color: Int, val state: String) {
         val petFile get() = "$design-$color-$state.png"
     }
 
-    class Waiting(
-        /** The id the app opens (the request, plan or question). */
-        val id: String,
-        /** `request`, `plan` or `question`. */
-        val kind: String,
-        /** The session's name; empty when only a push told us (the surface then says "a session"). */
-        val name: String,
-        val waitMinutes: Int,
-        /** Seconds the computer still waits for an answer, as of [SurfaceList.writtenAt]; null when it waits for ever. */
-        val leftSeconds: Int?,
-        val pet: Pet?,
-        /** When this item was last confirmed, as of which [leftSeconds] counts; null: when the list was written. */
-        val at: Long? = null,
-    )
+    class Waiting(val id: String, val name: String, val holdSecs: Int, val pet: Pet?, val at: Long)
 
     /** A session that does not wait, for the large widget. */
     class Row(val name: String, val pet: Pet?)
 
+    val online get() = computerState == "online"
+    val computerId get() = rows.firstOrNull { it.computer.isNotEmpty() }?.computer.orEmpty()
+
+    val waiting: List<Waiting>
+        get() = rows.filter { it.waits }.map { Waiting(it.ref, it.name, it.holdSecs, pet(it), if (it.at == 0L) writtenAt else it.at) }
+
+    val sessions: List<Row>
+        get() = rows.filter { !it.waits }.map { Row(it.name, pet(it)) }
+
+    private fun pet(i: Item) = Pet(i.pet, i.color, i.state)
+
     fun toJson(): String = JSONObject()
-        .put("v", 1)
-        .put("writtenAt", writtenAt)
-        .put("computerId", computerId)
-        .put("computer", computer)
-        .put("online", online)
+        .put("written", writtenAt)
+        .put("computerName", computer)
+        .put("computerState", computerState)
         .put("todo", todo)
-        .put("waiting", JSONArray(waiting.map { w ->
-            JSONObject().put("id", w.id).put("kind", w.kind).put("name", w.name).put("waitMinutes", w.waitMinutes)
-                .put("leftSeconds", w.leftSeconds ?: JSONObject.NULL).put("pet", petJson(w.pet))
-                .apply { w.at?.let { put("at", it) } }
+        .put("canStart", canStart)
+        .put("rows", JSONArray(rows.map {
+            JSONObject().put("id", it.id).put("name", it.name).put("project", it.project).put("state", it.state).put("pet", it.pet)
+                .put("color", it.color).put("ref", it.ref).put("computer", it.computer).put("holdSecs", it.holdSecs).put("at", it.at)
         }))
-        .put("sessions", JSONArray(sessions.map { JSONObject().put("name", it.name).put("pet", petJson(it.pet)) }))
         .toString()
 
-    private fun petJson(p: Pet?): Any = p?.let { JSONObject().put("design", it.design).put("color", it.color).put("state", it.state) } ?: JSONObject.NULL
-
     /** When [w] was last confirmed. */
-    fun confirmedAt(w: Waiting): Long = w.at ?: writtenAt
+    fun confirmedAt(w: Waiting): Long = w.at
 
     /**
      * After a push: a `waiting` notice adds its request (or refreshes it), a `closed` one removes it; `done` changes
-     * nothing. Only the item a notice names is newer: [writtenAt] and every other item keep their age, so a notice does not
+     * nothing. Only the row a notice names is newer: [writtenAt] and every other row keep their age, so a notice does not
      * make the rest of an old list look fresh.
      */
     fun withNotice(computerId: String, what: String, ref: String, now: Long): SurfaceList = when (what) {
-        "waiting" -> SurfaceList(
-            writtenAt, this.computerId.ifEmpty { computerId }, computer, online, todo,
-            waiting.filter { it.id != ref } + Waiting(ref, "request", "", 0, null, null, now), sessions,
-        )
-        "closed" -> SurfaceList(writtenAt, this.computerId, computer, online, todo, waiting.filter { it.id != ref }, sessions)
+        "waiting" -> {
+            val old = rows.firstOrNull { it.ref == ref && it.computer == computerId }
+            val row = old?.let { Item(it.id, it.name, it.project, "waiting", it.pet, it.color, ref, computerId, HOLD_MAX, now) }
+                ?: Item(ref, "", "", "waiting", "default", 0, ref, computerId, HOLD_MAX, now)
+            SurfaceList(writtenAt, computer, computerState, todo, canStart, rows.filter { it !== old } + row)
+        }
+        "closed" -> SurfaceList(writtenAt, computer, computerState, todo, canStart, rows.filterNot { it.ref == ref && it.computer == computerId && it.state == "waiting" })
         else -> this
     }
 
     companion object {
+        /** A request counts as current for at most this long, in seconds. */
+        const val HOLD_MAX = 900
+
         fun parse(text: String): SurfaceList? = try {
             val j = JSONObject(text)
-            if (j.getInt("v") != 1) null else SurfaceList(
-                writtenAt = j.getLong("writtenAt"),
-                computerId = j.optString("computerId"),
-                computer = j.optString("computer"),
-                online = j.optBoolean("online"),
+            SurfaceList(
+                writtenAt = j.getLong("written"),
+                computer = j.optString("computerName"),
+                computerState = j.optString("computerState", "offline"),
                 todo = j.optInt("todo"),
-                waiting = j.optJSONArray("waiting").objects().map {
-                    Waiting(
-                        it.getString("id"), it.optString("kind", "request"), it.optString("name"), it.optInt("waitMinutes"),
-                        if (it.isNull("leftSeconds")) null else it.getInt("leftSeconds"), pet(it.optJSONObject("pet")),
-                        if (it.has("at")) it.getLong("at") else null,
+                canStart = j.optBoolean("canStart"),
+                rows = j.optJSONArray("rows").objects().map {
+                    Item(
+                        it.getString("id"), it.optString("name"), it.optString("project"), it.getString("state"),
+                        it.optString("pet", "default"), it.optInt("color"), it.optString("ref"), it.optString("computer"),
+                        it.optInt("holdSecs", HOLD_MAX).coerceIn(1, HOLD_MAX), it.optLong("at"),
                     )
                 },
-                sessions = j.optJSONArray("sessions").objects().map { Row(it.optString("name"), pet(it.optJSONObject("pet"))) },
             )
         } catch (e: org.json.JSONException) {
             null
         }
-
-        private fun pet(j: JSONObject?) = j?.let { Pet(it.getString("design"), it.getInt("color"), it.getString("state")) }
 
         private fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).map { getJSONObject(it) }
     }

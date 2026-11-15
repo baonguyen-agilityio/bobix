@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,13 +8,15 @@ import 'l10n/l10n.dart';
 import 'features/actions/start_screen.dart';
 import 'link/computer_link.dart';
 import 'link/link_providers.dart';
+import 'push/push_platform.dart';
+import 'push/push_providers.dart';
+import 'surfaces/surfaces_host.dart';
 import 'lock/app_lock.dart';
 import 'settings/app_settings.dart';
 import 'screens/home_screen.dart';
 import 'screens/pair_again_screen.dart';
 import 'screens/unavailable_screen.dart';
 import 'screens/pairing_screens.dart';
-import 'surfaces/surface_sync.dart';
 import 'screens/pets_screen.dart';
 import 'screens/settings_screen.dart';
 import 'theme/theme.dart';
@@ -28,9 +32,6 @@ class BobixApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // The Android surfaces outside the app follow the data and send their taps in (nothing on other platforms).
-    ref.watch(surfaceSyncProvider);
-    ref.watch(surfaceOpenListenerProvider);
     return MaterialApp(
       title: 'Bobix',
       debugShowCheckedModeBanner: false,
@@ -52,12 +53,13 @@ class RootGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final phase = ref.watch(linkControllerProvider);
+    ref.watch(surfacesClearProvider);
     return switch (phase.value) {
       null when phase.hasError => const UnavailableScreen(),
       null => const Scaffold(body: Center(child: CircularProgressIndicator())),
       Unpaired() => const PairingFlow(),
       Unavailable() => const UnavailableScreen(),
-      Paired() => const AppShell(),
+      final Paired p => SurfacesHost(link: p.link, child: const AppShell()),
       final PairAgain a => PairAgainScreen(phase: a),
     };
   }
@@ -75,46 +77,57 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   int _index = _home;
+  StreamSubscription<PushTap>? _taps;
+  PushTap? _pending;
 
   @override
   void initState() {
     super.initState();
-    // A tap on a widget, the Live Update or a tile: the tab it asks for, and the request when it names one.
-    ref.listenManual(surfaceOpenProvider, (_, o) {
-      if (o != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _surfaceOpen(o));
-      }
-    }, fireImmediately: true);
-    // A request tap that started the app: the computer has not said anything yet, so it waits for the first `home`.
-    ref.listenManual(homeProvider, (_, next) {
-      final held = _held;
-      if (held != null && next.value != null) {
-        _held = null;
-        _surfaceOpen(held);
-      }
-    });
+    unawaited(_listenForTaps());
   }
 
-  SurfaceOpen? _held;
+  @override
+  void dispose() {
+    _taps?.cancel();
+    super.dispose();
+  }
 
-  void _surfaceOpen(SurfaceOpen o) {
+  /// A notification, a widget, the Live Activity or a control opened the app: listen first, then take the one that
+  /// started it (the platform holds a tap until this first `initialTap` call).
+  Future<void> _listenForTaps() async {
+    try {
+      final p = ref.read(pushPlatformProvider);
+      _taps = p.taps.listen(_onTap);
+      final first = await p.initialTap();
+      if (first != null) _onTap(first);
+    } catch (_) {
+      // No platform (a test): nothing opens the app but the person.
+    }
+  }
+
+  void _onTap(PushTap t) {
     if (!mounted) return;
-    ref.read(surfaceOpenProvider.notifier).clear();
-    setState(() => _index = o.target == 'start' ? _start : _home);
-    if (o.target != 'request') return;
+    if (t.kind == 'start') return setState(() => _index = _start);
+    if (t.kind == 'home') return setState(() => _index = _home);
     final home = ref.read(homeProvider).value;
     if (home == null) {
-      _held = o;
+      _pending = t; // cold start: the first `home` has not arrived yet
       return;
     }
-    final hit = home.sessions.where((x) => x.waitingId == o.id);
-    if (hit.isNotEmpty) openSession(context, hit.first);
+    setState(() => _index = _home);
+    final match = home.sessions.where((x) => x.waitingId == t.ref);
+    if (match.isNotEmpty) openSession(context, match.first);
   }
 
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
+    final pending = _pending;
+    if (pending != null && ref.watch(homeProvider).value != null) {
+      _pending = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onTap(pending));
+    }
     final need =
         ref
             .watch(homeProvider)

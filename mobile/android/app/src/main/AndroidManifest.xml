@@ -49,15 +49,15 @@
 
         <!-- Outside the app: three home screen widgets, two Quick Settings tiles, the alarm that dims them when their data is
              old. Removing these entries leaves the app working. Every tap opens the app; nothing answers. -->
-        <receiver android:name=".surfaces.widgets.SmallWidgetReceiver" android:label="@string/phone_tile_bobix_label" android:exported="true">
+        <receiver android:name=".surfaces.widgets.SmallWidgetReceiver" android:label="@string/phone_wg_kind_home" android:exported="true">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_small" />
         </receiver>
-        <receiver android:name=".surfaces.widgets.WideWidgetReceiver" android:label="@string/phone_tile_bobix_label" android:exported="true">
+        <receiver android:name=".surfaces.widgets.WideWidgetReceiver" android:label="@string/phone_wg_kind_home" android:exported="true">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_wide" />
         </receiver>
-        <receiver android:name=".surfaces.widgets.LargeWidgetReceiver" android:label="@string/phone_tile_bobix_label" android:exported="true">
+        <receiver android:name=".surfaces.widgets.LargeWidgetReceiver" android:label="@string/phone_wg_kind_home" android:exported="true">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_large" />
         </receiver>
@@ -68,7 +68,7 @@
             android:name=".surfaces.BobixTile"
             android:exported="true"
             android:icon="@drawable/ic_notification"
-            android:label="@string/phone_tile_bobix_label"
+            android:label="@string/phone_wg_kind_home"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
             <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />

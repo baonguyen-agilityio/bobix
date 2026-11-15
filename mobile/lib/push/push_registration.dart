@@ -40,6 +40,7 @@ class PushRegistration {
   final Duration renewWithin;
 
   final _links = <String, _Link>{};
+  final _extra = <String, ({String kind, String? ref, String token})>{};
   StreamSubscription<String>? _tokens;
   Timer? _timer;
 
@@ -77,6 +78,44 @@ class PushRegistration {
   }
 
   Future<void> openSystemSettings() => _platform.openSettings();
+
+  /// A token of a Live Activity (`activity`, [ref] is the activity's id) or the token that lets a push start one
+  /// (`pushToStart`). Each is registered with a grant like the device token, on every connected relay, and again on every
+  /// connection and renewal. A later token of the same kind and [ref] takes the place of the earlier one.
+  Future<void> registerExtra({required String kind, String? ref, required String token}) async {
+    _extra['$kind|${ref ?? ''}'] = (kind: kind, ref: ref, token: token);
+    for (final id in _links.keys.toList()) {
+      await _sendExtras(id);
+    }
+  }
+
+  /// The activity ended: its token is not registered again.
+  void clearExtra(String kind, {String? ref}) => _extra.remove('$kind|${ref ?? ''}');
+
+  Future<void> _sendExtras(String relayId) async {
+    final send = _links[relayId]?.send;
+    if (send == null) return;
+    for (final e in _extra.values.toList()) {
+      try {
+        final grant = await _platform.grant(
+          token: e.token,
+          relayId: relayId,
+          expiresMs: _now().add(validity).millisecondsSinceEpoch,
+        );
+        await send({
+          'type': 'pushToken',
+          'platform': _kind,
+          'env': await _platform.environment(),
+          'kind': e.kind,
+          if (e.ref != null) 'ref': e.ref,
+          'token': e.token,
+          'grant': grant,
+        });
+      } catch (_) {
+        // Tried again with the next connection.
+      }
+    }
+  }
 
   /// A connection to [relayId] is up: register (again). [relayId] is the id the relay's grants name (`RELAY_ID`, the
   /// host the phone registered with). With no token yet, the registration happens when the system hands one over.
@@ -125,6 +164,7 @@ class PushRegistration {
       link
         ..token = token
         ..ends = ends;
+      await _sendExtras(relayId);
     } catch (_) {
       // No network, or the connection dropped under it: the next `connected` or daily renewal tries again.
       link.ends = null;

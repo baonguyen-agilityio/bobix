@@ -1,27 +1,22 @@
 package dev.bobix.phone.surfaces
 
 import android.content.Context
-import android.content.Intent
-import dev.bobix.phone.push.PushPrefs
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * The platform channel `dev.bobix.phone/surfaces`, for the screens outside the app.
+ * The platform channel `dev.bobix.phone/surfaces`, the same one `ios/Runner/SurfacesChannel.swift` answers, for the screens
+ * outside the app (`lib/surfaces/surfaces_platform.dart` calls it).
  *
- * Dart to native: `writeList(json)` (the shared list, see [SurfaceList]), `writePet({name, png})` (a pet image the widgets
- * show), `clear` (nothing is paired any more), `initialOpen` -> `{target, computer, id, kind}` of the tap that started the
- * app, once, or null; calling it also tells native that Dart listens for `open`.
+ * Dart to native: `capabilities` -> `{liveActivities: false}` (a Live Update is raised from the list here, not driven by Dart),
+ * `writeList({json})` (the shared list, see [SurfaceList]), `writePet({design, color, state, png})`, `clearSurfaces` (nothing
+ * is paired any more), and `syncActivity` -> `{active: false}`.
  *
- * Native to Dart: `open` with the same map: `target` is `home`, `start` or `request` (then `id` is the request, plan or
- * question to open). A tap is accepted only from this app's own surfaces (they carry the app's secret), and Dart must still
- * treat it as input.
+ * A tap on a surface does not come through here: it reaches Dart as a tap of the push channel (see `PushChannel.onIntent`).
  */
 class SurfacesChannel(messenger: BinaryMessenger, private val context: Context) {
     private val channel = MethodChannel(messenger, NAME)
-    private var initial: Map<String, String>? = null
-    private var dartListening = false
 
     init {
         channel.setMethodCallHandler(::handle)
@@ -29,35 +24,23 @@ class SurfacesChannel(messenger: BinaryMessenger, private val context: Context) 
 
     fun dispose() = channel.setMethodCallHandler(null)
 
-    fun onIntent(intent: Intent?, started: Boolean) {
-        if (intent?.action != Surfaces.ACTION_OPEN) return
-        if (intent.getStringExtra(Surfaces.EXTRA_TOKEN) != PushPrefs(context).tapToken) return
-        val open = mapOf(
-            "target" to (intent.getStringExtra(Surfaces.EXTRA_TARGET) ?: "home"),
-            "computer" to (intent.getStringExtra(Surfaces.EXTRA_COMPUTER) ?: ""),
-            "id" to (intent.getStringExtra(Surfaces.EXTRA_ID) ?: ""),
-            "kind" to (intent.getStringExtra(Surfaces.EXTRA_KIND) ?: ""),
-        )
-        if (started || !dartListening) initial = open else channel.invokeMethod("open", open)
-    }
-
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "capabilities" -> result.success(mapOf("liveActivities" to false))
+            "syncActivity" -> result.success(mapOf("active" to false))
             "writeList" -> {
                 val ok = Surfaces.store(context).write(call.argument<String>("json") ?: "")
                 result.success(ok)
                 if (ok) Thread { Surfaces.refresh(context) }.start()
             }
-            "writePet" -> result.success(Surfaces.store(context).writePet(call.argument<String>("name") ?: "", call.argument<ByteArray>("png") ?: ByteArray(0)))
-            "clear" -> {
+            "writePet" -> {
+                val name = "${call.argument<String>("design")}-${call.argument<Int>("color")}-${call.argument<String>("state")}.png"
+                result.success(Surfaces.store(context).writePet(name, call.argument<ByteArray>("png") ?: ByteArray(0)))
+            }
+            "clearSurfaces" -> {
                 Surfaces.store(context).clear()
                 result.success(null)
                 Thread { Surfaces.refresh(context) }.start()
-            }
-            "initialOpen" -> {
-                dartListening = true
-                result.success(initial)
-                initial = null
             }
             else -> result.notImplemented()
         }

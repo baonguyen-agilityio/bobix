@@ -1,315 +1,292 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phone/app.dart';
 import 'package:phone/data/models.dart';
 import 'package:phone/data/phone_data.dart';
-import 'package:phone/link/link_providers.dart';
+import 'package:phone/push/push_platform.dart';
+import 'package:phone/push/push_providers.dart';
+import 'package:phone/push/push_registration.dart';
 import 'package:phone/surfaces/pet_png.dart';
-import 'package:phone/surfaces/surface_list.dart';
-import 'package:phone/surfaces/surface_sink.dart';
-import 'package:phone/surfaces/surface_sync.dart';
+import 'package:phone/surfaces/shared_list.dart';
+import 'package:phone/surfaces/surfaces_platform.dart';
+import 'package:phone/surfaces/surfaces_host.dart';
+import 'package:phone/surfaces/surfaces_sync.dart';
+import 'package:phone/link/link_providers.dart';
 
-/// Everything here is made up.
-HomeData home({ConnState conn = ConnState.ok}) => HomeData(
-  computer: 'Studio Mac (demo)',
-  conn: conn,
-  lastContact: '21:02',
-  sessions: const [
-    Session(
-      id: 's1',
-      name: 'Fix the login retry',
-      project: 'demo-app',
-      stage: Stage.doing,
-      needsYou: true,
-      waitingId: 'r1',
-      waitingKind: WaitingKind.request,
-      waitingMinutes: 3,
-      waitingLeftSeconds: 240,
-      tool: 'Bash: rm -rf secret-folder',
-      petColor: 3,
-    ),
-    Session(
-      id: 's2',
-      name: 'Add the export',
-      project: 'api',
-      stage: Stage.doing,
-      needsYou: true,
-      waitingId: 'p1',
-      waitingKind: WaitingKind.plan,
-    ),
-    Session(
-      id: 's3',
-      name: 'Answered at the computer',
-      project: 'web',
-      stage: Stage.verify,
-      needsYou: true,
-      waitingId: 'r9',
-      answeredAtComputer: true,
-    ),
-    Session(
-      id: 's4',
-      name: 'Tidy the docs',
-      project: 'docs',
-      stage: Stage.todo,
-    ),
-  ],
-);
+import 'support/fake_push_platform.dart';
+import 'support/fixture_phone_data.dart';
 
-class FakeSink implements SurfaceSink {
+class FakeSurfaces implements SurfacesPlatform {
+  bool activities = true;
+  bool startWorks = true;
+  Object? listError;
+  final lists = <Map<String, Object?>>[];
+  final pets = <String>[];
   final calls = <String>[];
-  String? lastList;
+  final tokens = StreamController<({String id, String token})>.broadcast();
+  final starts = StreamController<String>.broadcast();
 
   @override
-  Future<void> clear() async => calls.add('clear');
-
+  Future<bool> liveActivities() async => activities;
   @override
   Future<void> writeList(String json) async {
-    calls.add('list');
-    lastList = json;
+    if (listError != null) throw listError!;
+    lists.add(jsonDecode(json) as Map<String, Object?>);
   }
 
   @override
-  Future<void> writePet(String name, Uint8List png) async =>
-      calls.add('pet:$name');
+  Future<void> writePet(String d, int c, String s, Uint8List png) async => pets.add('$d-$c-$s');
+  final states = <Map<String, Object?>>[];
+  @override
+  Future<({bool active, String? id})> syncActivity(Map<String, Object?> s) async {
+    calls.add('sync ${s['waiting']}');
+    states.add(s);
+    return (active: startWorks && s['waiting'] != 0, id: 'act1');
+  }
+
+  int clears = 0;
+  @override
+  Future<void> clear() async => clears++;
+
+  final ended = StreamController<String>.broadcast();
+  @override
+  Stream<String> get activityEnded => ended.stream;
+  @override
+  Stream<({String id, String token})> get activityTokens => tokens.stream;
+  @override
+  Stream<String> get pushToStartTokens => starts.stream;
+}
+
+HomeData home({int waiting = 1, ConnState conn = ConnState.ok}) => HomeData(
+  computer: 'Studio Mac',
+  conn: conn,
+  lastContact: '10:00',
+  sessions: [
+    for (var i = 0; i < waiting; i++)
+      Session(
+        id: 'w$i',
+        name: 'Add a dark mode switch $i',
+        project: 'shop',
+        stage: Stage.doing,
+        needsYou: true,
+        waitingId: 'req$i',
+        waitingKind: WaitingKind.request,
+        tool: 'Bash: rm -rf /secret/path',
+        petDesign: 'nota',
+        petColor: 70,
+      ),
+    const Session(id: 'x', name: 'Fix the cart', project: 'shop', stage: Stage.doing),
+    const Session(id: 't', name: 'Todo item', project: 'blog', stage: Stage.todo),
+  ],
+);
+
+class _Controller extends LinkController {
+  _Controller(this.first);
+  final AppPhase first;
+  @override
+  Future<AppPhase> build() async => first;
+  void go(AppPhase p) => state = AsyncData(p);
 }
 
 void main() {
-  test(
-    'the list has what waits by name and counts, and no tool or command text',
-    () {
-      final list = surfaceListJson(home(), nowMs: 1800000000000);
-      final text = jsonEncode(list);
-      expect(text, isNot(contains('rm -rf')));
-      expect(text, isNot(contains('secret-folder')));
-      expect(list['v'], 1);
-      expect(list['online'], true);
-      expect(list['todo'], 1);
-      final waiting = (list['waiting']! as List).cast<Map<String, Object?>>();
-      expect(waiting.map((w) => (w['id'], w['kind'])), [
-        ('r1', 'request'),
-        ('p1', 'plan'),
-      ], reason: 'a request answered at the computer is not waiting here');
-      expect(waiting.first['leftSeconds'], 240);
-      expect(waiting.first['waitMinutes'], 3);
-      expect(waiting.last['leftSeconds'], isNull);
-      expect(
-        (list['sessions']! as List).length,
-        2,
-        reason: 'the others, not the waiting ones',
-      );
-      expect(
-        surfaceListJson(home(conn: ConnState.offline), nowMs: 1)['online'],
-        false,
-      );
-    },
-  );
+  final now = DateTime.utc(2026, 11, 15, 10);
 
-  test('every pet the list mentions has a file name the widgets look for', () {
-    final list = surfaceListJson(home(), nowMs: 1);
-    final pets = petsOf(list);
-    expect(pets, contains(('default', 3, 'waiting')));
-    expect(petFileName('default', 3, 'waiting'), 'default-3-waiting.png');
-    expect(
-      pets.every(
-        (p) =>
-            RegExp(r'^[a-z0-9-]+-\d{1,3}-[a-z]+$')
-                .hasMatch(petFileName(p.$1, p.$2, p.$3).replaceAll('.png', '')),
-      ),
-      isTrue,
-    );
-  });
+  group('the shared list', () {
+    test('holds names, counts and ids, and no tool input', () {
+      final m = SharedListJson.toMap(home(), computerId: 'c1', canStart: true, now: now);
+      expect(m.keys.toSet(), {'written', 'computerName', 'computerState', 'todo', 'canStart', 'rows'});
+      final rows = m['rows']! as List;
+      expect(rows, hasLength(2), reason: 'a todo item is not a row');
+      expect((rows.first as Map).keys.toSet(), {'id', 'name', 'project', 'state', 'pet', 'color', 'ref', 'computer', 'holdSecs', 'at'});
+      expect(jsonEncode(m).contains('secret'), isFalse, reason: 'a command never reaches the list');
+      expect((rows.first as Map)['state'], 'waiting');
+      expect((rows.first as Map)['ref'], 'req0');
+      expect(m['written'], now.millisecondsSinceEpoch);
+    });
 
-  test('a pet is drawn to a PNG', () async {
-    TestWidgetsFlutterBinding.ensureInitialized();
-    final png = await renderPetPng('default', 3, 'waiting', px: 64);
-    expect(png.sublist(0, 4), [0x89, 0x50, 0x4e, 0x47]);
-    expect(png.length, greaterThan(200));
-    expect(png.length, lessThan(200 * 1024));
-  });
-
-  test(
-    'each home writes the pet images first and then the list; unpairing clears',
-    () async {
-      final sink = FakeSink();
-      final controller = StreamController<HomeData>();
-      final container = ProviderContainer(
-        overrides: [
-          surfaceSinkProvider.overrideWithValue(sink),
-          petPngProvider.overrideWithValue((d, c, s) async => Uint8List(4)),
-          phoneDataProvider.overrideWithValue(_Data(controller.stream)),
-          clockProvider.overrideWithValue(() => DateTime.utc(2027, 1, 15, 8)),
+    test('a request held at the computer is not one a surface opens', () {
+      final h = HomeData(
+        computer: 'M',
+        conn: ConnState.ok,
+        lastContact: '',
+        sessions: const [
+          Session(id: 'a', name: 'n', project: 'p', stage: Stage.doing, needsYou: true, answerAtComputer: true, waitingId: 'r'),
         ],
       );
-      addTearDown(() {
-        container.dispose();
-        controller.close();
-      });
-      container.listen(surfaceSyncProvider, (_, _) {});
-      container.listen(homeProvider, (_, _) {});
-      controller.add(home());
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(sink.calls.last, 'list');
-      expect(
-        sink.calls.indexWhere((c) => c.startsWith('pet:')),
-        lessThan(sink.calls.indexOf('list')),
-      );
-      final written = jsonDecode(sink.lastList!) as Map<String, dynamic>;
-      expect(
-        written['writtenAt'],
-        DateTime.utc(2027, 1, 15, 8).millisecondsSinceEpoch,
-      );
-      final pets = sink.calls.where((c) => c.startsWith('pet:')).length;
-      controller.add(home());
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(
-        sink.calls.where((c) => c.startsWith('pet:')).length,
-        pets,
-        reason: 'a pet image is written once',
-      );
-      expect(sink.calls.where((c) => c == 'list').length, 2);
-    },
-  );
+      final row = (SharedListJson.toMap(h, computerId: 'c', canStart: false, now: now)['rows']! as List).single as Map;
+      expect(row['ref'], '');
+      expect(SharedListJson.waiting(h), 0);
+    });
 
-  test('a reachable computer is written again every few minutes; an unreachable one is not', () async {
-    for (final (conn, rewritten) in [
-      (ConnState.ok, true),
-      (ConnState.offline, false),
-    ]) {
-      final sink = FakeSink();
-      final controller = StreamController<HomeData>();
-      var clock = DateTime.utc(2027, 1, 15, 8);
-      final container = ProviderContainer(
-        overrides: [
-          surfaceSinkProvider.overrideWithValue(sink),
-          surfaceHeartbeatProvider.overrideWithValue(
-            const Duration(milliseconds: 40),
-          ),
-          petPngProvider.overrideWithValue((d, c, s) async => Uint8List(4)),
-          phoneDataProvider.overrideWithValue(_Data(controller.stream)),
-          clockProvider.overrideWithValue(
-            () => clock = clock.add(const Duration(minutes: 5)),
-          ),
-        ],
-      );
-      container.listen(surfaceSyncProvider, (_, _) {});
-      container.listen(homeProvider, (_, _) {});
-      controller.add(home(conn: conn));
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      final lists = sink.calls.where((c) => c == 'list').length;
-      expect(lists > 1, rewritten, reason: '$conn wrote $lists lists');
-      container.dispose();
-      await controller.close();
-    }
-  });
-
-  test(
-    'once the link leaves reachable (the app is paused) the rewriting stops',
-    () async {
-      final sink = FakeSink();
-      final controller = StreamController<HomeData>();
-      final container = ProviderContainer(
-        overrides: [
-          surfaceSinkProvider.overrideWithValue(sink),
-          surfaceHeartbeatProvider.overrideWithValue(
-            const Duration(milliseconds: 30),
-          ),
-          petPngProvider.overrideWithValue((d, c, s) async => Uint8List(4)),
-          phoneDataProvider.overrideWithValue(_Data(controller.stream)),
-        ],
-      );
-      addTearDown(() {
-        container.dispose();
-        controller.close();
-      });
-      container.listen(surfaceSyncProvider, (_, _) {});
-      container.listen(homeProvider, (_, _) {});
-      controller.add(home());
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(sink.calls.where((c) => c == 'list').length, greaterThan(1));
-      controller.add(home(conn: ConnState.relayDown));
-      await Future<void>.delayed(const Duration(milliseconds: 40));
-      final after = sink.calls.where((c) => c == 'list').length;
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      expect(sink.calls.where((c) => c == 'list').length, after);
-    },
-  );
-
-  test('a list written again later counts the seconds a request still has down from when it was built', () {
-    final data = home();
-    final first = surfaceListJson(data, nowMs: 1000000, builtAtMs: 1000000);
-    final later = surfaceListJson(
-      data,
-      nowMs: 1000000 + 120000,
-      builtAtMs: 1000000,
-    );
-    int? left(Map<String, Object?> l) =>
-        ((l['waiting']! as List).first as Map)['leftSeconds'] as int?;
-    expect(left(first), 240);
-    expect(left(later), 120);
-  });
-
-  test('a tap from a surface is handled only inside the app shell, behind the gate', () {
-    // The pairing, the "pair again" screen and (when built) the app lock all come before `AppShell`: a surface can only ask,
-    // and the shell is what opens a screen, and nothing answers from there.
-    final users =
-        Directory('lib')
-            .listSync(recursive: true)
-            .whereType<File>()
-            .where(
-              (f) => f.path.endsWith('.dart') && !f.path.contains('lib/src/'),
-            )
-            .where((f) => f.readAsStringSync().contains('surfaceOpenProvider'))
-            .map((f) => f.path)
-            .toList()
-          ..sort();
-    expect(users, ['lib/app.dart', 'lib/surfaces/surface_sync.dart']);
-    final shell = File('lib/app.dart').readAsStringSync();
-    expect(
-      shell.indexOf('class AppShell'),
-      lessThan(shell.indexOf('surfaceOpenProvider, (_, o)')),
-    );
-  });
-
-  test(
-    'a tap from outside is only a known screen, and a request needs its id',
-    () {
-      expect(
-        SurfaceOpen.tryParse({'target': 'home', 'id': '', 'kind': ''})?.target,
-        'home',
-      );
-      expect(
-        SurfaceOpen.tryParse({'target': 'start', 'id': '', 'kind': ''})?.target,
-        'start',
-      );
-      final r = SurfaceOpen.tryParse({
-        'target': 'request',
-        'id': 'r1',
-        'kind': 'request',
-      });
-      expect((r?.target, r?.id), ('request', 'r1'));
-      for (final bad in <Object?>[
-        null,
-        'home',
-        {'target': 'request', 'id': '', 'kind': ''},
-        {'target': 'request', 'id': 'x' * 300, 'kind': ''},
-        {'target': 'settings', 'id': '', 'kind': ''},
-        {'target': 5, 'id': '', 'kind': ''},
-        {'target': 'home', 'id': 1, 'kind': ''},
-      ]) {
-        expect(SurfaceOpen.tryParse(bad), isNull, reason: '$bad');
+    test('how long a request counts as current is what the computer still holds it for, at most 15 minutes', () {
+      int hold(int? secs) {
+        final h = HomeData(
+          computer: 'M',
+          conn: ConnState.ok,
+          lastContact: '',
+          sessions: [Session(id: 'a', name: 'n', project: 'p', stage: Stage.doing, needsYou: true, waitingId: 'r', holdSecs: secs)],
+        );
+        return ((SharedListJson.toMap(h, computerId: 'c', canStart: true, now: now)['rows']! as List).single as Map)['holdSecs']! as int;
       }
-    },
-  );
-}
 
-class _Data implements PhoneData {
-  const _Data(this.stream);
-  final Stream<HomeData> stream;
+      expect((hold(120), hold(null), hold(5000)), (120, 900, 900));
+    });
 
-  @override
-  Stream<HomeData> watchHome() => stream;
+    test('the computer\'s state: online, asleep, otherwise offline', () {
+      String s(ConnState c) =>
+          SharedListJson.toMap(home(conn: c), computerId: 'c', canStart: true, now: now)['computerState']! as String;
+      expect((s(ConnState.ok), s(ConnState.asleep), s(ConnState.offline), s(ConnState.relayDown)), ('online', 'asleep', 'offline', 'offline'));
+    });
+  });
+
+  group('the sync', () {
+    late FakeSurfaces p;
+    late SurfacesSync sync;
+    setUp(() {
+      p = FakeSurfaces();
+      sync = SurfacesSync(p, now: () => now, renderPet: (d, c, s) async => Uint8List.fromList([1]));
+    });
+
+    test('writes the list, and each pet once, with the colour taken inside the palette', () async {
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(2));
+      expect(p.pets.toSet(), hasLength(p.pets.length), reason: 'an image is written once');
+      expect(p.pets.every((k) => int.parse(k.split('-')[1]) < 64), isTrue);
+    });
+
+    test('a failing write does not stop the app or the activity', () async {
+      p.listError = Exception('disk');
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      expect(p.calls, ['sync 1']);
+    });
+
+    test('the platform is asked to keep one activity in step with the count each time, and no name goes into it', () async {
+      await sync.sync(home(waiting: 1), computerId: 'c1', canStart: true);
+      await sync.sync(home(waiting: 2), computerId: 'c1', canStart: true);
+      await sync.sync(home(waiting: 0), computerId: 'c1', canStart: true);
+      expect(p.calls, ['sync 1', 'sync 2', 'sync 0']);
+      expect(p.states.first.keys.toSet(), {'waiting', 'written', 'computerId'}, reason: 'counts and a time: the activity draws the shared list');
+      expect(p.states.first['written'], now.millisecondsSinceEpoch);
+    });
+
+    test('with Live Activities off, only the list is written', () async {
+      p.activities = false;
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      expect(p.calls, isEmpty);
+      expect(p.lists, hasLength(1));
+    });
+
+    test('the heartbeat writes the last home again with the wait counted down from when it was built, only while reachable', () async {
+      var clock = now;
+      final beating = SurfacesSync(p, now: () => clock, renderPet: (d, c, s) async => Uint8List.fromList([1]));
+      final held = HomeData(
+        computer: 'Studio Mac',
+        conn: ConnState.ok,
+        lastContact: '10:00',
+        sessions: const [
+          Session(id: 'w', name: 'Add a switch', project: 'shop', stage: Stage.doing, needsYou: true, waitingId: 'req', holdSecs: 600),
+        ],
+      );
+      int hold(Map<String, Object?> l) => ((l['rows']! as List).single as Map)['holdSecs']! as int;
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists, isEmpty, reason: 'nothing was heard yet');
+      await beating.sync(held, computerId: 'c1', canStart: true);
+      clock = now.add(const Duration(minutes: 5));
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists.map(hold), [600, 300]);
+      expect(p.lists.last['written'], clock.millisecondsSinceEpoch);
+      await beating.sync(home(conn: ConnState.relayDown), computerId: 'c1', canStart: true);
+      final after = p.lists.length;
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(after), reason: 'an unreachable computer is left to age into stale');
+    });
+
+  });
+
+  group('the activity tokens', () {
+    test('are registered with a grant, with their kind and the activity as the reference, and again on a new connection', () async {
+      final platform = FakePushPlatform()..currentToken = 'dd';
+      final reg = PushRegistration(platform, now: () => now, platform: 'ios');
+      final sent = <Map<String, Object?>>[];
+      await reg.connected('r', (f) async => sent.add(f));
+      await reg.registerExtra(kind: 'activity', ref: 'act1', token: 'aa');
+      await reg.registerExtra(kind: 'pushToStart', token: 'bb');
+      final extra = sent.where((f) => f['kind'] != 'device').toList();
+      expect(extra.map((f) => (f['kind'], f['ref'], f['token'])).toSet(), {('activity', 'act1', 'aa'), ('pushToStart', null, 'bb')});
+      expect(extra.every((f) => (f['grant']! as String).isNotEmpty && f['type'] == 'pushToken'), isTrue);
+      expect(extra.where((f) => f['kind'] == 'pushToStart').every((f) => !f.containsKey('ref')), isTrue);
+      sent.clear();
+      await reg.connected('r2', (f) async => sent.add(f));
+      expect(sent.where((f) => f['kind'] == 'activity'), hasLength(1));
+      reg.clearExtra('activity', ref: 'act1');
+      sent.clear();
+      await reg.connected('r3', (f) async => sent.add(f));
+      expect(sent.where((f) => f['kind'] == 'activity'), isEmpty, reason: 'an ended activity\'s token is not used again');
+      expect(sent.where((f) => f['kind'] == 'pushToStart'), hasLength(1));
+      reg.dispose();
+    });
+  });
+
+  group('when the pairing ends', () {
+    test('every surface is cleared once, on entering not paired or pair again', () async {
+      final p = FakeSurfaces();
+      final c = _Controller(const Unavailable());
+      final container = ProviderContainer(
+        overrides: [surfacesPlatformProvider.overrideWithValue(p), linkControllerProvider.overrideWith(() => c)],
+      );
+      addTearDown(container.dispose);
+      container.listen(surfacesClearProvider, (_, _) {});
+      await container.read(linkControllerProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 0, reason: 'a Keychain that is locked for now erases nothing');
+      c.go(const PairAgain(computer: 'Studio Mac', removedByComputer: true));
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 1, reason: 'a sealed revoked, or an erase');
+      c.go(const Unpaired());
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 1, reason: 'already cleared');
+    });
+  });
+
+  group('taps from surfaces', () {
+    test('start and home pick a tab and carry nothing else; a request needs both ids', () {
+      expect(PushTap.tryParse({'computer': '', 'ref': '', 'kind': 'start'}), const PushTap(computerId: '', ref: '', kind: 'start'));
+      expect(PushTap.tryParse({'kind': 'home'})?.kind, 'home');
+      expect(PushTap.tryParse({'computer': '', 'ref': 'r', 'kind': 'waiting'}), isNull);
+      expect(PushTap.tryParse({'computer': 'c', 'ref': 'r', 'kind': 'answer'}), isNull);
+    });
+  });
+
+  testWidgets('a control that opens Start switches to the Start tab, and a link to a request opens it', (tester) async {
+    final push = FakePushPlatform();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          pushPlatformProvider.overrideWithValue(push),
+          phoneDataProvider.overrideWithValue(FixturePhoneData()),
+        ],
+        child: const BobixApp(home: AppShell()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    push.tapController.add(const PushTap(computerId: '', ref: '', kind: 'start'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.widget<IndexedStack>(find.byType(IndexedStack)).index, 2, reason: 'the Start tab');
+    push.tapController.add(const PushTap(computerId: '', ref: '', kind: 'home'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.widget<IndexedStack>(find.byType(IndexedStack)).index, 0);
+  });
+
+  // flutter_test's rasteriser draws nothing, so that the PNG really shows the pet is checked in a running app:
+  // integration_test/pet_png_test.dart.
+  testWidgets('a pet comes back as a PNG for the widgets', (tester) async {
+    final png = await tester.runAsync(() => renderPetPng('nota', 3, 'waiting'));
+    expect(png!.sublist(0, 4), [0x89, 0x50, 0x4e, 0x47]);
+  });
 }

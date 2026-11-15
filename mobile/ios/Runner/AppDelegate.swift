@@ -5,7 +5,8 @@ import UserNotifications
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var secureKeys: SecureKeysChannel?
-  private let push = PushBridge()
+  let push = PushBridge()
+  private let surfaces = SurfacesBridge()
 
   override func application(
     _ application: UIApplication,
@@ -25,6 +26,7 @@ import UserNotifications
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     secureKeys = SecureKeysChannel(messenger: engineBridge.applicationRegistrar.messenger())
     push.attach(messenger: engineBridge.applicationRegistrar.messenger())
+    surfaces.attach(messenger: engineBridge.applicationRegistrar.messenger())
   }
 
   override func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -41,6 +43,15 @@ import UserNotifications
     PushDebug.recordFailure(error)
     #endif
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+  }
+
+  /// A push without an alert (`closed` is sent that way) wakes the app when iOS allows it, which is not always: then the
+  /// surfaces dim by age instead.
+  override func application(
+    _ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    completionHandler(SurfacesBridge.applyPush(userInfo) ? .newData : .noData)
   }
 
   /// A notification that arrives while the app is open still shows: the person may be on another screen.

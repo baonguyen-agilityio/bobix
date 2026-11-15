@@ -23,7 +23,7 @@ class BobixTile : TileService() {
     private fun draw() {
         val tile = qsTile ?: return
         val v = Surfaces.view(this)
-        tile.label = getString(R.string.phone_tile_bobix_label)
+        tile.label = getString(R.string.phone_wg_kind_home)
         tile.icon = Icon.createWithResource(this, R.drawable.ic_notification)
         tile.state = if (v.state == SurfaceState.NEEDS_YOU) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.subtitle = tileText(this, v)
@@ -47,10 +47,21 @@ class StartTile : TileService() {
 
 /** What a tile (and the widgets' one-liners) say for each state; the stale one is dimmed by the tile being inactive. */
 fun tileText(context: android.content.Context, v: SurfaceView): String = when (v.state) {
-    SurfaceState.UNPAIRED -> context.getString(R.string.phone_widget_unpaired)
-    SurfaceState.NEEDS_YOU -> context.getString(R.string.phone_widget_waiting, v.count.toString())
-    SurfaceState.NOTHING -> context.getString(R.string.phone_widget_nothing)
-    SurfaceState.STALE -> context.getString(R.string.phone_widget_updated, v.updatedAt)
+    SurfaceState.UNPAIRED -> context.getString(R.string.phone_wg_unpaired)
+    SurfaceState.NEEDS_YOU -> needText(context, v.count)
+    SurfaceState.NOTHING -> context.getString(R.string.phone_wg_none)
+    SurfaceState.STALE -> context.getString(R.string.phone_wg_updated, v.updatedAt)
+}
+
+/** `1 needs you` / `3 need you`. */
+fun needText(context: android.content.Context, count: Int): String =
+    if (count == 1) context.getString(R.string.phone_wg_need_1) else context.getString(R.string.phone_wg_need_n, count.toString())
+
+/** Why a stale surface is old, when the computer said so: `Computer offline` / `Computer asleep`; null when it was reachable. */
+fun stateText(context: android.content.Context, v: SurfaceView): String? = when (v.computerState) {
+    "offline" -> context.getString(R.string.phone_wg_offline)
+    "asleep" -> context.getString(R.string.phone_wg_asleep)
+    else -> null
 }
 
 private fun TileService.launch(intent: Intent) {

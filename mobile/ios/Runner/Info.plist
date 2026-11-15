@@ -28,10 +28,29 @@
 	<string>Bobix asks for Face ID to confirm each command you send from this phone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Bobix reads the pairing code on your computer with the camera. It keeps no picture.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Bobix connects to a Bobix relay on your home network when you try the app on your own computer. It reads nothing else on the network.</string>
 	<key>BobixKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
 	<key>BobixAppGroup</key>
 	<string>$(BOBIX_APP_GROUP)</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.bobix.phone</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>bobix</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

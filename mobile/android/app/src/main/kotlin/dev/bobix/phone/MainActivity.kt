@@ -30,7 +30,7 @@ class MainActivity : FlutterFragmentActivity() {
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         SecureKeysChannel(messenger, this)
         push = PushChannel(messenger, this).also { it.onIntent(intent, started = true) }
-        surfaces = SurfacesChannel(messenger, applicationContext).also { it.onIntent(intent, started = true) }
+        surfaces = SurfacesChannel(messenger, applicationContext)
         MethodChannel(messenger, WINDOW_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "setSecure" -> {
@@ -46,7 +46,6 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         push?.onIntent(intent, started = false)
-        surfaces?.onIntent(intent, started = false)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

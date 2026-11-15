@@ -40,7 +40,10 @@ struct RelayUrl {
     port: Option<u16>,
     /// Path and query, without fragment, as given.
     tail: String,
+    /// `localhost`, `127.0.0.1` or `::1`.
     local: bool,
+    /// A private-network address (see [`is_private_host`]).
+    lan: bool,
 }
 
 /// Splits a relay address; None when it could hide another host (userinfo, backslashes, spaces) or is not `ws(s)://`.
@@ -84,13 +87,34 @@ fn parse_relay(url: &str) -> Option<RelayUrl> {
     }
     let host = host.to_ascii_lowercase();
     let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
-    Some(RelayUrl { scheme, host, port, tail: tail.to_string(), local })
+    let lan = is_private_host(&host);
+    Some(RelayUrl { scheme, host, port, tail: tail.to_string(), local, lan })
+}
+
+/// An IP literal on a private network, where a plain `ws://` relay on the same Wi-Fi is acceptable for trying the app: IPv4
+/// `10.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16` (four decimal octets, no leading zeros, so `10.0.0.1.evil.example` and
+/// `010.0.0.1` are not addresses), and IPv6 unique-local `fc00::/7`. Link-local addresses (`169.254.0.0/16`, which holds
+/// the cloud metadata address, and `fe80::/10`) are not private here. A name is never private, not even `*.local`: a name
+/// can be made to point anywhere. The IPv6 text must be a real address.
+fn is_private_host(host: &str) -> bool {
+    if host.contains(':') {
+        let Ok(addr) = host.parse::<std::net::Ipv6Addr>() else { return false };
+        return addr.segments()[0] & 0xfe00 == 0xfc00;
+    }
+    let octets: Vec<&str> = host.split('.').collect();
+    if octets.len() != 4 || octets.iter().any(|o| o.is_empty() || o.len() > 3 || !o.bytes().all(|b| b.is_ascii_digit()) || (o.len() > 1 && o.starts_with('0'))) {
+        return false;
+    }
+    let Ok(n) = octets.iter().map(|o| o.parse::<u8>()).collect::<Result<Vec<u8>, _>>() else { return false };
+    matches!((n[0], n[1]), (10, _) | (192, 168)) || (n[0] == 172 && (16..=31).contains(&n[1]))
 }
 
 /// Whether a relay address may appear in a pairing code or in `relayMoved`: `wss://`, or plain `ws://` for a relay on
-/// localhost only. An address with userinfo (`ws://localhost@evil.example`) is refused.
+/// localhost or on a private network address (a development relay on the home Wi-Fi). Whether a build uses the plain
+/// ones is the app's choice: the phone's `prod` flavor refuses every `ws://`. An address with userinfo
+/// (`ws://localhost@evil.example`) is refused.
 pub fn relay_url_ok(url: &str) -> bool {
-    parse_relay(url).is_some_and(|u| u.scheme == "wss" || u.local)
+    parse_relay(url).is_some_and(|u| u.scheme == "wss" || u.local || u.lan)
 }
 
 /// The one form of a relay address that both sides sign and compare (see `command::auth_bytes`), so that they agree
@@ -103,7 +127,7 @@ pub fn relay_url_ok(url: &str) -> bool {
 ///   relay that derives its address from its bind address matches a client that typed `localhost`;
 /// - an IPv6 host keeps its brackets. Nothing else is rewritten (no percent-decoding, no punycode).
 pub fn normalize_relay_url(url: &str) -> Option<String> {
-    let u = parse_relay(url).filter(|u| u.scheme == "wss" || u.local)?;
+    let u = parse_relay(url).filter(|u| u.scheme == "wss" || u.local || u.lan)?;
     let host = if u.scheme == "ws" && u.local { "localhost".to_string() } else if u.host.contains(':') { format!("[{}]", u.host) } else { u.host };
     let port = match (u.scheme, u.port) {
         ("ws", Some(80)) | ("wss", Some(443)) | (_, None) => String::new(),

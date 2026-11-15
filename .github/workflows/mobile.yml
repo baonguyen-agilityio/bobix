@@ -113,7 +113,7 @@ jobs:
         run: flutter build ios --simulator --debug --no-codesign
       - name: Key store and push opener tests (Swift, simulator)
         working-directory: mobile/ios
-        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests -only-testing:RunnerTests/PushOpenerTests -parallel-testing-enabled NO
+        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests -only-testing:RunnerTests/PushOpenerTests -only-testing:RunnerTests/SurfacesTests -parallel-testing-enabled NO
       # xcodebuild may leave the simulator shut down; Flutter only sees booted simulators, hence "No devices are connected".
       - name: Boot the simulator again and show what Flutter sees
         run: |
@@ -123,6 +123,7 @@ jobs:
       - name: Test vectors and key store inside the app (simulator)
         run: |
           flutter test integration_test/core_vectors_test.dart -d "${{ steps.sim.outputs.udid }}"
+          flutter test integration_test/pet_png_test.dart -d "${{ steps.sim.outputs.udid }}"
           flutter test integration_test/secure_keys_test.dart -d "${{ steps.sim.outputs.udid }}" --dart-define=BOBIX_SOFTWARE_KEY=true
 
       # Last, so its build mode does not leak into the steps above: what ships. The Release configuration drops the debug-only

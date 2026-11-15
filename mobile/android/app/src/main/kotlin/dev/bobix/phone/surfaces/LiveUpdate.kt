@@ -27,14 +27,14 @@ object LiveUpdate {
         }
         ensureChannel(context)
         val open = Surfaces.pending(context, Surfaces.openFirst(context, v), 21)
-        val title = context.getString(R.string.phone_widget_waiting, v.count.toString())
+        val title = needText(context, v.count)
         val detail = v.rows.firstOrNull()?.name?.takeUnless { v.hidden } ?: context.getString(R.string.phone_push_generic)
         val publicVersion = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.phone_push_generic))
             .setContentText(context.getString(R.string.phone_push_generic_body))
             .build()
-        val action = context.getString(R.string.phone_widget_open)
+        val action = context.getString(R.string.phone_wg_open)
         // It goes away by itself when the data turns stale, even if nothing redraws then.
         val timeout = store?.let { SurfaceModel.staleAt(it, System.currentTimeMillis()) }?.let { (it - System.currentTimeMillis()).coerceAtLeast(1000) } ?: 0L
         val notification: Notification = if (Build.VERSION.SDK_INT >= 36) {
