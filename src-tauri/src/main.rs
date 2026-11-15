@@ -34,6 +34,7 @@ mod habit_skills;
 mod room;
 mod secrets;
 mod skills;
+mod sleepwatch;
 mod smoke;
 mod smoke_phones;
 mod state;
@@ -2085,6 +2086,7 @@ fn main() {
     }
 
     phones::init(&b);
+    sleepwatch::start(&b);
     let rb = b.clone();
     tauri::Builder::default()
         .manage(b.clone())

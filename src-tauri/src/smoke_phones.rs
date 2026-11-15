@@ -97,6 +97,12 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     crate::answers::answer(b, &rid, "allow");
     r["closedSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"what\":\"closed\""))));
     r["hookAnswered"] = json!(held.join().unwrap_or_default().contains("\"behavior\":\"allow\""));
+    // Going to sleep: the phone hears "asleep" with what is unfinished, then "online" again on waking
+    phones::on_sleep(b);
+    r["asleepSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().any(|l| l.contains("\"kind\":\"home\"") && l.contains("\"state\":\"asleep\"") && l.contains("\"unfinished\""))));
+    phones::on_wake(b);
+    let seen = fake.lines.lock().unwrap().iter().filter(|l| l.contains("\"kind\":\"home\"")).count();
+    r["wokeSeen"] = json!(until(10, || fake.lines.lock().unwrap().iter().filter(|l| l.contains("\"kind\":\"home\"") && l.contains("\"state\":\"online\"")).count() >= 2) && seen > 0);
     // Pets hidden and nobody at the computer (the input time is fixed under the smoke run): a request is held for the phones,
     // and a phone allows it, another it denies.
     crate::update_settings(b, json!({ "petsVisible": false }));
@@ -181,6 +187,6 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     let busy = b.core.lock().unwrap().sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
     r["awakeHeld"] = json!(!busy || (until(10, || v()["awakeHeld"] == true) && (!cfg!(target_os = "macos") || until(5, caff))));
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }

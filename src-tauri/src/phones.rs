@@ -100,6 +100,7 @@ pub struct State {
     pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
     notified: HashSet<String>,
     awake: crate::awake::Awake,
+    asleep: bool,                               // the computer is going to sleep (or sleeps): phones are told, with how much is unfinished
     starting: HashSet<String>,                  // issues a start from a phone is running for: one at a time
     last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
     deferred: Vec<(String, String, u64)>, // (pid of a `revoked` message, phone id, when): the relay is told to revoke once the phone has it
@@ -395,7 +396,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         let minute = t >= st.last_home_at + 60_000;
         if dirty || minute || !st.home_now.is_empty() {
             let name = st.computer_name();
-            let home = crate::phone_view::home(sessions, pending, &name, t);
+            let home = crate::phone_view::home(sessions, pending, &name, t, if st.asleep { ComputerState::Asleep } else { ComputerState::Online });
             let mut key = home.clone();
             key.sent_at = 0;
             let key = serde_json::to_string(&key).unwrap_or_default();
@@ -923,6 +924,29 @@ pub fn new_identity(b: &Arc<Bobix>) -> Result<Value, String> {
 pub fn set_hold(b: &Arc<Bobix>, hold: &str) -> Value {
     { let mut c = b.core.lock().unwrap(); c.phones.cfg.hold = if hold == "computer" { "computer".into() } else { "phone".into() }; c.phones.save_cfg(); }
     view(b)
+}
+
+// The computer is about to sleep: the relay and every phone are told before it does (a home that says asleep, with how many
+// sessions are unfinished, and the relay's `state`). Returns once the frames are handed to the link.
+pub fn on_sleep(b: &Arc<Bobix>) {
+    let mut c = b.core.lock().unwrap();
+    let crate::Core { phones: st, pending, sessions, .. } = &mut *c;
+    if !st.cfg.on || st.asleep { return; }
+    st.asleep = true;
+    st.send(Frame::State { asleep: true });
+    let name = st.computer_name();
+    let home = crate::phone_view::home(sessions, pending, &name, now(), ComputerState::Asleep);
+    let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
+    for id in ids { if let Some((_, f)) = st.tell(&id, &DesktopMsg::Home(home.clone()), None, Some("home".into())) { st.send(f); } }
+}
+// It woke up: the relay hears it, and the phones get a fresh home.
+pub fn on_wake(b: &Arc<Bobix>) {
+    let mut c = b.core.lock().unwrap();
+    if !c.phones.asleep { return; }
+    c.phones.asleep = false;
+    c.phones.send(Frame::State { asleep: false });
+    let ids: Vec<String> = c.phones.store.phones.iter().map(|p| p.id.clone()).collect();
+    c.phones.home_now.extend(ids);
 }
 
 pub fn set_awake(b: &Arc<Bobix>, on: bool) { let mut c = b.core.lock().unwrap(); c.phones.cfg.awake = on; c.phones.save_cfg(); }
