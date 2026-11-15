@@ -435,11 +435,12 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
             let name = st.computer_name();
             let groups = crate::phone_view::groups(work, settings, sessions, pending, t);
             let home = crate::phone_view::home(sessions, pending, &name, t, if st.asleep { ComputerState::Asleep } else { ComputerState::Online }, groups);
-            let mut key = home.clone();
-            key.sent_at = 0;
-            let key = serde_json::to_string(&key).unwrap_or_default();
-            let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
-            for id in ids {
+            let ids: Vec<(String, Rights)> = st.store.phones.iter().map(|p| (p.id.clone(), p.rights)).collect();
+            for (id, rights) in ids {
+                let home = crate::phone_view::for_phone(home.clone(), rights);
+                let mut key = home.clone();
+                key.sent_at = 0;
+                let key = serde_json::to_string(&key).unwrap_or_default();
                 let due = st.home_now.contains(&id) || st.last_home.get(&id) != Some(&key) || (minute && st.online.contains(&id));
                 if !due { continue; }
                 if let Some((_, f)) = st.tell(&id, &DesktopMsg::Home(home.clone()), None, Some("home".into())) { out.push(f); st.last_home.insert(id, key.clone()); }
@@ -984,8 +985,8 @@ pub fn on_sleep(b: &Arc<Bobix>) {
     st.send(Frame::State { asleep: true });
     let name = st.computer_name();
     let home = crate::phone_view::home(sessions, pending, &name, now(), ComputerState::Asleep, vec![]);
-    let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
-    for id in ids { if let Some((_, f)) = st.tell(&id, &DesktopMsg::Home(home.clone()), None, Some("home".into())) { st.send(f); } }
+    let ids: Vec<(String, Rights)> = st.store.phones.iter().map(|p| (p.id.clone(), p.rights)).collect();
+    for (id, rights) in ids { if let Some((_, f)) = st.tell(&id, &DesktopMsg::Home(crate::phone_view::for_phone(home.clone(), rights)), None, Some("home".into())) { st.send(f); } }
 }
 // It woke up: the relay hears it, and the phones get a fresh home.
 pub fn on_wake(b: &Arc<Bobix>) {
