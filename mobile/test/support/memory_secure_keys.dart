@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:pointycastle/export.dart';
@@ -42,6 +43,19 @@ class MemorySecureKeys implements SecureKeys {
 
   @override
   Future<void> deleteSecret(String name) async => secrets.remove(name);
+
+  /// What [authenticate] answers, and the reasons it was asked with.
+  AppAuth authAnswer = AppAuth.ok;
+  final authReasons = <String>[];
+
+  /// When set, [authenticate] waits for it (a check still on screen) and answers what it completes with.
+  Completer<AppAuth>? authHold;
+
+  @override
+  Future<AppAuth> authenticate({required String reason}) async {
+    authReasons.add(reason);
+    return authHold?.future ?? authAnswer;
+  }
 
   @override
   Future<Biometry> biometry() async => lockedOut

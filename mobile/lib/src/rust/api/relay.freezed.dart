@@ -13,342 +13,6 @@ part of 'relay.dart';
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
-mixin _$OpenedPacket {
-
-
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is OpenedPacket);
-}
-
-
-@override
-int get hashCode => runtimeType.hashCode;
-
-@override
-String toString() {
-    return 'OpenedPacket()';
-}
-
-
-}
-
-/// @nodoc
-class $OpenedPacketCopyWith<$Res>  {
-$OpenedPacketCopyWith(OpenedPacket _, $Res Function(OpenedPacket) __);
-}
-
-
-/// Adds pattern-matching-related methods to [OpenedPacket].
-extension OpenedPacketPatterns on OpenedPacket {
-/// A variant of `map` that fallback to returning `orElse`.
-///
-/// It is equivalent to doing:
-/// ```dart
-/// switch (sealedClass) {
-///   case final Subclass value:
-///     return ...;
-///   case _:
-///     return orElse();
-/// }
-/// ```
-
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( OpenedPacket_Message value)?  message,TResult Function( OpenedPacket_Dropped value)?  dropped,TResult Function( OpenedPacket_PeerMustUpdate value)?  peerMustUpdate,TResult Function( OpenedPacket_WeMustUpdate value)?  weMustUpdate,required TResult orElse(),}){
-final _that = this;
-switch (_that) {
-case OpenedPacket_Message() when message != null:
-return message(_that);case OpenedPacket_Dropped() when dropped != null:
-return dropped(_that);case OpenedPacket_PeerMustUpdate() when peerMustUpdate != null:
-return peerMustUpdate(_that);case OpenedPacket_WeMustUpdate() when weMustUpdate != null:
-return weMustUpdate(_that);case _:
-  return orElse();
-
-}
-}
-/// A `switch`-like method, using callbacks.
-///
-/// Callbacks receives the raw object, upcasted.
-/// It is equivalent to doing:
-/// ```dart
-/// switch (sealedClass) {
-///   case final Subclass value:
-///     return ...;
-///   case final Subclass2 value:
-///     return ...;
-/// }
-/// ```
-
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( OpenedPacket_Message value)  message,required TResult Function( OpenedPacket_Dropped value)  dropped,required TResult Function( OpenedPacket_PeerMustUpdate value)  peerMustUpdate,required TResult Function( OpenedPacket_WeMustUpdate value)  weMustUpdate,}){
-final _that = this;
-switch (_that) {
-case OpenedPacket_Message():
-return message(_that);case OpenedPacket_Dropped():
-return dropped(_that);case OpenedPacket_PeerMustUpdate():
-return peerMustUpdate(_that);case OpenedPacket_WeMustUpdate():
-return weMustUpdate(_that);}
-}
-/// A variant of `map` that fallback to returning `null`.
-///
-/// It is equivalent to doing:
-/// ```dart
-/// switch (sealedClass) {
-///   case final Subclass value:
-///     return ...;
-///   case _:
-///     return null;
-/// }
-/// ```
-
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( OpenedPacket_Message value)?  message,TResult? Function( OpenedPacket_Dropped value)?  dropped,TResult? Function( OpenedPacket_PeerMustUpdate value)?  peerMustUpdate,TResult? Function( OpenedPacket_WeMustUpdate value)?  weMustUpdate,}){
-final _that = this;
-switch (_that) {
-case OpenedPacket_Message() when message != null:
-return message(_that);case OpenedPacket_Dropped() when dropped != null:
-return dropped(_that);case OpenedPacket_PeerMustUpdate() when peerMustUpdate != null:
-return peerMustUpdate(_that);case OpenedPacket_WeMustUpdate() when weMustUpdate != null:
-return weMustUpdate(_that);case _:
-  return null;
-
-}
-}
-/// A variant of `when` that fallback to an `orElse` callback.
-///
-/// It is equivalent to doing:
-/// ```dart
-/// switch (sealedClass) {
-///   case Subclass(:final field):
-///     return ...;
-///   case _:
-///     return orElse();
-/// }
-/// ```
-
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DesktopMessage field0)?  message,TResult Function()?  dropped,TResult Function()?  peerMustUpdate,TResult Function()?  weMustUpdate,required TResult orElse(),}) {final _that = this;
-switch (_that) {
-case OpenedPacket_Message() when message != null:
-return message(_that.field0);case OpenedPacket_Dropped() when dropped != null:
-return dropped();case OpenedPacket_PeerMustUpdate() when peerMustUpdate != null:
-return peerMustUpdate();case OpenedPacket_WeMustUpdate() when weMustUpdate != null:
-return weMustUpdate();case _:
-  return orElse();
-
-}
-}
-/// A `switch`-like method, using callbacks.
-///
-/// As opposed to `map`, this offers destructuring.
-/// It is equivalent to doing:
-/// ```dart
-/// switch (sealedClass) {
-///   case Subclass(:final field):
-///     return ...;
-///   case Subclass2(:final field2):
-///     return ...;
-/// }
-/// ```
-
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DesktopMessage field0)  message,required TResult Function()  dropped,required TResult Function()  peerMustUpdate,required TResult Function()  weMustUpdate,}) {final _that = this;
-switch (_that) {
-case OpenedPacket_Message():
-return message(_that.field0);case OpenedPacket_Dropped():
-return dropped();case OpenedPacket_PeerMustUpdate():
-return peerMustUpdate();case OpenedPacket_WeMustUpdate():
-return weMustUpdate();}
-}
-/// A variant of `when` that fallback to returning `null`
-///
-/// It is equivalent to doing:
-/// ```dart
-/// switch (sealedClass) {
-///   case Subclass(:final field):
-///     return ...;
-///   case _:
-///     return null;
-/// }
-/// ```
-
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DesktopMessage field0)?  message,TResult? Function()?  dropped,TResult? Function()?  peerMustUpdate,TResult? Function()?  weMustUpdate,}) {final _that = this;
-switch (_that) {
-case OpenedPacket_Message() when message != null:
-return message(_that.field0);case OpenedPacket_Dropped() when dropped != null:
-return dropped();case OpenedPacket_PeerMustUpdate() when peerMustUpdate != null:
-return peerMustUpdate();case OpenedPacket_WeMustUpdate() when weMustUpdate != null:
-return weMustUpdate();case _:
-  return null;
-
-}
-}
-
-}
-
-/// @nodoc
-
-
-class OpenedPacket_Message extends OpenedPacket {
-  const OpenedPacket_Message(this.field0): super._();
-  
-
- final  DesktopMessage field0;
-
-/// Create a copy of OpenedPacket
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$OpenedPacket_MessageCopyWith<OpenedPacket_Message> get copyWith => _$OpenedPacket_MessageCopyWithImpl<OpenedPacket_Message>(this, _$identity);
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is OpenedPacket_Message&&(identical(other.field0, field0) || other.field0 == field0));
-}
-
-
-@override
-int get hashCode {
-    return Object.hash(runtimeType,field0);
-}
-
-@override
-String toString() {
-    return 'OpenedPacket.message(field0: $field0)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $OpenedPacket_MessageCopyWith<$Res> implements $OpenedPacketCopyWith<$Res> {
-  factory $OpenedPacket_MessageCopyWith(OpenedPacket_Message value, $Res Function(OpenedPacket_Message) _then) = _$OpenedPacket_MessageCopyWithImpl;
-@useResult
-$Res call({
- DesktopMessage field0
-});
-
-
-
-
-}
-/// @nodoc
-class _$OpenedPacket_MessageCopyWithImpl<$Res>
-    implements $OpenedPacket_MessageCopyWith<$Res> {
-  _$OpenedPacket_MessageCopyWithImpl(this._self, this._then);
-
-  final OpenedPacket_Message _self;
-  final $Res Function(OpenedPacket_Message) _then;
-
-/// Create a copy of OpenedPacket
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? field0 = null,}) {
-  return _then(OpenedPacket_Message(
-null == field0 ? _self.field0 : field0 // ignore: cast_nullable_to_non_nullable
-as DesktopMessage,
-  ));
-}
-
-
-}
-
-/// @nodoc
-
-
-class OpenedPacket_Dropped extends OpenedPacket {
-  const OpenedPacket_Dropped(): super._();
-  
-
-
-
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is OpenedPacket_Dropped);
-}
-
-
-@override
-int get hashCode => runtimeType.hashCode;
-
-@override
-String toString() {
-    return 'OpenedPacket.dropped()';
-}
-
-
-}
-
-
-
-
-/// @nodoc
-
-
-class OpenedPacket_PeerMustUpdate extends OpenedPacket {
-  const OpenedPacket_PeerMustUpdate(): super._();
-  
-
-
-
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is OpenedPacket_PeerMustUpdate);
-}
-
-
-@override
-int get hashCode => runtimeType.hashCode;
-
-@override
-String toString() {
-    return 'OpenedPacket.peerMustUpdate()';
-}
-
-
-}
-
-
-
-
-/// @nodoc
-
-
-class OpenedPacket_WeMustUpdate extends OpenedPacket {
-  const OpenedPacket_WeMustUpdate(): super._();
-  
-
-
-
-
-
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is OpenedPacket_WeMustUpdate);
-}
-
-
-@override
-int get hashCode => runtimeType.hashCode;
-
-@override
-String toString() {
-    return 'OpenedPacket.weMustUpdate()';
-}
-
-
-}
-
-
-
-
-/// @nodoc
 mixin _$PairingAnswer {
 
 
@@ -678,6 +342,342 @@ int get hashCode => runtimeType.hashCode;
 @override
 String toString() {
     return 'PairingAnswer.notAnAnswer()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+mixin _$ReceivedPacket {
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ReceivedPacket);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ReceivedPacket()';
+}
+
+
+}
+
+/// @nodoc
+class $ReceivedPacketCopyWith<$Res>  {
+$ReceivedPacketCopyWith(ReceivedPacket _, $Res Function(ReceivedPacket) __);
+}
+
+
+/// Adds pattern-matching-related methods to [ReceivedPacket].
+extension ReceivedPacketPatterns on ReceivedPacket {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( ReceivedPacket_Message value)?  message,TResult Function( ReceivedPacket_Dropped value)?  dropped,TResult Function( ReceivedPacket_PeerMustUpdate value)?  peerMustUpdate,TResult Function( ReceivedPacket_WeMustUpdate value)?  weMustUpdate,required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case ReceivedPacket_Message() when message != null:
+return message(_that);case ReceivedPacket_Dropped() when dropped != null:
+return dropped(_that);case ReceivedPacket_PeerMustUpdate() when peerMustUpdate != null:
+return peerMustUpdate(_that);case ReceivedPacket_WeMustUpdate() when weMustUpdate != null:
+return weMustUpdate(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( ReceivedPacket_Message value)  message,required TResult Function( ReceivedPacket_Dropped value)  dropped,required TResult Function( ReceivedPacket_PeerMustUpdate value)  peerMustUpdate,required TResult Function( ReceivedPacket_WeMustUpdate value)  weMustUpdate,}){
+final _that = this;
+switch (_that) {
+case ReceivedPacket_Message():
+return message(_that);case ReceivedPacket_Dropped():
+return dropped(_that);case ReceivedPacket_PeerMustUpdate():
+return peerMustUpdate(_that);case ReceivedPacket_WeMustUpdate():
+return weMustUpdate(_that);}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( ReceivedPacket_Message value)?  message,TResult? Function( ReceivedPacket_Dropped value)?  dropped,TResult? Function( ReceivedPacket_PeerMustUpdate value)?  peerMustUpdate,TResult? Function( ReceivedPacket_WeMustUpdate value)?  weMustUpdate,}){
+final _that = this;
+switch (_that) {
+case ReceivedPacket_Message() when message != null:
+return message(_that);case ReceivedPacket_Dropped() when dropped != null:
+return dropped(_that);case ReceivedPacket_PeerMustUpdate() when peerMustUpdate != null:
+return peerMustUpdate(_that);case ReceivedPacket_WeMustUpdate() when weMustUpdate != null:
+return weMustUpdate(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( DesktopMessage field0)?  message,TResult Function()?  dropped,TResult Function()?  peerMustUpdate,TResult Function()?  weMustUpdate,required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case ReceivedPacket_Message() when message != null:
+return message(_that.field0);case ReceivedPacket_Dropped() when dropped != null:
+return dropped();case ReceivedPacket_PeerMustUpdate() when peerMustUpdate != null:
+return peerMustUpdate();case ReceivedPacket_WeMustUpdate() when weMustUpdate != null:
+return weMustUpdate();case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( DesktopMessage field0)  message,required TResult Function()  dropped,required TResult Function()  peerMustUpdate,required TResult Function()  weMustUpdate,}) {final _that = this;
+switch (_that) {
+case ReceivedPacket_Message():
+return message(_that.field0);case ReceivedPacket_Dropped():
+return dropped();case ReceivedPacket_PeerMustUpdate():
+return peerMustUpdate();case ReceivedPacket_WeMustUpdate():
+return weMustUpdate();}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( DesktopMessage field0)?  message,TResult? Function()?  dropped,TResult? Function()?  peerMustUpdate,TResult? Function()?  weMustUpdate,}) {final _that = this;
+switch (_that) {
+case ReceivedPacket_Message() when message != null:
+return message(_that.field0);case ReceivedPacket_Dropped() when dropped != null:
+return dropped();case ReceivedPacket_PeerMustUpdate() when peerMustUpdate != null:
+return peerMustUpdate();case ReceivedPacket_WeMustUpdate() when weMustUpdate != null:
+return weMustUpdate();case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+
+
+class ReceivedPacket_Message extends ReceivedPacket {
+  const ReceivedPacket_Message(this.field0): super._();
+  
+
+ final  DesktopMessage field0;
+
+/// Create a copy of ReceivedPacket
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$ReceivedPacket_MessageCopyWith<ReceivedPacket_Message> get copyWith => _$ReceivedPacket_MessageCopyWithImpl<ReceivedPacket_Message>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ReceivedPacket_Message&&(identical(other.field0, field0) || other.field0 == field0));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,field0);
+}
+
+@override
+String toString() {
+    return 'ReceivedPacket.message(field0: $field0)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $ReceivedPacket_MessageCopyWith<$Res> implements $ReceivedPacketCopyWith<$Res> {
+  factory $ReceivedPacket_MessageCopyWith(ReceivedPacket_Message value, $Res Function(ReceivedPacket_Message) _then) = _$ReceivedPacket_MessageCopyWithImpl;
+@useResult
+$Res call({
+ DesktopMessage field0
+});
+
+
+
+
+}
+/// @nodoc
+class _$ReceivedPacket_MessageCopyWithImpl<$Res>
+    implements $ReceivedPacket_MessageCopyWith<$Res> {
+  _$ReceivedPacket_MessageCopyWithImpl(this._self, this._then);
+
+  final ReceivedPacket_Message _self;
+  final $Res Function(ReceivedPacket_Message) _then;
+
+/// Create a copy of ReceivedPacket
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? field0 = null,}) {
+  return _then(ReceivedPacket_Message(
+null == field0 ? _self.field0 : field0 // ignore: cast_nullable_to_non_nullable
+as DesktopMessage,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class ReceivedPacket_Dropped extends ReceivedPacket {
+  const ReceivedPacket_Dropped(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ReceivedPacket_Dropped);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ReceivedPacket.dropped()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class ReceivedPacket_PeerMustUpdate extends ReceivedPacket {
+  const ReceivedPacket_PeerMustUpdate(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ReceivedPacket_PeerMustUpdate);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ReceivedPacket.peerMustUpdate()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
+
+
+class ReceivedPacket_WeMustUpdate extends ReceivedPacket {
+  const ReceivedPacket_WeMustUpdate(): super._();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is ReceivedPacket_WeMustUpdate);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'ReceivedPacket.weMustUpdate()';
 }
 
 
