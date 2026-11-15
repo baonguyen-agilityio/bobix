@@ -220,6 +220,7 @@ void main() {
       PairFailure.twoPhones: 'Two phones answered this code',
       PairFailure.noStrongBiometrics: 'This phone has no strong biometrics',
       PairFailure.keyFailed: 'This phone could not make its key',
+      PairFailure.alreadyPaired: 'This phone is already paired',
       PairFailure.inviteNeeded:
           'This relay needs an invitation for the computer',
     };

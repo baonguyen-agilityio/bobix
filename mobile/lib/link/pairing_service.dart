@@ -28,6 +28,9 @@ enum PairFailure {
   noStrongBiometrics,
   keyFailed,
 
+  /// A pairing, or what may hold one, is already on this phone: pairing never runs over it.
+  alreadyPaired,
+
   /// One side speaks a version the other cannot read; [PairException.phoneMustUpdate] says which side is to update.
   updateNeeded,
   inviteNeeded,
@@ -126,7 +129,6 @@ class PairingService {
           await _pair(request, () => cancelled, (s) => session = s),
         );
       } on Object catch (e) {
-        await keys.deleteSigningKey().catchError((Object _) {});
         done.completeError(
           cancelled
               ? const PairException(PairFailure.cancelled)
@@ -148,13 +150,48 @@ class PairingService {
     if (!await keys.strongBiometrics()) {
       throw const PairException(PairFailure.noStrongBiometrics);
     }
-    final identity = await generateIdentity();
-    final Uint8List signPublic;
+    // Never over a pairing: this one would replace its keys. A state that cannot be read counts as one that may exist.
     try {
-      signPublic = await keys.createSigningKey();
+      if (await store.exists() || await keys.secret(SecureKeys.auth) != null) {
+        throw const PairException(PairFailure.alreadyPaired);
+      }
     } on SecureKeysException {
       throw const PairException(PairFailure.keyFailed);
     }
+    final identity = await generateIdentity();
+    // The signing key is made only when there is none, and removed on a failure only when this attempt made it.
+    var madeKey = false;
+    final Uint8List signPublic;
+    try {
+      final existing = await keys.signingPublicKey();
+      signPublic = existing ?? await keys.createSigningKey();
+      madeKey = existing == null;
+    } on SecureKeysException {
+      throw const PairException(PairFailure.keyFailed);
+    }
+    try {
+      return await _run(
+        request,
+        cancelled,
+        onSession,
+        info,
+        identity,
+        signPublic,
+      );
+    } on Object {
+      if (madeKey) await keys.deleteSigningKey().catchError((Object _) {});
+      rethrow;
+    }
+  }
+
+  Future<PairedComputer> _run(
+    PairRequest request,
+    bool Function() cancelled,
+    void Function(RelaySession) onSession,
+    PairingInfo info,
+    DeviceIdentity identity,
+    Uint8List signPublic,
+  ) async {
     final versions = await protocolVersions();
     final channel = ComputerChannel(
       boxSecret: identity.boxSecret,

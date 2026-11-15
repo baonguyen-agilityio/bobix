@@ -451,6 +451,10 @@ class _Failed extends ConsumerWidget {
         s('phone.pair.e.bio'),
         s('phone.pair.e.bio.d'),
       ),
+      PairFailure.alreadyPaired => (
+        s('phone.pair.e.have'),
+        s('phone.pair.e.have.d'),
+      ),
       PairFailure.keyFailed => (s('phone.pair.e.key'), s('phone.pair.e.key.d')),
       PairFailure.updateNeeded when p.phoneMustUpdate => (
         s('phone.link.update.phone'),
