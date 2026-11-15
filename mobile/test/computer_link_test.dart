@@ -315,4 +315,50 @@ void main() {
       await link.pause();
     },
   );
+
+  test(
+    'a goodbye is a bye signed with the auth key, which the computer verifies',
+    () async {
+      await build();
+      final s = sockets.first;
+      final before = s.ofType('send').length;
+      await link.sayGoodbye(within: const Duration(milliseconds: 200));
+      final frame = s.ofType('send').skip(before).single;
+      expect(frame['to'], desktop.deviceId);
+      final packet = b64d(frame['body'] as String);
+      final plain = await openPacket(
+        receiverBoxSecret: desktop.boxSecret,
+        senderBoxPublic: phone.boxPublic,
+        packet: packet,
+      );
+      final message = jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
+      expect(message['kind'], 'bye');
+      final header = await peekPacket(
+        receiverSends: LinkDirection.toPhone,
+        packet: packet,
+      );
+      final bytes = await byeBytes(
+        version: versions.current,
+        phoneId: phone.deviceId,
+        computerId: desktop.deviceId,
+        counter: header.counter,
+      );
+      expect(
+        await verifyAuthSignature(
+          authPublic: phone.authPublic,
+          message: bytes,
+          signature: b64d(message['sig'] as String),
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test('a phone that is not connected just leaves: no goodbye is sent, and nothing throws', () async {
+    await build();
+    await sockets.first.close();
+    await until(() => link.status.conn != ConnState.ok || sockets.length > 1);
+    await link.pause();
+    await link.sayGoodbye(within: const Duration(milliseconds: 100));
+  });
 }

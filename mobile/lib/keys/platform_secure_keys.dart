@@ -56,6 +56,20 @@ class PlatformSecureKeys implements SecureKeys {
       _call<void>('deleteSecret', {'name': name});
 
   @override
+  Future<AppAuth> authenticate({required String reason}) async {
+    try {
+      return switch (await _call<String>('authenticate', {'reason': reason})) {
+        'ok' => AppAuth.ok,
+        'cancelled' => AppAuth.cancelled,
+        'unavailable' => AppAuth.unavailable,
+        _ => AppAuth.failed,
+      };
+    } on SecureKeysException {
+      return AppAuth.failed;
+    }
+  }
+
+  @override
   Future<Biometry> biometry() async =>
       switch (await _call<String>('biometry')) {
         'available' => Biometry.available,

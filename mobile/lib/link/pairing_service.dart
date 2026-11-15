@@ -241,6 +241,7 @@ class PairingService {
         rights: granted,
         recvState: channel.recvState,
         eventReservation: channel.reservation,
+        pairedAt: _now().millisecondsSinceEpoch,
       );
       await store.save(computer);
       channel.onChange = () async {

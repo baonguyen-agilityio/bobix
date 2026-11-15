@@ -57,10 +57,8 @@ void main() {
 
     await tester.tap(find.bySemanticsLabel('Settings'));
     await tester.pump();
-    expect(
-      find.text('Computers, safety and language settings come with pairing.'),
-      findsOneWidget,
-    );
+    expect(find.text('Safety'), findsOneWidget);
+    expect(find.text('Send feedback'), findsOneWidget);
   });
 
   testWidgets('Vietnamese strings are used when the language is vi', (
@@ -181,4 +179,18 @@ void main() {
       expect(find.byType(BackdropFilter), findsNWidgets(3));
     },
   );
+
+  testWidgets('the computer chip on Home opens the computers sheet', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+    await tester.tap(find.text('Studio Mac'));
+    await settle(tester);
+    expect(find.text('Choose a computer'), findsOneWidget);
+    expect(find.text('Only one computer is connected.'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await settle(tester);
+    expect(find.text('Choose a computer'), findsNothing);
+  });
 }

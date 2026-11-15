@@ -288,6 +288,22 @@ final class KeyStore {
     return KeyStore.biometry(canEvaluate: can, errorCode: error?.code)
   }
 
+  /// The app lock: Face ID or Touch ID (the device passcode when they are locked out). Nothing is signed. "unavailable" when
+  /// the phone has neither, so the app cannot lock itself and opens. The software mode (debug builds) always says "ok".
+  func authenticate(reason: String, _ done: @escaping (String) -> Void) {
+    if software { return done("ok") }
+    let context = LAContext()
+    var error: NSError?
+    guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return done("unavailable") }
+    context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { ok, e in
+      DispatchQueue.main.async {
+        if ok { return done("ok") }
+        let code = (e as? LAError)?.code
+        done(code == .userCancel || code == .systemCancel || code == .appCancel ? "cancelled" : "failed")
+      }
+    }
+  }
+
   func deleteSigningKey() {
     SecItemDelete(keyQuery as CFDictionary)
   }
@@ -341,6 +357,8 @@ final class SecureKeysChannel {
       case "biometry": result(store.biometry())
       case "deleteSigningKey": store.deleteSigningKey(); result(nil)
       case "eraseAll": store.eraseAll(); result(nil)
+      case "authenticate":
+        store.authenticate(reason: args["reason"] as? String ?? "") { result($0) }
       case "sign":
         // Off the main thread: the Face ID prompt blocks until the person answers.
         let data = bytes("data"), reason = args["reason"] as? String ?? ""

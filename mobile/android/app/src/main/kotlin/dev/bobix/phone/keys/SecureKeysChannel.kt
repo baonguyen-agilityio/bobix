@@ -40,6 +40,7 @@ class SecureKeysChannel(messenger: BinaryMessenger, private val activity: Fragme
                 "eraseAll" -> { store.eraseAll(); result.success(null) }
                 "strongBiometrics" -> result.success(store.strongBiometrics())
                 "signingKeyLevel" -> result.success(store.signingKeyLevel())
+                "authenticate" -> store.authenticate(activity, call.argument<String>("reason") ?: "") { result.success(it) }
                 "sign" -> store.sign(activity, bytes("data"), call.argument<String>("reason") ?: "") { result.success(answer(it)) }
                 else -> result.notImplemented()
             }
