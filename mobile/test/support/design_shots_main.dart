@@ -75,7 +75,10 @@ class Shot {
 
 /// The sessions the design prototype shows on Home, so the two can be set side by side.
 class _DesignData implements PhoneData {
-  const _DesignData({this.firstWaitingId = 'req-bash'});
+  const _DesignData({this.firstWaitingId = 'req-bash', this.todos = false});
+
+  /// The widget previews also list the issues that wait to be started.
+  final bool todos;
 
   /// The id of the request the first session waits on (a closed request is opened from there).
   final String firstWaitingId;
@@ -155,6 +158,29 @@ class _DesignData implements PhoneData {
           petDesign: 'default',
           petColor: 5,
         ),
+        if (todos) ...const [
+          Session(
+            id: 't1',
+            name: 'Add gift card balance page',
+            project: 'shop-app',
+            issue: 151,
+            stage: Stage.todo,
+          ),
+          Session(
+            id: 't2',
+            name: 'Support Dynamic Type',
+            project: 'ios-app',
+            issue: 80,
+            stage: Stage.todo,
+          ),
+          Session(
+            id: 't3',
+            name: 'Document the VPN setup',
+            project: 'infra',
+            issue: 35,
+            stage: Stage.todo,
+          ),
+        ],
       ],
     ),
   );
@@ -458,6 +484,7 @@ class _ShooterState extends State<_Shooter> {
       ),
       phoneDataProvider.overrideWithValue(
         _DesignData(
+          todos: s.id == 'hs',
           firstWaitingId: s.id == 'request-closed-pc'
               ? 'req-closed-pc'
               : 'req-bash',

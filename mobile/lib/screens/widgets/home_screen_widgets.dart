@@ -38,6 +38,10 @@ class _WidgetCard extends StatelessWidget {
         height: height,
         child: Glass(
           radius: 24,
+          blur: true,
+          tint: context.tokens.isDark
+              ? const Color(0x70141420)
+              : const Color(0x52FFFFFF),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(24),
             child: off
@@ -239,10 +243,10 @@ class _NeedRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: () => openFromWidget(context, x),
         child: Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          padding: const EdgeInsets.fromLTRB(6, 4, 8, 4),
+          constraints: const BoxConstraints(minHeight: 38),
+          padding: const EdgeInsets.fromLTRB(6, 2, 8, 2),
           decoration: BoxDecoration(
-            color: t.isDark ? t.surface3 : const Color(0x0F1A1F3A),
+            color: t.isDark ? const Color(0x14FFFFFF) : const Color(0x0F1A1F3A),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -291,7 +295,7 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
     return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      padding: const EdgeInsets.only(top: 6, bottom: 3),
       child: Text.rich(
         TextSpan(
           text: text.toUpperCase(),
@@ -466,11 +470,13 @@ class LargeHomeWidget extends ConsumerWidget {
           _SectionLabel(s('phone.wgs.todo'), d.todo.length),
           for (final x in d.todo.take(3))
             Container(
-              constraints: const BoxConstraints(minHeight: 44),
+              constraints: const BoxConstraints(minHeight: 38),
               margin: const EdgeInsets.only(bottom: 4),
               padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
               decoration: BoxDecoration(
-                color: t.isDark ? t.surface3 : const Color(0x0F1A1F3A),
+                color: t.isDark
+                    ? const Color(0x14FFFFFF)
+                    : const Color(0x0F1A1F3A),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -607,48 +613,51 @@ class HomeScreenPreviewScreen extends ConsumerWidget {
       child: Column(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  const MediumHomeWidget(),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: 364,
-                    child: Row(
-                      children: [
-                        const SmallHomeWidget(),
-                        const Spacer(),
-                        ExcludeSemantics(
-                          child: SizedBox(
-                            width: 170,
-                            height: 170,
-                            child: Wrap(
-                              alignment: WrapAlignment.center,
-                              runAlignment: WrapAlignment.center,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 8,
-                              runSpacing: 10,
-                              children: [
-                                for (var i = 0; i < 4; i++)
-                                  SizedBox(
-                                    width: 80,
-                                    child: Center(
-                                      child: _AppIcon(
-                                        _appColors[i],
-                                        label: names[i],
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    const MediumHomeWidget(),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: 364,
+                      child: Row(
+                        children: [
+                          const SmallHomeWidget(),
+                          const Spacer(),
+                          ExcludeSemantics(
+                            child: SizedBox(
+                              width: 170,
+                              height: 170,
+                              child: Wrap(
+                                alignment: WrapAlignment.center,
+                                runAlignment: WrapAlignment.center,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 8,
+                                runSpacing: 10,
+                                children: [
+                                  for (var i = 0; i < 4; i++)
+                                    SizedBox(
+                                      width: 80,
+                                      child: Center(
+                                        child: _AppIcon(
+                                          _appColors[i],
+                                          label: names[i],
+                                        ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  const LargeHomeWidget(),
-                ],
+                    const SizedBox(height: 16),
+                    const LargeHomeWidget(),
+                  ],
+                ),
               ),
             ),
           ),
