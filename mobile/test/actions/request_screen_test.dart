@@ -33,6 +33,33 @@ void main() {
         expect(hasHiddenChars(bad), isTrue, reason: bad);
       }
     });
+
+    test('line separators, variation selectors and fillers are escaped', () {
+      final cases = {
+        '\u2028': '\\u2028',
+        '\u2029': '\\u2029',
+        '\uFE00': '\\uFE00',
+        '\uFE0F': '\\uFE0F',
+        '\u{E0100}': '\\u{E0100}',
+        '\u{E01EF}': '\\u{E01EF}',
+        '\u034F': '\\u034F',
+        '\u115F': '\\u115F',
+        '\u1160': '\\u1160',
+        '\u3164': '\\u3164',
+        '\uFFA0': '\\uFFA0',
+      };
+      cases.forEach((char, escape) {
+        expect(hasHiddenChars('a${char}b'), isTrue, reason: escape);
+        final parts = showEscapes('a${char}b');
+        expect(parts.where((p) => p.escaped).map((p) => p.text), [
+          escape,
+        ], reason: escape);
+        expect(parts.where((p) => !p.escaped).map((p) => p.text).join(), 'ab');
+      });
+      // Their neighbours are ordinary text.
+      expect(hasHiddenChars('\u2027'), isFalse);
+      expect(hasHiddenChars('\uFDFF\uFE10\u{E00FF}\u{E01F0}'), isFalse);
+    });
   });
 
   for (final lang in langs) {

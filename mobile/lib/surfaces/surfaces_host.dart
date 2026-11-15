@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/models.dart';
 import '../data/phone_data.dart';
 import '../link/computer_link.dart';
 import '../link/link_providers.dart';
@@ -13,6 +14,10 @@ import 'surfaces_sync.dart';
 final surfacesPlatformProvider = Provider<SurfacesPlatform>(
   (ref) => ChannelSurfacesPlatform(),
 );
+
+/// How often the list is written again while the computer is reachable, so that content never reaches the 15 minutes after
+/// which every surface draws it stale just because nothing changed. Well under 15 minutes.
+final surfaceHeartbeatProvider = Provider<Duration>((ref) => const Duration(minutes: 5));
 
 final surfacesSyncProvider = Provider<SurfacesSync>(
   (ref) => SurfacesSync(ref.watch(surfacesPlatformProvider)),
@@ -26,6 +31,8 @@ final surfacesClearProvider = Provider<void>((ref) {
     bool gone(AppPhase? p) => p is Unpaired || p is PairAgain;
     if (gone(next.value) && !gone(prev?.value)) {
       unawaited(ref.read(surfacesPlatformProvider).clear().catchError((Object _) {}));
+      // A notification already shown has the session's name and request: it goes with the pairing.
+      unawaited(ref.read(pushPlatformProvider).clearDelivered().catchError((Object _) {}));
     }
   });
 });
@@ -41,12 +48,14 @@ class SurfacesHost extends ConsumerStatefulWidget {
   ConsumerState<SurfacesHost> createState() => _SurfacesHostState();
 }
 
-class _SurfacesHostState extends ConsumerState<SurfacesHost> {
+class _SurfacesHostState extends ConsumerState<SurfacesHost> with WidgetsBindingObserver {
   final _subs = <StreamSubscription<Object?>>[];
+  Timer? _beat;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     try {
       final p = ref.read(surfacesPlatformProvider);
       final reg = ref.read(pushRegistrationProvider);
@@ -70,10 +79,17 @@ class _SurfacesHostState extends ConsumerState<SurfacesHost> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _beat?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    ref.read(surfacesSyncProvider).visible = state == AppLifecycleState.resumed;
   }
 
   @override
@@ -82,11 +98,15 @@ class _SurfacesHostState extends ConsumerState<SurfacesHost> {
       final h = next.value;
       if (h == null) return;
       final c = widget.link.computer;
-      unawaited(
-        ref
-            .read(surfacesSyncProvider)
-            .sync(h, computerId: c.id, canStart: c.rights.start),
-      );
+      final sync = ref.read(surfacesSyncProvider);
+      unawaited(sync.sync(h, computerId: c.id, canStart: c.rights.start));
+      _beat?.cancel();
+      _beat = h.conn == ConnState.ok
+          ? Timer.periodic(
+              ref.read(surfaceHeartbeatProvider),
+              (_) => unawaited(sync.again(computerId: c.id, canStart: c.rights.start)),
+            )
+          : null;
     });
     return widget.child;
   }

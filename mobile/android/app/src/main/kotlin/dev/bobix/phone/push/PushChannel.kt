@@ -11,6 +11,7 @@ import androidx.fragment.app.FragmentActivity
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import dev.bobix.phone.keys.KeyStore
+import dev.bobix.phone.surfaces.Surfaces
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -33,6 +34,7 @@ import uniffi.bobix_phone_core.makeGrant
  *   {computer, stream, counter, plaintext} or {error: replayed|version|unreadable|noKey}: the receive window shared with
  *   the push service, which is a separate entry point into this app.
  * - `hideDetails` and `setHideDetails({hide})`: the switch the push service reads without the app being open.
+ * - `clearDelivered`: cancels every notification of this app that is still shown.
  *
  * Native to Dart: `token` (a String), `tokenError` (a String) and `tap` ({computer, ref, kind}).
  *
@@ -64,14 +66,34 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
      * extras, and those carry no [NoticePoster.EXTRA_TOKEN] that matches.
      */
     fun onIntent(intent: Intent?, started: Boolean) {
-        if (intent?.action != NoticePoster.ACTION_OPEN_NOTICE) return
-        if (intent.getStringExtra(NoticePoster.EXTRA_TOKEN) != prefs.tapToken) return
-        val tap = mapOf(
-            "computer" to (intent.getStringExtra(NoticePoster.EXTRA_COMPUTER) ?: ""),
-            "ref" to (intent.getStringExtra(NoticePoster.EXTRA_REF) ?: ""),
-            "kind" to (intent.getStringExtra(NoticePoster.EXTRA_KIND) ?: ""),
-        )
+        val tap = when (intent?.action) {
+            NoticePoster.ACTION_OPEN_NOTICE -> {
+                if (intent.getStringExtra(NoticePoster.EXTRA_TOKEN) != prefs.tapToken) return
+                mapOf(
+                    "computer" to (intent.getStringExtra(NoticePoster.EXTRA_COMPUTER) ?: ""),
+                    "ref" to (intent.getStringExtra(NoticePoster.EXTRA_REF) ?: ""),
+                    "kind" to (intent.getStringExtra(NoticePoster.EXTRA_KIND) ?: ""),
+                )
+            }
+            // A widget, the Live Update or a tile (signed with the same secret): `home`, `start`, or the request it names.
+            Surfaces.ACTION_OPEN -> {
+                if (intent.getStringExtra(Surfaces.EXTRA_TOKEN) != prefs.tapToken) return
+                surfaceTap(
+                    intent.getStringExtra(Surfaces.EXTRA_TARGET),
+                    intent.getStringExtra(Surfaces.EXTRA_COMPUTER).orEmpty(),
+                    intent.getStringExtra(Surfaces.EXTRA_ID).orEmpty(),
+                )
+            }
+            else -> return
+        }
         if (started || !dartListening) initialTap = tap else channel.invokeMethod("tap", tap)
+    }
+
+    /** A request without a computer or an id cannot be opened, so it opens Home instead (Dart ignores a tap it cannot place). */
+    private fun surfaceTap(target: String?, computer: String, id: String): Map<String, String> = when {
+        target == "start" -> mapOf("computer" to "", "ref" to "", "kind" to "start")
+        target == "request" && computer.isNotEmpty() && id.isNotEmpty() -> mapOf("computer" to computer, "ref" to id, "kind" to "waiting")
+        else -> mapOf("computer" to "", "ref" to "", "kind" to "home")
     }
 
     /** A token the system handed over (first time, or changed). */
@@ -122,6 +144,8 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
                     }
                 }
                 "register" -> { fetchToken(); result.success(null) }
+                // The pairing ended: no notification of this app stays in the shade with a session name in it.
+                "clearDelivered" -> { NotificationManagerCompat.from(activity).cancelAll(); result.success(null) }
                 "token" -> result.success(lastToken)
                 "environment" -> result.success("production")
                 "grant" -> grant(call, result)
@@ -143,7 +167,11 @@ class PushChannel(messenger: BinaryMessenger, private val activity: FragmentActi
                 "removeComputer" -> { peers.remove(call.argument<String>("id") ?: ""); result.success(null) }
                 "openPacket" -> openPacket(call, result)
                 "hideDetails" -> result.success(prefs.hideDetails)
-                "setHideDetails" -> { prefs.hideDetails = call.argument<Boolean>("hide") ?: false; result.success(null) }
+                "setHideDetails" -> {
+                    prefs.hideDetails = call.argument<Boolean>("hide") ?: false
+                    result.success(null)
+                    Thread { dev.bobix.phone.surfaces.Surfaces.refresh(activity.applicationContext) }.start()
+                }
                 else -> result.notImplemented()
             }
         } catch (e: IllegalArgumentException) {

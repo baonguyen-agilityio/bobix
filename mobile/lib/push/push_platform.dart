@@ -117,6 +117,10 @@ abstract interface class PushPlatform {
 
   Future<bool> hideDetails();
   Future<void> setHideDetails(bool hide);
+
+  /// Removes every notification of this app that is still shown (the pairing ended: nothing of it may stay on the lock
+  /// screen).
+  Future<void> clearDelivered();
 }
 
 /// [PushPlatform] over the platform channel `dev.bobix.phone/push` (Swift on iOS).
@@ -231,4 +235,7 @@ class ChannelPushPlatform implements PushPlatform {
   @override
   Future<void> setHideDetails(bool hide) =>
       _channel.invokeMethod<void>('setHideDetails', {'hide': hide});
+
+  @override
+  Future<void> clearDelivered() => _channel.invokeMethod<void>('clearDelivered');
 }

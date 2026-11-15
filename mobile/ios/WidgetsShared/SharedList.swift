@@ -83,6 +83,12 @@ struct SharedList: Codable, Equatable {
     return ms.map { Date(timeIntervalSince1970: Double($0) / 1000 + 0.001) }.sorted()
   }
 
+  /// Hide details on: no session or project name is kept, not only not drawn (the file is readable by the widgets and
+  /// survives until the next write).
+  mutating func dropNames() {
+    for i in rows.indices { rows[i].name = ""; rows[i].project = "" }
+  }
+
   static let empty = SharedList(written: 0, computerName: "", computerState: "offline", todo: 0, canStart: false, rows: [])
 
   // MARK: a notice
@@ -135,8 +141,14 @@ enum SharedListStore {
     defer { flock(fd, LOCK_UN) }
     var list = load(from: dir)
     change(&list)
+    if hideDetails(in: dir) { list.dropNames() }
     try JSONEncoder().encode(list).write(to: dir.appendingPathComponent("surfaces.json"), options: .atomic)
     return list
+  }
+
+  /// The "Hide details" switch, read from the push store next to the list; a store that cannot be read counts as on.
+  static func hideDetails(in dir: URL) -> Bool {
+    (try? storeHideDetails(storePath: dir.appendingPathComponent("push.json").path)) ?? true
   }
 
   /// Replaces the whole list (the app's own `home`).

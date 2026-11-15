@@ -3,6 +3,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13 and later: asked for once, right after pairing, with the reason shown first. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 16: the waiting-requests notification asks to be shown as a Live Update. -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- Sets the "this has turned stale" alarm again after a reboot (an alarm does not survive one). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:label="Bobix"
@@ -28,6 +32,8 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- No intent may become a route; a future intent filter must not bring deep linking back. -->
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -42,6 +48,42 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- Outside the app: three home screen widgets, two Quick Settings tiles, the alarm that dims them when their data is
+             old. Removing these entries leaves the app working. Every tap opens the app; nothing answers. -->
+        <receiver android:name=".surfaces.widgets.SmallWidgetReceiver" android:label="@string/phone_wg_kind_home" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_small" />
+        </receiver>
+        <receiver android:name=".surfaces.widgets.WideWidgetReceiver" android:label="@string/phone_wg_kind_home" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_wide" />
+        </receiver>
+        <receiver android:name=".surfaces.widgets.LargeWidgetReceiver" android:label="@string/phone_wg_kind_home" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_large" />
+        </receiver>
+        <receiver android:name=".surfaces.StaleReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+        </receiver>
+        <service
+            android:name=".surfaces.BobixTile"
+            android:exported="true"
+            android:icon="@drawable/ic_notification"
+            android:label="@string/phone_wg_kind_home"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
+        </service>
+        <service
+            android:name=".surfaces.StartTile"
+            android:exported="true"
+            android:icon="@drawable/ic_notification"
+            android:label="@string/phone_tab_start"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
+
         <!-- With google-services.json present Firebase's init provider still sets up FirebaseApp at every launch. What these two
              switches stop is the token (and the installation id behind it) being fetched before the app asks for it, which is
              after pairing, and analytics. -->

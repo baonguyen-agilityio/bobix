@@ -2,10 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The keychain group the app shares its `auth` and `box` keys with its extensions (the notification service
-	     extension, the widgets): every one of them lists the same group. The prefix is the Apple team. -->
+	<!-- Two keychain groups. `dev.bobix.phone.keys` holds `box` and is listed by the notification service extension and
+	     the widgets too (a notice opens with `box` alone). `dev.bobix.phone.app-keys` holds `auth` and the signing key
+	     and is listed by the app only, so no extension can get a reference to them. The prefix is the Apple team. -->
 	<key>keychain-access-groups</key>
 	<array>
+		<string>$(AppIdentifierPrefix)dev.bobix.phone.app-keys</string>
 		<string>$(AppIdentifierPrefix)dev.bobix.phone.keys</string>
 	</array>
 	<!-- The App Group holds the receive state and the "Hide details" switch, which the app and the notification service

@@ -17,6 +17,8 @@ import dev.bobix.phone.push.PushService
  *   adb shell am broadcast -n dev.bobix.phone/.debug.DebugPush -a dev.bobix.phone.debug.SEED --es box 04..04 --es desktop ce8d..
  *   adb shell am broadcast -n dev.bobix.phone/.debug.DebugPush -a dev.bobix.phone.debug.DELIVER --es sealed <base64url>
  *   adb shell am broadcast -n dev.bobix.phone/.debug.DebugPush -a dev.bobix.phone.debug.HIDE --ez value true
+ *   adb shell am broadcast -n dev.bobix.phone/.debug.DebugPush -a dev.bobix.phone.debug.SURFACES --es list '{...}'
+ *   adb shell am start -n dev.bobix.phone/.debug.WidgetPreview --es size small   (hosts the real widget for a screenshot)
  */
 class DebugPush : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -28,6 +30,17 @@ class DebugPush : BroadcastReceiver() {
                 Log.i(TAG, "seeded")
             }
             "dev.bobix.phone.debug.DELIVER" -> Log.i(TAG, "delivered: ${PushService.handle(app, intent.getStringExtra("sealed"))}")
+            // The surfaces outside the app, without a computer: `--es list '<json>'` (or `--es list64 <base64 of it>`, which survives the shell's quote removal) writes the shared list (see SurfaceList),
+            // `--es pet <file name> --es png <base64>` a pet image, `--ez clear true` empties it. Then everything redraws.
+            "dev.bobix.phone.debug.SURFACES" -> {
+                val store = dev.bobix.phone.surfaces.Surfaces.store(app)
+                if (intent.getBooleanExtra("clear", false)) store.clear()
+                intent.getStringExtra("pet")?.let { store.writePet(it, android.util.Base64.decode(intent.getStringExtra("png"), android.util.Base64.DEFAULT)) }
+                (intent.getStringExtra("list") ?: intent.getStringExtra("list64")?.let { String(android.util.Base64.decode(it, android.util.Base64.DEFAULT)) })
+                    ?.let { Log.i(TAG, "list written: ${store.write(it)}") }
+                val pending = goAsync()
+                Thread { try { dev.bobix.phone.surfaces.Surfaces.refresh(app) } finally { pending.finish() } }.start()
+            }
             "dev.bobix.phone.debug.HIDE" -> PushPrefs(app).hideDetails = intent.getBooleanExtra("value", false)
         }
     }

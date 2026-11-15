@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import dev.bobix.phone.R
 import java.io.File
+import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyPairGenerator
 import java.security.KeyStore as AndroidKeyStore
@@ -20,6 +21,7 @@ import java.security.PrivateKey
 import java.security.Signature
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -109,22 +111,23 @@ class KeyStore(
         }
     }
 
-    /** Null when there is no such secret, or it cannot be opened (its wrapping key is gone). */
+    /**
+     * Null only when the secret is definitely gone: no file, no wrapping key, or a file that no longer opens (its tag
+     * fails). A Keystore or I/O error may be temporary (keystore2 restarting, memory pressure), so it throws [KeyError]
+     * and the caller keeps the pairing and retries.
+     */
     fun secret(name: String): ByteArray? {
         val file = fileFor(name)
         if (!file.exists()) return null
-        return try {
+        return guardRead {
             val raw = file.readBytes()
-            val key = wrapKey(create = false) ?: return null
+            if (raw.size <= IV_BYTES) return@guardRead null // cut short: it will never open
+            val key = wrapKey(create = false) ?: return@guardRead null
             val cipher = Cipher.getInstance(AES).apply {
                 init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, raw, 0, IV_BYTES))
                 updateAAD(name.toByteArray())
             }
             cipher.doFinal(raw, IV_BYTES, raw.size - IV_BYTES)
-        } catch (e: GeneralSecurityException) {
-            null
-        } catch (e: IllegalArgumentException) {
-            null
         }
     }
 
@@ -319,6 +322,19 @@ class KeyStore(
         private const val IV_BYTES = 12
         private const val SIGNATURE = "SHA256withECDSA"
         private val NAME = Regex("[a-z0-9_-]{1,32}")
+
+        /** Runs a read: a corrupt file (bad tag) is "gone" (null); any other failure is an error, never "gone". */
+        fun <T> guardRead(read: () -> T?): T? = try {
+            read()
+        } catch (e: AEADBadTagException) {
+            null
+        } catch (e: GeneralSecurityException) {
+            throw KeyError("keystore read failed", e)
+        } catch (e: IOException) {
+            throw KeyError("could not read the secret", e)
+        } catch (e: IllegalArgumentException) {
+            throw KeyError("could not read the secret", e)
+        }
 
         fun isDebuggable(context: Context) = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 

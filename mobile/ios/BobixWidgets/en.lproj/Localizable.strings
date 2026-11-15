@@ -14,6 +14,8 @@
 "phone.wg.none" = "Nothing needs you";
 "phone.wg.nostart" = "Start is off for this phone";
 "phone.wg.offline" = "Computer offline";
+"phone.wg.open" = "Open to review";
 "phone.wg.todo" = "{n} to do";
+"phone.wg.unpaired" = "Open Bobix to connect a computer";
 "phone.wg.updated" = "Updated {tm}";
 "phone.wg.working" = "{n} working";

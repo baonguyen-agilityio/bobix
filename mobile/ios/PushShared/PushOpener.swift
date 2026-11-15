@@ -76,6 +76,9 @@ enum PushRoute {
   }
 }
 
+protocol DeliveredRemoving { func removeAllDeliveredNotifications() }
+extension UNUserNotificationCenter: DeliveredRemoving {}
+
 /// The notification the extension hands back, and which shown notifications it replaces.
 struct PushShaped {
   let content: UNNotificationContent
@@ -105,12 +108,22 @@ struct PushOpener {
     return out
   }
 
-  /// Opens the sealed notice of `content` and writes its text. Anything it cannot open leaves the content as the relay
-  /// made it, which already carries the generic text through its loc-keys; the receive state is never touched then.
+  /// A notice that did not open: the relay holds no key and is not trusted with words, so whatever title and body it
+  /// wrote are replaced by the generic text, and the route is dropped.
+  static func unopened(_ content: UNNotificationContent, strings: PushStrings) -> UNNotificationContent {
+    guard let out = withoutRoute(content).mutableCopy() as? UNMutableNotificationContent else { return content }
+    out.title = strings.genericTitle
+    out.body = strings.genericBody
+    out.subtitle = ""
+    return out
+  }
+
+  /// Opens the sealed notice of `content` and writes its text. Anything it cannot open shows the generic text (never the
+  /// relay's own); the receive state is never touched then.
   func shape(_ content: UNNotificationContent) -> PushShaped {
     guard let sealed = content.userInfo["sealed"] as? String, let storePath, let boxSecret,
       let out = content.mutableCopy() as? UNMutableNotificationContent
-    else { return PushShaped(content: PushOpener.withoutRoute(content), supersedes: nil) }
+    else { return PushShaped(content: PushOpener.unopened(content, strings: strings), supersedes: nil) }
 
     let notice: OpenedNotice
     do {
@@ -127,7 +140,7 @@ struct PushOpener {
       out.userInfo = [:]
       return PushShaped(content: out, supersedes: nil)
     } catch {
-      return PushShaped(content: PushOpener.withoutRoute(content), supersedes: nil)
+      return PushShaped(content: PushOpener.unopened(content, strings: strings), supersedes: nil)
     }
 
     // A failure to read the switch shows the less revealing text.
