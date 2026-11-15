@@ -14,6 +14,8 @@
 "phone.wg.none" = "Không có gì cần bạn";
 "phone.wg.nostart" = "Điện thoại này không có quyền Bắt đầu";
 "phone.wg.offline" = "Máy tính mất kết nối";
+"phone.wg.open" = "Mở để xem";
 "phone.wg.todo" = "{n} việc cần làm";
+"phone.wg.unpaired" = "Mở Bobix để kết nối máy tính";
 "phone.wg.updated" = "Cập nhật {tm}";
 "phone.wg.working" = "{n} đang chạy";

@@ -16,14 +16,16 @@ class SharedListJson {
     required String computerId,
     required bool canStart,
     required DateTime now,
+    DateTime? builtAt,
     int todo = 0,
-  }) => jsonEncode(toMap(home, computerId: computerId, canStart: canStart, now: now, todo: todo));
+  }) => jsonEncode(toMap(home, computerId: computerId, canStart: canStart, now: now, builtAt: builtAt, todo: todo));
 
   static Map<String, Object?> toMap(
     HomeData home, {
     required String computerId,
     required bool canStart,
     required DateTime now,
+    DateTime? builtAt,
     int todo = 0,
   }) => {
     'written': now.millisecondsSinceEpoch,
@@ -48,7 +50,8 @@ class SharedListJson {
           'ref': s.needsYou && !s.answerAtComputer ? (s.waitingId ?? '') : '',
           'computer': computerId,
           // What is left of the request's wait when this `home` came; none when the computer waits for ever.
-          'holdSecs': (s.holdSecs ?? holdSecs).clamp(1, holdSecs),
+          // A list written again later (the heartbeat) takes the time since [builtAt] off the wait the computer still holds.
+          'holdSecs': (s.holdSecs == null ? holdSecs : s.holdSecs! - (builtAt == null ? 0 : now.difference(builtAt).inSeconds)).clamp(1, holdSecs),
           'at': now.millisecondsSinceEpoch,
         },
     ],

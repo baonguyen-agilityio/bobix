@@ -123,6 +123,13 @@ class LinkPhoneData implements PhoneData {
   }
 }
 
+int? _secondsLeft(Map<String, dynamic>? w, int receivedAtMs, int nowMs) {
+  final left = w?['secondsLeft'] as int?;
+  if (left == null) return null;
+  final remaining = left - (nowMs - receivedAtMs) ~/ 1000;
+  return remaining < 0 ? 0 : remaining;
+}
+
 /// Builds the screens' data from a `home` (its decoded JSON). Pure: the phone's own knowledge comes in as arguments.
 HomeData homeData(
   HomeSnapshot snap, {
@@ -185,7 +192,7 @@ HomeData homeData(
             : (answeredAtComputer.containsKey(id) ? WaitingKind.request : null),
         handledAtComputer: w?['atComputer'] == true,
         waitingMinutes: since == null ? 0 : (nowMs - since) ~/ 60000,
-        holdSecs: w?['secondsLeft'] as int?,
+        holdSecs: _secondsLeft(w, snap.receivedAtMs, nowMs),
         petDesign: pet['design'] as String,
         petColor: pet['color'] as int,
       ),

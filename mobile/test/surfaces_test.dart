@@ -182,6 +182,41 @@ void main() {
       expect(p.lists, hasLength(1));
     });
 
+    test('the heartbeat writes the last home again with the wait counted down from when it was built, only while reachable', () async {
+      var clock = now;
+      final beating = SurfacesSync(p, now: () => clock, renderPet: (d, c, s) async => Uint8List.fromList([1]));
+      final held = HomeData(
+        computer: 'Studio Mac',
+        conn: ConnState.ok,
+        lastContact: '10:00',
+        sessions: const [
+          Session(id: 'w', name: 'Add a switch', project: 'shop', stage: Stage.doing, needsYou: true, waitingId: 'req', holdSecs: 600),
+        ],
+      );
+      int hold(Map<String, Object?> l) => ((l['rows']! as List).single as Map)['holdSecs']! as int;
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists, isEmpty, reason: 'nothing was heard yet');
+      await beating.sync(held, computerId: 'c1', canStart: true);
+      clock = now.add(const Duration(minutes: 5));
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists.map(hold), [600, 300]);
+      expect(p.lists.last['written'], clock.millisecondsSinceEpoch);
+      await beating.sync(home(conn: ConnState.relayDown), computerId: 'c1', canStart: true);
+      final after = p.lists.length;
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(after), reason: 'an unreachable computer is left to age into stale');
+      beating.visible = false;
+      await beating.sync(held, computerId: 'c1', canStart: true);
+      final hidden = p.lists.length;
+      clock = clock.add(const Duration(minutes: 5));
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(hidden), reason: 'nothing is rewritten while the app is hidden');
+      expect(p.lists.last['computerState'], 'online', reason: 'leaving the app is not the computer going away');
+      beating.visible = true;
+      await beating.again(computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(hidden + 1));
+    });
+
   });
 
   group('the activity tokens', () {
