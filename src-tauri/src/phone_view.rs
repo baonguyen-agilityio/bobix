@@ -46,8 +46,9 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
     let infos = list.iter().take(SESSIONS_MAX).map(|s| {
         let project = s.project.as_deref().map(folder).unwrap_or_else(|| folder(&s.cwd));
         // waiting with nothing held: it is answered at the computer
-        let state = if s.state == "waiting" && !pending.values().any(|p| p.sid == s.id) { "atComputer".to_string() } else { s.state.clone() };
-        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id) }
+        let held = s.state == "waiting" && pending.values().any(|p| p.sid == s.id);
+        let state = if s.state == "waiting" && !held { "atComputer".to_string() } else { s.state.clone() };
+        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held }
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
         id: id.clone(), session: p.sid.clone(), what: match p.kind() { Kind::Plan => WaitingKind::Plan, Kind::Question => WaitingKind::Question, Kind::Request => WaitingKind::Request },
