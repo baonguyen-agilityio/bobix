@@ -100,6 +100,22 @@ Future<void> settle(WidgetTester tester) async {
   }
 }
 
+/// Whether the radio card whose label starts with [label] is picked: read from the `Semantics` it declares, which is
+/// the same on every Flutter version (the semantics matchers and flags are not).
+bool checkedOf(WidgetTester tester, String label) => tester
+    .widget<Semantics>(
+      find
+          .byWidgetPredicate(
+            (w) =>
+                w is Semantics &&
+                (w.properties.label?.startsWith(label) ?? false) &&
+                w.properties.checked != null,
+          )
+          .first,
+    )
+    .properties
+    .checked!;
+
 void main() {
   testWidgets('Home shows the made-up sessions grouped, and the tabs switch', (
     tester,
@@ -235,12 +251,7 @@ void main() {
       await tester.tap(tickets.at(3));
       await tester.pump();
       expect(find.text('Start Full'), findsOneWidget);
-      expect(
-        tester.getSemantics(
-          find.bySemanticsLabel(RegExp('^Update the sign-up email, shop #35')),
-        ),
-        containsSemantics(isChecked: true),
-      );
+      expect(checkedOf(tester, 'Update the sign-up email, shop #35'), isTrue);
       semantics.dispose();
     },
   );
@@ -303,10 +314,7 @@ void main() {
       await tester.pump();
       await tester.tap(find.bySemanticsLabel('Start'));
       await tester.pump();
-      bool checked(String label) => containsSemantics(isChecked: true).matches(
-        tester.getSemantics(find.bySemanticsLabel(RegExp('^$label'))),
-        <dynamic, dynamic>{},
-      );
+      bool checked(String label) => checkedOf(tester, label);
       expect(checked('Fix the cart total rounding, shop #38'), isTrue);
       expect(checked('Full, '), isTrue);
       expect(checked('Quick, '), isFalse);
