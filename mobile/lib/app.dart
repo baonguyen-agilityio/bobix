@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/phone_data.dart';
 import 'l10n/l10n.dart';
+import 'features/actions/start_screen.dart';
 import 'link/computer_link.dart';
 import 'link/link_providers.dart';
 import 'screens/home_screen.dart';
@@ -89,10 +90,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 children: const [
                   HomeScreen(),
                   PetsScreen(),
-                  PlaceholderScreen(
-                    titleKey: 'phone.start.title',
-                    bodyKey: 'phone.start.soon',
-                  ),
+                  StartScreen(),
                   PlaceholderScreen(
                     titleKey: 'phone.settings.title',
                     bodyKey: 'phone.settings.soon',

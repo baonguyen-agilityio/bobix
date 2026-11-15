@@ -11,7 +11,9 @@ import '../data/phone_data.dart';
 import '../keys/platform_secure_keys.dart';
 import '../keys/secure_keys.dart';
 import '../src/rust/api/core.dart';
+import '../features/actions/actions_source.dart';
 import 'computer_link.dart';
+import 'link_actions_source.dart';
 import 'link_phone_data.dart';
 import 'link_state.dart';
 import 'relay_session.dart';
@@ -141,6 +143,15 @@ class LinkController extends AsyncNotifier<AppPhase> {
   /// Tries to open the pairing again after [Unavailable].
   void retry() => ref.invalidateSelf();
 
+  /// The signing key is gone (the enrolled biometrics changed): the phone must pair again.
+  void keyLost() {
+    final current = state.value;
+    if (current is! Paired) return;
+    state = AsyncData(
+      PairAgain(computer: current.link.computer.name, removedByComputer: false),
+    );
+  }
+
   /// A pairing just ended well: start the link to the new computer.
   Future<void> paired(PairedComputer computer) async {
     final keys = ref.read(secureKeysProvider);
@@ -181,3 +192,24 @@ final linkStatusProvider = StreamProvider<LinkStatus>((ref) async* {
   yield phase.link.status;
   yield* phase.link.statusChanges;
 });
+
+/// The action screens' source and biometric step, over the link: one object, since the signature made at the biometric step
+/// is what the send step sends.
+final linkActionsProvider = Provider<LinkActionsSource>((ref) {
+  final phase = ref.watch(linkControllerProvider).value;
+  if (phase is! Paired) throw StateError('no computer is paired');
+  final source = LinkActionsSource(
+    link: phase.link,
+    keys: ref.read(secureKeysProvider),
+    onKeyLost: ref.read(linkControllerProvider.notifier).keyLost,
+    now: ref.read(clockProvider),
+  );
+  ref.onDispose(source.dispose);
+  return source;
+});
+
+/// What `main` overrides: the screens read the link.
+final linkActionOverrides = [
+  actionsSourceProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
+  biometricGateProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
+];

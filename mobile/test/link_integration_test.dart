@@ -2,93 +2,21 @@
 // core, on this computer. Build the two programs first (see test/support/link_harness.dart) and the Rust library:
 //   cargo build --manifest-path rust/Cargo.toml
 // Everything here is made up: the desktop and its sessions are the crate's fakes.
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/config/flavor.dart';
 import 'package:phone/data/models.dart';
-import 'package:phone/keys/secure_keys.dart';
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_phone_data.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/link/pairing_service.dart';
-import 'package:phone/src/rust/api/core.dart';
 import 'package:phone/src/rust/api/messages.dart';
 
 import 'support/core_library.dart';
 import 'support/link_harness.dart';
-import 'support/memory_secure_keys.dart';
-
-const all = PhoneRights(
-  answer: true,
-  plan: true,
-  question: true,
-  start: true,
-  stop: true,
-  activity: true,
-);
-
-/// One phone: its keys, its private folder and its (cuttable) network.
-class TestPhone {
-  TestPhone(this.dir) : keys = MemorySecureKeys(), store = LinkStateStore(dir);
-
-  final Directory dir;
-  final MemorySecureKeys keys;
-  final LinkStateStore store;
-  final connector = FaultyConnector();
-
-  PairingService service({
-    Flavor flavor = Flavor.dev,
-    Duration wait = const Duration(seconds: 20),
-  }) => PairingService(
-    keys: keys,
-    store: store,
-    connect: connector.call,
-    flavor: flavor,
-    waitForComputer: wait,
-  );
-
-  Future<PairedComputer> pair(
-    String qr, {
-    PhoneRights rights = all,
-    String name = 'Test phone',
-  }) => service()
-      .start(PairRequest(uri: qr, phoneName: name, rights: rights))
-      .result;
-
-  Future<ComputerLink> link(
-    PairedComputer c, {
-    Duration Function(int, double)? delay,
-  }) async => ComputerLink(
-    computer: c,
-    keys: keys,
-    store: store,
-    connect: connector.call,
-    flavor: Flavor.dev,
-    identity: await identityFromSecrets(
-      authSeed: (await keys.secret(SecureKeys.auth))!,
-      boxSecret: (await keys.secret(SecureKeys.box))!,
-    ),
-    versions: await protocolVersions(),
-    delay: delay,
-  );
-}
-
-Future<T> until<T>(
-  T? Function() check, {
-  Duration within = const Duration(seconds: 15),
-  String what = 'the condition',
-}) async {
-  final end = DateTime.now().add(within);
-  while (DateTime.now().isBefore(end)) {
-    final v = check();
-    if (v != null) return v;
-    await Future<void>.delayed(const Duration(milliseconds: 40));
-  }
-  throw TimeoutException('timed out waiting for $what');
-}
+import 'support/test_phone.dart';
 
 void main() {
   late Harness relay;
@@ -165,8 +93,8 @@ void main() {
         reason: 'it holds a request, which a phone can answer',
       );
 
-      final req = await data.request('s1');
-      expect(req!.command, 'npm test -- --watch=false');
+      final req = await link.detail('req1');
+      expect(req!['text'], 'npm test -- --watch=false');
       expect(
         phone.keys.signCalls,
         0,
@@ -180,7 +108,7 @@ void main() {
       final c = await phone.pair(d.qr);
       final link = await started(phone, c);
       await until(() => link.home, what: 'home');
-      await LinkPhoneData(link).request('s1');
+      await link.detail('req1');
       final shown = link.detailCache['req1']!['shown'] as String;
       final text = File('${tmp.path}/link-state.json').readAsStringSync();
       expect(
