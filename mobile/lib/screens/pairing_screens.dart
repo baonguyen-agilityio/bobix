@@ -451,6 +451,10 @@ class _Failed extends ConsumerWidget {
         s('phone.pair.e.bio'),
         s('phone.pair.e.bio.d'),
       ),
+      PairFailure.biometryLockedOut => (
+        s('phone.pair.e.lock'),
+        s('phone.pair.e.lock.d'),
+      ),
       PairFailure.alreadyPaired => (
         s('phone.pair.e.have'),
         s('phone.pair.e.have.d'),

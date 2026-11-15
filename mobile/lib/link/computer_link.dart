@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../config/flavor.dart';
+import '../config/relay.dart';
 import '../data/models.dart';
 import '../keys/secure_keys.dart';
 import '../src/rust/api/core.dart';
@@ -23,6 +24,7 @@ class LinkStatus {
     this.problem = LinkProblem.none,
     this.maybeRevoked = false,
     this.revokedByComputer = false,
+    this.movedHost,
   });
 
   final ConnState conn;
@@ -34,16 +36,21 @@ class LinkStatus {
   /// The computer itself said so (a sealed `revoked`): keys and data were erased.
   final bool revokedByComputer;
 
+  /// The host of the relay the computer moved to, once the phone follows it (shown so the move is not silent).
+  final String? movedHost;
+
   LinkStatus copyWith({
     ConnState? conn,
     LinkProblem? problem,
     bool? maybeRevoked,
     bool? revokedByComputer,
+    String? movedHost,
   }) => LinkStatus(
     conn: conn ?? this.conn,
     problem: problem ?? this.problem,
     maybeRevoked: maybeRevoked ?? this.maybeRevoked,
     revokedByComputer: revokedByComputer ?? this.revokedByComputer,
+    movedHost: movedHost ?? this.movedHost,
   );
 }
 
@@ -332,6 +339,7 @@ class ComputerLink {
           await store.save(computer);
           // The old connection ends; the loop opens the new relay at once.
           _moved = true;
+          _set(status.copyWith(movedHost: relayHost(url)));
           await _session?.close();
         }
     }

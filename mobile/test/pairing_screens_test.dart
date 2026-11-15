@@ -9,6 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/app.dart';
 import 'package:phone/keys/platform_secure_keys.dart';
 import 'package:phone/l10n/l10n.dart';
+import 'package:phone/data/phone_data.dart';
+import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/link/pairing_controller.dart';
@@ -19,6 +21,7 @@ import 'package:phone/screens/pairing_screens.dart';
 import 'package:phone/src/rust/api/messages.dart';
 
 import 'support/core_library.dart';
+import 'support/fixture_phone_data.dart';
 import 'support/memory_secure_keys.dart';
 
 String b64Of(int fill) => b64(Uint8List.fromList(List.filled(32, fill)));
@@ -221,6 +224,7 @@ void main() {
       PairFailure.noStrongBiometrics: 'This phone has no strong biometrics',
       PairFailure.keyFailed: 'This phone could not make its key',
       PairFailure.alreadyPaired: 'This phone is already paired',
+      PairFailure.biometryLockedOut: 'Unlock with your passcode first',
       PairFailure.inviteNeeded:
           'This relay needs an invitation for the computer',
     };
@@ -450,4 +454,33 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('a followed relay move is shown on the app, in both languages', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    for (final (lang, title) in [
+      ('en', 'Now connected through relay.example'),
+      ('vi', 'Giờ kết nối qua relay.example'),
+    ]) {
+      await tester.pumpWidget(
+        host(
+          lang: lang,
+          home: const AppShell(),
+          overrides: [
+            phoneDataProvider.overrideWithValue(const FixturePhoneData()),
+            linkStatusProvider.overrideWith(
+              (ref) =>
+                  Stream.value(const LinkStatus(movedHost: 'relay.example')),
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text(title), findsOneWidget, reason: lang);
+    }
+  });
 }

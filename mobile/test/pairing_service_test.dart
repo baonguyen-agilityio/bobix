@@ -91,6 +91,19 @@ void main() {
     );
   });
 
+  test('a biometric lockout is its own message, not "no biometrics", and nothing is made', () async {
+    keys.lockedOut = true;
+    final e = await failure();
+    expect((e! as PairException).failure, PairFailure.biometryLockedOut);
+    expect(keys.hasSigningKey, isFalse);
+    keys.lockedOut = false;
+    keys.biometrics = false;
+    expect(
+      ((await failure())! as PairException).failure,
+      PairFailure.noStrongBiometrics,
+    );
+  });
+
   test(
     'keys that cannot be read for now: no pairing, and nothing changes',
     () async {

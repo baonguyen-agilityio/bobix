@@ -156,7 +156,19 @@ class _LinkProblem extends ConsumerWidget {
       ),
       _ => null,
     };
-    if (text == null) return const SizedBox.shrink();
+    final moved = status?.movedHost;
+    if (text == null && moved == null) return const SizedBox.shrink();
+    if (text == null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: StatusBanner(
+          kind: BannerKind.info,
+          icon: Icons.swap_horiz,
+          title: s('phone.link.moved', {'h': moved!}),
+          body: s('phone.link.moved.d'),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: StatusBanner(

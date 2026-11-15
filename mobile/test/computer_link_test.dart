@@ -196,6 +196,11 @@ void main() {
       reason: 'acknowledged on the old relay',
     );
     expect((await store.load())!.relay, 'wss://new-relay.example/ws');
+    expect(
+      link.status.movedHost,
+      'new-relay.example',
+      reason: 'the move is shown, not silent',
+    );
     await link.dispose();
     tmp.deleteSync(recursive: true);
 

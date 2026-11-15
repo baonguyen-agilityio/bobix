@@ -25,6 +25,9 @@ enum PairFailure {
   /// Two phones answered the same code: the computer cancelled the pairing.
   twoPhones,
   noStrongBiometrics,
+
+  /// Face ID or the fingerprint is locked after too many failed matches: the passcode unlocks it.
+  biometryLockedOut,
   keyFailed,
 
   /// A pairing, or what may hold one, is already on this phone: pairing never runs over it.
@@ -138,8 +141,13 @@ class PairingService {
     void Function(RelaySession) onSession,
   ) async {
     final info = await inspect(request.uri);
-    if (!await keys.strongBiometrics()) {
-      throw const PairException(PairFailure.noStrongBiometrics);
+    switch (await keys.biometry()) {
+      case Biometry.available:
+        break;
+      case Biometry.lockedOut:
+        throw const PairException(PairFailure.biometryLockedOut);
+      case Biometry.none:
+        throw const PairException(PairFailure.noStrongBiometrics);
     }
     // Never over a pairing: this one would replace its keys. A state that cannot be read counts as one that may exist.
     try {

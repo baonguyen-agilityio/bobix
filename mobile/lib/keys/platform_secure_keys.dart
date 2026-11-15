@@ -56,8 +56,12 @@ class PlatformSecureKeys implements SecureKeys {
       _call<void>('deleteSecret', {'name': name});
 
   @override
-  Future<bool> strongBiometrics() async =>
-      await _call<bool>('strongBiometrics') ?? false;
+  Future<Biometry> biometry() async =>
+      switch (await _call<String>('biometry')) {
+        'available' => Biometry.available,
+        'lockedOut' => Biometry.lockedOut,
+        _ => Biometry.none,
+      };
 
   @override
   Future<Uint8List> createSigningKey() async =>

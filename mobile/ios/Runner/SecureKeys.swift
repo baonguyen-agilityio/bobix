@@ -273,12 +273,19 @@ final class KeyStore {
     return .failed(message ?? "unknown")
   }
 
-  /// Whether the biometrics a signing key needs can be used on this phone (Face ID or Touch ID is enrolled). The software
-  /// key has no such need.
-  func strongBiometrics() -> Bool {
-    if software { return true }
+  /// What the biometrics a signing key needs are like on this phone: "available", "lockedOut" (enrolled, but locked after
+  /// too many failed matches: the passcode unlocks them) or "none" (not enrolled, or turned off). The software key has no
+  /// such need.
+  static func biometry(canEvaluate: Bool, errorCode: Int?) -> String {
+    if canEvaluate { return "available" }
+    return errorCode == LAError.biometryLockout.rawValue ? "lockedOut" : "none"
+  }
+
+  func biometry() -> String {
+    if software { return "available" }
     var error: NSError?
-    return LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    let can = LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    return KeyStore.biometry(canEvaluate: can, errorCode: error?.code)
   }
 
   func deleteSigningKey() {
@@ -331,7 +338,7 @@ final class SecureKeysChannel {
       case "deleteSecret": store.deleteSecret(name()); result(nil)
       case "createSigningKey": result(FlutterStandardTypedData(bytes: try store.createSigningKey()))
       case "signingPublicKey": result(store.signingPublicKey().map { FlutterStandardTypedData(bytes: $0) })
-      case "strongBiometrics": result(store.strongBiometrics())
+      case "biometry": result(store.biometry())
       case "deleteSigningKey": store.deleteSigningKey(); result(nil)
       case "eraseAll": store.eraseAll(); result(nil)
       case "sign":

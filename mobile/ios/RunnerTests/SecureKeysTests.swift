@@ -28,8 +28,15 @@ final class SecureKeysTests: XCTestCase {
     return s
   }
 
-  func testStrongBiometricsAreNotNeededByTheSoftwareKey() throws {
-    XCTAssertTrue(try makeStore(software: true).strongBiometrics())
+  func testTheSoftwareKeyNeedsNoBiometrics() throws {
+    XCTAssertEqual(try makeStore(software: true).biometry(), "available")
+  }
+
+  func testALockoutIsNotNoBiometrics() {
+    XCTAssertEqual(KeyStore.biometry(canEvaluate: true, errorCode: nil), "available")
+    XCTAssertEqual(KeyStore.biometry(canEvaluate: false, errorCode: LAError.biometryLockout.rawValue), "lockedOut")
+    XCTAssertEqual(KeyStore.biometry(canEvaluate: false, errorCode: LAError.biometryNotEnrolled.rawValue), "none")
+    XCTAssertEqual(KeyStore.biometry(canEvaluate: false, errorCode: LAError.biometryNotAvailable.rawValue), "none")
   }
 
   func testSecretsRoundTripOverwriteAndDelete() throws {

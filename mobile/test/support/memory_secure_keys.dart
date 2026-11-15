@@ -14,10 +14,11 @@ final _publicKey = Uint8List.fromList([
 
 /// [SecureKeys] in memory, for tests of everything that does not need the secure hardware.
 class MemorySecureKeys implements SecureKeys {
-  MemorySecureKeys({this.biometrics = true});
+  MemorySecureKeys({this.biometrics = true, this.lockedOut = false});
 
-  /// What [strongBiometrics] answers.
+  /// What [biometry] answers.
   bool biometrics;
+  bool lockedOut;
   final secrets = <String, Uint8List>{};
   bool hasSigningKey = false;
   int signCalls = 0;
@@ -42,7 +43,11 @@ class MemorySecureKeys implements SecureKeys {
   Future<void> deleteSecret(String name) async => secrets.remove(name);
 
   @override
-  Future<bool> strongBiometrics() async => biometrics;
+  Future<Biometry> biometry() async => lockedOut
+      ? Biometry.lockedOut
+      : biometrics
+      ? Biometry.available
+      : Biometry.none;
 
   @override
   Future<Uint8List> createSigningKey() async {
