@@ -1,0 +1,3 @@
+// Copy to Local.xcconfig (git ignores that one) and fill in your own values. Nothing personal belongs in the repository.
+// Needed to run on a real iPhone and for the keychain access group the app shares with its extensions.
+DEVELOPMENT_TEAM = XXXXXXXXXX

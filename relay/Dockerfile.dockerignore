@@ -1,0 +1,6 @@
+# Used by `docker build -f relay/Dockerfile .` (BuildKit): send only what the build reads.
+*
+!crates/bobix-link
+!relay
+**/target
+**/.git

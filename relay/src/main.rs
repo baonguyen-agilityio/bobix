@@ -22,6 +22,20 @@ async fn main() {
         eprintln!("{e}");
         std::process::exit(2)
     });
+    // As PID 1 in a container nothing handles SIGTERM by default, so a redeploy would wait for the kill timeout.
+    // Mailboxes live in memory only; the revoked list is saved while the hub lock is held, so taking the lock
+    // before exiting means no save is half-done (a `.tmp` written but not yet renamed).
+    #[cfg(unix)]
+    {
+        let app = app.clone();
+        tokio::spawn(async move {
+            if let Ok(mut t) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                t.recv().await;
+                let _hub = app.hub.lock().unwrap_or_else(|e| e.into_inner());
+                std::process::exit(0)
+            }
+        });
+    }
     if let Err(e) = run(app, listener).await {
         eprintln!("relay stopped: {e}");
         std::process::exit(1)

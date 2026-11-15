@@ -1,0 +1,119 @@
+# The phone app (mobile/): generated strings and fixtures are current, the Rust core builds and passes the shared crate's test vectors
+# through the bridge, `flutter analyze` and `flutter test`, the iOS simulator build, the Swift key-store tests and the
+# vectors again inside the app on a simulator. The Android job comes with the Android project.
+# The workflow starts on every pull request so its check always reports; the job skips itself when nothing it covers
+# changed (a skipped job counts as passing for a required check, a workflow that never started would block the merge).
+name: mobile
+on:
+  push:
+    branches: [develop, main, feat/phone-access]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.47.9
+
+jobs:
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        # Not a pull request (push, manual run): always run. A pull request: only when the app, the shared crate it builds,
+        # the strings or the pets it generates from, or this file changed.
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || git diff --name-only "origin/$BASE"...HEAD | grep -qE '^(mobile/|crates/bobix-link/|src/ui/i18n\.js|src/ui/creature\.js|test/creature-fixtures\.js|\.github/workflows/mobile\.yml)'; then
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mobile=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  mobile:
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/rust
+      - run: flutter pub get
+
+      # Generated files must be what their sources say: the strings and the pets fixtures.
+      - name: Strings and pets fixtures are current
+        working-directory: .
+        run: |
+          node mobile/tool/strings.mjs --check
+          node mobile/tool/crate-vectors.mjs --check
+          node test/creature-fixtures.js --check
+      # The generated bridge (lib/src/rust, rust/src/frb_generated.rs) is committed and is not regenerated here:
+      # flutter_rust_bridge_codegen needs `cargo expand` and a second toolchain. Staleness is caught without it: a changed
+      # Rust signature or struct no longer compiles against the committed glue (the Rust core step), a function added or
+      # removed without regenerating fails the parity test in test/rust_api_test.dart, and Dart refuses to load a library
+      # whose content hash differs from its own (every vector test). Regenerate with `flutter_rust_bridge_codegen generate`.
+
+      - name: Rust core
+        run: |
+          cargo clippy --locked --manifest-path rust/Cargo.toml -- -D warnings
+          cargo build --locked --manifest-path rust/Cargo.toml
+      - run: flutter analyze
+      - name: Dart tests (the shared crate's test vectors through the bridge, on this computer)
+        run: flutter test
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k in sorted(d, reverse=True) if 'iOS' in k for x in d[k] if 'iPhone' in x['name']))")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+      - name: iOS simulator build (cargokit builds the Rust core into the app; the in-app vector test below proves it is there)
+        run: flutter build ios --simulator --debug --no-codesign
+      - name: Key store tests (Swift, simulator)
+        working-directory: mobile/ios
+        run: xcodebuild test -workspace Runner.xcworkspace -scheme Runner -configuration Debug -destination "id=${{ steps.sim.outputs.udid }}" -only-testing:RunnerTests/SecureKeysTests -parallel-testing-enabled NO
+      # xcodebuild may leave the simulator shut down; Flutter only sees booted simulators, hence "No devices are connected".
+      - name: Boot the simulator again and show what Flutter sees
+        run: |
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+          flutter devices
+      - name: Test vectors and key store inside the app (simulator)
+        run: |
+          flutter test integration_test/core_vectors_test.dart -d "${{ steps.sim.outputs.udid }}"
+          flutter test integration_test/secure_keys_test.dart -d "${{ steps.sim.outputs.udid }}" --dart-define=BOBIX_SOFTWARE_KEY=true
+
+      # Last, so its build mode does not leak into the steps above: what ships. The Release configuration drops the debug-only
+      # software signing key (`#if !DEBUG` in SecureKeys.swift) and builds the Rust core for a device (aarch64-apple-ios),
+      # neither of which a simulator Debug build compiles. No signing: the job has no certificate.
+      - name: Release build for a device, without signing (prod flavor)
+        run: flutter build ios --release --no-codesign --dart-define=BOBIX_FLAVOR=prod
