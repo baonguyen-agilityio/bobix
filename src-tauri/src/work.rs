@@ -476,6 +476,12 @@ pub fn new_session_link(dir: &str, prompt: &str) -> String {
 
 // An issue's description, read once (GET) when you press Start, for the prompt Claude gets; Bobix does not keep it.
 // ponytail: cut at 3000 characters; the prompt box lets you add the rest.
+// The brief a ticket is started with: `#iid title`, the issue's body and its link, each part on its own paragraph. The
+// page builds the same in board.js (`brief`); a test on each side holds the same literal output.
+pub fn brief(iid: i64, title: &str, body: &str, url: &str) -> String {
+    [format!("#{iid} {title}"), body.trim().to_string(), url.to_string()].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
 pub fn fetch_body(f: Forge, bin: &str, host: &str, path: &str, iid: i64) -> Result<String, Value> {
     let (api, field) = match f {
         Forge::GitHub => (format!("repos/{path}/issues/{iid}"), "body"),
@@ -694,6 +700,13 @@ impl Work {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_brief_is_what_the_page_builds() {
+        // the same literals are asserted against board.js `brief` in test/core.test.js
+        assert_eq!(super::brief(7, "Fix it", "  Body text \n", "https://x/7"), "#7 Fix it\n\nBody text\n\nhttps://x/7");
+        assert_eq!(super::brief(7, "Fix it", "  ", ""), "#7 Fix it", "empty parts are left out");
+    }
+
     use super::*;
     use crate::state::Sessions;
 

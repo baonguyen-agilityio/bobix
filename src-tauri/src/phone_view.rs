@@ -185,4 +185,22 @@ mod tests {
         let h = home(&sessions, &p, "Studio", 1);
         assert!(DesktopMsg::Home(h.clone()).to_json().len() <= MAX_FRAME / 4 * 3 - 2048 && h.waiting.iter().all(|w| w.preview.is_empty()));
     }
+
+    #[test]
+    fn last_lines_have_no_prompts_and_no_secrets_and_need_the_right() {
+        let mut sessions = Sessions::new();
+        let mut s = crate::state::Session::default();
+        s.id = "s1".into();
+        let l = |kind: &str, text: &str, tool: &str| crate::state::LogLine { t: 1, kind: kind.into(), text: text.into(), tool: tool.into() };
+        s.log = vec![l("prompt", "SECRET PROMPT", ""), l("tool", "npm test ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4", "Bash"), l("tool", "src/a.rs", "Edit")];
+        sessions.insert("s1".into(), s);
+        let rights = Rights { activity: true, ..Default::default() };
+        let d = session_detail(&sessions, "s1", rights).unwrap();
+        assert_eq!(d.what, DetailKind::LastLines);
+        assert!(d.text.contains("Bash npm test") && d.text.contains("Edit src/a.rs") && !d.text.contains("SECRET PROMPT") && !d.text.contains("ghp_a1B2"), "{}", d.text);
+        assert_eq!(session_detail(&sessions, "s1", Rights::default()), Err("right"));
+        assert_eq!(session_detail(&sessions, "nope", rights), Err("unknown"));
+        sessions.get_mut("s1").unwrap().log.clear();
+        assert_eq!(session_detail(&sessions, "s1", rights).unwrap().text, "", "no lines: an empty answer");
+    }
 }

@@ -97,6 +97,7 @@ pub struct State {
     results: HashMap<String, (CmdResult, u64)>, // by cid, kept 24 hours
     pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
     notified: HashSet<String>,
+    starting: HashSet<String>,                  // issues a start from a phone is running for: one at a time
     last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
     deferred: Vec<(String, String, u64)>, // (pid of a `revoked` message, phone id, when): the relay is told to revoke once the phone has it
 }
@@ -435,7 +436,7 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
             Frame::Msg { pid, from, body } => {
                 out.push(Frame::Ack { pid });
                 if let Some(packet) = b64_decode(&body) {
-                    if c.phones.store.phones.iter().any(|p| p.id == from) { out.extend(on_packet(&mut c, &from, &packet, &mut changed)); }
+                    if c.phones.store.phones.iter().any(|p| p.id == from) { out.extend(on_packet(b, &mut c, &from, &packet, &mut changed)); }
                     else { changed = on_hello(&mut c.phones, &from, &packet); }
                 }
             }
@@ -480,7 +481,7 @@ fn on_hello(st: &mut State, from: &str, body: &[u8]) -> bool {
     }
 }
 
-fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool) -> Vec<Frame> {
+fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool) -> Vec<Frame> {
     let st = &mut c.phones;
     let Some(link) = st.link_of(from) else { return vec![] };
     let opened = match link.open(packet) { Ok(o) => o, Err(_) => return vec![] };
@@ -512,14 +513,32 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
             };
             if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
         }
+        PhoneMsg::StartPreview { project, iid, mode } => {
+            let m = if !rights.start { Some(DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }) }
+                else if mode != Mode::Quick || iid.parse::<i64>().is_err() { Some(DesktopMsg::Error { code: "unsupported".into(), who: Some(Who::Desktop) }) } else { None };
+            match m {
+                Some(m) => { if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); } }
+                None => {
+                    let (b2, from2, iid) = (b.clone(), from.to_string(), iid.parse::<i64>().unwrap_or(0));
+                    std::thread::spawn(move || {
+                        let m = match start_prompt(&b2, &project, iid) {
+                            Ok((prompt, folder_known, free_disk)) => DesktopMsg::StartPrompt(StartPrompt { project, iid: iid.to_string(), mode: Mode::Quick, prompt_hash: prompt_hash(&prompt), prompt, folder_known, free_disk }),
+                            Err(code) => DesktopMsg::Error { code: code.into(), who: Some(Who::Desktop) },
+                        };
+                        tell_later(&b2, &from2, &m);
+                    });
+                }
+            }
+        }
         PhoneMsg::Sync { waiting, .. } => {
             let st = &mut c.phones;
             let results = command::sync_results(&waiting, |cid| st.results.get(&format!("{from}:{cid}")).map(|r| r.0.clone()));
             for r in results { if let Some((_, f)) = st.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); } }
         }
         PhoneMsg::Cmd(cmd) => {
-            let r = on_command(c, from, opened.counter, &cmd, changed);
-            if let Some((_, f)) = c.phones.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); }
+            if let Some(r) = on_command(b, c, from, opened.counter, &cmd, changed) {
+                if let Some((_, f)) = c.phones.tell(from, &DesktopMsg::Result(r), None, None) { out.push(f); }
+            } // None: a start, whose result is sent when it is done
         }
         _ => {}
     }
@@ -529,14 +548,15 @@ fn on_packet(c: &mut crate::Core, from: &str, packet: &[u8], changed: &mut bool)
 // A command from a phone, checked in this order: signature (with phone id, computer id, age), counter (already by the
 // link), a `cid` seen before (the stored result), the phone's right for the kind of thing held, `cut`, the `shown`
 // hash against what is held, and the request still open. Every result is stored per `cid` for 24 hours and logged.
-fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Command, changed: &mut bool) -> CmdResult {
+fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Command, changed: &mut bool) -> Option<CmdResult> {
     use crate::answers::By;
     let key = format!("{from}:{}", cmd.cid);
-    if let Some(stored) = c.phones.results.get(&key) { return stored.0.clone(); }
+    if let Some(stored) = c.phones.results.get(&key) { return Some(stored.0.clone()); }
     let t = now();
-    let Some(phone) = c.phones.store.phones.iter().find(|p| p.id == from).cloned() else { return CmdResult::refused(&cmd.cid, "unknown") };
-    let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return CmdResult::refused(&cmd.cid, "encoding") };
+    let Some(phone) = c.phones.store.phones.iter().find(|p| p.id == from).cloned() else { return Some(CmdResult::refused(&cmd.cid, "unknown")) };
+    let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return Some(CmdResult::refused(&cmd.cid, "encoding")) };
     let ctx = command::VerifyCtx { version: CURRENT_VERSION, phone_id: from, computer_id: &cid, sign_key: &sign, counter, now_ms: t };
+    let mut later = false;
     let (result, what) = match command::verify(&ctx, cmd) {
         Err(r) => (CmdResult::refused(&cmd.cid, r.why()), "command".to_string()),
         Ok(body) => {
@@ -562,17 +582,81 @@ fn on_command(c: &mut crate::Core, from: &str, counter: u64, cmd: &command::Comm
                         Err(why) => refuse(why),
                     }
                 }
-                _ => refuse("unsupported"), // starting a ticket comes with its own refusals
+                CommandBody::Start { project, iid, mode, prompt_hash } => match begin_start(b, c, from, &phone.name, &cmd.cid, project, iid, *mode, prompt_hash) {
+                    Some(r) => r,
+                    None => { later = true; CmdResult::new(&cmd.cid, Outcome::Unknown) }
+                },
             } };
             (r, what)
         }
     };
+    if later { return None; } // the start thread logs and stores it when it is done
     let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
     let shown = if let Some(w) = &result.why { format!("{word} ({w})") } else { word };
     c.phones.push_log(&phone.name, &what, &shown);
     c.phones.results.insert(key, (result.clone(), t));
     c.phones.save_results(&c.closed);
-    result
+    Some(result)
+}
+
+// What a start of this issue would run: its brief (title, body, link), whether the repository's folder is known, and the
+// free space on its volume. Reads the issue's body from the tracker, so it runs off the core's lock.
+fn start_prompt(b: &Arc<Bobix>, project: &str, iid: i64) -> Result<(String, bool, u64), &'static str> {
+    let (src, dir) = {
+        let c = b.core.lock().unwrap();
+        let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
+        let dir = view["local"].as_array().and_then(|l| l.iter().find(|g| g["path"] == project)).and_then(|g| g["dir"].as_str().map(String::from));
+        (c.work.source_of(&c.settings, project, iid), dir)
+    };
+    let Some((f, bin, host, i)) = src else { return Err("gone") };
+    let body = crate::work::fetch_body(f, &bin, &host, project, iid).map_err(|_| "gone")?;
+    let prompt = crate::work::brief(iid, i["title"].as_str().unwrap_or(""), &body, i["url"].as_str().unwrap_or(""));
+    let free = dir.as_deref().and_then(|d| crate::tickets::free_bytes(Path::new(d))).unwrap_or(0);
+    Ok((prompt, dir.is_some(), free))
+}
+
+// A message to a phone from a thread: sealed and sent now.
+fn tell_later(b: &Arc<Bobix>, to: &str, m: &DesktopMsg) {
+    let mut c = b.core.lock().unwrap();
+    if let Some((_, f)) = c.phones.tell(to, m, None, None) { c.phones.send(f); }
+}
+
+// A `start` that passed the signature and the right. Refused at once: Full (its prompt is not built here yet), an issue
+// that already has a session (a phone never resumes or focuses one) and a second start of the issue while one runs.
+// Otherwise a thread reads the issue, compares the prompt's hash with the one the phone was shown (`stale`), and starts
+// it the way the panel's Quick start does; its result goes to the phone when it is done.
+#[allow(clippy::too_many_arguments)]
+fn begin_start(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, name: &str, cid: &str, project: &str, iid: &str, mode: Mode, hash: &str) -> Option<CmdResult> {
+    let Ok(n) = iid.parse::<i64>() else { return Some(CmdResult::refused(cid, "encoding")) };
+    if mode != Mode::Quick { return Some(CmdResult::refused(cid, "unsupported")); }
+    let key = format!("{project}#{n}");
+    if c.phones.starting.contains(&key) { return Some(CmdResult::refused(cid, "busy")); }
+    let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
+    let has_session = view["local"].as_array().into_iter().flatten().filter_map(|g| g["issues"].as_array()).flatten()
+        .any(|i| i["project"] == project && i["iid"].as_i64() == Some(n) && i["sessions"].as_array().is_some_and(|s| !s.is_empty()));
+    if has_session { return Some(CmdResult::refused(cid, "exists")); }
+    c.phones.starting.insert(key.clone());
+    let (b2, from, name, cid, project, hash) = (b.clone(), from.to_string(), name.to_string(), cid.to_string(), project.to_string(), hash.to_string());
+    std::thread::spawn(move || {
+        let result = match start_prompt(&b2, &project, n) {
+            Err(_) => CmdResult::refused(&cid, "gone"),
+            Ok((_, false, _)) => CmdResult::refused(&cid, "folder"),
+            Ok((prompt, true, _)) if prompt_hash(&prompt) != hash => CmdResult::new(&cid, Outcome::Stale),
+            Ok((prompt, true, _)) => {
+                let r = crate::start_issue(&b2, &project, n, &prompt, None);
+                if r["ok"] == true { CmdResult::new(&cid, Outcome::Ok) } else { CmdResult::refused(&cid, match r["reason"].as_str() { Some("gone") => "folder", Some(x) => x, None => "failed" }) }
+            }
+        };
+        let mut c = b2.core.lock().unwrap();
+        c.phones.starting.remove(&key);
+        let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+        c.phones.push_log(&name, &format!("start {project}#{n}"), &if let Some(w) = &result.why { format!("{word} ({w})") } else { word });
+        c.phones.results.insert(format!("{from}:{cid}"), (result.clone(), now()));
+        if let Some((_, f)) = c.phones.tell(&from, &DesktopMsg::Result(result), None, None) { c.phones.send(f); }
+        drop(c);
+        b2.broadcast();
+    });
+    None
 }
 
 // A note or a free-text answer goes into Claude's reply: plain text, newlines allowed, no other control character.
