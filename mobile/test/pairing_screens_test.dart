@@ -10,6 +10,8 @@ import 'package:phone/app.dart';
 import 'package:phone/keys/platform_secure_keys.dart';
 import 'package:phone/l10n/l10n.dart';
 import 'package:phone/data/phone_data.dart';
+import 'package:phone/features/actions/action_widgets.dart' show GlassActionBar;
+import 'package:phone/widgets/detail_scaffold.dart' show PillButton;
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
@@ -122,8 +124,9 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('Answer Claude from your phone'), findsOneWidget);
+      expect(find.text('Bobix on your phone'), findsOneWidget);
       await tester.tap(find.text('Scan the code'));
+      await tester.pump();
       await tester.pump();
       expect(find.text('Scan the code on your computer'), findsOneWidget);
       await tester.tap(find.text('scan https://example.com/x'));
@@ -156,6 +159,7 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Scan the code'));
       await tester.pump();
+      await tester.pump();
       await tester.tap(find.text('scan ${code('wss://relay.example/ws')}'));
       await realWait(tester);
       expect(
@@ -165,29 +169,30 @@ void main() {
       await tester.tap(find.text('Continue'));
       await tester.pump();
       expect(find.text('Name this phone'), findsOneWidget);
-      expect(find.text('What may this phone do?'), findsOneWidget);
+      expect(find.text('What this phone may do'), findsOneWidget);
       for (final r in [
-        'Allow or deny requests',
+        'Answer permission requests',
+        'Answer Claude’s questions',
         'Approve or send back plans',
-        'Answer questions',
         'Start tickets',
-        'Stop a waiting session',
-        'See what sessions are doing',
+        'See session activity',
+        'Stop a session',
       ]) {
         expect(find.text(r), findsOneWidget);
       }
       // Stop needs the right to answer: turning that off turns Stop off and locks it.
-      await tester.tap(find.text('Allow or deny requests'));
+      await tester.tap(find.text('Answer permission requests'));
       await tester.pump();
       expect(
         tester
             .widget<SwitchListTile>(
-              find.widgetWithText(SwitchListTile, 'Stop a waiting session'),
+              find.widgetWithText(SwitchListTile, 'Stop a session'),
             )
             .onChanged,
         isNull,
       );
-      await tester.tap(find.text('Ask the computer'));
+      expect(find.text('Needs “Allow or deny requests” too.'), findsOneWidget);
+      await tester.tap(find.text('Ask the computer to confirm'));
       await realWait(tester);
       // The fake network refuses: its own message, a way out, and no key or state kept.
       expect(find.text('Can’t reach the relay'), findsOneWidget);
@@ -203,6 +208,7 @@ void main() {
     await tester.pumpWidget(host(overrides: [...base(), scanner([])]));
     await tester.pump();
     await tester.tap(find.text('Scan the code'));
+    await tester.pump();
     await tester.pump();
     await tester.tap(find.text('deny camera'));
     await tester.pump();
@@ -232,7 +238,7 @@ void main() {
       PairFailure.codeExpired: 'Mã đã hết hạn',
       PairFailure.twoPhones: 'Hai điện thoại cùng trả lời mã này',
       PairFailure.noStrongBiometrics:
-          'Điện thoại này không có sinh trắc học đủ mạnh',
+          'Điện thoại này chưa có sinh trắc học đủ mạnh',
     };
     for (final e in english.entries) {
       await tester.pumpWidget(
@@ -325,11 +331,13 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('Paired with Studio Mac (demo)'), findsOneWidget);
-      expect(find.text('Allow or deny requests'), findsOneWidget);
-      expect(find.text('See what sessions are doing'), findsOneWidget);
-      expect(find.text('Approve or send back plans'), findsNothing);
-      expect(find.text('Start tickets'), findsNothing);
+      expect(find.text('Connected to Studio Mac (demo)'), findsOneWidget);
+      expect(
+        find.text('Answer permission requests, See session activity'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Start tickets'), findsNothing);
+      expect(find.text('Open Home'), findsOneWidget);
       expect(
         find.text('The computer gave fewer rights than you asked for.'),
         findsOneWidget,
@@ -385,8 +393,160 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('Studio Mac (demo) removed this phone'), findsOneWidget);
+    expect(find.text('This phone was disconnected'), findsOneWidget);
+    expect(find.text('Disconnected on Studio Mac (demo)'), findsOneWidget);
+    expect(find.text('Nothing. The log was erased too.'), findsOneWidget);
+    expect(find.text('Connect again'), findsOneWidget);
   });
+
+  testWidgets(
+    'every pairing step shows the title, step dots and its action in the bottom bar',
+    (tester) async {
+      final computer = PairedComputer(
+        id: 'c',
+        name: 'Studio Mac (demo)',
+        relay: 'wss://relay.example',
+        phoneName: 'p',
+        desktopBoxPublic: Uint8List(32),
+        rights: rights,
+        recvState: '',
+        eventReservation: BigInt.zero,
+      );
+      // The step the dots show, and whether a Back pill is there, for each page.
+      final pages = <(PairingState, int?, bool)>[
+        (const PairingState(), 1, false),
+        (const PairingState(step: PairStep.scan), 2, true),
+        (const PairingState(step: PairStep.details), 3, true),
+        (const PairingState(step: PairStep.waiting), 3, false),
+        (
+          PairingState(step: PairStep.done, computer: computer, asked: rights),
+          null,
+          false,
+        ),
+      ];
+      for (final (st, dots, back) in pages) {
+        await tester.pumpWidget(
+          host(
+            overrides: [
+              pairingControllerProvider.overrideWith(() => _Fixed(st)),
+              scanner([]),
+            ],
+          ),
+        );
+        await tester.pump();
+        expect(
+          find.text('Connect to your computer'),
+          findsOneWidget,
+          reason: '${st.step}',
+        );
+        if (dots == null) {
+          expect(find.byKey(const Key('pair-step-dots')), findsNothing);
+        } else {
+          expect(find.byKey(const Key('pair-step-dots')), findsOneWidget);
+          // The step the person is on is the long pill; the others are small.
+          for (var i = 1; i <= 3; i++) {
+            expect(
+              tester.getSize(find.byKey(Key('pair-dot-$i'))).width,
+              i == dots ? 26 + 6 : 8 + 6, // with the 3 pt gap on each side
+              reason: '${st.step} dot $i',
+            );
+          }
+        }
+        expect(find.text('Back'), back ? findsOneWidget : findsNothing);
+        // The action sits in the glass bar at the bottom, across the width of the screen.
+        // (The scan page has none: the camera is the action.)
+        final bar = find.byType(GlassActionBar);
+        if (st.step == PairStep.scan) {
+          expect(bar, findsNothing);
+          continue;
+        }
+        expect(bar, findsOneWidget);
+        final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+        expect(tester.getRect(bar).bottom, screen.height);
+        expect(tester.getRect(bar).width, screen.width);
+      }
+    },
+  );
+
+  testWidgets(
+    'a phone with no strong biometrics is told before it scans anything',
+    (tester) async {
+      final keys = MemorySecureKeys(biometrics: false);
+      await tester.pumpWidget(
+        host(
+          overrides: [
+            ...base(keys: keys),
+            scanner([]),
+          ],
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('Scan the code'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('This phone has no strong biometrics'), findsOneWidget);
+      expect(find.text('What to do'), findsOneWidget);
+      expect(
+        find.text(
+          'Open this phone’s Settings and find fingerprint or face unlock.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Scan the code on your computer'), findsNothing);
+      // Back goes to the welcome page.
+      await tester.tap(find.widgetWithText(PillButton, 'Back'));
+      await tester.pump();
+      expect(find.text('Bobix on your phone'), findsOneWidget);
+    },
+  );
+
+  testWidgets('the same page when pairing finds out late', (tester) async {
+    await tester.pumpWidget(
+      host(
+        overrides: [
+          pairingControllerProvider.overrideWith(
+            () => _Fixed(
+              const PairingState(
+                step: PairStep.failed,
+                failure: PairFailure.noStrongBiometrics,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    await tester.pump();
+    expect(find.text('What to do'), findsOneWidget);
+    expect(find.text('Try again'), findsNothing);
+  });
+
+  testWidgets(
+    'disconnected: the card says why and what is left, with a way back',
+    (tester) async {
+      final link = _FakeLink(
+        const PairAgain(computer: 'Studio Mac (demo)', removedByComputer: true),
+      );
+      await tester.pumpWidget(
+        host(
+          home: const RootGate(),
+          overrides: [linkControllerProvider.overrideWith(() => link)],
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('This phone was disconnected'), findsOneWidget);
+      expect(find.text('Why'), findsOneWidget);
+      expect(find.text('Data left here'), findsOneWidget);
+      expect(
+        find.text(
+          'If this wasn’t you, someone with access to your computer did it.',
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Connect again'));
+      expect(link.erased, 1);
+    },
+  );
 
   testWidgets(
     'the largest system font size overflows no pairing screen, in both languages',
@@ -415,6 +575,7 @@ void main() {
         const PairingState(step: PairStep.relay, relayHost: 'relay.example'),
         const PairingState(step: PairStep.details),
         const PairingState(step: PairStep.waiting),
+        const PairingState(step: PairStep.noBiometrics),
         PairingState(step: PairStep.done, computer: computer, asked: rights),
         for (final f in PairFailure.values.where(
           (f) => f != PairFailure.cancelled,

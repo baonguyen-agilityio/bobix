@@ -14,6 +14,7 @@ import 'package:phone/l10n/l10n.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/lock/app_lock.dart';
+import 'package:phone/pets/pet_view.dart';
 import 'package:phone/lock/secure_scope.dart';
 import 'package:phone/src/rust/api/messages.dart';
 import 'package:phone/theme/theme.dart';
@@ -89,6 +90,21 @@ void main() {
       expect(find.text('the app content'), findsNothing);
       expect(find.text('Bobix is locked'), findsOneWidget);
       expect(keys.authReasons, ['to open Bobix']);
+    },
+  );
+
+  testWidgets(
+    'the lock screen shows the sleeping pet, what is the matter and the way in',
+    (tester) async {
+      keys.authAnswer = AppAuth.cancelled;
+      await pump(tester);
+      expect(find.byType(PetView), findsOneWidget);
+      expect(tester.widget<PetView>(find.byType(PetView)).state, 'idle');
+      expect(tester.widget<PetView>(find.byType(PetView)).size, 76);
+      expect(find.text('Bobix'), findsOneWidget);
+      expect(find.text('Bobix is locked'), findsOneWidget);
+      expect(find.text('Unlock to see your sessions.'), findsOneWidget);
+      expect(find.textContaining('Unlock with'), findsOneWidget);
     },
   );
 
@@ -222,7 +238,10 @@ void main() {
         findsNothing,
         reason: 'mounted but not painted',
       );
-      expect(find.byKey(const Key('draft'), skipOffstage: false), findsOneWidget);
+      expect(
+        find.byKey(const Key('draft'), skipOffstage: false),
+        findsOneWidget,
+      );
       keys.authAnswer = AppAuth.ok;
       await tester.tap(find.textContaining('Unlock with'));
       await settle(tester);
