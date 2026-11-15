@@ -376,6 +376,11 @@ class ComputerLink {
       case 'home':
         final snap = HomeSnapshot(j, _now().millisecondsSinceEpoch);
         home = snap;
+        // A `home` without `rights` (an older computer) keeps the rights the phone has.
+        final granted = j['rights'];
+        if (granted is Map<String, dynamic>) {
+          computer.rights = rightsFromJson(granted);
+        }
         computer
           ..home = m.json
           ..homeAt = snap.receivedAtMs;

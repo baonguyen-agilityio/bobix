@@ -180,13 +180,21 @@ fn desktop_messages_round_trip_with_documented_names() {
         sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 }, can_stop: false }],
         waiting: vec![waiting],
         groups: vec![Group { group: GroupKind::NeedsYou, ids: vec!["r1".into()] }],
+        rights: Some(Rights { answer: true, stop: true, ..Default::default() }),
     });
     let v = round_trip(&home);
     assert_eq!(v["kind"], "home");
+    assert_eq!(v["rights"], serde_json::json!({"answer": true, "plan": false, "question": false, "start": false, "stop": true, "activity": false}));
     assert_eq!(v["sentAt"], NOW);
     assert_eq!(v["waiting"][0]["secondsLeft"], 280);
     assert_eq!(v["waiting"][0]["atComputer"], false);
     assert_eq!(v["groups"][0]["group"], "needsYou");
+
+    // An older desktop sends no rights: the field reads as absent (keep what the phone has), and an absent one is not written.
+    let old = br#"{"kind":"home","sentAt":1,"computer":{"name":"c","state":"online","unfinished":0},"sessions":[],"waiting":[],"groups":[]}"#;
+    let Ok(DesktopMsg::Home(h)) = DesktopMsg::from_json(old) else { panic!("an older home must still parse") };
+    assert_eq!(h.rights, None);
+    assert!(round_trip(&DesktopMsg::Home(h)).get("rights").is_none());
 
     let detail = DesktopMsg::Detail(Detail {
         id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![],
@@ -258,6 +266,7 @@ fn limits_are_measured_in_bytes() {
     let home = |p: String| DesktopMsg::Home(Home {
         sent_at: 0, computer: Computer { name: "c".into(), state: ComputerState::Asleep, unfinished: 2 }, sessions: vec![], groups: vec![],
         waiting: vec![Waiting { id: "i".into(), session: "s".into(), what: WaitingKind::Plan, preview: p, cut: false, risky: false, at_computer: false, seconds_left: None }],
+        rights: None,
     });
     assert!(home("a".repeat(MAX_PREVIEW)).validate().is_ok());
     assert!(home("a".repeat(MAX_PREVIEW + 1)).validate().is_err());

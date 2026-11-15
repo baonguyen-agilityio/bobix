@@ -57,7 +57,7 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
         seconds_left: p.until.map(|u| u.saturating_sub(now) / 1000),
     }).collect();
     waiting.sort_by(|a, b| a.id.cmp(&b.id));
-    fit(Home { sent_at: now, computer: Computer { name: preview(computer, 64), state, unfinished }, sessions: infos, groups, waiting })
+    fit(Home { sent_at: now, computer: Computer { name: preview(computer, 64), state, unfinished }, sessions: infos, groups, waiting, rights: None })
 }
 
 // The Home groups a phone can carry: its entries are session or waiting ids, so an issue with no session (To do, Done) has
@@ -80,9 +80,10 @@ pub fn groups(work: &crate::work::Work, settings: &serde_json::Value, sessions: 
         .into_iter().filter(|(_, ids)| !ids.is_empty()).map(|(group, ids)| Group { group, ids }).collect()
 }
 
-// The home as one phone gets it: Stop is offered only where the phone holds both the Stop and the Answer right (the desktop
-// refuses it otherwise).
+// The home as one phone gets it: it carries that phone's rights, so a change made on the computer reaches it, and Stop is
+// offered only where the phone holds both the Stop and the Answer right (the desktop refuses it otherwise).
 pub fn for_phone(mut h: Home, rights: Rights) -> Home {
+    h.rights = Some(rights);
     if !(rights.stop && rights.answer) { for s in &mut h.sessions { s.can_stop = false; } }
     h
 }
@@ -257,6 +258,8 @@ mod tests {
         assert!(stop(&h, "r") && !stop(&h, "p") && !stop(&h, "q") && !stop(&h, "n"), "a plain request only");
         let both = Rights { stop: true, answer: true, ..Default::default() };
         assert!(stop(&for_phone(h.clone(), both), "r"));
+        assert_eq!(h.rights, None, "the shared home has no phone's rights");
+        assert_eq!(for_phone(h.clone(), both).rights, Some(both), "a phone's home carries its own rights");
         for r in [Rights { stop: true, ..Default::default() }, Rights { answer: true, ..Default::default() }, Rights::default()] {
             assert!(!stop(&for_phone(h.clone(), r), "r"), "{r:?}: the desktop would refuse it");
         }
