@@ -162,8 +162,9 @@ account at Apple beyond a free developer team to sign the app). Everything stays
 talk to each other (a guest network or "client isolation" blocks it).
 
 1. **The Mac's address.** `ipconfig getifaddr en0` (the Wi-Fi; `en1` on some Macs). Say it is `192.168.1.20`; use yours below. It
-   must be a private address (`10.x.x.x`, `172.16.x.x` to `172.31.x.x`, `192.168.x.x`, or `169.254.x.x`): Bobix accepts a plain
-   `ws://` address only for those, for `localhost`, and never for a name or a public address. Give the Mac a fixed address in your
+   must be a private address (`10.x.x.x`, `172.16.x.x` to `172.31.x.x` or `192.168.x.x`; an IPv6 unique-local `fd..` one works too):
+   a plain `ws://` address is accepted only for those and for `localhost`, never for a name (not even `*.local`), a public address or
+   a link-local one (`169.254.x.x`, `fe80::`; a cable-only Mac-to-iPhone link is not supported). Give the Mac a fixed address in your
    router if you want the setup to survive a restart.
 2. **The relay, listening on the network.** `--dev` listens on loopback only; this is the one place to widen it. It needs the address
    phones use, because every device signs that address when it logs in, and `0.0.0.0` is not one:

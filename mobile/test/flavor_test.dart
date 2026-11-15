@@ -29,6 +29,8 @@ void main() {
       'ws://relay.example',
       'ws://relay.example:8787',
       'ws://203.0.113.5:8787',
+      'ws://169.254.169.254:8787',
+      'ws://[fe80::1]:8787',
       'ws://192.168.1.20.evil.example:8787',
       'ws://192.168.1.20@evil.example',
       'ws://mac.local:8787',

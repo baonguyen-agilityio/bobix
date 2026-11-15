@@ -829,13 +829,21 @@ pub fn view(b: &Arc<Bobix>) -> Value {
         "revoked": st.store.revoked.len(), "moving": st.moving.is_some(), "linked": st.tx.is_some(), "pairing": pairing })
 }
 
+/// The relay address the desktop accepts: the link crate's rule (`wss://`, or plain `ws://` on this computer or on a private
+/// network address), and a plain `ws://` address beyond this computer only in a debug build ([`allow_lan`]): a released
+/// desktop stays on `wss://` (or `ws://localhost`), so a stable Bobix never talks plain text over a network.
+fn relay_norm(url: &str, allow_lan: bool) -> Option<String> {
+    let norm = normalize_relay_url(url)?;
+    (allow_lan || !norm.starts_with("ws://") || norm.starts_with("ws://localhost")).then_some(norm)
+}
+
 pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
     let mut out = vec![];
     {
         let mut c = b.core.lock().unwrap();
         let st = &mut c.phones;
         if on {
-            if normalize_relay_url(&st.cfg.relay).is_none() { return Err("relay".into()); }
+            if relay_norm(&st.cfg.relay, cfg!(debug_assertions)).is_none() { return Err("relay".into()); }
             st.ensure_identity(true)?;
             st.cfg.on = true;
             st.status = "connecting".into();
@@ -858,7 +866,7 @@ pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
 
 pub fn set_relay(b: &Arc<Bobix>, url: &str) -> Result<Value, String> {
     let url = url.trim();
-    let norm = normalize_relay_url(url).ok_or("relay")?;
+    let norm = relay_norm(url, cfg!(debug_assertions)).ok_or("relay")?;
     {
         let mut c = b.core.lock().unwrap();
         let st = &mut c.phones;
@@ -1036,6 +1044,20 @@ fn phones_changed_note(b: &Arc<Bobix>, name: &str, added: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_plain_lan_relay_is_for_debug_builds_only() {
+        for always in ["wss://relay.example/ws", "ws://localhost:8787", "ws://127.0.0.1:8787/"] {
+            assert!(relay_norm(always, false).is_some() && relay_norm(always, true).is_some(), "{always}");
+        }
+        for lan in ["ws://192.168.1.20:8787", "ws://10.0.0.5:8787", "ws://172.16.3.4:8787", "ws://[fd12::1]:8787"] {
+            assert!(relay_norm(lan, false).is_none(), "a released desktop refuses {lan}");
+            assert_eq!(relay_norm(lan, true).as_deref().map(|n| n.starts_with("ws://")), Some(true), "a debug build takes {lan}");
+        }
+        for never in ["ws://203.0.113.5:8787", "ws://relay.example", "ws://169.254.169.254", "http://192.168.1.20"] {
+            assert!(relay_norm(never, false).is_none() && relay_norm(never, true).is_none(), "{never}");
+        }
+    }
 
     #[test]
     fn names_are_plain_and_short() {

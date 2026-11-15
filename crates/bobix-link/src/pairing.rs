@@ -92,21 +92,21 @@ fn parse_relay(url: &str) -> Option<RelayUrl> {
 }
 
 /// An IP literal on a private network, where a plain `ws://` relay on the same Wi-Fi is acceptable for trying the app: IPv4
-/// `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` and link-local `169.254.0.0/16` (four decimal octets, no leading zeros,
-/// so `10.0.0.1.evil.example` and `010.0.0.1` are not addresses), and IPv6 unique-local `fc00::/7` and link-local
-/// `fe80::/10`. A name is never private, not even `*.local`: a name can be made to point anywhere.
+/// `10.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16` (four decimal octets, no leading zeros, so `10.0.0.1.evil.example` and
+/// `010.0.0.1` are not addresses), and IPv6 unique-local `fc00::/7`. Link-local addresses (`169.254.0.0/16`, which holds
+/// the cloud metadata address, and `fe80::/10`) are not private here. A name is never private, not even `*.local`: a name
+/// can be made to point anywhere. The IPv6 text must be a real address.
 fn is_private_host(host: &str) -> bool {
     if host.contains(':') {
-        let first = host.split(':').next().unwrap_or("");
-        let Ok(w) = u16::from_str_radix(first, 16) else { return false };
-        return !first.is_empty() && (w & 0xfe00 == 0xfc00 || w & 0xffc0 == 0xfe80);
+        let Ok(addr) = host.parse::<std::net::Ipv6Addr>() else { return false };
+        return addr.segments()[0] & 0xfe00 == 0xfc00;
     }
     let octets: Vec<&str> = host.split('.').collect();
     if octets.len() != 4 || octets.iter().any(|o| o.is_empty() || o.len() > 3 || !o.bytes().all(|b| b.is_ascii_digit()) || (o.len() > 1 && o.starts_with('0'))) {
         return false;
     }
     let Ok(n) = octets.iter().map(|o| o.parse::<u8>()).collect::<Result<Vec<u8>, _>>() else { return false };
-    matches!((n[0], n[1]), (10, _) | (192, 168) | (169, 254)) || (n[0] == 172 && (16..=31).contains(&n[1]))
+    matches!((n[0], n[1]), (10, _) | (192, 168)) || (n[0] == 172 && (16..=31).contains(&n[1]))
 }
 
 /// Whether a relay address may appear in a pairing code or in `relayMoved`: `wss://`, or plain `ws://` for a relay on
