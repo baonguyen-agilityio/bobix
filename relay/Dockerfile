@@ -27,7 +27,8 @@ COPY --from=build --chown=65532:65532 /data /data
 ENV RELAY_ADDR=0.0.0.0:8787 \
     REVOKED_DIR=/data/revoked \
     LOG_DIR=/data/logs
-VOLUME /data
+# No VOLUME instruction: Railway refuses it ("use Railway Volumes"). Mount persistent storage at /data
+# yourself (docker run -v ...:/data, or a Railway volume at /data).
 EXPOSE 8787
 USER 65532:65532
 ENTRYPOINT ["/relay"]
