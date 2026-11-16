@@ -12,7 +12,7 @@ use crate::util::{b64, b64_decode, random, Fields};
 
 pub const PREFIX: &str = "bobix-invite:";
 pub const VERSION: u8 = 1;
-/// A label is at most this many bytes of UTF-8.
+/// A label is at most this many characters (at most 160 bytes of UTF-8, so its length fits the one-byte prefix).
 pub const MAX_LABEL: usize = 40;
 pub const MAX_RELAY_ID: usize = 253;
 pub const DAY_MS: u64 = 86_400_000;
@@ -42,7 +42,7 @@ pub struct InviteCode {
 }
 
 pub fn valid_label(s: &str) -> bool {
-    s.len() <= MAX_LABEL && !s.chars().any(char::is_control)
+    s.chars().count() <= MAX_LABEL && !s.chars().any(char::is_control)
 }
 
 fn valid_relay_id(s: &str) -> bool {
@@ -190,7 +190,7 @@ mod tests {
         assert_eq!(InviteCode::parse("bobix-invite:!!"), Err(InviteError::Malformed));
         assert_eq!(InviteCode::create(&owner, "r", &"x".repeat(MAX_LABEL + 1), 5), Err(InviteError::Label));
         assert_eq!(InviteCode::create(&owner, "r", "a\u{7}b", 5), Err(InviteError::Label));
-        assert!(InviteCode::create(&owner, "r", &"é".repeat(MAX_LABEL / 2), 5).is_ok(), "the bound is in bytes");
+        assert!(InviteCode::parse(&InviteCode::create(&owner, "r", &"\u{1F600}".repeat(MAX_LABEL), 5).unwrap()).is_ok(), "the bound is in characters, and 40 of the widest fit");
         assert_eq!(InviteCode::create(&owner, "", "", 5), Err(InviteError::RelayId));
         assert_eq!(InviteCode::create(&owner, "a b", "", 5), Err(InviteError::RelayId));
     }

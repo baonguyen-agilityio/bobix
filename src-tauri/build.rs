@@ -9,7 +9,7 @@ const COMMANDS: &[&str] = &[
     "question_answer",
 ];
 // Declared only when the `phones` feature is on (Cargo sets CARGO_FEATURE_PHONES for the build script).
-const PHONE_COMMANDS: &[&str] = &["phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
+const PHONE_COMMANDS: &[&str] = &["phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log", "phones_invite_create", "phones_invite_redeem", "phones_invite_remove"];
 
 fn main() {
     let mut commands = COMMANDS.to_vec();

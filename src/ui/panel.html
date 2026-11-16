@@ -1241,6 +1241,27 @@ const phoneFail = e => { phoneErr = String(e?.message || e || ''); return null; 
 function phoneRightsHTML(ph, prefix, on, disabled) {
   return PHONE_RIGHTS.map(r => `<label class="chk"><input type="checkbox" data-pr="${prefix}" data-r="${r}" ${on[r] ? 'checked' : ''} ${disabled ? 'disabled' : ''}> ${esc(T('phones.right.' + r))}</label>`).join('');
 }
+// Invitations to the relay: an owner's computer makes codes and sees who came in by one; a computer that is not invited
+// enters a code. Labels and codes go in with textContent (fillPhoneText).
+let inviteDays = 7;
+function phonesInviteHTML(d) {
+  const inv = d.invite || {};
+  if (!d.on) return '';
+  if (inv.owner) {
+    const list = inv.invitees.map(x => `<li data-inv="${esc(x.id)}"><div class="phr"><b data-inv-label></b> <code>${esc(x.id.slice(0, 8))}</code> <span class="note" data-inv-at></span> <button class="btn sm" type="button" data-inv-rm="${esc(x.id)}">${esc(T('phones.inv.remove'))}</button></div></li>`).join('');
+    return `<div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.inv.title'))}</div><p class="note">${esc(T('phones.inv.owner.note'))}</p>
+      <div class="acts" style="margin:6px 0 0"><input type="text" id="phones-inv-label" maxlength="40" placeholder="${esc(T('phones.inv.label'))}" aria-label="${esc(T('phones.inv.label'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0">
+        <select id="phones-inv-days" aria-label="${esc(T('phones.inv.valid'))}">${inv.days.map(n => `<option value="${n}" ${n === inviteDays ? 'selected' : ''}>${esc(n === 1 ? T('phones.inv.day') : T('phones.inv.days', { n }))}</option>`).join('')}</select>
+        <button class="btn" type="button" data-act="phones-inv-create">${esc(T('phones.inv.create'))}</button></div>
+      ${inv.made ? `<p><code data-inv-code style="word-break:break-all"></code></p><p><button class="btn sm" type="button" data-act="phones-inv-copy">${esc(T('phones.copy'))}</button> <span class="note" data-inv-expires></span></p>` : ''}
+      <div class="lbl" style="margin-top:10px">${esc(T('phones.inv.list'))}</div>${list ? `<ul class="rows">${list}</ul>` : `<p class="note">${esc(T('phones.inv.none'))}</p>`}</div></div>`;
+  }
+  if (inv.invited && d.status !== 'invite') return '';
+  const result = inv.result && ({ ok: T('phones.inv.r.ok'), already: T('phones.inv.r.already'), expired: T('phones.inv.r.expired'), used: T('phones.inv.r.used'), otherRelay: T('phones.inv.r.otherRelay'), notOwner: T('phones.inv.r.notOwner'), invalid: T('phones.inv.r.invalid'), tooMany: T('phones.inv.r.tooMany'), server: T('phones.inv.r.server') })[inv.result] || (inv.result ? T('phones.inv.r.other') : '');
+  return `<div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.inv.enter'))}</div><p class="note">${esc(T('phones.inv.guest.note'))}</p>
+    <div class="acts" style="margin:6px 0 0"><input type="text" id="phones-inv-code" placeholder="bobix-invite:…" aria-label="${esc(T('phones.inv.enter'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0"><button class="btn" type="button" data-act="phones-inv-redeem" ${inv.pending ? 'disabled' : ''}>${esc(T('phones.inv.join'))}</button></div>
+    ${inv.pending ? `<p class="note">${esc(T('phones.inv.sending'))}</p>` : ''}${result ? `<p class="note${['ok', 'already'].includes(inv.result) ? '' : ' err'}">${esc(result)}</p>` : ''}</div></div>`;
+}
 function phonesSettingsHTML() {
   const d = phoneData;
   if (!d) return `<section class="sec" id="sec-phones"><h2>${esc(T('phones.title'))}</h2><p class="note">${esc(T('work.loading'))}</p></section>`;
@@ -1258,6 +1279,7 @@ function phonesSettingsHTML() {
     <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.relay'))}</div><div class="acts" style="margin:6px 0 0"><input type="text" id="phones-relay" value="" placeholder="${esc(T('phones.relay.ph'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0"><button class="btn" type="button" data-act="phones-relay">${esc(T('phones.relay.change'))}</button></div>
       <p class="note">${esc(T('phones.status'))}: ${esc(T('phones.status.' + statusKey))}${d.moving ? ' · ' + esc(T('phones.relay.moving')) : ''}</p>${d.unreadable ? `<p class="note err">${esc(T('phones.unreadable'))}</p>` : ''}${phoneErr ? `<p class="note err">${esc(phoneErr)}</p>` : ''}</div></div>
     ${d.deviceId ? `<div class="opt wide"><div><div class="lbl">${esc(T('phones.device'))}</div><div><code>${esc(d.deviceId)}</code> <button class="btn sm" type="button" data-act="phones-copy">${esc(T('phones.copy'))}</button></div><p class="note">${esc(T('phones.invite.hint'))}</p></div></div>` : ''}
+    ${phonesInviteHTML(d)}
     ${d.on && !d.node ? `<div class="opt wide"><p class="note err">${esc(T('phones.node'))}</p></div>` : ''}
     <div class="opt"><div><div class="lbl" id="l-phonesAwake">${esc(T('phones.awake'))}</div><div class="desc">${esc(T('phones.awake.note'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesAwake" data-phones-awake ${d.awake ? 'checked' : ''}></div></div>
     <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.hold.title'))}</div>${d.canRead === false ? `<p class="note">${esc(T('phones.hold.why'))}</p>` : ''}
@@ -1275,6 +1297,12 @@ function fillPhoneText(box) {
   if (!d) return;
   const rel = box.querySelector('#phones-relay');
   if (rel && !rel.dataset.set) { rel.value = d.relay || ''; rel.dataset.set = '1'; }
+  const made = d.invite?.made;
+  if (made) { box.querySelector('[data-inv-code]').textContent = made.code; box.querySelector('[data-inv-expires]').textContent = T('phones.inv.expires', { date: new Date(made.expires).toLocaleString(LOCALE(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }); }
+  for (const li of box.querySelectorAll('[data-inv]')) {
+    const x = (d.invite?.invitees || []).find(y => y.id === li.dataset.inv);
+    if (x) { li.querySelector('[data-inv-label]').textContent = x.label || T('phones.inv.nolabel'); li.querySelector('[data-inv-at]').textContent = new Date(x.at).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' }); }
+  }
   for (const li of box.querySelectorAll('[data-phone]')) { const x = d.phones.find(y => y.id === li.dataset.phone); if (x) li.querySelector('[data-ph-name]').textContent = x.name; }
   const asks = box.querySelector('[data-pair-asks]');
   if (asks) asks.textContent = T('phones.pair.asks', { name: d.pairing.name || '' });
@@ -3119,7 +3147,7 @@ function renderSettings() {
 }
 $('#settings').addEventListener('click', e => { if (e.target.closest('[data-act="feedback"]')) openFeedback(); });
 
-const phonesDo = (p, keepErr) => p.then(v => { if (v) { phoneData = v; if (!keepErr) phoneErr = ''; } return loadPhones(); }).catch(e => { phoneErr = ({ relay: T('phones.relay.bad'), off: T('phones.err.off'), busy: T('phones.err.busy'), moving: T('phones.err.moving'), unreadable: T('phones.unreadable') })[String(e)] || T('phones.err.other'); renderSettings(); });
+const phonesDo = (p, keepErr) => p.then(v => { if (v) { phoneData = v; if (!keepErr) phoneErr = ''; } return loadPhones(); }).catch(e => { phoneErr = ({ relay: T('phones.relay.bad'), off: T('phones.err.off'), busy: T('phones.err.busy'), moving: T('phones.err.moving'), unreadable: T('phones.unreadable'), invalid: T('phones.inv.r.invalid'), notOwner: T('phones.inv.err.owner'), label: T('phones.inv.err.label'), unknown: T('phones.err.other') })[String(e)] || T('phones.err.other'); renderSettings(); });
 $('#settings').addEventListener('change', e => {
   const t = e.target;
   if (!bridge || cur?.id !== 'set:phones') return;
@@ -3130,6 +3158,7 @@ $('#settings').addEventListener('change', e => {
   }
   if (t.dataset.hold) return phonesDo(bridge.phonesEnable(null, t.dataset.hold));
   if (t.matches('[data-phones-awake]')) return phonesDo(bridge.phonesEnable(null, null, t.checked));
+  if (t.id === 'phones-inv-days') { inviteDays = +t.value || 7; return; }
   if (t.dataset.pr === 'new') { phoneRights[t.dataset.r] = t.checked; return; }
   if (t.dataset.pr?.startsWith('row:')) {
     const rights = {};
@@ -3141,12 +3170,16 @@ $('#settings').addEventListener('click', e => {
   const t = e.target.closest('button');
   if (!t || !bridge || cur?.id !== 'set:phones') return;
   if (t.dataset.phOff) return phonesDo(bridge.phonesDisconnect(t.dataset.phOff));
+  if (t.dataset.invRm) return phonesDo(bridge.phonesInviteRemove(t.dataset.invRm));
   const a = t.dataset.act;
   if (a === 'phones-relay') { const v = $('#phones-relay')?.value.trim() || ''; if (!v) { phoneErr = T('phones.relay.set'); return renderSettings(); } return phonesDo(bridge.phonesRelay(v)); }
   if (a === 'phones-pair-start') return phonesDo(bridge.phonesPairStart());
   if (a === 'phones-pair-cancel') return phonesDo(bridge.phonesPairCancel());
   if (a === 'phones-pair-confirm') return phonesDo(bridge.phonesPairConfirm(phoneRights));
   if (a === 'phones-newid') return phonesDo(bridge.phonesNewIdentity());
+  if (a === 'phones-inv-create') return phonesDo(bridge.phonesInviteCreate(+($('#phones-inv-days')?.value) || inviteDays, $('#phones-inv-label')?.value.trim() || ''));
+  if (a === 'phones-inv-redeem') { const v = $('#phones-inv-code')?.value.trim() || ''; if (!v) return; return phonesDo(bridge.phonesInviteRedeem(v)); }
+  if (a === 'phones-inv-copy' && phoneData?.invite?.made) { const c = phoneData.invite.made.code; return navigator.clipboard.writeText(c).then(() => toast(T('phones.copied')), () => toast(c)); }
   if (a === 'phones-copy' && phoneData?.deviceId) return navigator.clipboard.writeText(phoneData.deviceId).then(() => toast(T('phones.copied')), () => toast(phoneData.deviceId));
 });
 

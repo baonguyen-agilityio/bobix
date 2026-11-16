@@ -97,6 +97,9 @@
     phonesDisconnect: id => invoke('phones_disconnect', { id: String(id) }),
     phonesNewIdentity: () => invoke('phones_new_identity'),
     phonesLog: () => invoke('phones_log'),
+    phonesInviteCreate: (days, label) => invoke('phones_invite_create', { days: Number(days) || 7, label: typeof label === 'string' ? label : null }),
+    phonesInviteRedeem: code => invoke('phones_invite_redeem', { code: String(code || '') }),
+    phonesInviteRemove: id => invoke('phones_invite_remove', { id: String(id) }),
     ticketDetail: key => invoke('ticket_detail', { key: String(key) }),
     ticketRemove: (key, act) => invoke('ticket_remove', { key: String(key), act: ['check', 'keep', 'delete'].includes(act) ? act : 'check' }),
     ticketClean: (key, force) => invoke('ticket_clean', { key: String(key), force: force === true }), // force: also with commits not pushed
