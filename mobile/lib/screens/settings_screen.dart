@@ -871,6 +871,7 @@ class _ThemeSwatch extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           const Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(child: ColoredBox(color: _lightBg)),
               Expanded(child: ColoredBox(color: _darkBg)),
