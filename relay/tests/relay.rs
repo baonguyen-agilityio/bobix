@@ -490,6 +490,46 @@ async fn invited_computers_only_when_an_invite_file_is_set() {
 }
 
 #[tokio::test]
+async fn invite_ids_alone_turn_invitations_on_and_healthz_stays_ok() {
+    let invited = ident();
+    let mut c = cfg();
+    c.invite_ids = vec![invited.device_id()];
+    let s = start(c).await;
+    assert_eq!(reqwest::get(format!("http://{}/healthz", s.addr)).await.unwrap().text().await.unwrap(), "ok");
+
+    let mut stranger = Dev::connect(&s, ident()).await;
+    stranger.send(&Frame::PairOpen { relay_token_hash: token_pair(1).1, ttl: 120 }).await;
+    stranger.expect(is_err(ErrorCode::Invite), 1000).await;
+    // Not invited: a guest, until it names an invited computer.
+    assert!(s.app.hub.lock().unwrap().is_guest(&stranger.id()));
+
+    let mut d = Dev::connect(&s, invited).await;
+    d.send(&Frame::PairOpen { relay_token_hash: token_pair(2).1, ttl: 120 }).await;
+    d.none(is_err(ErrorCode::Invite), 300).await;
+    assert!(!s.app.hub.lock().unwrap().is_guest(&d.id()));
+}
+
+#[tokio::test]
+async fn invitations_are_the_union_of_invite_ids_and_the_invite_file() {
+    let dir = scratch("invites-union");
+    std::fs::create_dir_all(&dir).unwrap();
+    let (in_file, in_env, neither) = (ident(), ident(), ident());
+    let file = dir.join("invites.txt");
+    std::fs::write(&file, format!("{}\n", in_file.device_id())).unwrap();
+    let mut c = cfg();
+    c.invite_file = Some(file);
+    c.invite_ids = vec![in_env.device_id()];
+    let s = start(c).await;
+    {
+        let mut hub = s.app.hub.lock().unwrap();
+        assert!(!hub.is_guest(&in_file.device_id()));
+        assert!(!hub.is_guest(&in_env.device_id()));
+        assert!(hub.is_guest(&neither.device_id()));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
 async fn without_an_invite_file_any_desktop_is_admitted() {
     let s = start(cfg()).await;
     let mut d = Dev::connect(&s, ident()).await;

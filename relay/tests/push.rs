@@ -329,7 +329,7 @@ async fn apns_gets_the_right_host_push_type_topic_priority_collapse_id_and_loc_k
     let (sandbox, seen_sb) = stand_in("/3/device/{token}", 200).await;
     let (prod, seen_pr) = stand_in("/3/device/{token}", 200).await;
     let cfg = ApnsConfig {
-        key_file: "unused".into(),
+        key: bobix_relay::config::KeySource::File("unused".into()),
         key_id: "KEYID".into(),
         team_id: "TEAM".into(),
         topic: "app.example.bobix".into(),
@@ -370,12 +370,12 @@ async fn apns_gets_the_right_host_push_type_topic_priority_collapse_id_and_loc_k
 async fn apns_rejections_are_told_apart() {
     for (status, want) in [(200u16, Outcome::Sent), (410, Outcome::TokenGone), (500, Outcome::Failed("apns 500 Unregistered".into()))] {
         let (url, _) = stand_in("/3/device/{token}", status).await;
-        let cfg = ApnsConfig { key_file: "unused".into(), key_id: "K".into(), team_id: "T".into(), topic: "t".into(), sandbox_url: url.clone(), production_url: url };
+        let cfg = ApnsConfig { key: bobix_relay::config::KeySource::File("unused".into()), key_id: "K".into(), team_id: "T".into(), topic: "t".into(), sandbox_url: url.clone(), production_url: url };
         let apns = Apns::with_token(cfg, Box::new(|| Ok("J".into())));
         assert_eq!(apns.send(pr(PushKind::Alert, ApnsEnv::Sandbox, "tok", None, 10)).await, want);
     }
     // A token that is not plain text is refused before it can reach a URL.
-    let cfg = ApnsConfig { key_file: "unused".into(), key_id: "K".into(), team_id: "T".into(), topic: "t".into(), sandbox_url: "http://127.0.0.1:1".into(), production_url: "http://127.0.0.1:1".into() };
+    let cfg = ApnsConfig { key: bobix_relay::config::KeySource::File("unused".into()), key_id: "K".into(), team_id: "T".into(), topic: "t".into(), sandbox_url: "http://127.0.0.1:1".into(), production_url: "http://127.0.0.1:1".into() };
     let out = Apns::with_token(cfg, Box::new(|| Ok("J".into()))).send(pr(PushKind::Alert, ApnsEnv::Sandbox, "../x?y", None, 10)).await;
     assert!(matches!(out, Outcome::Failed(_)));
 }
