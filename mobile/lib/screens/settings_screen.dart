@@ -24,6 +24,7 @@ import 'app_log_screen.dart';
 import 'pair_chrome.dart' show FirstLineIcon, shieldCheckIcon;
 import 'feedback_screen.dart';
 import 'widgets/widgets_screen.dart';
+import '../widgets/press_feedback.dart';
 
 export 'widgets/widgets_screen.dart' show WidgetsScreen;
 
@@ -577,9 +578,13 @@ class _Row extends StatelessWidget {
     if (onTap == null) return row;
     return Semantics(
       button: true,
-      child: InkWell(
-        onTap: onTap,
-        child: ExcludeSemantics(child: row),
+      child: PressFeedback(
+        scale: .985,
+        opacity: .75,
+        child: InkWell(
+          onTap: onTap,
+          child: ExcludeSemantics(child: row),
+        ),
       ),
     );
   }
@@ -599,48 +604,55 @@ class _DisconnectButton extends ConsumerWidget {
       button: true,
       label: label,
       excludeSemantics: true,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
-        onTap: () => showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (_) => _DisconnectSheet(computer: computer),
-        ),
-        child: ConstrainedBox(
-          // Capped, so a very large font cuts the label short rather than push the computer's name out.
-          constraints: const BoxConstraints(minHeight: minTouch, maxWidth: 170),
-          child: Center(
-            widthFactor: 1,
-            child: Container(
-              height: 32,
-              padding: const EdgeInsets.symmetric(horizontal: 11),
-              decoration: BoxDecoration(
-                color: t.err.withValues(alpha: .07),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  width: .5,
-                  color: t.err.withValues(alpha: .28),
+      child: PressFeedback(
+        scale: .985,
+        opacity: .75,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: () => showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => _DisconnectSheet(computer: computer),
+          ),
+          child: ConstrainedBox(
+            // Capped, so a very large font cuts the label short rather than push the computer's name out.
+            constraints: const BoxConstraints(
+              minHeight: minTouch,
+              maxWidth: 170,
+            ),
+            child: Center(
+              widthFactor: 1,
+              child: Container(
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 11),
+                decoration: BoxDecoration(
+                  color: t.err.withValues(alpha: .07),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    width: .5,
+                    color: t.err.withValues(alpha: .28),
+                  ),
                 ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.cloud_off_outlined, size: 16, color: t.err),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: t.err,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cloud_off_outlined, size: 16, color: t.err),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: t.err,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -779,47 +791,54 @@ class _Choice extends StatelessWidget {
       child: ExcludeSemantics(
         child: Material(
           color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            child: Stack(
-              children: [
-                Glass(
-                  padding: const EdgeInsets.fromLTRB(6, 6, 6, 9),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // The swatch grows with the font, so a large one never clips its letters.
-                      SizedBox(
-                        height: MediaQuery.textScalerOf(context).scale(56),
-                        child: swatch,
-                      ),
-                      const SizedBox(height: 7),
-                      Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          height: 1.2,
-                          color: selected ? t.accentInk : t.ink2,
+          child: PressFeedback(
+            scale: .985,
+            opacity: .75,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Stack(
+                children: [
+                  Glass(
+                    padding: const EdgeInsets.fromLTRB(6, 6, 6, 9),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // The swatch grows with the font, so a large one never clips its letters.
+                        SizedBox(
+                          height: MediaQuery.textScalerOf(context).scale(56),
+                          child: swatch,
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 7),
+                        Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            height: 1.2,
+                            color: selected ? t.accentInk : t.ink2,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                if (selected)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(width: 1.5, color: t.accentSolid),
+                  if (selected)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              width: 1.5,
+                              color: t.accentSolid,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

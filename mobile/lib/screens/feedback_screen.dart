@@ -14,6 +14,7 @@ import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
 import '../widgets/glass.dart';
 import '../widgets/status_banner.dart';
+import '../widgets/press_feedback.dart';
 
 /// Opens [url] in the browser; false when it could not. A seam: tests give a recorder.
 typedef UrlOpener = Future<bool> Function(Uri url);
@@ -113,19 +114,21 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
                   button: true,
                   label: s(key),
                   child: ExcludeSemantics(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () => setState(() => _idea = idea),
-                      child: Glass(
-                        tint: _idea == idea ? t.accentBg : null,
-                        border: _idea == idea ? t.accent : null,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        child: Center(
-                          child: Text(
-                            s(key),
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: _idea == idea ? t.accentInk : t.ink2,
+                    child: PressFeedback(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () => setState(() => _idea = idea),
+                        child: Glass(
+                          tint: _idea == idea ? t.accentBg : null,
+                          border: _idea == idea ? t.accent : null,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          child: Center(
+                            child: Text(
+                              s(key),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: _idea == idea ? t.accentInk : t.ink2,
+                              ),
                             ),
                           ),
                         ),

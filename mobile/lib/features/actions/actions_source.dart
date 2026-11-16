@@ -56,6 +56,10 @@ final actionsSourceProvider = Provider<ActionsSource>(
   (ref) => throw UnimplementedError('no computer is paired'),
 );
 
+/// What the computer let this phone do, as one value that changes when the owner changes it there. Screens that load
+/// something only a right allows watch it, so a right raised on the computer shows without leaving the screen.
+final grantedRightsProvider = Provider<Object?>((ref) => null);
+
 final biometricGateProvider = Provider<BiometricGate>(
   (ref) => throw UnimplementedError('no computer is paired'),
 );

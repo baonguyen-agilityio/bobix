@@ -83,6 +83,60 @@ void main() {
   );
 
   testWidgets(
+    'the tab bar sits above the system inset, and keeps its own gap without one',
+    (tester) async {
+      tester.view
+        ..physicalSize = const Size(400, 800)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Future<double> bottomGap(double inset) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: bobixTheme(Brightness.light),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                padding: EdgeInsets.only(bottom: inset),
+                viewPadding: EdgeInsets.only(bottom: inset),
+              ),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.bottomCenter,
+                child: GlassTabBar(
+                  tabs: const [
+                    TabSpec(Icons.home, 'Home'),
+                    TabSpec(Icons.pets, 'Pets'),
+                    TabSpec(Icons.settings, 'Settings'),
+                  ],
+                  start: const TabSpec(Icons.add, 'Start'),
+                  index: 0,
+                  startIndex: 3,
+                  onSelect: (_) {},
+                ),
+              ),
+            ),
+          ),
+        );
+        return 800 -
+            tester.getRect(find.byKey(const ValueKey('tab-capsule'))).bottom;
+      }
+
+      expect(
+        await bottomGap(34),
+        greaterThan(34),
+        reason: 'above the home indicator',
+      );
+      expect(
+        await bottomGap(24),
+        greaterThan(24),
+        reason: 'above a gesture bar',
+      );
+      expect(await bottomGap(0), greaterThanOrEqualTo(10));
+    },
+  );
+
+  testWidgets(
     'a sheet floats 8 pt above the screen edge and pads for the home indicator',
     (tester) async {
       tester.view

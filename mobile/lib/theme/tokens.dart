@@ -29,6 +29,7 @@ class BobixTokens extends ThemeExtension<BobixTokens> {
     required this.err,
     required this.n300,
     required this.isDark,
+    this.wash = 1,
   });
 
   final Color bg, surface, surface2, surface3, line, lineStrong;
@@ -39,6 +40,10 @@ class BobixTokens extends ThemeExtension<BobixTokens> {
   /// The off track of a switch.
   final Color n300;
   final bool isDark;
+
+  /// How much of the page's soft coloured washes shows: 1 in light mode, 0 in dark. A number, so a change of theme can
+  /// fade it.
+  final double wash;
 
   static final light = BobixTokens(
     bg: oklch(97.4, .004, 262),
@@ -90,14 +95,43 @@ class BobixTokens extends ThemeExtension<BobixTokens> {
     err: oklch(72, .17, 18),
     n300: oklch(38, .024, 266),
     isDark: true,
+    wash: 0,
   );
 
   @override
   BobixTokens copyWith() => this;
 
   @override
-  BobixTokens lerp(ThemeExtension<BobixTokens>? other, double t) =>
-      t < .5 ? this : (other as BobixTokens? ?? this);
+  BobixTokens lerp(ThemeExtension<BobixTokens>? other, double t) {
+    if (other is! BobixTokens) return this;
+    Color c(Color a, Color b) => Color.lerp(a, b, t)!;
+    return BobixTokens(
+      bg: c(bg, other.bg),
+      surface: c(surface, other.surface),
+      surface2: c(surface2, other.surface2),
+      surface3: c(surface3, other.surface3),
+      line: c(line, other.line),
+      lineStrong: c(lineStrong, other.lineStrong),
+      ink: c(ink, other.ink),
+      ink2: c(ink2, other.ink2),
+      ink3: c(ink3, other.ink3),
+      accent: c(accent, other.accent),
+      accentInk: c(accentInk, other.accentInk),
+      accentBg: c(accentBg, other.accentBg),
+      accentSolid: c(accentSolid, other.accentSolid),
+      onAccent: c(onAccent, other.onAccent),
+      ok: c(ok, other.ok),
+      okBg: c(okBg, other.okBg),
+      warn: c(warn, other.warn),
+      warnBg: c(warnBg, other.warnBg),
+      info: c(info, other.info),
+      infoBg: c(infoBg, other.infoBg),
+      err: c(err, other.err),
+      n300: c(n300, other.n300),
+      isDark: t < .5 ? isDark : other.isDark,
+      wash: wash + (other.wash - wash) * t,
+    );
+  }
 }
 
 extension BobixThemeContext on BuildContext {

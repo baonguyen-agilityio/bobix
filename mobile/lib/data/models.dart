@@ -25,6 +25,7 @@ class Session {
     this.pullRequest,
     this.petDesign = 'default',
     this.petColor = 0,
+    this.activityLines = 0,
   });
 
   final String id, name, project;
@@ -57,6 +58,9 @@ class Session {
   final int? pullRequest;
   final String petDesign;
   final int petColor;
+
+  /// How many lines of activity the computer has for this session (0 without the right to read them).
+  final int activityLines;
 
   /// `project #12`, or just the project when there is no ticket.
   String get ref => issue == null ? project : '$project #$issue';

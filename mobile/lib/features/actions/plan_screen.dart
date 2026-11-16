@@ -15,6 +15,7 @@ import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
 import 'command_flow.dart';
+import '../../widgets/press_feedback.dart';
 
 final planProvider = FutureProvider.autoDispose.family<PlanDoc, String>(
   (ref, id) => ref.watch(actionsSourceProvider).plan(id),
@@ -279,28 +280,32 @@ class _SuggestionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-    return InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: onTap,
-      child: Glass(
-        radius: 22,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: t.ink2,
+    return PressFeedback(
+      scale: .985,
+      opacity: .75,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Glass(
+          radius: 22,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: t.ink2,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

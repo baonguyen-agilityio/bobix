@@ -6,6 +6,7 @@ import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import '../features/actions/action_widgets.dart' show HeaderPill;
 import 'header_bar.dart';
+import 'press_feedback.dart';
 
 /// A pushed screen: a back button and a title on top, the content scrolling, and an optional bar of actions at the bottom.
 class DetailScaffold extends ConsumerWidget {
@@ -107,54 +108,56 @@ class PillButton extends StatelessWidget {
         shape: shape,
         elevation: 0,
         shadowColor: t.accent,
-        child: InkWell(
-          customBorder: shape,
-          onTap: onPressed,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
-              gradient: primary
-                  ? const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0x38FFFFFF), Color(0x00FFFFFF)],
-                      stops: [0, .55],
-                    )
-                  : null,
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: compact ? minTouch : 50,
-                minWidth: minTouch,
+        child: PressFeedback(
+          child: InkWell(
+            customBorder: shape,
+            onTap: onPressed,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                gradient: primary
+                    ? const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0x38FFFFFF), Color(0x00FFFFFF)],
+                        stops: [0, .55],
+                      )
+                    : null,
               ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 6,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: compact ? minTouch : 50,
+                  minWidth: minTouch,
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (iconBuilder != null) ...[
-                      iconBuilder!(fg),
-                      const SizedBox(width: 8),
-                    ] else if (icon != null) ...[
-                      Icon(icon, size: 18, color: fg),
-                      const SizedBox(width: 8),
-                    ],
-                    Flexible(
-                      child: Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: compact ? 14 : 16,
-                          fontWeight: FontWeight.w600,
-                          color: fg,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 6,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (iconBuilder != null) ...[
+                        iconBuilder!(fg),
+                        const SizedBox(width: 8),
+                      ] else if (icon != null) ...[
+                        Icon(icon, size: 18, color: fg),
+                        const SizedBox(width: 8),
+                      ],
+                      Flexible(
+                        child: Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: compact ? 14 : 16,
+                            fontWeight: FontWeight.w600,
+                            color: fg,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
