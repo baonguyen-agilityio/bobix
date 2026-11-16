@@ -259,10 +259,13 @@ What is set up in the repository:
   of this configuration) and ends by setting `DART_DEFINES` to `BOBIX_FLAVOR=dev` (base64). The plain `Release` build keeps the `prod` flavor, which never accepts a plain `ws://` address.
 - **The version** comes from `version:` in `mobile/pubspec.yaml` (`0.1.0+1`): the part before `+` is the marketing version
   (`CFBundleShortVersionString`), the part after it is the build number (`CFBundleVersion`) of the app and both extensions.
-- **`ITSAppUsesNonExemptEncryption` is `true`** in `Runner/Info.plist`: the app does its own end-to-end encryption (a sealed box,
+- **No `ITSAppUsesNonExemptEncryption` key** in `Runner/Info.plist`, on purpose. The app does its own end-to-end encryption (a sealed box,
   X25519 key agreement and XSalsa20-Poly1305, in the Rust push core and the link crate) on top of the system's TLS, and signs commands with an
   ECDSA P-256 key. That is not "only what the operating system provides" and not only authentication, and XSalsa20 is not a
-  published IETF or ISO algorithm, so it is declared as not exempt, the safe side. See "Export compliance" below.
+  published IETF or ISO algorithm, so it is not exempt. With the key set to `true` and no `ITSEncryptionExportComplianceCode`, App Store
+  Connect refuses the upload until encryption documentation is approved; without the key the upload goes through and the
+  questions are answered on App Store Connect for each build. Never set it to `false`. Once documentation is approved, add the
+  key back as `true` with the compliance code it gives. See "Export compliance" below.
 - **Entitlements.** The app, the notification service extension and the widgets share one App Group (`BOBIX_APP_GROUP`) and the
   keychain group `dev.bobix.phone.keys`; the app alone also lists `dev.bobix.phone.app-keys`. `aps-environment` stays
   `development` in `Runner.entitlements`: Xcode puts `production` into the signed app when it signs for distribution. No team id is
@@ -288,13 +291,14 @@ Steps, once and then for every build:
    `prod` flavor. (From a shell: `flutter build ipa` is not used; the scheme is the way.)
 4. **Upload.** In the Organizer pick the archive → Distribute App → TestFlight & App Store (TestFlight Internal Only is enough for
    your own team) → Distribute. Xcode signs with the distribution certificate and the managed profiles and uploads.
-5. **Export compliance** (App Store Connect → the build → Manage / Provide export compliance information; the Info.plist key
-   makes Apple ask "does your app use encryption": it does). The answers follow the owner's own reading of the rules, which
+5. **Export compliance** (App Store Connect → the build → Manage / Provide export compliance information; with no Info.plist key, each build shows "Missing Compliance"
+   until the questions are answered; the app does use encryption). The answers follow the owner's own reading of the rules, which
    this page cannot give. What the app does, to answer from: HTTPS/TLS from the system; its own sealed-box end-to-end encryption of
    notices and commands; ECDSA signatures; all of it for a consumer app, not for military or government use. Apple's rule
    is that an app using encryption beyond the operating system's, for more than authentication, is not exempt unless it uses only
-   standard algorithms that an international standards body published; if the owner (or a lawyer) decides this app is exempt,
-   change the key to `false` and the question disappears from later builds. If not exempt, the app is usually self-classified as
+   standard algorithms that an international standards body published; if App Store Connect asks for documentation, upload it on
+   the app's App Encryption Documentation page; once approved, add `ITSAppUsesNonExemptEncryption` `true` and
+   `ITSEncryptionExportComplianceCode` to `Runner/Info.plist` and the question disappears from later builds. If not exempt, the app is usually self-classified as
    mass market (ECCN 5D992.c) and, for some countries (France, for instance), needs a declaration before it is sold there. Whether any of this applies, and for which
    countries, is the owner's judgment; start from Apple's page
    [Complying with encryption export regulations](https://developer.apple.com/documentation/security/complying-with-encryption-export-regulations).

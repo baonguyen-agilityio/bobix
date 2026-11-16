@@ -27,10 +27,6 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
-	<!-- The app does its own end-to-end encryption (crypto_box), which is not the system's: declared as non-exempt, so App Store
-	     Connect asks for the export compliance answers on each build. See docs/development.md, "TestFlight". -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<true/>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>NSFaceIDUsageDescription</key>
