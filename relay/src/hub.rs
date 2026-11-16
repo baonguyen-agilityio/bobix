@@ -78,7 +78,7 @@ pub struct PushJob {
 
 /// The list of invited computers, looked at again when the file changed, at most once per `every`.
 struct Invites {
-    /// Ids from `INVITE_IDS`: fixed for the life of the process.
+    /// Owner ids from `OWNER_IDS`: always invited, fixed for the life of the process.
     fixed: HashSet<String>,
     path: Option<std::path::PathBuf>,
     every: Duration,
@@ -142,8 +142,8 @@ pub fn now_ms() -> u64 {
 
 impl Hub {
     pub fn new(cfg: Config) -> Hub {
-        let invites = (cfg.invite_file.is_some() || !cfg.invite_ids.is_empty())
-            .then(|| Invites { fixed: cfg.invite_ids.iter().cloned().collect(), path: cfg.invite_file.clone(), every: cfg.invite_recheck, checked: None, seen: None, ids: HashSet::new() });
+        let invites = (cfg.invite_file.is_some() || !cfg.owner_ids.is_empty())
+            .then(|| Invites { fixed: cfg.owner_ids.iter().cloned().collect(), path: cfg.invite_file.clone(), every: cfg.invite_recheck, checked: None, seen: None, ids: HashSet::new() });
         let revoked = Revoked::load(cfg.revoked_dir.clone(), cfg.revoked_days, now_ms());
         Hub {
             cfg: cfg.clone(),

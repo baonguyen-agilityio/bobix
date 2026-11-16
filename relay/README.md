@@ -50,14 +50,14 @@ Without Docker: `cd relay && cargo build --release`, then run `target/release/bo
 | `RELAY_PUBLIC_URL` | **Required.** The address devices use, such as `wss://relay.example.com`. A device signs this address when it logs in, so a signature made for another relay is refused. Wrong value: every device is refused with `relayUrl` and the log says "signed for ... but this relay's RELAY_PUBLIC_URL is ...". |
 | `RELAY_ID` | **Required.** The id push grants name; use the relay's host name. Changing it invalidates the push grants phones already hold. |
 | `REVOKED_DIR` | **Required** outside `--dev`; the image sets `/data/revoked`. Must be on a persistent volume, otherwise a restart forgets who was revoked. |
-| `INVITE_IDS` | Device ids separated by commas (each 32 lowercase hex characters, spaces around them ignored), read once at start. Use it where you cannot write a file, such as Railway (the image has no shell). A bad entry stops the relay at start and the message names the entry's position, not its text. Changing it needs a restart. |
+| `OWNER_IDS` | The relay owner's computers: device ids separated by commas (each 32 lowercase hex characters, spaces around them ignored), read once at start. They are always invited, and (with #310, coming next) the only computers allowed to make invite codes. Works where you cannot write a file, such as Railway (the image has no shell). A bad entry stops the relay at start and the message names the entry's position, not its text. Changing it needs a restart. |
 | `INVITE_FILE` | Path of a file with one device id per line (`#` comments). Read again every 5 seconds, so no restart is needed. Put it on the data volume, such as `/data/invites.txt`. |
 | `CLIENT_IP_HEADER` | The header your proxy sets to the client's address, such as `X-Real-IP` or `X-Forwarded-For`; the last value is used. It keys the per-address limits (8 unauthenticated sockets, 32 sockets in all, 120 connections a minute; an IPv6 address counts by its /64), 32 unauthenticated sockets per IPv6 /48, and the totals (256 unauthenticated, 4096 open). Set it only when the proxy overwrites that header; otherwise a client picks its own address. If unset, the proxy's address is used and every client shares one limit. |
 
-Invitations are on when `INVITE_IDS` or `INVITE_FILE` is set (an `INVITE_IDS` that is set but empty stops the relay at start; the start-up line `invitations: on (N ids from INVITE_IDS, file: yes/no)` or `invitations: off` tells which); the invited computers are the ids of both together. Then only
+Invitations are on when `OWNER_IDS` or `INVITE_FILE` is set (an `OWNER_IDS` that is set but empty stops the relay at start; the start-up line `invitations: on (N ids from OWNER_IDS, file: yes/no)` or `invitations: off` tells which); the invited computers are the owners and the ids in the file together. Then only
 the computers listed may open a pairing or revoke; everyone else is a guest. **Keep invitations on during the beta** until
 per-sender shares of the global mailbox budget exist (today 1,000 mailboxes and 256 MiB are shared by everyone, so one open
-relay could be filled by a single client; see #227). With neither set, anyone can use the relay. With only `INVITE_IDS`,
+relay could be filled by a single client; see #227). With neither set, anyone can use the relay. With only `OWNER_IDS`,
 `/healthz` answers `ok` (there is no file to be missing).
 
 ### Every setting
@@ -100,7 +100,7 @@ Nothing here has been done yet; it needs your Railway account.
    - `CLIENT_IP_HEADER` = `X-Real-IP` (Railway's proxy sets the client address there; check the current Railway docs for
      the header it overwrites, and leave this empty rather than guess, since a header the client can set makes the
      limits per client meaningless).
-   - `INVITE_IDS` = your computer's device id (several: separated by commas). **Keep invitations on during the beta**, see above. The image has no shell, so there is no file to write; to add a computer later, change the variable and redeploy.
+   - `OWNER_IDS` = your computer's device id (several owners: separated by commas). **Keep invitations on during the beta**, see above. The image has no shell, so there is no file to write; to add a computer later, change the variable and redeploy.
 5. Add a **volume** mounted at `/data`. Without it a redeploy forgets revocations. Railway mounts volumes as root; if the
    relay cannot write to `/data` (uid 65532 has no access), add the variable `RAILWAY_RUN_UID=0`, which is Railway's way
    to run the container as root for volume access.

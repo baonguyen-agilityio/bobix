@@ -13,8 +13,8 @@ pub struct Config {
     /// The id a phone's push grant must name (`RELAY_ID`).
     pub relay_id: String,
     pub invite_file: Option<PathBuf>,
-    /// Device ids from `INVITE_IDS`, read once at start; invited in addition to the ones in `invite_file`.
-    pub invite_ids: Vec<String>,
+    /// The relay owner's computers (`OWNER_IDS`), read once at start; always invited, in addition to the ones in `invite_file`.
+    pub owner_ids: Vec<String>,
     pub gateway_keys_file: Option<PathBuf>,
     /// One small file per desktop. `None` keeps the list in memory only (`--dev`).
     pub revoked_dir: Option<PathBuf>,
@@ -131,7 +131,7 @@ impl Config {
             public_url: "ws://127.0.0.1:8787".into(),
             relay_id: "dev".into(),
             invite_file: None,
-            invite_ids: Vec::new(),
+            owner_ids: Vec::new(),
             gateway_keys_file: None,
             revoked_dir: None,
             log_dir: None,
@@ -180,10 +180,10 @@ impl Config {
 
     /// The one startup line about invitations; never the ids.
     pub fn invitations_line(&self) -> String {
-        if self.invite_ids.is_empty() && self.invite_file.is_none() {
+        if self.owner_ids.is_empty() && self.invite_file.is_none() {
             return "invitations: off".into();
         }
-        format!("invitations: on ({} ids from INVITE_IDS, file: {})", self.invite_ids.len(), if self.invite_file.is_some() { "yes" } else { "no" })
+        format!("invitations: on ({} ids from OWNER_IDS, file: {})", self.owner_ids.len(), if self.invite_file.is_some() { "yes" } else { "no" })
     }
 
     /// `from_env` over any lookup, so tests need not touch the process environment.
@@ -211,8 +211,8 @@ impl Config {
         c.revoked_dir = if dev { var("REVOKED_DIR").map(Into::into) } else { Some(need("REVOKED_DIR")?.into()) };
         c.invite_file = var("INVITE_FILE").map(Into::into);
         // Read raw: a variable that is set but empty must not pass for "unset", or the relay would run open without a word.
-        if let Some(ids) = lookup("INVITE_IDS") {
-            c.invite_ids = parse_invite_ids(&ids)?;
+        if let Some(ids) = lookup("OWNER_IDS") {
+            c.owner_ids = parse_owner_ids(&ids)?;
         }
         c.gateway_keys_file = var("GATEWAY_KEYS_FILE").map(Into::into);
         c.log_dir = var("LOG_DIR").map(Into::into);
@@ -262,9 +262,9 @@ fn decode_base64(text: &str, var: &str) -> Result<Vec<u8>, String> {
     }
 }
 
-/// `INVITE_IDS`: device ids (32 lowercase hex characters) separated by commas, spaces around each ignored. The error names
+/// `OWNER_IDS`: device ids (32 lowercase hex characters) separated by commas, spaces around each ignored. The error names
 /// the variable and the entry's position, never its text.
-pub fn parse_invite_ids(list: &str) -> Result<Vec<String>, String> {
+pub fn parse_owner_ids(list: &str) -> Result<Vec<String>, String> {
     let mut ids = Vec::new();
     for (i, raw) in list.split(',').enumerate() {
         let id = raw.trim();
@@ -272,14 +272,14 @@ pub fn parse_invite_ids(list: &str) -> Result<Vec<String>, String> {
             continue; // a trailing comma is harmless
         }
         if id.len() != 32 || !id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
-            return Err(format!("INVITE_IDS entry {} is not a device id (32 lowercase hex characters)", i + 1));
+            return Err(format!("OWNER_IDS entry {} is not a device id (32 lowercase hex characters)", i + 1));
         }
         if !ids.iter().any(|x| x == id) {
             ids.push(id.to_owned());
         }
     }
     if ids.is_empty() {
-        return Err("INVITE_IDS has no device id in it".into());
+        return Err("OWNER_IDS has no device id in it".into());
     }
     Ok(ids)
 }
@@ -319,7 +319,7 @@ pub fn check_dev_bind(addr: &str, forced: bool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_dev_bind, check_public_url, dev_public_url, parse_invite_ids, Config, KeySource};
+    use super::{check_dev_bind, check_public_url, dev_public_url, parse_owner_ids, Config, KeySource};
     use std::collections::HashMap;
 
     /// `--dev`-free production settings plus `extra`, looked up from a map instead of the process environment.
@@ -381,31 +381,31 @@ mod tests {
     }
 
     #[test]
-    fn invite_ids_accept_spaced_lowercase_hex_and_refuse_everything_else() {
+    fn owner_ids_accept_spaced_lowercase_hex_and_refuse_everything_else() {
         let list = format!(" {ID_A} , {ID_B},{ID_A},");
-        assert_eq!(parse_invite_ids(&list).unwrap(), vec![ID_A, ID_B]);
-        assert_eq!(from(&[("INVITE_IDS", ID_A)]).unwrap().invite_ids, vec![ID_A]);
-        assert!(from(&[]).unwrap().invite_ids.is_empty());
+        assert_eq!(parse_owner_ids(&list).unwrap(), vec![ID_A, ID_B]);
+        assert_eq!(from(&[("OWNER_IDS", ID_A)]).unwrap().owner_ids, vec![ID_A]);
+        assert!(from(&[]).unwrap().owner_ids.is_empty());
         for bad in [&ID_A.to_uppercase(), &ID_A[1..], "not-an-id", &format!("{ID_A}00"), &format!("{ID_A};{ID_B}"), &ID_A.replace('0', "g"), ","] {
-            let e = parse_invite_ids(bad).unwrap_err();
-            assert!(e.contains("INVITE_IDS"), "{e}");
+            let e = parse_owner_ids(bad).unwrap_err();
+            assert!(e.contains("OWNER_IDS"), "{e}");
             assert!(!e.contains(bad.trim_matches(',')) || bad == ",", "the message echoed the value: {e}");
         }
-        assert!(parse_invite_ids(&format!("{ID_A},nope")).unwrap_err().contains("entry 2"));
-        assert!(from(&[("INVITE_IDS", "nope")]).unwrap_err().contains("INVITE_IDS"));
+        assert!(parse_owner_ids(&format!("{ID_A},nope")).unwrap_err().contains("entry 2"));
+        assert!(from(&[("OWNER_IDS", "nope")]).unwrap_err().contains("OWNER_IDS"));
         // Set but empty is an error, not "unset": the relay must not start open by accident.
         for empty in ["", "  "] {
-            let e = from(&[("INVITE_IDS", empty)]).unwrap_err();
-            assert!(e.contains("INVITE_IDS"), "{e}");
+            let e = from(&[("OWNER_IDS", empty)]).unwrap_err();
+            assert!(e.contains("OWNER_IDS"), "{e}");
         }
     }
 
     #[test]
     fn the_startup_line_counts_invitations_without_naming_them() {
         assert_eq!(from(&[]).unwrap().invitations_line(), "invitations: off");
-        assert_eq!(from(&[("INVITE_IDS", &format!("{ID_A},{ID_B}"))]).unwrap().invitations_line(), "invitations: on (2 ids from INVITE_IDS, file: no)");
-        let both = from(&[("INVITE_IDS", ID_A), ("INVITE_FILE", "/x/invites.txt")]).unwrap().invitations_line();
-        assert_eq!(both, "invitations: on (1 ids from INVITE_IDS, file: yes)");
+        assert_eq!(from(&[("OWNER_IDS", &format!("{ID_A},{ID_B}"))]).unwrap().invitations_line(), "invitations: on (2 ids from OWNER_IDS, file: no)");
+        let both = from(&[("OWNER_IDS", ID_A), ("INVITE_FILE", "/x/invites.txt")]).unwrap().invitations_line();
+        assert_eq!(both, "invitations: on (1 ids from OWNER_IDS, file: yes)");
         assert!(!both.contains(ID_A));
     }
 
