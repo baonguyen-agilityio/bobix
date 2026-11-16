@@ -251,8 +251,8 @@ address (see the section above), with the real Secure Enclave key and Face ID: `
 What is set up in the repository:
 
 - **A build configuration `Release-TestFlight`** (a copy of `Release`) and a shared scheme **`Runner TestFlight`** that builds and
-  archives with it. Its `ios/Flutter/TestFlight.xcconfig` includes `Release.xcconfig` and sets `DART_DEFINES` to
-  `BOBIX_FLAVOR=dev` (base64). The plain `Release` build keeps the `prod` flavor, which never accepts a plain `ws://` address.
+  archives with it. Its `ios/Flutter/TestFlight.xcconfig` repeats what `Release.xcconfig` includes (with the Pods settings
+  of this configuration) and ends by setting `DART_DEFINES` to `BOBIX_FLAVOR=dev` (base64). The plain `Release` build keeps the `prod` flavor, which never accepts a plain `ws://` address.
 - **The version** comes from `version:` in `mobile/pubspec.yaml` (`0.2.0+1`): the part before `+` is the marketing version
   (`CFBundleShortVersionString`), the part after it is the build number (`CFBundleVersion`) of the app and both extensions.
 - **`ITSAppUsesNonExemptEncryption` is `true`** in `Runner/Info.plist`: the app does its own end-to-end encryption (a sealed box,
@@ -267,14 +267,15 @@ What is set up in the repository:
 Steps, once and then for every build:
 
 1. **Once.** Have a paid Apple Developer team. In App Store Connect create the app record for the bundle id `dev.bobix.phone`
-   (its extensions get `dev.bobix.phone.NotificationService` and `dev.bobix.phone.BobixWidgets`-style ids that Xcode registers). Register the App
-   Group and the two keychain-group capabilities for the team (Xcode does it with automatic signing). Copy
+   (its extensions get `dev.bobix.phone.NotificationService` and `dev.bobix.phone.BobixWidgets`-style ids that Xcode registers). Turn on App Groups,
+   Push Notifications and Keychain Sharing for the app (Xcode does it with automatic signing). Copy
    `ios/Flutter/Local.xcconfig.example` to `ios/Flutter/Local.xcconfig` and put your team id in `DEVELOPMENT_TEAM`.
 2. **Every build.** Raise the build number in `mobile/pubspec.yaml` (`0.2.0+2`, and the version before `+` for a new release), then
    `cd mobile && flutter pub get && cd ios && pod install`. Xcode reads the version from the files these write, so skipping the
    step archives the old number, which App Store Connect rejects as a duplicate.
 3. **Archive.** `open mobile/ios/Runner.xcworkspace`, choose the scheme **Runner TestFlight** and the destination **Any iOS Device
-   (arm64)**, then Product → Archive. (From a shell: `flutter build ipa` is not used; the scheme is the way.)
+   (arm64)**, then Product → Archive. Use this scheme for Archive only: its Run action is the Debug configuration, which is the
+   `prod` flavor. (From a shell: `flutter build ipa` is not used; the scheme is the way.)
 4. **Upload.** In the Organizer pick the archive → Distribute App → TestFlight & App Store (TestFlight Internal Only is enough for
    your own team) → Distribute. Xcode signs with the distribution certificate and the managed profiles and uploads.
 5. **Export compliance** (App Store Connect → the build → Manage / Provide export compliance information; the Info.plist key
@@ -284,12 +285,15 @@ Steps, once and then for every build:
    is that an app using encryption beyond the operating system's, for more than authentication, is not exempt unless it uses only
    standard algorithms that an international standards body published; if the owner (or a lawyer) decides this app is exempt,
    change the key to `false` and the question disappears from later builds. If not exempt, the app is usually self-classified as
-   mass market (ECCN 5D992.c) and, for some countries (France, for instance), needs a declaration before it is sold there; a
-   TestFlight test group inside the US is not affected.
+   mass market (ECCN 5D992.c) and, for some countries (France, for instance), needs a declaration before it is sold there. Whether any of this applies, and for which
+   countries, is the owner's judgment; start from Apple's page
+   [Complying with encryption export regulations](https://developer.apple.com/documentation/security/complying-with-encryption-export-regulations).
+   The owner chose to keep the key at `true`.
 6. **Testers.** App Store Connect → Users and Access: add each tester as a user with an App Store Connect role (up to 100 internal
    testers; they need no review). Then TestFlight → the app → Internal Testing → add a group, add the testers and the build. They
    install the TestFlight app and accept the invitation. External testers need a first beta review by Apple and are not covered here.
-7. **First run for a tester.** The app asks for the camera, Face ID and **Local Network** (allow all three), and needs the relay
+7. **First run for a tester.** The build is the `dev` flavor, so the pairing screen shows the paste-a-code field next to the
+   scanner and Send feedback says "Flavor: dev".  The app asks for the camera, Face ID and **Local Network** (allow all three), and needs the relay
    and the desktop of the section above on the same Wi-Fi. Notifications while the app is closed need the production relay with
    APNs credentials, which `relay --dev` does not have.
 
