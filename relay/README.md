@@ -14,7 +14,9 @@ never parses a packet body. A packet it alters, replays or re-routes is refused 
 
 It keeps nothing about packets after delivery. An undelivered packet waits in memory for at most 10 minutes (64
 packets and 2 MiB per device) and is lost when the relay restarts. On disk it keeps only the revoked list and the
-pairing record (a small file per desktop in `REVOKED_DIR`, 90 days) and, optionally, a daily log without packet bodies
+pairing record (a small file per desktop in `REVOKED_DIR`, 90 days), the computers invited by a code and the codes
+already spent (`INVITED_FILE`: device id, the label the owner typed, which owner invited it and when, until an owner
+removes it; a spent code's random nonce until the code would have expired) and, optionally, a daily log without packet bodies
 or tokens (`LOG_DIR`, 14 days).
 
 ## Self-hosting
@@ -32,12 +34,12 @@ port 8787.
 docker run --rm -p 8787:8787 -v bobix-relay-data:/data \
   -e RELAY_PUBLIC_URL=wss://relay.example.com \
   -e RELAY_ID=relay.example.com \
-  -e INVITE_FILE=/data/invites.txt \
+  -e OWNER_IDS=<your computer's device id> \
   bobix-relay
 ```
 
 The image holds the binary only (no shell), runs as a non-root user (uid 65532) and keeps its state under `/data`.
-`GET /healthz` answers `ok` (or `503` and the words `invitation file missing or unreadable` / `gateway keys file missing or unreadable` when `INVITE_FILE` or `GATEWAY_KEYS_FILE` is set and cannot be read, so a monitor catches a lost file too; the repository's `relay-health.yml` workflow polls it from the variable `RELAY_URL`); the image has no `HEALTHCHECK` because it has no shell or curl, so point your platform's
+`GET /healthz` answers `ok` (or `503` and the words `invitation file missing or unreadable` / `gateway keys file missing or unreadable` when `INVITE_FILE` or `GATEWAY_KEYS_FILE` is set and cannot be read, or `invited file cannot be written` when the folder of `INVITED_FILE` takes no new file, so a monitor catches a lost file too; the repository's `relay-health.yml` workflow polls it from the variable `RELAY_URL`); the image has no `HEALTHCHECK` because it has no shell or curl, so point your platform's
 check at that path.
 
 Without Docker: `cd relay && cargo build --release`, then run `target/release/bobix-relay` with the same variables.
@@ -50,15 +52,40 @@ Without Docker: `cd relay && cargo build --release`, then run `target/release/bo
 | `RELAY_PUBLIC_URL` | **Required.** The address devices use, such as `wss://relay.example.com`. A device signs this address when it logs in, so a signature made for another relay is refused. Wrong value: every device is refused with `relayUrl` and the log says "signed for ... but this relay's RELAY_PUBLIC_URL is ...". |
 | `RELAY_ID` | **Required.** The id push grants name; use the relay's host name. Changing it invalidates the push grants phones already hold. |
 | `REVOKED_DIR` | **Required** outside `--dev`; the image sets `/data/revoked`. Must be on a persistent volume, otherwise a restart forgets who was revoked. |
-| `OWNER_IDS` | The relay owner's computers: device ids separated by commas (each 32 lowercase hex characters, spaces around them ignored), read once at start. They are always invited, and (with #310, coming next) the only computers allowed to make invite codes. Works where you cannot write a file, such as Railway (the image has no shell). A bad entry stops the relay at start and the message names the entry's position, not its text. Changing it needs a restart. |
+| `OWNER_IDS` | The device ids of your own computers, separated by commas (each 32 lowercase hex characters, spaces around them ignored), read once at start. They are invited, and they are the only computers whose **invite codes** this relay accepts (see below). A bad entry stops the relay at start and the message names the entry's position, not its text. Changing it needs a restart. |
+| `INVITED_FILE` | The file that keeps the computers invited by a code and the codes already spent. **Required** with `OWNER_IDS` outside `--dev`; the image sets `/data/invited.json`. Must be on the persistent volume, otherwise a restart forgets every tester and makes spent codes work again. Written whole on each change (a temporary file, flushed, then renamed). A file that cannot be read stops the relay at start (see "Invite codes"). |
 | `INVITE_FILE` | Path of a file with one device id per line (`#` comments). Read again every 5 seconds, so no restart is needed. Put it on the data volume, such as `/data/invites.txt`. |
 | `CLIENT_IP_HEADER` | The header your proxy sets to the client's address, such as `X-Real-IP` or `X-Forwarded-For`; the last value is used. It keys the per-address limits (8 unauthenticated sockets, 32 sockets in all, 120 connections a minute; an IPv6 address counts by its /64), 32 unauthenticated sockets per IPv6 /48, and the totals (256 unauthenticated, 4096 open). Set it only when the proxy overwrites that header; otherwise a client picks its own address. If unset, the proxy's address is used and every client shares one limit. |
 
-Invitations are on when `OWNER_IDS` or `INVITE_FILE` is set (an `OWNER_IDS` that is set but empty stops the relay at start; the start-up line `invitations: on (N ids from OWNER_IDS, file: yes/no)` or `invitations: off` tells which); the invited computers are the owners and the ids in the file together. Then only
+Invitations are on when `OWNER_IDS` or `INVITE_FILE` is set (an `OWNER_IDS` that is set but empty stops the relay at start; the start-up line `invitations: on (N ids from OWNER_IDS, file: yes/no)` or `invitations: off` tells which); the invited computers are the owners, the ids in the file and the computers invited by a code, together. Then only
 the computers listed may open a pairing or revoke; everyone else is a guest. **Keep invitations on during the beta** until
 per-sender shares of the global mailbox budget exist (today 1,000 mailboxes and 256 MiB are shared by everyone, so one open
 relay could be filled by a single client; see #227). With neither set, anyone can use the relay. With only `OWNER_IDS`,
-`/healthz` answers `ok` (there is no file to be missing).
+`/healthz` answers `ok` (there is no invitation file to be missing).
+
+### Invite codes
+
+An owner's computer (one in `OWNER_IDS`) makes a code in Bobix, Settings › Phones, "Invite a computer": valid 1, 7
+or 30 days, with an optional label such as whose computer it is. The tester pastes it into Bobix (Settings › Phones,
+"Enter invite code") with this relay's address set; their computer hands it to the relay over its own login, and the
+relay adds that computer to `INVITED_FILE`. No redeploy, no shared secret.
+
+- A code carries the relay's `RELAY_ID`, the owner computer's public key, a random nonce, the expiry and the label,
+  signed with the key that computer logs in with. The relay accepts it when that key is an owner's, the signature
+  holds, the `RELAY_ID` is its own, it has not expired (and expires at most 30 days ahead) and its nonce was never
+  used. It works once: after that every other computer gets `used`. A computer that is invited already is told so and
+  does not use the code up.
+- Nothing in a code is secret, but whoever has an unused one can let one computer in, once, before it expires. Send it
+  privately. The owner sees every computer that came in by a code (label, date) in Settings › Phones and can remove it;
+  its connection is closed at once and it is a guest again (its phones lose the relay when they reconnect). A removed
+  computer needs a new code. Owners and `INVITE_FILE` ids are not on that list.
+- Changing `RELAY_ID` makes the codes not yet used worthless. A computer that makes a new identity in Bobix has a new
+  device id and needs a new code.
+- A socket may present 5 codes a minute; more are answered `tooMany`.
+- If `INVITED_FILE` is damaged, the relay refuses to start and says so (starting with an empty list would drop every
+  tester and let spent codes work again). The image has no shell, so to recover point `INVITED_FILE` at a new file such
+  as `/data/invited-2.json` and redeploy; testers then redeem new codes, and a spent code that has not expired yet would
+  work once more.
 
 ### Every setting
 
@@ -100,11 +127,15 @@ Nothing here has been done yet; it needs your Railway account.
    - `CLIENT_IP_HEADER` = `X-Real-IP` (Railway's proxy sets the client address there; check the current Railway docs for
      the header it overwrites, and leave this empty rather than guess, since a header the client can set makes the
      limits per client meaningless).
-   - `OWNER_IDS` = your computer's device id (several owners: separated by commas). **Keep invitations on during the beta**, see above. The image has no shell, so there is no file to write; to add a computer later, change the variable and redeploy.
+   - `OWNER_IDS` = your computer's device id (Bobix, Settings › Phones, "This computer's id"; several: separated by
+     commas). **Keep invitations on during the beta**, see above. Testers do not go here: you invite each one with a
+     code from Bobix (see "Invite codes"); the image keeps them in `/data/invited.json` (`INVITED_FILE`, already set).
 5. Add a **volume** mounted at `/data`. Without it a redeploy forgets revocations. Railway mounts volumes as root; if the
    relay cannot write to `/data` (uid 65532 has no access), add the variable `RAILWAY_RUN_UID=0`, which is Railway's way
    to run the container as root for volume access.
 6. Deploy, then check `https://<that domain>/healthz` answers `ok`. Enter `wss://<that domain>` as the relay in Bobix.
+7. To invite a tester: in Bobix, Settings › Phones, "Invite a computer", create a code and send it to them privately.
+   They paste it under "Enter invite code" once their Bobix has the relay's address.
 
 Push (APNs and FCM) is not part of the first deploy. When the phone app needs it, add `APNS_KEY_ID`, `APNS_TEAM_ID`,
 `APNS_TOPIC` and `APNS_KEY_BASE64`, the last as a Railway **sealed variable** (its value can no longer be read back in
