@@ -70,14 +70,17 @@ impl App {
 pub fn router(app: Arc<App>) -> Router {
     let mut r = Router::new()
         .route("/healthz", get(healthz))
+        // Devices connect to the address the owner typed, which is also what they sign at login and what
+        // RELAY_PUBLIC_URL names, so the bare address is the socket in every mode; /v1/ws stays for older clients.
+        .route("/", get(ws::upgrade))
         .route("/v1/ws", get(ws::upgrade));
     // Only a relay with its own APNs or FCM credentials (or --dev) is a gateway; any other would be an open proxy.
     if app.cfg.dev || app.cfg.apns.is_some() || app.cfg.fcm.is_some() {
         r = r.route("/v1/push", post(gateway::push));
     }
     if app.cfg.dev {
-        // The fake tools of bobix-link connect to the bare address; the pushes the recording fake saw are listed here.
-        r = r.route("/", get(ws::upgrade)).route("/dev/pushes", get(dev_pushes));
+        // The pushes the recording fake saw are listed here.
+        r = r.route("/dev/pushes", get(dev_pushes));
     }
     r.with_state(app)
 }
