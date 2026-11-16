@@ -23,7 +23,9 @@ async fn run(b: Arc<Bobix>, mut rx: UnboundedReceiver<Out>) {
             Ended::Lost => {
                 phones::link_lost(&b);
                 let jitter = bobix_link::random::<1>()[0] as f64 / 255.0 * wait / 2.0;
-                tokio::time::sleep(Duration::from_secs_f64(wait + jitter)).await;
+                let wake = b.core.lock().unwrap().phones.wake.clone();
+                // an invite code entered meanwhile is handed over at the next login: no need to wait the whole backoff
+                tokio::select! { _ = tokio::time::sleep(Duration::from_secs_f64(wait + jitter)) => {}, _ = wake.notified() => wait = 1.0 }
                 wait = (wait * 2.0).min(60.0);
             }
         }

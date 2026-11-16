@@ -13,7 +13,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bobix_link::command::{verify_auth_frame, AuthRefusal};
 use bobix_link::messages::MAX_FRAME;
-use bobix_link::relay_frames::{ErrorCode, Frame, FrameError};
+use bobix_link::relay_frames::{ErrorCode, Frame, FrameError, InviteReason};
 use bobix_link::{b64, random};
 use futures_util::stream::SplitStream;
 use futures_util::{SinkExt, StreamExt};
@@ -118,7 +118,9 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, s
 
     let mut last_seen = Instant::now();
     // With invitations on, a guest is there to reach an invited computer: one that has not named one in time is not.
+    // (One that redeems an invite code meanwhile is a guest no longer.)
     let guest_until = guest.then(|| Instant::now() + app.cfg.guest_within);
+    let mut redeems = (Instant::now(), 0u32);
     let mut ping = interval(app.cfg.ping_every);
     // Silence is judged often, so a device that stopped answering shows offline soon after `dead_after`.
     let mut check = interval((app.cfg.dead_after / 10).max(Duration::from_millis(20)));
@@ -133,6 +135,17 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, s
                 }
                 match m {
                     Message::Text(t) => match Frame::parse(t.as_str()) {
+                        Ok(f @ Frame::InviteRedeem { .. }) => {
+                            if redeems.0.elapsed() >= Duration::from_secs(60) {
+                                redeems = (Instant::now(), 0);
+                            }
+                            redeems.1 += 1;
+                            if redeems.1 > app.cfg.redeem_per_min {
+                                reply(tx, Frame::InviteResult { ok: false, reason: Some(InviteReason::TooMany) });
+                            } else {
+                                dispatch(app, &id, f);
+                            }
+                        }
                         Ok(f) => dispatch(app, &id, f),
                         Err(FrameError::Oversize) => error(tx, ErrorCode::Oversize),
                         Err(FrameError::Malformed) => error(tx, ErrorCode::Malformed),
@@ -144,7 +157,7 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, s
             }
             _ = ping.tick() => { tx.send(Out::Ping); }
             _ = check.tick() => {
-                if guest_until.is_some_and(|t| Instant::now() > t) && !app.hub.lock().unwrap().has_peers(&id) {
+                if guest_until.is_some_and(|t| Instant::now() > t) && { let mut h = app.hub.lock().unwrap(); h.is_guest(&id) && !h.has_peers(&id) } {
                     app.log.line(&format!("{id} is a guest that named no invited computer in time: closed"));
                     break;
                 }
@@ -164,7 +177,14 @@ async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, s
 }
 
 fn dispatch(app: &Arc<App>, id: &str, f: Frame) {
-    let jobs = app.hub.lock().unwrap().frame(id, f);
+    let (jobs, said) = {
+        let mut hub = app.hub.lock().unwrap();
+        let jobs = hub.frame(id, f);
+        (jobs, std::mem::take(&mut hub.said))
+    };
+    for line in said {
+        app.log.line(&line);
+    }
     for job in jobs {
         let app = app.clone();
         tokio::spawn(async move {

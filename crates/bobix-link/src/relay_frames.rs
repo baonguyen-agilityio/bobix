@@ -80,6 +80,42 @@ pub enum ErrorCode {
     Other,
 }
 
+/// A computer that got in by redeeming an invite code, as the relay lists it to an owner.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Invitee {
+    pub id: String,
+    /// The label the owner put in the code (may be empty).
+    #[serde(default)]
+    pub label: String,
+    /// The owner computer whose code it was.
+    pub by: String,
+    /// Unix ms of the redemption.
+    pub at: u64,
+}
+
+/// Why the relay refused an invite code (or, for `already`, why it did not need it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InviteReason {
+    Expired,
+    /// Some computer redeemed this code before.
+    Used,
+    /// Made for another relay.
+    OtherRelay,
+    /// Signed by a computer that is not one of this relay's owners.
+    NotOwner,
+    /// Not a code, or its signature does not hold, or it expires too far ahead.
+    Invalid,
+    TooMany,
+    /// The relay could not save it; nothing was spent.
+    Server,
+    /// This computer was invited already; the code was not spent.
+    Already,
+    #[serde(other)]
+    Other,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Frame {
@@ -124,6 +160,26 @@ pub enum Frame {
         r#ref: Option<String>,
         token: String,
         grant: String,
+    },
+    /// computer → relay, after login: who am I to this relay's invitations? Answered by `inviteState`.
+    InviteQuery {},
+    /// computer → relay: an invite code (`invite::InviteCode`, text form). Answered by `inviteResult`.
+    InviteRedeem { code: String },
+    /// owner → relay: no longer invite a computer that got in by a code. Answered by `inviteState`.
+    InviteRemove { id: String },
+    /// relay → computer. `relay_id` and `invitees` are sent to an owner only.
+    InviteState {
+        owner: bool,
+        invited: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        invitees: Vec<Invitee>,
+    },
+    InviteResult {
+        ok: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<InviteReason>,
     },
     Error {
         code: ErrorCode,

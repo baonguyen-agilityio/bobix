@@ -5,6 +5,7 @@
 pub mod config;
 pub mod gateway;
 pub mod hub;
+pub mod invited;
 pub mod limits;
 pub mod log;
 pub mod mailbox;
@@ -34,16 +35,21 @@ pub struct App {
 }
 
 impl App {
+    /// Panics when `INVITED_FILE` cannot be read (tests); the relay starts through `from_config`.
     pub fn new(cfg: Config, sender: Arc<dyn PushSender>, fake: Option<Arc<FakeSender>>) -> Arc<App> {
-        Arc::new(App {
+        App::try_new(cfg, sender, fake).expect("INVITED_FILE")
+    }
+
+    pub fn try_new(cfg: Config, sender: Arc<dyn PushSender>, fake: Option<Arc<FakeSender>>) -> Result<Arc<App>, String> {
+        Ok(Arc::new(App {
             log: log::Logger::new(cfg.log_dir.clone(), cfg.log_days),
             gateway_limits: Mutex::new(gateway::Limits::new(&cfg)),
             ips: Mutex::new(limits::Ips::new(limits::IpLimits { unauth_per_ip: cfg.max_unauth_per_ip, open_per_ip: cfg.max_open_per_ip, unauth_total: cfg.max_unauth_total, open_total: cfg.max_open_total, unauth_per_net48: cfg.max_unauth_per_net48, per_min: cfg.conns_per_ip_per_min })),
-            hub: Mutex::new(Hub::new(cfg.clone())),
+            hub: Mutex::new(Hub::try_new(cfg.clone())?),
             sender,
             fake,
             cfg,
-        })
+        }))
     }
 
     pub fn with_fake(cfg: Config) -> Arc<App> {
@@ -53,10 +59,11 @@ impl App {
 
     pub fn from_config(cfg: Config) -> Result<Arc<App>, String> {
         if cfg.dev {
-            return Ok(App::with_fake(cfg));
+            let fake = Arc::new(FakeSender::default());
+            return App::try_new(cfg, fake.clone(), Some(fake));
         }
         let sender = senders::dispatch(&cfg)?;
-        Ok(App::new(cfg, sender, None))
+        App::try_new(cfg, sender, None)
     }
 }
 
@@ -79,6 +86,9 @@ pub fn router(app: Arc<App>) -> Router {
 /// (a relay that lost its invitation file would otherwise look healthy). Names the file's role, never its path.
 async fn healthz(axum::extract::State(app): axum::extract::State<Arc<App>>) -> (axum::http::StatusCode, &'static str) {
     let readable = |p: &Option<std::path::PathBuf>| p.as_ref().is_none_or(|p| std::fs::File::open(p).is_ok_and(|f| f.metadata().is_ok_and(|m| m.is_file())));
+    if !app.hub.lock().unwrap().invited.writable() {
+        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "invited file cannot be written");
+    }
     match (readable(&app.cfg.invite_file), readable(&app.cfg.gateway_keys_file)) {
         (true, true) => (axum::http::StatusCode::OK, "ok"),
         (false, _) => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "invitation file missing or unreadable"),
