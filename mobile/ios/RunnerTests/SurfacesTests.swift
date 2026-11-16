@@ -240,7 +240,15 @@ final class SurfacesTests: XCTestCase {
     let two = try model(list(waiting: 2))
     XCTAssertEqual(two.url(for: two.list.waiting[1]).absoluteString, "bobix://request?computer=c1&ref=r1", "a row opens its own request, not the first one")
     XCTAssertEqual(try model(list(ageMinutes: 25)).url(for: two.list.waiting[1]).absoluteString, "bobix://home", "old data opens Home")
-    XCTAssertEqual(two.url(for: two.list.rows.last!).absoluteString, "bobix://home", "a working session has no request to open")
+    var working = two.list.rows.last!
+    working.computer = "c1"
+    XCTAssertEqual(two.url(for: working).absoluteString, "bobix://session?computer=c1&id=x", "a working session opens its own screen")
+    var atPc = list(waiting: 1)
+    atPc.rows[0].ref = ""  // waits, but the computer keeps the request: nothing to open from here
+    atPc.rows[0].computer = "c1"
+    XCTAssertEqual(try model(atPc).url(for: atPc.rows[0]).absoluteString, "bobix://session?computer=c1&id=w0", "answered at the computer: the session, not Home")
+    XCTAssertEqual(SurfaceLink.tap(URL(string: "bobix://session?computer=c1&id=w0")!), ["computer": "c1", "ref": "w0", "kind": "session"])
+    XCTAssertNil(SurfaceLink.tap(URL(string: "bobix://session?computer=c1")!))
     XCTAssertEqual(try model(list(waiting: 2)).url.absoluteString, "bobix://request?computer=c1&ref=r0")
   }
 

@@ -123,7 +123,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       return;
     }
     setState(() => _index = _home);
-    final match = home.sessions.where((x) => x.waitingId == t.ref);
+    final match = home.sessions.where(
+      (x) => t.kind == 'session' ? x.id == t.ref : x.waitingId == t.ref,
+    );
     if (match.isNotEmpty) openSession(context, match.first);
   }
 

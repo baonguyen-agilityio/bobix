@@ -40,11 +40,7 @@ struct SurfaceModel {
 
   /// The one URL a surface opens: the first waiting request, else Home. Never an answer.
   var url: URL {
-    if mode == .needs, let r = list.waiting.first, !r.ref.isEmpty {
-      var c = URLComponents(string: "bobix://request")!
-      c.queryItems = [URLQueryItem(name: "computer", value: r.computer), URLQueryItem(name: "ref", value: r.ref)]
-      return c.url!
-    }
+    if mode == .needs, let r = list.waiting.first { return url(for: r) }
     return URL(string: "bobix://home")!
   }
 }
@@ -71,11 +67,18 @@ struct PetImage: View {
 // MARK: Home Screen
 
 extension SurfaceModel {
-  /// The screen one row opens: its own request when the row waits and the data is fresh, else Home. Never an answer.
+  /// The screen one row opens: its own request when it waits for this phone, else that session's own screen. Old data
+  /// opens Home: the session may be gone. Never an answer.
   func url(for row: SharedList.Row) -> URL {
-    guard mode == .needs, row.state == "waiting", !row.ref.isEmpty else { return URL(string: "bobix://home")! }
-    var c = URLComponents(string: "bobix://request")!
-    c.queryItems = [URLQueryItem(name: "computer", value: row.computer), URLQueryItem(name: "ref", value: row.ref)]
+    if mode == .stale || row.id.isEmpty { return URL(string: "bobix://home")! }
+    if row.state == "waiting", !row.ref.isEmpty {
+      var c = URLComponents(string: "bobix://request")!
+      c.queryItems = [URLQueryItem(name: "computer", value: row.computer), URLQueryItem(name: "ref", value: row.ref)]
+      return c.url!
+    }
+    guard !row.computer.isEmpty else { return URL(string: "bobix://home")! }
+    var c = URLComponents(string: "bobix://session")!
+    c.queryItems = [URLQueryItem(name: "computer", value: row.computer), URLQueryItem(name: "id", value: row.id)]
     return c.url!
   }
 
@@ -155,6 +158,7 @@ struct WidgetPets: View {
 
 /// One request that waits: its pet, name and project, and a chevron. A tap opens this request, not just the app.
 struct WidgetRow: View {
+  @Environment(\.colorScheme) private var scheme
   let model: SurfaceModel
   let row: SharedList.Row
   var body: some View {
@@ -169,7 +173,12 @@ struct WidgetRow: View {
         Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.secondary)
       }
       .padding(.vertical, 6).padding(.leading, 6).padding(.trailing, 8)
-      .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
+      .background(
+        // A request that needs the person is lit orange like the Home card (a fill, no outline); the rest is a quiet grey.
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(row.state == "waiting" ? SurfaceStyle.accent.opacity(scheme == .dark ? 0.20 : 0.14) : Color.primary.opacity(0.05))
+          .widgetAccentable(row.state == "waiting")
+      )
     }
   }
 }
