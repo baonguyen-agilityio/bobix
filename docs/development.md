@@ -242,6 +242,66 @@ talk to each other (a guest network or "client isolation" blocks it).
 On a simulator the same steps work except for the camera: the `dev` flavor shows a text field on the pairing screen where you paste
 the code the desktop shows (use the simulator with `--dart-define=BOBIX_SOFTWARE_KEY=true`, because it has no Face ID).
 
+## A TestFlight build of the phone app
+
+For handing the iPhone app to testers without a cable. The owner archives and uploads in Xcode on their own Mac with their own
+Apple account; nothing here (and no CI job) holds an Apple key. It is the `dev` flavor, so it accepts `relay --dev` on a private LAN
+address (see the section above), with the real Secure Enclave key and Face ID: `BOBIX_SOFTWARE_KEY` is never defined in it.
+
+What is set up in the repository:
+
+- **A build configuration `Release-TestFlight`** (a copy of `Release`) and a shared scheme **`Runner TestFlight`** that builds and
+  archives with it. Its `ios/Flutter/TestFlight.xcconfig` repeats what `Release.xcconfig` includes (with the Pods settings
+  of this configuration) and ends by setting `DART_DEFINES` to `BOBIX_FLAVOR=dev` (base64). The plain `Release` build keeps the `prod` flavor, which never accepts a plain `ws://` address.
+- **The version** comes from `version:` in `mobile/pubspec.yaml` (`0.2.0+1`): the part before `+` is the marketing version
+  (`CFBundleShortVersionString`), the part after it is the build number (`CFBundleVersion`) of the app and both extensions.
+- **`ITSAppUsesNonExemptEncryption` is `true`** in `Runner/Info.plist`: the app does its own end-to-end encryption (a sealed box,
+  X25519 key agreement and XSalsa20-Poly1305, in the Rust push core and the link crate) on top of the system's TLS, and signs commands with an
+  ECDSA P-256 key. That is not "only what the operating system provides" and not only authentication, and XSalsa20 is not a
+  published IETF or ISO algorithm, so it is declared as not exempt, the safe side. See "Export compliance" below.
+- **Entitlements.** The app, the notification service extension and the widgets share one App Group (`BOBIX_APP_GROUP`) and the
+  keychain group `dev.bobix.phone.keys`; the app alone also lists `dev.bobix.phone.app-keys`. `aps-environment` stays
+  `development` in `Runner.entitlements`: Xcode puts `production` into the signed app when it signs for distribution. No team id is
+  committed (`ios/Flutter/Local.xcconfig` stays untracked).
+
+Steps, once and then for every build:
+
+1. **Once.** Have a paid Apple Developer team. In App Store Connect create the app record for the bundle id `dev.bobix.phone`
+   (its extensions get `dev.bobix.phone.NotificationService` and `dev.bobix.phone.BobixWidgets`-style ids that Xcode registers). Turn on App Groups,
+   Push Notifications and Keychain Sharing for the app (Xcode does it with automatic signing). Copy
+   `ios/Flutter/Local.xcconfig.example` to `ios/Flutter/Local.xcconfig` and put your team id in `DEVELOPMENT_TEAM`.
+2. **Every build.** Raise the build number in `mobile/pubspec.yaml` (`0.2.0+2`, and the version before `+` for a new release), then
+   `cd mobile && flutter pub get && cd ios && pod install`. Xcode reads the version from the files these write, so skipping the
+   step archives the old number, which App Store Connect rejects as a duplicate.
+3. **Archive.** `open mobile/ios/Runner.xcworkspace`, choose the scheme **Runner TestFlight** and the destination **Any iOS Device
+   (arm64)**, then Product → Archive. Use this scheme for Archive only: its Run action is the Debug configuration, which is the
+   `prod` flavor. (From a shell: `flutter build ipa` is not used; the scheme is the way.)
+4. **Upload.** In the Organizer pick the archive → Distribute App → TestFlight & App Store (TestFlight Internal Only is enough for
+   your own team) → Distribute. Xcode signs with the distribution certificate and the managed profiles and uploads.
+5. **Export compliance** (App Store Connect → the build → Manage / Provide export compliance information; the Info.plist key
+   makes Apple ask "does your app use encryption": it does). The answers follow the owner's own reading of the rules, which
+   this page cannot give. What the app does, to answer from: HTTPS/TLS from the system; its own sealed-box end-to-end encryption of
+   notices and commands; ECDSA signatures; all of it for a consumer app, not for military or government use. Apple's rule
+   is that an app using encryption beyond the operating system's, for more than authentication, is not exempt unless it uses only
+   standard algorithms that an international standards body published; if the owner (or a lawyer) decides this app is exempt,
+   change the key to `false` and the question disappears from later builds. If not exempt, the app is usually self-classified as
+   mass market (ECCN 5D992.c) and, for some countries (France, for instance), needs a declaration before it is sold there. Whether any of this applies, and for which
+   countries, is the owner's judgment; start from Apple's page
+   [Complying with encryption export regulations](https://developer.apple.com/documentation/security/complying-with-encryption-export-regulations).
+   The owner chose to keep the key at `true`.
+6. **Testers.** App Store Connect → Users and Access: add each tester as a user with an App Store Connect role (up to 100 internal
+   testers; they need no review). Then TestFlight → the app → Internal Testing → add a group, add the testers and the build. They
+   install the TestFlight app and accept the invitation. External testers need a first beta review by Apple and are not covered here.
+7. **First run for a tester.** The build is the `dev` flavor, so the pairing screen shows the paste-a-code field next to the
+   scanner and Send feedback says "Flavor: dev".  The app asks for the camera, Face ID and **Local Network** (allow all three), and needs the relay
+   and the desktop of the section above on the same Wi-Fi. Notifications while the app is closed need the production relay with
+   APNs credentials, which `relay --dev` does not have.
+
+What cannot be checked without the owner's Apple account: that signing succeeds with a distribution profile (App Group and
+keychain groups included), that `aps-environment` becomes `production`, that App Store Connect accepts the upload, the export
+compliance flow, and the TestFlight install. What was checked without signing: an unsigned `Release-TestFlight` archive builds, with
+the `dev` flavor and no software key in the compiled defines, `0.2.0 (1)` as the version, and the key in `Info.plist`.
+
 ## Demo and screenshots
 
 The screenshots and `demo.gif` in `docs/media/` were taken from a debug build in a scratch world (its own port, data folder and `BOBIX_HOME`, made-up repositories and transcripts), capturing only Bobix's own windows. Keep them few and small (about 0.7 MB in all), and take new ones when the pages change. The app icon comes from one 1024 px picture: `npx tauri icon <png>` writes `src-tauri/icons/`; the tray icon is drawn in `src-tauri/src/tray.rs`.
