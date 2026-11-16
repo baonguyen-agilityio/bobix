@@ -1,13 +1,15 @@
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../widgets/face_id_icon.dart';
 
 import '../../data/phone_data.dart';
 import '../../l10n/l10n.dart';
 import '../../log/activity_log.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/floating_sheet.dart';
 import 'action_screen_parts.dart';
 import 'action_widgets.dart';
 import 'actions_models.dart';
@@ -150,105 +152,67 @@ class _UnlockSheetState extends ConsumerState<UnlockSheet> {
     final t = context.tokens;
     final ios = Theme.of(context).platform == TargetPlatform.iOS;
     final c = _ok ? t.ok : t.accentInk;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(32),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-              decoration: BoxDecoration(
-                color: t.surface.withValues(alpha: t.isDark ? .86 : .9),
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(
-                  width: .5,
-                  color: t.isDark
-                      ? const Color(0x17FFFFFF)
-                      : const Color(0xE6FFFFFF),
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 38,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: t.lineStrong,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      color: _ok ? t.okBg : t.accentBg,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      _ok
-                          ? Icons.check_rounded
-                          : (ios
-                                ? Icons.face_unlock_outlined
-                                : Icons.fingerprint),
-                      size: 40,
-                      color: c,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Semantics(
-                    header: true,
-                    child: Text(
-                      _ok ? s('phone.un.ok') : s('phone.un.h'),
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: t.ink,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    widget.reason,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: t.ink2),
-                  ),
-                  if (widget.warning != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      widget.warning!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: t.err,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  FinePrint(
-                    ios
-                        ? s('phone.un.ios', {'os': bioName(s)})
-                        : s('phone.un.and'),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ActionButton(
-                      s('phone.a.cancel'),
-                      onPressed: () =>
-                          Navigator.of(context).pop(GateResult.cancelled),
-                    ),
-                  ),
-                ],
-              ),
+    return FloatingSheet(
+      horizontal: 20,
+      children: [
+        const SizedBox(height: 4),
+        Center(
+          child: Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              color: _ok ? t.okBg : t.accentBg,
+              shape: BoxShape.circle,
+            ),
+            child: _ok
+                ? Icon(Icons.check_rounded, size: 40, color: c)
+                : bioGlyph(size: 40, color: c),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Semantics(
+          header: true,
+          child: Text(
+            _ok ? s('phone.un.ok') : s('phone.un.h'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: t.ink,
             ),
           ),
         ),
-      ),
+        const SizedBox(height: 6),
+        Text(
+          widget.reason,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, color: t.ink2),
+        ),
+        if (widget.warning != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            widget.warning!,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: t.err,
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        FinePrint(
+          ios ? s('phone.un.ios', {'os': bioName(s)}) : s('phone.un.and'),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ActionButton(
+            s('phone.a.cancel'),
+            onPressed: () => Navigator.of(context).pop(GateResult.cancelled),
+          ),
+        ),
+      ],
     );
   }
 }

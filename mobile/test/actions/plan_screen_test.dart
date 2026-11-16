@@ -121,6 +121,24 @@ void main() {
       expect(find.text(tr('en', 'res.ok.back.t')), findsOneWidget);
     });
 
+    testWidgets('suggestion chips are 44 pt capsules and add their text', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const PlanScreen(id: 'plan-short'));
+      await tester.tap(button('Send back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ActionChip), findsNothing);
+      final chip = find.ancestor(
+        of: find.text(tr('en', 'pn.c1')),
+        matching: find.byType(InkWell),
+      );
+      expect(tester.getSize(chip.first).height, greaterThanOrEqualTo(44));
+      await tester.tap(find.text(tr('en', 'pn.c1')));
+      await tester.pump();
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, tr('en', 'pn.c1'));
+    });
+
     testWidgets('the note may be empty, as at the computer', (tester) async {
       final src = await pumpScreen(tester, const PlanScreen(id: 'plan-short'));
       await tester.tap(button('Send back'));

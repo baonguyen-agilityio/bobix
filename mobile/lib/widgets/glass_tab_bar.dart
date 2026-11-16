@@ -28,72 +28,73 @@ class GlassTabBar extends StatelessWidget {
   final int startIndex;
   final ValueChanged<int> onSelect;
 
+  static const double capsulePad = 3, itemW = 48, itemH = 36;
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-    Widget item(TabSpec s, int i) {
+    // The capsule is `itemH + 2 * capsulePad` high and its items are `itemW x itemH`, so the selected pill sits
+    // `capsulePad` from the capsule on the top, the bottom and (for the first and last item) the outer side.
+    Widget pill(TabSpec s, int i) {
       final on = i == index;
-      return Semantics(
-        button: true,
-        selected: on,
-        label: s.label,
-        excludeSemantics: true,
-        child: InkResponse(
-          onTap: () => onSelect(i),
-          radius: 30,
-          // 48 x 36 item of the capsule, in a 44 pt high touch target.
-          child: SizedBox(
-            width: 48,
-            height: minTouch,
-            child: Center(
-              child: Container(
-                width: 48,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: on
-                      ? (t.isDark
-                            ? const Color(0x14FFFFFF)
-                            : t.ink.withValues(alpha: .06))
-                      : null,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Stack(
+      return Container(
+        key: ValueKey('tab-pill-$i'),
+        width: itemW,
+        height: itemH,
+        decoration: BoxDecoration(
+          color: on
+              ? (t.isDark
+                    ? const Color(0x14FFFFFF)
+                    : t.ink.withValues(alpha: .06))
+              : null,
+          borderRadius: BorderRadius.circular(itemH / 2),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(s.icon, size: 20, color: on ? t.accentInk : t.ink2),
+            if (s.badge > 0)
+              Positioned(
+                top: 1,
+                right: 4,
+                child: Container(
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
                   alignment: Alignment.center,
-                  children: [
-                    Icon(s.icon, size: 20, color: on ? t.accentInk : t.ink2),
-                    if (s.badge > 0)
-                      Positioned(
-                        top: 1,
-                        right: 4,
-                        child: Container(
-                          constraints: const BoxConstraints(
-                            minWidth: 16,
-                            minHeight: 16,
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: t.accentSolid,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            '${s.badge}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: t.onAccent,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
+                  decoration: BoxDecoration(
+                    color: t.accentSolid,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${s.badge}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: t.onAccent,
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
+          ],
         ),
       );
     }
+
+    // The touch target of an item: the pill's width and a full 44 pt in height, laid over the capsule, which is shorter.
+    Widget target(TabSpec s, int i) => Semantics(
+      button: true,
+      selected: i == index,
+      label: s.label,
+      excludeSemantics: true,
+      child: InkResponse(
+        onTap: () => onSelect(i),
+        radius: 30,
+        child: const SizedBox(width: itemW, height: minTouch),
+      ),
+    );
 
     final slots = [
       for (var i = 0, n = 0; i < tabs.length + 1; i++)
@@ -104,13 +105,31 @@ class GlassTabBar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Glass(
-            blur: true,
-            radius: 21,
-            padding: const EdgeInsets.all(3),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [for (final (s, i) in slots) item(s, i)],
+          SizedBox(
+            width: itemW * slots.length + capsulePad * 2,
+            height: minTouch,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Glass(
+                  key: const ValueKey('tab-capsule'),
+                  blur: true,
+                  radius: (itemH + capsulePad * 2) / 2,
+                  padding: const EdgeInsets.all(capsulePad),
+                  child: ExcludeSemantics(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [for (final (s, i) in slots) pill(s, i)],
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: capsulePad),
+                  child: Row(
+                    children: [for (final (s, i) in slots) target(s, i)],
+                  ),
+                ),
+              ],
             ),
           ),
           Semantics(

@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,10 +15,12 @@ import '../settings/app_settings.dart';
 import '../theme/theme.dart' show minTouch;
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
+import '../widgets/face_id_icon.dart';
 import '../widgets/floating_sheet.dart';
 import '../widgets/glass.dart';
 import '../widgets/switch_row.dart';
 import 'app_log_screen.dart';
+import 'pair_chrome.dart' show FirstLineIcon, shieldCheckIcon;
 import 'feedback_screen.dart';
 import 'widgets/widgets_screen.dart';
 
@@ -92,7 +92,7 @@ class SettingsScreen extends ConsumerWidget {
         _Group(
           children: [
             _Row(
-              icon: bioIcon(),
+              bio: true,
               title: s('phone.perm.bio', {'os': bioName(s)}),
               subtitle: s('phone.perm.bio.d'),
               trailing: _AlwaysOn(s('phone.settings.always')),
@@ -105,7 +105,7 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (v) => _setLock(ref, s, v),
             ),
             _Row(
-              icon: Icons.shield_outlined,
+              icon: shieldCheckIcon,
               title: s('phone.settings.never'),
               subtitle: s('phone.settings.never.d'),
             ),
@@ -121,7 +121,7 @@ class SettingsScreen extends ConsumerWidget {
                 builder: (context, granted, _) {
                   final rights = _rights(granted);
                   return _Row(
-                    icon: Icons.shield_outlined,
+                    icon: shieldCheckIcon,
                     title: s('phone.perm.title'),
                     subtitle: s('phone.perm.sum', {
                       'n': '${rights.where((r) => r.$2).length}',
@@ -224,11 +224,6 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-/// The icon of the phone's own check: a face on iPhone, a fingerprint elsewhere.
-IconData bioIcon() => defaultTargetPlatform == TargetPlatform.iOS
-    ? Icons.face_unlock_outlined
-    : Icons.fingerprint;
-
 /// The rights the computer granted this phone, in the order Settings lists them.
 List<(String, bool)> _rights(PhoneRights r) {
   return [
@@ -267,6 +262,7 @@ class PermissionsScreen extends ConsumerWidget {
     List<(String, bool)> rights,
   ) {
     final t = context.tokens;
+    final noteStyle = TextStyle(fontSize: 12, height: 1.35, color: t.ink3);
     final on = [
       for (final r in rights)
         if (r.$2) r.$1,
@@ -335,13 +331,13 @@ class PermissionsScreen extends ConsumerWidget {
         _Group(
           children: [
             _Row(
-              icon: bioIcon(),
+              bio: true,
               tile: _Tile.plain,
               title: s('phone.perm.bio', {'os': bioName(s)}),
               subtitle: s('phone.perm.bio.d'),
             ),
             _Row(
-              icon: Icons.shield_outlined,
+              icon: shieldCheckIcon,
               tile: _Tile.plain,
               title: s('phone.settings.never'),
               subtitle: s('phone.settings.never.d'),
@@ -353,17 +349,13 @@ class PermissionsScreen extends ConsumerWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 1),
-                child: Icon(Icons.monitor, size: 16, color: t.ink3),
+              FirstLineIcon(
+                icon: Icon(Icons.monitor, size: 16, color: t.ink3),
+                size: 16,
+                style: noteStyle,
               ),
               const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  s('phone.perm.note'),
-                  style: TextStyle(fontSize: 12, height: 1.35, color: t.ink3),
-                ),
-              ),
+              Expanded(child: Text(s('phone.perm.note'), style: noteStyle)),
             ],
           ),
         ),
@@ -493,7 +485,8 @@ class _AlwaysOn extends StatelessWidget {
 /// One line of a group: an icon, a title and a second line, and what sits at the end.
 class _Row extends StatelessWidget {
   const _Row({
-    required this.icon,
+    this.icon,
+    this.bio = false,
     required this.title,
     this.subtitle,
     this.trailing,
@@ -504,7 +497,10 @@ class _Row extends StatelessWidget {
     this.chevron = false,
   });
 
-  final IconData icon;
+  final IconData? icon;
+
+  /// The icon is the phone's own check (Face ID or a fingerprint) instead of [icon].
+  final bool bio;
   final String title;
   final String? subtitle;
   final Widget? trailing;
@@ -516,8 +512,11 @@ class _Row extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
     final ink = accent ? t.accentInk : t.ink;
+    Widget glyph(double size, Color color) => bio
+        ? bioGlyph(size: size, color: color)
+        : Icon(icon, size: size, color: color);
     final lead = tile == _Tile.none
-        ? Icon(icon, size: 24, color: accent ? t.accentInk : t.ink)
+        ? glyph(24, accent ? t.accentInk : t.ink)
         : Container(
             width: 44,
             height: 44,
@@ -528,10 +527,9 @@ class _Row extends StatelessWidget {
                   ? Border.all(width: .5, color: t.line)
                   : null,
             ),
-            child: Icon(
-              icon,
-              size: 20,
-              color: tile == _Tile.ok ? t.ok : (muted ? t.ink3 : t.ink2),
+            child: glyph(
+              20,
+              tile == _Tile.ok ? t.ok : (muted ? t.ink3 : t.ink2),
             ),
           );
     final row = Opacity(

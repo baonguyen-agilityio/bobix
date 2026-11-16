@@ -1,5 +1,3 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -58,46 +56,47 @@ class ActionPage extends ConsumerWidget {
         body: SafeArea(
           child: Column(
             children: [
-              SizedBox(
-                height: 52,
-                child: Stack(
-                  alignment: Alignment.center,
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 52),
+                child: Row(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 100),
-                      child: Semantics(
-                        header: true,
-                        child: Text(
-                          title,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                            color: t.ink,
+                    SizedBox(width: showBack ? 16 : 0),
+                    if (showBack)
+                      HeaderPill(
+                        label: s('phone.a.back'),
+                        icon: Icons.chevron_left,
+                        onTap: () => Navigator.of(context).maybePop(),
+                      ),
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: showBack || onLog != null ? 12 : 16,
+                        ),
+                        child: Semantics(
+                          header: true,
+                          child: Text(
+                            title,
+                            textAlign: TextAlign.center,
+                            // A long title (Vietnamese) wraps to a second line instead of being cut.
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 17,
+                              height: 1.15,
+                              fontWeight: FontWeight.w600,
+                              color: t.ink,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                    if (showBack)
-                      Positioned(
-                        left: 8,
-                        child: HeaderPill(
-                          label: s('phone.a.back'),
-                          icon: Icons.chevron_left,
-                          onTap: () => Navigator.of(context).maybePop(),
-                        ),
-                      ),
                     if (onLog != null)
-                      Positioned(
-                        right: 8,
-                        child: HeaderPill(
-                          label: s('phone.tab.log'),
-                          icon: Icons.format_list_bulleted,
-                          onTap: onLog!,
-                        ),
+                      HeaderPill(
+                        label: s('phone.tab.log'),
+                        icon: Icons.format_list_bulleted,
+                        onTap: onLog!,
                       ),
+                    SizedBox(width: onLog != null ? 16 : (showBack ? 16 : 0)),
                   ],
                 ),
               ),
@@ -117,29 +116,16 @@ class ActionPage extends ConsumerWidget {
   }
 }
 
-/// The glass bar at the bottom of a page: the page's actions, over the content that scrolls under it.
+/// The bar of actions at the bottom of a page. It has no fill, blur or border of its own: the page's wash shows
+/// through, so no edge can be seen (the content ends above it, it does not scroll under it).
 class GlassActionBar extends StatelessWidget {
   const GlassActionBar({super.key, required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.tokens;
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          decoration: BoxDecoration(
-            color: t.surface.withValues(alpha: t.isDark ? .7 : .42),
-            border: Border(top: BorderSide(width: .5, color: t.line)),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: child);
 }
 
 /// A glass capsule in a screen's header: "‹ Back" on the left, "Log" on the right.
@@ -175,7 +161,14 @@ class HeaderPill extends StatelessWidget {
               children: [
                 Icon(icon, size: 20, color: t.accentInk),
                 const SizedBox(width: 2),
-                Text(label, style: TextStyle(fontSize: 16, color: t.accentInk)),
+                // The pills keep a readable size but do not grow without limit, or they would push the title out.
+                MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 1.3,
+                  child: Text(
+                    label,
+                    style: TextStyle(fontSize: 16, color: t.accentInk),
+                  ),
+                ),
               ],
             ),
           ),
@@ -390,11 +383,15 @@ class CodeBlock extends StatelessWidget {
       decoration: BoxDecoration(
         color: danger
             ? Color.alphaBlend(t.err.withValues(alpha: .08), t.surface2)
-            : t.surface2,
+            : (t.isDark
+                  ? t.surface2.withValues(alpha: .6)
+                  : const Color(0x73FFFFFF)),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           width: danger ? 1 : .5,
-          color: danger ? t.err : t.line,
+          color: danger
+              ? t.err
+              : (t.isDark ? const Color(0x17FFFFFF) : const Color(0xE6FFFFFF)),
         ),
       ),
       child: maxHeight == null

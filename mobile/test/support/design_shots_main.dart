@@ -58,7 +58,8 @@ String _env(String k, String d) {
   final i = switch (k) {
     'BOBIX_SHOT' => 0,
     'BOBIX_THEME' => 1,
-    _ => 2,
+    'BOBIX_LANG' => 2,
+    _ => 3,
   };
   return parts.length > i ? parts[i] : d;
 }
@@ -518,9 +519,23 @@ class _ShooterState extends State<_Shooter> {
       if (s.pairing != null)
         pairingControllerProvider.overrideWith(() => _Pairing(s.pairing!)),
     ];
-    return ProviderScope(
+    final app = ProviderScope(
       overrides: overrides,
       child: BobixApp(home: s.build()),
+    );
+    // `<id> <theme> <lang> <width>`: a narrower phone (390 pt) to check long titles; the page sits at the left edge.
+    final w = double.tryParse(_env('BOBIX_WIDTH', ''));
+    if (w == null) return app;
+    return Align(
+      alignment: Alignment.topLeft,
+      child: SizedBox(
+        width: w,
+        child: MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(size: Size(w, MediaQuery.of(context).size.height)),
+          child: app,
+        ),
+      ),
     );
   }
 }

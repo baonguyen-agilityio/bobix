@@ -18,6 +18,9 @@ class Glass extends StatelessWidget {
     this.tint,
     this.border,
     this.blur = false,
+    this.shadowBlur = 14,
+    this.shadowOffset = const Offset(0, 4),
+    this.shadowColor,
   });
 
   /// The one switch for every blur in the app.
@@ -33,6 +36,11 @@ class Glass extends StatelessWidget {
 
   /// This surface floats over scrolling content: blur what is behind it (when [blurEnabled]).
   final bool blur;
+
+  /// The outer shadow (the prototype's `0 4px 14px`); a floating sheet asks for a deeper one.
+  final double shadowBlur;
+  final Offset shadowOffset;
+  final Color? shadowColor;
 
   @override
   Widget build(BuildContext context) {
@@ -78,9 +86,9 @@ class Glass extends StatelessWidget {
     return CustomPaint(
       painter: _OuterShadow(
         radius: radius,
-        color: Color(t.isDark ? 0x4D000000 : 0x12141828),
-        blur: 14,
-        offset: const Offset(0, 4),
+        color: shadowColor ?? Color(t.isDark ? 0x4D000000 : 0x12141828),
+        blur: shadowBlur,
+        offset: shadowOffset,
       ),
       child: blurred
           ? ClipRRect(
