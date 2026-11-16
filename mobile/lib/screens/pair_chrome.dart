@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/actions/action_widgets.dart' show HeaderPill;
+import '../widgets/header_bar.dart';
 import '../l10n/l10n.dart';
 import '../theme/tokens.dart';
 import '../widgets/glass.dart';
@@ -34,53 +35,21 @@ class PairPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
-    final t = context.tokens;
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 52),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  if (showTitle)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 100),
-                      child: Semantics(
-                        header: true,
-                        child: Text(
-                          s('phone.pair.title'),
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 17,
-                            height: 1.15,
-                            fontWeight: FontWeight.w600,
-                            color: t.ink,
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (onBack != null)
-                    Positioned(
-                      left: 8,
-                      top: 0,
-                      bottom: 0,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: HeaderPill(
-                          label: s('phone.a.back'),
-                          icon: Icons.chevron_left,
-                          onTap: onBack!,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+            HeaderBar(
+              title: showTitle ? s('phone.pair.title') : null,
+              leading: onBack != null
+                  ? HeaderPill(
+                      label: s('phone.a.back'),
+                      icon: Icons.chevron_left,
+                      onTap: onBack!,
+                    )
+                  : null,
             ),
             if (step != null) StepDots(step: step!),
             Expanded(

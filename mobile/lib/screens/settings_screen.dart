@@ -515,8 +515,20 @@ class _Row extends StatelessWidget {
     Widget glyph(double size, Color color) => bio
         ? bioGlyph(size: size, color: color)
         : Icon(icon, size: size, color: color);
+    const titleStyle = TextStyle(
+      fontSize: 15,
+      height: 1.3,
+      fontWeight: FontWeight.w500,
+    );
+    // A bare icon beside the title and its second line sits on the first line, not between the two lines.
     final lead = tile == _Tile.none
-        ? glyph(24, accent ? t.accentInk : t.ink)
+        ? (subtitle != null
+              ? FirstLineIcon(
+                  icon: glyph(24, accent ? t.accentInk : t.ink),
+                  size: 24,
+                  style: titleStyle,
+                )
+              : glyph(24, accent ? t.accentInk : t.ink))
         : Container(
             width: 44,
             height: 44,
@@ -539,6 +551,9 @@ class _Row extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           child: Row(
+            crossAxisAlignment: tile == _Tile.none && subtitle != null
+                ? CrossAxisAlignment.start
+                : CrossAxisAlignment.center,
             children: [
               lead,
               const SizedBox(width: 12),
@@ -546,14 +561,7 @@ class _Row extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: ink,
-                      ),
-                    ),
+                    Text(title, style: titleStyle.copyWith(color: ink)),
                     if (subtitle != null)
                       Text(
                         subtitle!,

@@ -113,7 +113,7 @@ String sendNote(Strings s, ConnState conn, String computer) => switch (conn) {
   ConnState.ok => s('phone.sn.ok', {'c': computer}),
 };
 
-/// The action bar of the prototype: the secondary button on the left, the primary on the right (1 : 1.25) or one button
+/// The action bar of the prototype: the secondary button on the left, the primary on the right (equal widths) or one button
 /// alone, and a fine print under them.
 class ActionButtons extends StatelessWidget {
   const ActionButtons({
@@ -142,9 +142,9 @@ class ActionButtons extends StatelessWidget {
         else
           Row(
             children: [
-              Expanded(flex: 100, child: secondary!),
+              Expanded(child: secondary!),
               const SizedBox(width: 10),
-              Expanded(flex: 125, child: primary),
+              Expanded(child: primary),
             ],
           ),
         if (fine != null) ...[

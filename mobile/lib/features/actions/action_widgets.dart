@@ -8,6 +8,7 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../../pets/pet_view.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/header_bar.dart';
 import '../../data/models.dart';
 import '../../lock/secure_scope.dart';
 import 'actions_source.dart';
@@ -49,56 +50,28 @@ class ActionPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
-    final t = context.tokens;
     return SecureScope(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: SafeArea(
           child: Column(
             children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 52),
-                child: Row(
-                  children: [
-                    SizedBox(width: showBack ? 16 : 0),
-                    if (showBack)
-                      HeaderPill(
+              HeaderBar(
+                title: title,
+                leading: showBack
+                    ? HeaderPill(
                         label: s('phone.a.back'),
                         icon: Icons.chevron_left,
                         onTap: () => Navigator.of(context).maybePop(),
-                      ),
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: showBack || onLog != null ? 12 : 16,
-                        ),
-                        child: Semantics(
-                          header: true,
-                          child: Text(
-                            title,
-                            textAlign: TextAlign.center,
-                            // A long title (Vietnamese) wraps to a second line instead of being cut.
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 17,
-                              height: 1.15,
-                              fontWeight: FontWeight.w600,
-                              color: t.ink,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (onLog != null)
-                      HeaderPill(
+                      )
+                    : null,
+                trailing: onLog != null
+                    ? HeaderPill(
                         label: s('phone.tab.log'),
                         icon: Icons.format_list_bulleted,
                         onTap: onLog!,
-                      ),
-                    SizedBox(width: onLog != null ? 16 : (showBack ? 16 : 0)),
-                  ],
-                ),
+                      )
+                    : null,
               ),
               ?banner,
               Expanded(
@@ -141,6 +114,12 @@ class HeaderPill extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
 
+  /// The label's text scale is capped so the pills cannot push the title out.
+  static const maxTextScale = 1.3;
+
+  /// Everything of the pill but its label: padding, border, the icon and the gap after it.
+  static const chrome = 10 + 10 + 1 + 20 + 2.0;
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
@@ -163,7 +142,7 @@ class HeaderPill extends StatelessWidget {
                 const SizedBox(width: 2),
                 // The pills keep a readable size but do not grow without limit, or they would push the title out.
                 MediaQuery.withClampedTextScaling(
-                  maxScaleFactor: 1.3,
+                  maxScaleFactor: maxTextScale,
                   child: Text(
                     label,
                     style: TextStyle(fontSize: 16, color: t.accentInk),

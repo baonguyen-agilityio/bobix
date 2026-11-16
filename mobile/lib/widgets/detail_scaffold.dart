@@ -4,7 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/l10n.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
-import 'glass.dart';
+import '../features/actions/action_widgets.dart' show HeaderPill;
+import 'header_bar.dart';
 
 /// A pushed screen: a back button and a title on top, the content scrolling, and an optional bar of actions at the bottom.
 class DetailScaffold extends ConsumerWidget {
@@ -34,71 +35,17 @@ class DetailScaffold extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
-    final t = context.tokens;
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Column(
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 52),
-              child: Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(left: 16),
-                    child: Semantics(
-                      button: true,
-                      label: s('phone.a.back'),
-                      excludeSemantics: true,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(22),
-                        onTap: () => Navigator.of(context).maybePop(),
-                        child: Glass(
-                          radius: 22,
-                          padding: const EdgeInsets.fromLTRB(6, 0, 12, 0),
-                          child: SizedBox(
-                            height: minTouch,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.chevron_left, color: t.accentInk),
-                                Text(
-                                  s('phone.a.back'),
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: t.accentInk,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Semantics(
-                        header: true,
-                        child: Text(
-                          title,
-                          textAlign: TextAlign.center,
-                          // A long title (Vietnamese) wraps to a second line instead of being cut.
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 17,
-                            height: 1.15,
-                            fontWeight: FontWeight.w600,
-                            color: t.ink,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                ],
+            HeaderBar(
+              title: title,
+              leading: HeaderPill(
+                label: s('phone.a.back'),
+                icon: Icons.chevron_left,
+                onTap: () => Navigator.of(context).maybePop(),
               ),
             ),
             Expanded(
