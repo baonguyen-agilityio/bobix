@@ -54,6 +54,9 @@
 		F301080B28410D47DA1D1928 /* PushOpenerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87B1E53AE9FE3B19BCB2B793 /* PushOpenerTests.swift */; };
 		FAC6D99FCD17B45778A77340 /* BobixWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B84945C3264BC5E097C41181 /* BobixWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FE91D7756B3623CABDE2C973 /* BobixActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96FC18147EAC475566F31E59 /* BobixActivityAttributes.swift */; };
+		A98D00010000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A98D00010000000000000001 /* PrivacyInfo.xcprivacy */; };
+		A98D00010000000000000004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A98D00010000000000000003 /* PrivacyInfo.xcprivacy */; };
+		A98D00010000000000000006 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A98D00010000000000000005 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -171,6 +174,9 @@
 		E6221876B0C446D9C05B7029 /* TestFlight.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Flutter/TestFlight.xcconfig; sourceTree = "<group>"; };
 		ED4C11B47A3A717624B73ADF /* BobixControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BobixControls.swift; path = BobixWidgets/BobixControls.swift; sourceTree = SOURCE_ROOT; };
 		FC9AD2778169876D0DFA6D62 /* Pods-Runner.release-testflight.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release-testflight.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release-testflight.xcconfig"; sourceTree = "<group>"; };
+		A98D00010000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A98D00010000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A98D00010000000000000005 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -214,6 +220,7 @@
 			isa = PBXGroup;
 			children = (
 				93ECFBB9D96AE4789A24F8AF /* Localizable.strings */,
+				A98D00010000000000000005 /* PrivacyInfo.xcprivacy */,
 			);
 			name = BobixWidgetsStrings;
 			path = BobixWidgets;
@@ -246,6 +253,7 @@
 				B84C0133A9E57E2D2C6AB642 /* NotificationService.entitlements */,
 				B59A781197318210443AAA0E /* Extension.xcconfig */,
 				0D17D03FCD77F2F6EECB0750 /* Localizable.strings */,
+				A98D00010000000000000003 /* PrivacyInfo.xcprivacy */,
 			);
 			name = NotificationService;
 			path = NotificationService;
@@ -322,6 +330,7 @@
 				68DDFBE6C52468826D7C5BD8 /* Localizable.strings */,
 				782D739572B9C17312860735 /* PushDebug.swift */,
 				5BE4BB66CEF0844691954D5F /* SurfacesChannel.swift */,
+				A98D00010000000000000001 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -490,6 +499,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8DC96867F1DDC46153C120DB /* Localizable.strings in Resources */,
+				A98D00010000000000000006 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -512,6 +522,7 @@
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				D8AB1A1178EC497D151F930C /* Localizable.strings in Resources */,
+				A98D00010000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -520,6 +531,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B686A830D1B31AA2B0DCA882 /* Localizable.strings in Resources */,
+				A98D00010000000000000004 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -844,6 +856,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone.NotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -885,6 +898,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone.NotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -978,6 +992,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/PushCore";
@@ -1017,6 +1032,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone.BobixWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1111,6 +1127,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone.BobixWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1152,6 +1169,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone.BobixWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1193,6 +1211,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone.NotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1364,6 +1383,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/PushCore";
@@ -1403,6 +1423,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/PushCore";
@@ -1442,6 +1463,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone.NotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -1482,6 +1504,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/PushCore";
@@ -1576,6 +1599,7 @@
 					"$(inherited)",
 					"-lbobix_push",
 				);
+				CODE_SIGN_STYLE = Automatic;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.bobix.phone.BobixWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

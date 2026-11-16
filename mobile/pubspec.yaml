@@ -1,5 +1,5 @@
 name: phone
-description: "A new Flutter project."
+description: "Bobix on your phone: answer a waiting Claude Code request from your pocket, end-to-end encrypted through your own relay."
 publish_to: 'none'
 version: 0.2.0+1
 
