@@ -257,7 +257,7 @@ What is set up in the repository:
 - **A build configuration `Release-TestFlight`** (a copy of `Release`) and a shared scheme **`Runner TestFlight`** that builds and
   archives with it. Its `ios/Flutter/TestFlight.xcconfig` repeats what `Release.xcconfig` includes (with the Pods settings
   of this configuration) and ends by setting `DART_DEFINES` to `BOBIX_FLAVOR=dev` (base64). The plain `Release` build keeps the `prod` flavor, which never accepts a plain `ws://` address.
-- **The version** comes from `version:` in `mobile/pubspec.yaml` (`0.2.0+1`): the part before `+` is the marketing version
+- **The version** comes from `version:` in `mobile/pubspec.yaml` (`0.1.0+1`): the part before `+` is the marketing version
   (`CFBundleShortVersionString`), the part after it is the build number (`CFBundleVersion`) of the app and both extensions.
 - **`ITSAppUsesNonExemptEncryption` is `true`** in `Runner/Info.plist`: the app does its own end-to-end encryption (a sealed box,
   X25519 key agreement and XSalsa20-Poly1305, in the Rust push core and the link crate) on top of the system's TLS, and signs commands with an
@@ -310,7 +310,7 @@ Steps, once and then for every build:
 What cannot be checked without the owner's Apple account: that signing succeeds with a distribution profile (App Group and
 keychain groups included), that `aps-environment` becomes `production`, that App Store Connect accepts the upload, the export
 compliance flow, and the TestFlight install. What was checked without signing: an unsigned `Release-TestFlight` archive builds, with
-the `dev` flavor and no software key in the compiled defines, `0.2.0 (1)` as the version, and the key in `Info.plist`.
+the `dev` flavor and no software key in the compiled defines, `0.1.0 (1)` as the version, and the key in `Info.plist`.
 
 ## Demo and screenshots
 
