@@ -10,6 +10,10 @@
 # The key reaches no other run: a develop push or a run by hand builds the installers as before, without update files.
 # A tag build without the secrets, with the placeholder public key, or whose tag is not package.json's version stops
 # before it publishes anything.
+# A tag ending in "-phones" (v0.2.0-rc.9-phones) is the exception: phone access is still in development, so it builds the
+# desktop with `--features phones` on every system and publishes only a GitHub pre-release with the installers. It makes no
+# update files and does not touch latest.json, test.json or "latest", so no installed Bobix is ever offered it. Every other
+# tag and every develop build is built without phone access.
 name: release
 on:
   push:
@@ -22,9 +26,9 @@ permissions:
 
 jobs:
   build:
-    # Only a v* tag run joins the environment that holds the signing key; a develop push or a run by hand has no
+    # Only a v* tag run (not a -phones one) joins the environment that holds the signing key; a develop push or a run by hand has no
     # environment, so it needs nothing set up and gets no key.
-    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && !endsWith(github.ref, '-phones') && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -39,6 +43,7 @@ jobs:
     env:
       ELECTRON_TAG: v0.1.4-rc.4 # the last Electron-based build: upgrading from it is checked
       GH_TOKEN: ${{ github.token }}
+      PHONES: ${{ startsWith(github.ref, 'refs/tags/v') && endsWith(github.ref, '-phones') && 'on' || 'off' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,11 +88,12 @@ jobs:
         run: |
           cfg=()
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then cfg=(--config '{"bundle":{"createUpdaterArtifacts":true}}'); else echo "no signing key: no update files"; fi
+          if [ "$PHONES" = on ]; then cfg+=(--features phones); fi
           npm run tauri -- build --ci --target ${{ matrix.target }} --bundles ${{ matrix.make || matrix.bundles }} "${cfg[@]}"
         env:
-          # only a v* tag run gets the key (the other runs use whichever workflow their branch has)
-          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          # only a v* tag run gets the key (the other runs use whichever workflow their branch has); a -phones build makes no update files
+          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && env.PHONES == 'off' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && env.PHONES == 'off' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
       - name: Name it
         shell: bash
         # The update file is the installer itself on Windows and Linux; on macOS it is the .app, zipped by Tauri, which it only
@@ -179,8 +185,8 @@ jobs:
           for i in $(seq 1 120); do [ -f smoke-out/done ] && break; sleep 1; done
           if [ "$RUNNER_OS" = Windows ]; then taskkill //F //IM bobix.exe > /dev/null 2>&1 || true; else pkill -9 -f "$APP_BIN" || true; fi
           grep "\[bobix\]" smoke.log || tail -40 smoke.log
-          # no release build has phone access (it is still in development): the Phones section and its commands must be absent
-          node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.pass && r.phoneSwitch.compiled === false && r.phoneSwitch.pass ? 0 : 1)"
+          # only a -phones tag has phone access (it is still in development): for every other build the Phones section and its commands must be absent
+          node -e "const r = require('./smoke-out/report.json'); console.log(JSON.stringify(r, null, 2)); process.exit(r.pass && r.phoneSwitch.compiled === (process.env.PHONES === 'on') && r.phoneSwitch.pass ? 0 : 1)"
       - uses: actions/upload-artifact@v4
         if: always() && matrix.smoke
         with:
@@ -193,6 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      PHONES: ${{ startsWith(github.ref, 'refs/tags/v') && endsWith(github.ref, '-phones') && 'on' || 'off' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -206,6 +213,7 @@ jobs:
       # Fails here, before anything is published, when an update file or its signature is missing, the public key in the
       # app is the placeholder, the tag is not package.json's version, or a file was signed with another key.
       - name: Update list
+        if: env.PHONES == 'off'
         run: |
           mkdir -p lists
           node .github/scripts/update-manifest.mjs --dir out --tag "$GITHUB_REF_NAME" --base "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" --out lists/latest.json --conf src-tauri/tauri.conf.json --package package.json
@@ -214,10 +222,11 @@ jobs:
         with:
           files: out/*
           prerelease: ${{ contains(github.ref_name, '-') }} # v0.2.0-rc.1 → test build, not "latest"
-          make_latest: ${{ startsWith(github.ref_name, 'v0.1.') && 'false' || 'legacy' }} # a v0.1.x fix never takes "latest" from the 0.2 line: releases/latest/download/latest.json would stop existing
+          make_latest: ${{ (env.PHONES == 'on' || startsWith(github.ref_name, 'v0.1.')) && 'false' || 'legacy' }} # a v0.1.x fix never takes "latest" from the 0.2 line: releases/latest/download/latest.json would stop existing
       # A stable release carries latest.json (releases/latest/download/latest.json is the stable list). Test builds read
       # test.json on the pre-release "test-channel": the newest build of any kind, so a test build also sees a release.
       - name: Publish the update lists
+        if: env.PHONES == 'off' # a -phones pre-release is in no list: no installed Bobix is offered it
         run: |
           case "$GITHUB_REF_NAME" in *-*) ;; *) gh release upload "$GITHUB_REF_NAME" lists/latest.json --clobber ;; esac
           gh release view test-channel > /dev/null 2>&1 || gh release create test-channel --prerelease --target "$GITHUB_SHA" --title "Update list for test builds" \

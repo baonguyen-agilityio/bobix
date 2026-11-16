@@ -1,4 +1,4 @@
-// The relay link: one outbound WebSocket (wss://, or ws:// to a relay on this computer), reconnecting with backoff and
+// The relay link: one outbound WebSocket (wss://, or plain ws:// to a relay on this computer or, in a phones build, on a private network address), reconnecting with backoff and
 // jitter while phone access wants it. It only moves frames; phones.rs decides what they mean.
 use crate::{phones::{self, Out}, Bobix};
 use bobix_link::relay_frames::Frame;
