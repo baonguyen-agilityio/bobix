@@ -27,6 +27,7 @@ import 'package:phone/link/link_state.dart';
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/pairing_controller.dart';
 import 'package:phone/lock/app_lock.dart';
+import 'package:phone/pets/random_pet.dart';
 import 'package:phone/push/push_providers.dart';
 import 'package:phone/screens/computers_sheet.dart';
 import 'package:phone/screens/pair_again_screen.dart';
@@ -386,6 +387,7 @@ final shots = <Shot>[
   Shot('lock', () => LockScreen(onUnlock: () {})),
   Shot('lock-failed', () => LockScreen(onUnlock: () {}, failed: true)),
   Shot('app-cover', () => const CoverScreen()),
+  Shot('splash', () => const PetsSplash()),
   Shot('unavailable', () => const UnavailableScreen()),
   Shot(
     'pair-again',

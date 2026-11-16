@@ -307,9 +307,8 @@ class _DetailsState extends ConsumerState<_Details> {
   @override
   void initState() {
     super.initState();
-    _name = TextEditingController(
-      text: ref.read(stringsProvider)('phone.pair.name.ph'),
-    );
+    // Empty, with the default name shown as a hint: an empty name is sent as that default.
+    _name = TextEditingController();
   }
 
   @override
@@ -349,12 +348,13 @@ class _DetailsState extends ConsumerState<_Details> {
             controller: _name,
             maxLength: 64,
             style: TextStyle(fontSize: 16, color: t.ink),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               border: InputBorder.none,
               counterText: '',
-              contentPadding: EdgeInsets.symmetric(vertical: 16),
+              hintText: s('phone.pair.name.ph'),
+              hintStyle: TextStyle(color: t.ink3),
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
             ),
-            onChanged: (_) => setState(() {}),
           ),
         ),
         Padding(
@@ -446,9 +446,10 @@ class _DetailsState extends ConsumerState<_Details> {
       actions: PillButton(
         label: s('phone.pair.ask'),
         primary: true,
-        onPressed: _name.text.trim().isEmpty
-            ? null
-            : () => c.submit(_name.text, _rights),
+        onPressed: () => c.submit(
+          _name.text.trim().isEmpty ? s('phone.pair.name.ph') : _name.text,
+          _rights,
+        ),
       ),
     );
   }

@@ -19,6 +19,7 @@ import '../features/actions/action_screen_parts.dart' show taskLogOpener;
 import '../features/actions/actions_models.dart';
 import '../features/actions/session_screen.dart';
 import '../features/actions/start_screen.dart';
+import '../pets/random_pet.dart';
 import '../widgets/press_feedback.dart';
 
 /// What a tap opens: the held item (a request, a plan, a question) or, for a request answered elsewhere first, that
@@ -48,7 +49,7 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(homeProvider).value;
-    if (data == null) return const Center(child: CircularProgressIndicator());
+    if (data == null) return const PetsSplash();
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     final conn = data.conn, clock = data.lastContact, computer = data.computer;

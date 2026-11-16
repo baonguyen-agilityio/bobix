@@ -171,6 +171,10 @@ void main() {
       await tester.tap(find.text('Continue'));
       await tester.pump();
       expect(find.text('Name this phone'), findsOneWidget);
+      // The name starts empty with the default as a hint, and an empty name is allowed (it is sent as the default).
+      final nameField = tester.widget<TextField>(find.byType(TextField).first);
+      expect(nameField.controller!.text, isEmpty);
+      expect(nameField.decoration!.hintText, 'Phone');
       expect(find.text('What this phone may do'), findsOneWidget);
       for (final r in [
         'Answer permission requests',

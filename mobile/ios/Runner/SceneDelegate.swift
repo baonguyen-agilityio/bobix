@@ -2,7 +2,7 @@ import Flutter
 import UIKit
 
 /// The app switcher keeps a picture of the app when it goes away. While the scene is not active an opaque cover (the
-/// app tile on the page colour) hides the content, so nothing of a request, a plan or a session is in that picture.
+/// pet, or the app tile before there is one, on the page colour) hides the content, so nothing of a request, a plan or a session is in that picture.
 /// (Dart covers the screen too, but only native code can do it before the system takes the picture.)
 class SceneDelegate: FlutterSceneDelegate {
   private var cover: UIView?
@@ -16,6 +16,18 @@ class SceneDelegate: FlutterSceneDelegate {
     view.backgroundColor = UIColor { $0.userInterfaceStyle == .dark
       ? UIColor(red: 0.055, green: 0.059, blue: 0.071, alpha: 1)
       : UIColor(red: 0.961, green: 0.965, blue: 0.973, alpha: 1) }
+    if let pet = randomPetImage() {
+      // A pet picked at random each time (a still: this picture is taken before anything can animate).
+      let image = UIImageView(image: pet)
+      image.contentMode = .scaleAspectFit
+      image.frame = CGRect(x: 0, y: 0, width: 120, height: 120)
+      image.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+      image.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin, .flexibleTopMargin, .flexibleBottomMargin]
+      view.addSubview(image)
+      window.addSubview(view)
+      cover = view
+      return
+    }
     let side: CGFloat = 96
     let tile = UIView(frame: CGRect(x: 0, y: 0, width: side, height: side))
     tile.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
@@ -45,6 +57,15 @@ class SceneDelegate: FlutterSceneDelegate {
     cover?.removeFromSuperview()
     cover = nil
     super.sceneDidBecomeActive(scene)
+  }
+
+  /// One of the pet pictures the app already keeps in the App Group for the widgets, chosen at random. They are pets
+  /// only (a design, a colour, a state), never a session's name or anything it did; none yet means the app tile.
+  private func randomPetImage() -> UIImage? {
+    guard let dir = SharedListStore.directory()?.appendingPathComponent("pets"),
+      let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+    else { return nil }
+    return files.filter { $0.pathExtension == "png" }.randomElement().flatMap { UIImage(contentsOfFile: $0.path) }
   }
 
   private var push: PushBridge? { (UIApplication.shared.delegate as? AppDelegate)?.push }

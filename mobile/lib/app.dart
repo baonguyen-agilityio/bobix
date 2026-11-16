@@ -22,6 +22,7 @@ import 'screens/settings_screen.dart';
 import 'theme/theme.dart';
 import 'widgets/glass_backdrop.dart';
 import 'widgets/glass_tab_bar.dart';
+import 'pets/random_pet.dart';
 import 'widgets/fade_on_change.dart';
 import 'widgets/status_banner.dart';
 
@@ -64,7 +65,7 @@ class RootGate extends ConsumerWidget {
     ref.watch(surfacesClearProvider);
     return switch (phase.value) {
       null when phase.hasError => const UnavailableScreen(),
-      null => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      null => const PetsSplash(),
       Unpaired() => const PairingFlow(),
       Unavailable() => const UnavailableScreen(),
       final Paired p => SurfacesHost(link: p.link, child: const AppShell()),
