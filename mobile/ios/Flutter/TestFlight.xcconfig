@@ -1,0 +1,6 @@
+// A build for TestFlight: the Release build of the phone app, but with the dev flavor (it accepts `relay --dev` on a private
+// LAN address). The software key is never defined here, so the build uses the real Secure Enclave key and Face ID.
+#include "Release.xcconfig"
+
+// The Dart defines Flutter hands to the Xcode build, as comma-separated base64: BOBIX_FLAVOR=dev
+DART_DEFINES=Qk9CSVhfRkxBVk9SPWRldg==
