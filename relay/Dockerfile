@@ -7,7 +7,7 @@
 #   RELAY_PUBLIC_URL   the address devices connect to, such as wss://relay.example
 #   RELAY_ID           the id push grants name
 # Already set in this image: RELAY_ADDR, REVOKED_DIR and LOG_DIR (all under /data, so mount a volume there).
-# For a beta also set INVITE_FILE (such as /data/invites.txt) and, behind a proxy you trust, CLIENT_IP_HEADER.
+# For a beta also set INVITE_IDS or INVITE_FILE (such as /data/invites.txt) and, behind a proxy you trust, CLIENT_IP_HEADER.
 # Health check: GET /healthz answers "ok" (the image has no shell or curl, so the platform does the check).
 
 # Both base images are pinned by digest (the multi-arch index). To bump: pull the new tag and copy its digest

@@ -178,6 +178,14 @@ impl Config {
         Config::from_vars(dev, |n| std::env::var(n).ok())
     }
 
+    /// The one startup line about invitations; never the ids.
+    pub fn invitations_line(&self) -> String {
+        if self.invite_ids.is_empty() && self.invite_file.is_none() {
+            return "invitations: off".into();
+        }
+        format!("invitations: on ({} ids from INVITE_IDS, file: {})", self.invite_ids.len(), if self.invite_file.is_some() { "yes" } else { "no" })
+    }
+
     /// `from_env` over any lookup, so tests need not touch the process environment.
     pub fn from_vars(dev: bool, lookup: impl Fn(&str) -> Option<String>) -> Result<Config, String> {
         let mut c = Config::base(dev);
@@ -202,7 +210,8 @@ impl Config {
         c.relay_id = if dev { var("RELAY_ID").unwrap_or(c.relay_id) } else { need("RELAY_ID")? };
         c.revoked_dir = if dev { var("REVOKED_DIR").map(Into::into) } else { Some(need("REVOKED_DIR")?.into()) };
         c.invite_file = var("INVITE_FILE").map(Into::into);
-        if let Some(ids) = var("INVITE_IDS") {
+        // Read raw: a variable that is set but empty must not pass for "unset", or the relay would run open without a word.
+        if let Some(ids) = lookup("INVITE_IDS") {
             c.invite_ids = parse_invite_ids(&ids)?;
         }
         c.gateway_keys_file = var("GATEWAY_KEYS_FILE").map(Into::into);
@@ -315,8 +324,7 @@ mod tests {
 
     /// `--dev`-free production settings plus `extra`, looked up from a map instead of the process environment.
     fn from(extra: &[(&str, &str)]) -> Result<Config, String> {
-        let mut m: HashMap<String, String> = [("RELAY_PUBLIC_URL", "wss://relay.example"), ("RELAY_ID", "r"), ("REVOKED_DIR", "d")].iter().chain(extra).map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        m.retain(|_, v| !v.is_empty());
+        let m: HashMap<String, String> = [("RELAY_PUBLIC_URL", "wss://relay.example"), ("RELAY_ID", "r"), ("REVOKED_DIR", "d")].iter().chain(extra).map(|(k, v)| (k.to_string(), v.to_string())).collect();
         Config::from_vars(false, |n| m.get(n).cloned())
     }
 
@@ -385,6 +393,20 @@ mod tests {
         }
         assert!(parse_invite_ids(&format!("{ID_A},nope")).unwrap_err().contains("entry 2"));
         assert!(from(&[("INVITE_IDS", "nope")]).unwrap_err().contains("INVITE_IDS"));
+        // Set but empty is an error, not "unset": the relay must not start open by accident.
+        for empty in ["", "  "] {
+            let e = from(&[("INVITE_IDS", empty)]).unwrap_err();
+            assert!(e.contains("INVITE_IDS"), "{e}");
+        }
+    }
+
+    #[test]
+    fn the_startup_line_counts_invitations_without_naming_them() {
+        assert_eq!(from(&[]).unwrap().invitations_line(), "invitations: off");
+        assert_eq!(from(&[("INVITE_IDS", &format!("{ID_A},{ID_B}"))]).unwrap().invitations_line(), "invitations: on (2 ids from INVITE_IDS, file: no)");
+        let both = from(&[("INVITE_IDS", ID_A), ("INVITE_FILE", "/x/invites.txt")]).unwrap().invitations_line();
+        assert_eq!(both, "invitations: on (1 ids from INVITE_IDS, file: yes)");
+        assert!(!both.contains(ID_A));
     }
 
     #[test]

@@ -54,7 +54,7 @@ Without Docker: `cd relay && cargo build --release`, then run `target/release/bo
 | `INVITE_FILE` | Path of a file with one device id per line (`#` comments). Read again every 5 seconds, so no restart is needed. Put it on the data volume, such as `/data/invites.txt`. |
 | `CLIENT_IP_HEADER` | The header your proxy sets to the client's address, such as `X-Real-IP` or `X-Forwarded-For`; the last value is used. It keys the per-address limits (8 unauthenticated sockets, 32 sockets in all, 120 connections a minute; an IPv6 address counts by its /64), 32 unauthenticated sockets per IPv6 /48, and the totals (256 unauthenticated, 4096 open). Set it only when the proxy overwrites that header; otherwise a client picks its own address. If unset, the proxy's address is used and every client shares one limit. |
 
-Invitations are on when `INVITE_IDS` or `INVITE_FILE` is set; the invited computers are the ids of both together. Then only
+Invitations are on when `INVITE_IDS` or `INVITE_FILE` is set (an `INVITE_IDS` that is set but empty stops the relay at start; the start-up line `invitations: on (N ids from INVITE_IDS, file: yes/no)` or `invitations: off` tells which); the invited computers are the ids of both together. Then only
 the computers listed may open a pairing or revoke; everyone else is a guest. **Keep invitations on during the beta** until
 per-sender shares of the global mailbox budget exist (today 1,000 mailboxes and 256 MiB are shared by everyone, so one open
 relay could be filled by a single client; see #227). With neither set, anyone can use the relay. With only `INVITE_IDS`,

@@ -530,6 +530,28 @@ async fn invitations_are_the_union_of_invite_ids_and_the_invite_file() {
 }
 
 #[tokio::test]
+async fn invite_ids_stay_invited_when_the_invite_file_is_deleted() {
+    let dir = scratch("invites-gone");
+    std::fs::create_dir_all(&dir).unwrap();
+    let (in_file, in_env) = (ident(), ident());
+    let file = dir.join("invites.txt");
+    std::fs::write(&file, format!("{}\n", in_file.device_id())).unwrap();
+    let mut c = cfg();
+    c.invite_file = Some(file.clone());
+    c.invite_ids = vec![in_env.device_id()];
+    c.invite_recheck = MS(50);
+    let s = start(c).await;
+    assert!(!s.app.hub.lock().unwrap().is_guest(&in_file.device_id()));
+    std::fs::remove_file(&file).unwrap();
+    tokio::time::sleep(MS(200)).await;
+    let mut hub = s.app.hub.lock().unwrap();
+    assert!(!hub.is_guest(&in_env.device_id()), "an INVITE_IDS id must outlive the file");
+    assert!(hub.is_guest(&in_file.device_id()), "a file-only id is gone with the file");
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
 async fn without_an_invite_file_any_desktop_is_admitted() {
     let s = start(cfg()).await;
     let mut d = Dev::connect(&s, ident()).await;

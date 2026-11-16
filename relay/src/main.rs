@@ -10,6 +10,7 @@ async fn main() {
         eprintln!("{e}");
         std::process::exit(2)
     });
+    println!("{}", cfg.invitations_line());
     let listener = tokio::net::TcpListener::bind(&cfg.addr).await.unwrap_or_else(|e| {
         eprintln!("cannot listen on {}: {e} (is another process using it?)", cfg.addr);
         std::process::exit(1)
