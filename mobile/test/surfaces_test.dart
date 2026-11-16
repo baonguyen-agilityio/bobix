@@ -40,13 +40,10 @@ class FakeSurfaces implements SurfacesPlatform {
   }
 
   @override
-  Future<void> writePet(String d, int c, String s, Uint8List png) async =>
-      pets.add('$d-$c-$s');
+  Future<void> writePet(String d, int c, String s, Uint8List png) async => pets.add('$d-$c-$s');
   final states = <Map<String, Object?>>[];
   @override
-  Future<({bool active, String? id})> syncActivity(
-    Map<String, Object?> s,
-  ) async {
+  Future<({bool active, String? id})> syncActivity(Map<String, Object?> s) async {
     calls.add('sync ${s['waiting']}');
     states.add(s);
     return (active: startWorks && s['waiting'] != 0, id: 'act1');
@@ -83,18 +80,8 @@ HomeData home({int waiting = 1, ConnState conn = ConnState.ok}) => HomeData(
         petDesign: 'nota',
         petColor: 70,
       ),
-    const Session(
-      id: 'x',
-      name: 'Fix the cart',
-      project: 'shop',
-      stage: Stage.doing,
-    ),
-    const Session(
-      id: 't',
-      name: 'Todo item',
-      project: 'blog',
-      stage: Stage.todo,
-    ),
+    const Session(id: 'x', name: 'Fix the cart', project: 'shop', stage: Stage.doing),
+    const Session(id: 't', name: 'Todo item', project: 'blog', stage: Stage.todo),
   ],
 );
 
@@ -111,39 +98,12 @@ void main() {
 
   group('the shared list', () {
     test('holds names, counts and ids, and no tool input', () {
-      final m = SharedListJson.toMap(
-        home(),
-        computerId: 'c1',
-        canStart: true,
-        now: now,
-      );
-      expect(m.keys.toSet(), {
-        'written',
-        'computerName',
-        'computerState',
-        'todo',
-        'canStart',
-        'rows',
-      });
+      final m = SharedListJson.toMap(home(), computerId: 'c1', canStart: true, now: now);
+      expect(m.keys.toSet(), {'written', 'computerName', 'computerState', 'todo', 'canStart', 'rows'});
       final rows = m['rows']! as List;
       expect(rows, hasLength(2), reason: 'a todo item is not a row');
-      expect((rows.first as Map).keys.toSet(), {
-        'id',
-        'name',
-        'project',
-        'state',
-        'pet',
-        'color',
-        'ref',
-        'computer',
-        'holdSecs',
-        'at',
-      });
-      expect(
-        jsonEncode(m).contains('secret'),
-        isFalse,
-        reason: 'a command never reaches the list',
-      );
+      expect((rows.first as Map).keys.toSet(), {'id', 'name', 'project', 'state', 'pet', 'color', 'ref', 'computer', 'holdSecs', 'at'});
+      expect(jsonEncode(m).contains('secret'), isFalse, reason: 'a command never reaches the list');
       expect((rows.first as Map)['state'], 'waiting');
       expect((rows.first as Map)['ref'], 'req0');
       expect(m['written'], now.millisecondsSinceEpoch);
@@ -155,27 +115,10 @@ void main() {
         conn: ConnState.ok,
         lastContact: '',
         sessions: const [
-          Session(
-            id: 'a',
-            name: 'n',
-            project: 'p',
-            stage: Stage.doing,
-            needsYou: true,
-            answerAtComputer: true,
-            waitingId: 'r',
-          ),
+          Session(id: 'a', name: 'n', project: 'p', stage: Stage.doing, needsYou: true, answerAtComputer: true, waitingId: 'r'),
         ],
       );
-      final row =
-          (SharedListJson.toMap(
-                        h,
-                        computerId: 'c',
-                        canStart: false,
-                        now: now,
-                      )['rows']!
-                      as List)
-                  .single
-              as Map;
+      final row = (SharedListJson.toMap(h, computerId: 'c', canStart: false, now: now)['rows']! as List).single as Map;
       expect(row['ref'], '');
       expect(SharedListJson.waiting(h), 0);
     });
@@ -186,28 +129,9 @@ void main() {
           computer: 'M',
           conn: ConnState.ok,
           lastContact: '',
-          sessions: [
-            Session(
-              id: 'a',
-              name: 'n',
-              project: 'p',
-              stage: Stage.doing,
-              needsYou: true,
-              waitingId: 'r',
-              holdSecs: secs,
-            ),
-          ],
+          sessions: [Session(id: 'a', name: 'n', project: 'p', stage: Stage.doing, needsYou: true, waitingId: 'r', holdSecs: secs)],
         );
-        return ((SharedListJson.toMap(
-                          h,
-                          computerId: 'c',
-                          canStart: true,
-                          now: now,
-                        )['rows']!
-                        as List)
-                    .single
-                as Map)['holdSecs']!
-            as int;
+        return ((SharedListJson.toMap(h, computerId: 'c', canStart: true, now: now)['rows']! as List).single as Map)['holdSecs']! as int;
       }
 
       expect((hold(120), hold(null), hold(5000)), (120, 900, 900));
@@ -215,22 +139,8 @@ void main() {
 
     test('the computer\'s state: online, asleep, otherwise offline', () {
       String s(ConnState c) =>
-          SharedListJson.toMap(
-                home(conn: c),
-                computerId: 'c',
-                canStart: true,
-                now: now,
-              )['computerState']!
-              as String;
-      expect(
-        (
-          s(ConnState.ok),
-          s(ConnState.asleep),
-          s(ConnState.offline),
-          s(ConnState.relayDown),
-        ),
-        ('online', 'asleep', 'offline', 'offline'),
-      );
+          SharedListJson.toMap(home(conn: c), computerId: 'c', canStart: true, now: now)['computerState']! as String;
+      expect((s(ConnState.ok), s(ConnState.asleep), s(ConnState.offline), s(ConnState.relayDown)), ('online', 'asleep', 'offline', 'offline'));
     });
   });
 
@@ -239,22 +149,14 @@ void main() {
     late SurfacesSync sync;
     setUp(() {
       p = FakeSurfaces();
-      sync = SurfacesSync(
-        p,
-        now: () => now,
-        renderPet: (d, c, s) async => Uint8List.fromList([1]),
-      );
+      sync = SurfacesSync(p, now: () => now, renderPet: (d, c, s) async => Uint8List.fromList([1]));
     });
 
     test('writes the list, and each pet once, with the colour taken inside the palette', () async {
       await sync.sync(home(), computerId: 'c1', canStart: true);
       await sync.sync(home(), computerId: 'c1', canStart: true);
       expect(p.lists, hasLength(2));
-      expect(
-        p.pets.toSet(),
-        hasLength(p.pets.length),
-        reason: 'an image is written once',
-      );
+      expect(p.pets.toSet(), hasLength(p.pets.length), reason: 'an image is written once');
       expect(p.pets.every((k) => int.parse(k.split('-')[1]) < 64), isTrue);
     });
 
@@ -269,11 +171,7 @@ void main() {
       await sync.sync(home(waiting: 2), computerId: 'c1', canStart: true);
       await sync.sync(home(waiting: 0), computerId: 'c1', canStart: true);
       expect(p.calls, ['sync 1', 'sync 2', 'sync 0']);
-      expect(p.states.first.keys.toSet(), {
-        'waiting',
-        'written',
-        'computerId',
-      }, reason: 'counts and a time: the activity draws the shared list');
+      expect(p.states.first.keys.toSet(), {'waiting', 'written', 'computerId'}, reason: 'counts and a time: the activity draws the shared list');
       expect(p.states.first['written'], now.millisecondsSinceEpoch);
     });
 
@@ -286,29 +184,16 @@ void main() {
 
     test('the heartbeat writes the last home again with the wait counted down from when it was built, only while reachable', () async {
       var clock = now;
-      final beating = SurfacesSync(
-        p,
-        now: () => clock,
-        renderPet: (d, c, s) async => Uint8List.fromList([1]),
-      );
+      final beating = SurfacesSync(p, now: () => clock, renderPet: (d, c, s) async => Uint8List.fromList([1]));
       final held = HomeData(
         computer: 'Studio Mac',
         conn: ConnState.ok,
         lastContact: '10:00',
         sessions: const [
-          Session(
-            id: 'w',
-            name: 'Add a switch',
-            project: 'shop',
-            stage: Stage.doing,
-            needsYou: true,
-            waitingId: 'req',
-            holdSecs: 600,
-          ),
+          Session(id: 'w', name: 'Add a switch', project: 'shop', stage: Stage.doing, needsYou: true, waitingId: 'req', holdSecs: 600),
         ],
       );
-      int hold(Map<String, Object?> l) =>
-          ((l['rows']! as List).single as Map)['holdSecs']! as int;
+      int hold(Map<String, Object?> l) => ((l['rows']! as List).single as Map)['holdSecs']! as int;
       await beating.again(computerId: 'c1', canStart: true);
       expect(p.lists, isEmpty, reason: 'nothing was heard yet');
       await beating.sync(held, computerId: 'c1', canStart: true);
@@ -316,37 +201,22 @@ void main() {
       await beating.again(computerId: 'c1', canStart: true);
       expect(p.lists.map(hold), [600, 300]);
       expect(p.lists.last['written'], clock.millisecondsSinceEpoch);
-      await beating.sync(
-        home(conn: ConnState.relayDown),
-        computerId: 'c1',
-        canStart: true,
-      );
+      await beating.sync(home(conn: ConnState.relayDown), computerId: 'c1', canStart: true);
       final after = p.lists.length;
       await beating.again(computerId: 'c1', canStart: true);
-      expect(
-        p.lists,
-        hasLength(after),
-        reason: 'an unreachable computer is left to age into stale',
-      );
+      expect(p.lists, hasLength(after), reason: 'an unreachable computer is left to age into stale');
       beating.visible = false;
       await beating.sync(held, computerId: 'c1', canStart: true);
       final hidden = p.lists.length;
       clock = clock.add(const Duration(minutes: 5));
       await beating.again(computerId: 'c1', canStart: true);
-      expect(
-        p.lists,
-        hasLength(hidden),
-        reason: 'nothing is rewritten while the app is hidden',
-      );
-      expect(
-        p.lists.last['computerState'],
-        'online',
-        reason: 'leaving the app is not the computer going away',
-      );
+      expect(p.lists, hasLength(hidden), reason: 'nothing is rewritten while the app is hidden');
+      expect(p.lists.last['computerState'], 'online', reason: 'leaving the app is not the computer going away');
       beating.visible = true;
       await beating.again(computerId: 'c1', canStart: true);
       expect(p.lists, hasLength(hidden + 1));
     });
+
   });
 
   group('the activity tokens', () {
@@ -358,125 +228,77 @@ void main() {
       await reg.registerExtra(kind: 'activity', ref: 'act1', token: 'aa');
       await reg.registerExtra(kind: 'pushToStart', token: 'bb');
       final extra = sent.where((f) => f['kind'] != 'device').toList();
-      expect(extra.map((f) => (f['kind'], f['ref'], f['token'])).toSet(), {
-        ('activity', 'act1', 'aa'),
-        ('pushToStart', null, 'bb'),
-      });
-      expect(
-        extra.every(
-          (f) => (f['grant']! as String).isNotEmpty && f['type'] == 'pushToken',
-        ),
-        isTrue,
-      );
-      expect(
-        extra
-            .where((f) => f['kind'] == 'pushToStart')
-            .every((f) => !f.containsKey('ref')),
-        isTrue,
-      );
+      expect(extra.map((f) => (f['kind'], f['ref'], f['token'])).toSet(), {('activity', 'act1', 'aa'), ('pushToStart', null, 'bb')});
+      expect(extra.every((f) => (f['grant']! as String).isNotEmpty && f['type'] == 'pushToken'), isTrue);
+      expect(extra.where((f) => f['kind'] == 'pushToStart').every((f) => !f.containsKey('ref')), isTrue);
       sent.clear();
       await reg.connected('r2', (f) async => sent.add(f));
       expect(sent.where((f) => f['kind'] == 'activity'), hasLength(1));
       reg.clearExtra('activity', ref: 'act1');
       sent.clear();
       await reg.connected('r3', (f) async => sent.add(f));
-      expect(
-        sent.where((f) => f['kind'] == 'activity'),
-        isEmpty,
-        reason: 'an ended activity\'s token is not used again',
-      );
+      expect(sent.where((f) => f['kind'] == 'activity'), isEmpty, reason: 'an ended activity\'s token is not used again');
       expect(sent.where((f) => f['kind'] == 'pushToStart'), hasLength(1));
       reg.dispose();
     });
   });
 
   group('when the pairing ends', () {
-    test(
-      'every surface is cleared once, on entering not paired or pair again',
-      () async {
-        final p = FakeSurfaces();
-        final push = FakePushPlatform();
-        final c = _Controller(const Unavailable());
-        final container = ProviderContainer(
-          overrides: [
-            surfacesPlatformProvider.overrideWithValue(p),
-            pushPlatformProvider.overrideWithValue(push),
-            linkControllerProvider.overrideWith(() => c),
-          ],
-        );
-        addTearDown(container.dispose);
-        container.listen(surfacesClearProvider, (_, _) {});
-        await container.read(linkControllerProvider.future);
-        await Future<void>.delayed(Duration.zero);
-        expect(
-          p.clears,
-          0,
-          reason: 'a Keychain that is locked for now erases nothing',
-        );
-        c.go(const PairAgain(computer: 'Studio Mac', removedByComputer: true));
-        await Future<void>.delayed(Duration.zero);
-        expect(p.clears, 1, reason: 'a sealed revoked, or an erase');
-        expect(
-          push.calls.where((x) => x == 'clearDelivered'),
-          hasLength(1),
-          reason: 'shown notifications go too',
-        );
-        c.go(const Unpaired());
-        await Future<void>.delayed(Duration.zero);
-        expect(p.clears, 1, reason: 'already cleared');
-        expect(push.calls.where((x) => x == 'clearDelivered'), hasLength(1));
-      },
-    );
+    test('every surface is cleared once, on entering not paired or pair again', () async {
+      final p = FakeSurfaces();
+      final push = FakePushPlatform();
+      final c = _Controller(const Unavailable());
+      final container = ProviderContainer(
+        overrides: [
+          surfacesPlatformProvider.overrideWithValue(p),
+          pushPlatformProvider.overrideWithValue(push),
+          linkControllerProvider.overrideWith(() => c),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.listen(surfacesClearProvider, (_, _) {});
+      await container.read(linkControllerProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 0, reason: 'a Keychain that is locked for now erases nothing');
+      c.go(const PairAgain(computer: 'Studio Mac', removedByComputer: true));
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 1, reason: 'a sealed revoked, or an erase');
+      expect(push.calls.where((x) => x == 'clearDelivered'), hasLength(1), reason: 'shown notifications go too');
+      c.go(const Unpaired());
+      await Future<void>.delayed(Duration.zero);
+      expect(p.clears, 1, reason: 'already cleared');
+      expect(push.calls.where((x) => x == 'clearDelivered'), hasLength(1));
+    });
   });
 
   group('taps from surfaces', () {
     test('start and home pick a tab and carry nothing else; a request needs both ids', () {
-      expect(
-        PushTap.tryParse({'computer': '', 'ref': '', 'kind': 'start'}),
-        const PushTap(computerId: '', ref: '', kind: 'start'),
-      );
+      expect(PushTap.tryParse({'computer': '', 'ref': '', 'kind': 'start'}), const PushTap(computerId: '', ref: '', kind: 'start'));
       expect(PushTap.tryParse({'kind': 'home'})?.kind, 'home');
-      expect(
-        PushTap.tryParse({'computer': '', 'ref': 'r', 'kind': 'waiting'}),
-        isNull,
-      );
-      expect(
-        PushTap.tryParse({'computer': 'c', 'ref': 'r', 'kind': 'answer'}),
-        isNull,
-      );
+      expect(PushTap.tryParse({'computer': '', 'ref': 'r', 'kind': 'waiting'}), isNull);
+      expect(PushTap.tryParse({'computer': 'c', 'ref': 'r', 'kind': 'answer'}), isNull);
     });
   });
 
-  testWidgets(
-    'a control that opens Start switches to the Start tab, and a link to a request opens it',
-    (tester) async {
-      final push = FakePushPlatform();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            pushPlatformProvider.overrideWithValue(push),
-            phoneDataProvider.overrideWithValue(FixturePhoneData()),
-          ],
-          child: const BobixApp(home: AppShell()),
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-      push.tapController.add(
-        const PushTap(computerId: '', ref: '', kind: 'start'),
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(
-        tester.widget<IndexedStack>(find.byType(IndexedStack)).index,
-        2,
-        reason: 'the Start tab',
-      );
-      push.tapController.add(
-        const PushTap(computerId: '', ref: '', kind: 'home'),
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(tester.widget<IndexedStack>(find.byType(IndexedStack)).index, 0);
-    },
-  );
+  testWidgets('a control that opens Start switches to the Start tab, and a link to a request opens it', (tester) async {
+    final push = FakePushPlatform();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          pushPlatformProvider.overrideWithValue(push),
+          phoneDataProvider.overrideWithValue(FixturePhoneData()),
+        ],
+        child: const BobixApp(home: AppShell()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    push.tapController.add(const PushTap(computerId: '', ref: '', kind: 'start'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.widget<IndexedStack>(find.byType(IndexedStack)).index, 2, reason: 'the Start tab');
+    push.tapController.add(const PushTap(computerId: '', ref: '', kind: 'home'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.widget<IndexedStack>(find.byType(IndexedStack)).index, 0);
+  });
 
   // flutter_test's rasteriser draws nothing, so that the PNG really shows the pet is checked in a running app:
   // integration_test/pet_png_test.dart.
