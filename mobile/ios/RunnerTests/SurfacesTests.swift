@@ -324,3 +324,36 @@ final class SurfacesTests: XCTestCase {
     }
   }
 }
+
+/// The privacy cover shows a pet at work, never one in a session's real state.
+final class CoverPetTests: XCTestCase {
+  private func png(_ url: URL, red: Bool) throws {
+    let renderer = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4))
+    let image = renderer.image { c in
+      (red ? UIColor.red : UIColor.blue).setFill()
+      c.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+    }
+    try XCTUnwrap(image.pngData()).write(to: url)
+  }
+
+  func testOnlyPetsAtWorkAreEverPicked() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cover-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try png(dir.appendingPathComponent("tty-0-waiting.png"), red: true)
+    try png(dir.appendingPathComponent("tty-0-failed.png"), red: true)
+    XCTAssertNil(CoverPet.pick(from: [dir]), "pets in a session's own state are never used")
+    try png(dir.appendingPathComponent("ship-2-working.png"), red: false)
+    for _ in 0..<20 {
+      let image = try XCTUnwrap(CoverPet.pick(from: [dir]))
+      var rgba = [UInt8](repeating: 0, count: 4)
+      let ctx = CGContext(data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+      ctx.draw(image.cgImage!, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+      XCTAssertEqual(rgba[2], 255, "the blue one, the working pet")
+    }
+  }
+
+  func testNoFolderMeansNoPetSoTheTileShows() {
+    XCTAssertNil(CoverPet.pick(from: [URL(fileURLWithPath: "/nonexistent-cover-folder")]))
+  }
+}

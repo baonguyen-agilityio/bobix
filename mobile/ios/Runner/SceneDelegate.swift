@@ -57,14 +57,14 @@ class SceneDelegate: FlutterSceneDelegate {
     super.sceneDidBecomeActive(scene)
   }
 
-  /// One of the pet pictures the app keeps in the App Group for the widgets, chosen at random, working pets only: the
-  /// others are drawn in a session's real state (waiting, failed), which would say something about it. A picture is a
-  /// pet and nothing else; none yet means the app tile.
   private func randomPetImage() -> UIImage? {
-    guard let dir = SharedListStore.directory()?.appendingPathComponent("pets"),
-      let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-    else { return nil }
-    return files.filter { $0.lastPathComponent.hasSuffix("-working.png") }.randomElement().flatMap { UIImage(contentsOfFile: $0.path) }
+    let fm = FileManager.default
+    var folders: [URL] = []
+    if let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+      folders.append(support.appendingPathComponent("cover-pets"))
+    }
+    if let shared = SharedListStore.directory() { folders.append(shared.appendingPathComponent("pets")) }
+    return CoverPet.pick(from: folders)
   }
 
   private var push: PushBridge? { (UIApplication.shared.delegate as? AppDelegate)?.push }
@@ -78,5 +78,19 @@ class SceneDelegate: FlutterSceneDelegate {
   override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
     super.scene(scene, openURLContexts: URLContexts)
     URLContexts.forEach { push?.didOpen(url: $0.url) }
+  }
+}
+
+/// Which picture the privacy cover shows. The app draws its own stills into `cover-pets` in its support folder the first
+/// time it runs (so there is always one), and the pictures it keeps in the App Group for the widgets count too, working
+/// pets only: the others are drawn in a session's real state (waiting, failed), which would say something about it. A
+/// picture is a pet and nothing else; none at all means the app tile.
+enum CoverPet {
+  static let suffix = "-working.png"
+
+  static func pick(from folders: [URL]) -> UIImage? {
+    let fm = FileManager.default
+    let files = folders.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }
+    return files.filter { $0.lastPathComponent.hasSuffix(suffix) }.shuffled().lazy.compactMap { UIImage(contentsOfFile: $0.path) }.first
   }
 }
