@@ -407,8 +407,14 @@ void main() {
         );
         expect(c.rights.answer, isTrue);
         expect(c.rights.start || c.rights.plan || c.rights.activity, isFalse);
-        final kept = (await phone.store.load())!.rights;
-        expect(kept.answer && !kept.stop && !kept.plan, isTrue);
+        // The rights in memory change a moment before the file is written: wait for the file, then read it.
+        final end = DateTime.now().add(const Duration(seconds: 15));
+        var kept = (await phone.store.load())!.rights;
+        while (kept.stop && DateTime.now().isBefore(end)) {
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+          kept = (await phone.store.load())!.rights;
+        }
+        expect(kept.answer && !kept.stop && !kept.plan, isTrue, reason: 'what was kept on disk');
         expect(link.status.revokedByComputer, isFalse);
       },
     );
