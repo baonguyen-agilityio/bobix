@@ -155,11 +155,16 @@ class _AppShellState extends ConsumerState<AppShell> {
             Positioned.fill(
               child: IndexedStack(
                 index: _index,
-                children: const [
-                  HomeScreen(),
-                  PetsScreen(),
-                  StartScreen(),
-                  SettingsScreen(),
+                // A tab that is not shown keeps its state but stops its animations: every pet on it would otherwise
+                // keep a ticker and a breathing halo going for a screen nobody sees.
+                children: [
+                  for (final (i, tab) in const [
+                    HomeScreen(),
+                    PetsScreen(),
+                    StartScreen(),
+                    SettingsScreen(),
+                  ].indexed)
+                    TickerMode(enabled: i == _index, child: tab),
                 ],
               ),
             ),
