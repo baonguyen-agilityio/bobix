@@ -234,6 +234,10 @@ final class SurfacesTests: XCTestCase {
     XCTAssertEqual(try model(list(waiting: 3), lang: "vi").headline, "3 phiên cần bạn")
     XCTAssertEqual(try model(list(waiting: 0)).headline, "Nothing needs you")
     XCTAssertEqual(try model(list(waiting: 0)).url.absoluteString, "bobix://home", "nothing waits: Home, not a missing request")
+    let two = try model(list(waiting: 2))
+    XCTAssertEqual(two.url(for: two.list.waiting[1]).absoluteString, "bobix://request?computer=c1&ref=r1", "a row opens its own request, not the first one")
+    XCTAssertEqual(try model(list(ageMinutes: 25)).url(for: two.list.waiting[1]).absoluteString, "bobix://home", "old data opens Home")
+    XCTAssertEqual(two.url(for: two.list.rows.last!).absoluteString, "bobix://home", "a working session has no request to open")
     XCTAssertEqual(try model(list(waiting: 2)).url.absoluteString, "bobix://request?computer=c1&ref=r0")
   }
 
