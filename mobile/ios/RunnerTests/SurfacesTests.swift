@@ -252,6 +252,15 @@ final class SurfacesTests: XCTestCase {
     XCTAssertEqual(try model(list(waiting: 2)).url.absoluteString, "bobix://request?computer=c1&ref=r0")
   }
 
+  func testWidgetsFillWithTheMostRecentSessionsAfterTheOnesThatNeedYou() throws {
+    let m = try model(list(waiting: 2))  // two waiting, one working
+    XCTAssertEqual(m.listed(3).map(\.id), ["w0", "w1", "x"], "needs you first, then the others in the list's order")
+    XCTAssertEqual(m.listed(1).map(\.id), ["w0"])
+    XCTAssertEqual(try model(list(waiting: 0)).listed(3).map(\.id), ["x"], "nothing waits: the recent ones fill in")
+    XCTAssertTrue(try model(list(waiting: 2), hide: true).listed(3).isEmpty, "Hide details: counts only")
+    XCTAssertTrue(try model(list(ageMinutes: 25)).listed(3).isEmpty, "old data lists nothing")
+  }
+
   func testEveryKeyTheSurfacesUseIsTranslated() throws {
     let en = try XCTUnwrap(NSDictionary(contentsOfFile: try XCTUnwrap(Bundle(for: SurfacesTests.self).path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: "en"))) as? [String: String])
     let vi = try XCTUnwrap(NSDictionary(contentsOfFile: try XCTUnwrap(Bundle(for: SurfacesTests.self).path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: "vi"))) as? [String: String])

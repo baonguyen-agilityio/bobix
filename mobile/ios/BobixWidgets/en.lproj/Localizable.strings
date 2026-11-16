@@ -18,6 +18,7 @@
 "phone.wg.open" = "Open to review";
 "phone.wg.sec.need" = "Needs you";
 "phone.wg.sec.pets" = "Pets";
+"phone.wg.sec.recent" = "Recent";
 "phone.wg.sec.todo" = "To do";
 "phone.wg.todo" = "{n} to do";
 "phone.wg.unpaired" = "Open Bobix to connect a computer";

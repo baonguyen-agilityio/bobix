@@ -38,6 +38,13 @@ struct SurfaceModel {
   /// Names to show: none with Hide details on, and none on old data.
   func rows(_ max: Int) -> [SharedList.Row] { hide || mode == .stale ? [] : Array(list.waiting.prefix(max)) }
 
+  /// The rows a Home Screen widget lists: the sessions that need the person first, then the most recent ones in any
+  /// state (the computer sends them newest first). Nothing with Hide details on, and nothing on old data.
+  func listed(_ max: Int) -> [SharedList.Row] {
+    if hide || mode == .stale { return [] }
+    return Array((list.waiting + list.rows.filter { $0.state != "waiting" }).prefix(max))
+  }
+
   /// The one URL a surface opens: the first waiting request, else Home. Never an answer.
   var url: URL {
     if mode == .needs, let r = list.waiting.first { return url(for: r) }
@@ -216,8 +223,8 @@ struct HomeMediumView: View {
       }
       .frame(width: 112, alignment: .leading)
       VStack(spacing: 6) {
-        if model.mode == .needs && !model.hide {
-          ForEach(model.rows(2), id: \.id) { WidgetRow(model: model, row: $0) }
+        if !model.listed(2).isEmpty {
+          ForEach(model.listed(2), id: \.id) { WidgetRow(model: model, row: $0) }
         } else if model.mode == .needs {
           Text(model.text("phone.wg.hidden")).font(.system(size: 13)).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -244,13 +251,18 @@ struct HomeLargeView: View {
       WidgetHead(model: model)
       section("phone.wg.sec.need", model.mode == .needs ? model.count : 0)
       if model.mode == .needs && !model.hide {
-        ForEach(model.rows(2), id: \.id) { WidgetRow(model: model, row: $0) }
+        ForEach(model.rows(3), id: \.id) { WidgetRow(model: model, row: $0) }
       } else if model.mode == .needs {
         Text(model.text("phone.wg.hidden")).font(.system(size: 13)).foregroundStyle(.secondary)
-      } else {
+      } else if model.listed(1).isEmpty {
         WidgetEmpty(model: model).frame(height: 70)
       }
-      if !model.hide && model.mode != .stale && !model.list.rows.isEmpty {
+      let recent = model.listed(4).filter { $0.state != "waiting" }.prefix(max(0, 4 - (model.mode == .needs ? min(model.count, 3) : 0)))
+      if !recent.isEmpty {
+        section("phone.wg.sec.recent", nil)
+        ForEach(Array(recent), id: \.id) { WidgetRow(model: model, row: $0) }
+      }
+      if !model.hide && model.mode != .stale && !model.list.rows.isEmpty && recent.isEmpty {
         section("phone.wg.sec.pets", nil)
         WidgetPets(model: model, max: 6, gap: 10)
       }
