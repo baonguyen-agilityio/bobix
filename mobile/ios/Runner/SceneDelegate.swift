@@ -12,43 +12,41 @@ class SceneDelegate: FlutterSceneDelegate {
     guard cover == nil, let window = (scene as? UIWindowScene)?.windows.first else { return }
     let view = UIView(frame: window.bounds)
     view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    // The page's own colour (the app's `bg` token) with the app tile on it, as the Dart cover draws it.
+    // The page's own colour (the app's `bg` token) with a working pet (or, before there is one, the app tile) on it.
     view.backgroundColor = UIColor { $0.userInterfaceStyle == .dark
       ? UIColor(red: 0.055, green: 0.059, blue: 0.071, alpha: 1)
       : UIColor(red: 0.961, green: 0.965, blue: 0.973, alpha: 1) }
     if let pet = randomPetImage() {
-      // A pet picked at random each time (a still: this picture is taken before anything can animate).
+      // A pet picked at random each time, at the Dart cover's size (a still: nothing can animate before the picture).
       let image = UIImageView(image: pet)
       image.contentMode = .scaleAspectFit
-      image.frame = CGRect(x: 0, y: 0, width: 120, height: 120)
+      image.frame = CGRect(x: 0, y: 0, width: 96, height: 96)
       image.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
       image.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin, .flexibleTopMargin, .flexibleBottomMargin]
       view.addSubview(image)
-      window.addSubview(view)
-      cover = view
-      return
+    } else {
+      let side: CGFloat = 96
+      let tile = UIView(frame: CGRect(x: 0, y: 0, width: side, height: side))
+      tile.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+      tile.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin, .flexibleTopMargin, .flexibleBottomMargin]
+      tile.layer.cornerRadius = 28
+      tile.layer.cornerCurve = .continuous
+      tile.layer.masksToBounds = true
+      let gradient = CAGradientLayer()
+      gradient.frame = tile.bounds
+      gradient.colors = [
+        UIColor(red: 0.96, green: 0.58, blue: 0.43, alpha: 1).cgColor,
+        UIColor(red: 0.80, green: 0.28, blue: 0.20, alpha: 1).cgColor,
+      ]
+      tile.layer.addSublayer(gradient)
+      let paw = UIImageView(image: UIImage(systemName: "pawprint",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 44, weight: .regular)))
+      paw.tintColor = .white
+      paw.contentMode = .center
+      paw.frame = tile.bounds
+      tile.addSubview(paw)
+      view.addSubview(tile)
     }
-    let side: CGFloat = 96
-    let tile = UIView(frame: CGRect(x: 0, y: 0, width: side, height: side))
-    tile.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
-    tile.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin, .flexibleTopMargin, .flexibleBottomMargin]
-    tile.layer.cornerRadius = 28
-    tile.layer.cornerCurve = .continuous
-    tile.layer.masksToBounds = true
-    let gradient = CAGradientLayer()
-    gradient.frame = tile.bounds
-    gradient.colors = [
-      UIColor(red: 0.96, green: 0.58, blue: 0.43, alpha: 1).cgColor,
-      UIColor(red: 0.80, green: 0.28, blue: 0.20, alpha: 1).cgColor,
-    ]
-    tile.layer.addSublayer(gradient)
-    let paw = UIImageView(image: UIImage(systemName: "pawprint",
-      withConfiguration: UIImage.SymbolConfiguration(pointSize: 44, weight: .regular)))
-    paw.tintColor = .white
-    paw.contentMode = .center
-    paw.frame = tile.bounds
-    tile.addSubview(paw)
-    view.addSubview(tile)
     window.addSubview(view)
     cover = view
   }
@@ -59,13 +57,14 @@ class SceneDelegate: FlutterSceneDelegate {
     super.sceneDidBecomeActive(scene)
   }
 
-  /// One of the pet pictures the app already keeps in the App Group for the widgets, chosen at random. They are pets
-  /// only (a design, a colour, a state), never a session's name or anything it did; none yet means the app tile.
+  /// One of the pet pictures the app keeps in the App Group for the widgets, chosen at random, working pets only: the
+  /// others are drawn in a session's real state (waiting, failed), which would say something about it. A picture is a
+  /// pet and nothing else; none yet means the app tile.
   private func randomPetImage() -> UIImage? {
     guard let dir = SharedListStore.directory()?.appendingPathComponent("pets"),
       let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
     else { return nil }
-    return files.filter { $0.pathExtension == "png" }.randomElement().flatMap { UIImage(contentsOfFile: $0.path) }
+    return files.filter { $0.lastPathComponent.hasSuffix("-working.png") }.randomElement().flatMap { UIImage(contentsOfFile: $0.path) }
   }
 
   private var push: PushBridge? { (UIApplication.shared.delegate as? AppDelegate)?.push }

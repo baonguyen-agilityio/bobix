@@ -46,6 +46,15 @@ class _Fixed extends PairingController {
   PairingState build() => initial;
 }
 
+/// Stands on the naming step and records what is submitted.
+class _Naming extends PairingController {
+  static final names = <String>[];
+  @override
+  PairingState build() => const PairingState(step: PairStep.details);
+  @override
+  Future<void> submit(String name, PhoneRights rights) async => names.add(name);
+}
+
 class _FakeLink extends LinkController {
   _FakeLink(this.initial);
   final AppPhase initial;
@@ -205,6 +214,32 @@ void main() {
       expect(keys.secrets, isEmpty);
       expect(keys.hasSigningKey, isFalse);
       expect(File('${tmp.path}/link-state.json').existsSync(), isFalse);
+    },
+  );
+
+  testWidgets(
+    'asking with no name typed sends the default name; a typed name is kept',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      _Naming.names.clear();
+      await tester.pumpWidget(
+        host(
+          overrides: [
+            ...base(),
+            pairingControllerProvider.overrideWith(_Naming.new),
+          ],
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('Ask the computer to confirm'));
+      await tester.pump();
+      expect(_Naming.names, ['Phone']);
+      await tester.enterText(find.byType(TextField).first, 'Bao’s iPhone');
+      await tester.tap(find.text('Ask the computer to confirm'));
+      await tester.pump();
+      expect(_Naming.names, ['Phone', 'Bao’s iPhone']);
     },
   );
 

@@ -59,35 +59,39 @@ class PetsSplash extends StatelessWidget {
       label: 'Bobix',
       container: true,
       child: GlassBackdrop(
-        child: SizedBox.expand(
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    RandomPet(size: 64),
-                    SizedBox(width: 12),
-                    RandomPet(size: 88),
-                    SizedBox(width: 12),
-                    RandomPet(size: 64),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                ExcludeSemantics(
-                  child: Text(
-                    'Bobix',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -.2,
-                      color: t.ink,
-                      decoration: TextDecoration.none,
+        // A Material above the text: without one it falls back to the monospace default style.
+        child: Material(
+          color: Colors.transparent,
+          child: SizedBox.expand(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      RandomPet(size: 64),
+                      SizedBox(width: 12),
+                      RandomPet(size: 88),
+                      SizedBox(width: 12),
+                      RandomPet(size: 64),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ExcludeSemantics(
+                    child: Text(
+                      'Bobix',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -.2,
+                        color: t.ink,
+                        decoration: TextDecoration.none,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

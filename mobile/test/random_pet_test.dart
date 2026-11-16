@@ -29,6 +29,23 @@ void main() {
     expect(seen.length, greaterThan(3), reason: 'not the same pet every time');
   });
 
+  testWidgets('the splash writes its name in the app font, not the fallback', (
+    tester,
+  ) async {
+    // No Scaffold above it, as in the gate while the app starts.
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: bobixTheme(Brightness.light),
+        home: const PetsSplash(),
+      ),
+    );
+    final style = DefaultTextStyle.of(tester.element(find.text('Bobix'))).style;
+    final text = tester.widget<Text>(find.text('Bobix'));
+    final resolved = style.merge(text.style);
+    expect(resolved.debugLabel ?? '', isNot(contains('fallback')));
+    expect(resolved.fontFamily, isNot('monospace'));
+  });
+
   testWidgets('the splash and the cover show pets and no data', (tester) async {
     await tester.pumpWidget(host(const PetsSplash()));
     expect(find.byType(PetView), findsNWidgets(3));
