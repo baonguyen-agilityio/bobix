@@ -198,7 +198,7 @@ async fn a_guest_that_redeems_in_time_is_not_closed_by_the_guest_rule() {
     let mut g = Dev::connect(&s, ident()).await;
     redeem(&mut g, &code(&owner, "test-relay", week())).await;
     g.expect(result(true, None), 1000).await;
-    lazy.closed(3000).await;
+    lazy.closed(5000).await; // the guest rule is checked every `dead_after / 10` (3 s here)
     // Long past the guest window, the redeemer still answers.
     tokio::time::sleep(Duration::from_millis(500)).await;
     g.send(&Frame::InviteQuery {}).await;
