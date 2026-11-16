@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 
 /// At most this many computers get in by a code.
 pub const MAX_INVITEES: usize = 1000;
+/// A spent nonce is kept this long past its code's expiry, so a clock that jumps forward and back never frees it early.
+const KEEP_PAST_EXPIRY_MS: u64 = 86_400_000;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 struct Entry {
@@ -33,6 +35,9 @@ struct Saved {
 pub struct Invited {
     path: Option<PathBuf>,
     data: Saved,
+    /// Whether the file could be written, the last time it was (or, before any change, at start). `/healthz` reads this
+    /// and never touches the disk itself.
+    writable: bool,
 }
 
 /// What a redemption came to.
@@ -58,10 +63,15 @@ impl Invited {
                 Err(e) => return Err(format!("cannot read INVITED_FILE: {e}")),
             },
         };
-        let mut i = Invited { path, data };
+        let writable = probe(path.as_deref());
+        let mut i = Invited { path, data, writable };
         i.data.v = 1;
-        i.data.used.retain(|_, until| *until > now_ms);
+        i.forget_spent(now_ms);
         Ok(i)
+    }
+
+    fn forget_spent(&mut self, now_ms: u64) {
+        self.data.used.retain(|_, until| until.saturating_add(KEEP_PAST_EXPIRY_MS) > now_ms);
     }
 
     pub fn contains(&self, id: &str) -> bool {
@@ -74,7 +84,7 @@ impl Invited {
 
     /// Admits `id` with a code (its nonce and expiry), unless the nonce was spent or the list is full. Saved before it counts.
     pub fn redeem(&mut self, id: &str, nonce: &str, expires_ms: u64, label: &str, by: &str, now_ms: u64) -> Redeemed {
-        self.data.used.retain(|_, until| *until > now_ms);
+        self.forget_spent(now_ms);
         if self.data.used.contains_key(nonce) {
             return Redeemed::Used;
         }
@@ -101,19 +111,28 @@ impl Invited {
         true
     }
 
-    fn save(&self) -> std::io::Result<()> {
+    /// Called with the hub's lock held: the write and its fsync block other frames for a moment. That is accepted: only an
+    /// owner's removal or a valid code (5 a minute per socket, at most 1,000 in all) gets here, and the file is small.
+    fn save(&mut self) -> std::io::Result<()> {
         let Some(path) = &self.path else { return Ok(()) };
-        write_atomic(path, &serde_json::to_vec(&self.data).map_err(std::io::Error::other)?)
+        let r = serde_json::to_vec(&self.data).map_err(std::io::Error::other).and_then(|b| write_atomic(path, &b));
+        self.writable = r.is_ok();
+        r
     }
 
-    /// For `/healthz`: the directory of the file can take a new file.
+    /// For `/healthz`: the last write worked (or, before the first one, the folder took a file at start).
     pub fn writable(&self) -> bool {
-        let Some(dir) = self.path.as_ref().and_then(|p| p.parent()) else { return true };
-        let probe = dir.join(".invited-probe");
-        let ok = std::fs::write(&probe, b"").is_ok();
-        let _ = std::fs::remove_file(probe);
-        ok
+        self.writable
     }
+}
+
+/// At start only: the file's folder can take a new file.
+fn probe(path: Option<&Path>) -> bool {
+    let Some(dir) = path.and_then(|p| p.parent()) else { return true };
+    let probe = dir.join(".invited-probe");
+    let ok = std::fs::create_dir_all(dir).is_ok() && std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(probe);
+    ok
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -141,8 +160,9 @@ mod tests {
         let mut i = Invited::load(None, 0).unwrap();
         assert_eq!(i.redeem("a", "n1", 100, "", "o", 10), Redeemed::Added);
         assert_eq!(i.redeem("b", "n1", 100, "", "o", 50), Redeemed::Used);
-        // Past its expiry the code itself is refused by the relay; its nonce need not be kept.
-        assert_eq!(i.redeem("b", "n1", 300, "", "o", 200), Redeemed::Added);
+        // Kept a day past the code's expiry (a clock that jumped forward and back), then forgotten.
+        assert_eq!(i.redeem("b", "n1", 100, "", "o", 100 + KEEP_PAST_EXPIRY_MS - 1), Redeemed::Used);
+        assert_eq!(i.redeem("b", "n1", 300, "", "o", 100 + KEEP_PAST_EXPIRY_MS), Redeemed::Added);
         assert!(i.contains("a") && i.contains("b"));
     }
 
