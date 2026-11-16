@@ -134,115 +134,124 @@ class _StartScreenState extends ConsumerState<StartScreen> {
                           ),
                       ],
               ),
-              _Heading(s('phone.sp.how')),
-              _OptionCard(
-                title: s('phone.sp.full'),
-                subtitle: s('phone.sp.full.d'),
-                selected: full,
-                onTap: () => setState(() => _mode = StartMode.full),
-              ),
-              const SizedBox(height: 8),
-              _OptionCard(
-                title: s('phone.sp.quick'),
-                subtitle: s('phone.sp.quick.d'),
-                selected: !full,
-                onTap: () => setState(() => _mode = StartMode.quick),
-              ),
-              _Heading(s('phone.sp.what', {'c': computer})),
-              Glass(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  children: [
-                    for (final (n, line) in steps.indexed)
-                      Padding(
-                        padding: EdgeInsets.only(top: n == 0 ? 0 : 10),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 26,
-                              height: 26,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: t.surface3,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Text(
-                                '${n + 1}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: t.ink2,
+              // Nothing to start: only the empty note above, no way to start and no steps to read.
+              if (picked != null) ...[
+                _Heading(s('phone.sp.how')),
+                _OptionCard(
+                  title: s('phone.sp.full'),
+                  subtitle: s('phone.sp.full.d'),
+                  selected: full,
+                  onTap: () => setState(() => _mode = StartMode.full),
+                ),
+                const SizedBox(height: 8),
+                _OptionCard(
+                  title: s('phone.sp.quick'),
+                  subtitle: s('phone.sp.quick.d'),
+                  selected: !full,
+                  onTap: () => setState(() => _mode = StartMode.quick),
+                ),
+                _Heading(s('phone.sp.what', {'c': computer})),
+                Glass(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    children: [
+                      for (final (n, line) in steps.indexed)
+                        Padding(
+                          padding: EdgeInsets.only(top: n == 0 ? 0 : 10),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 26,
+                                height: 26,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: t.surface3,
+                                  shape: BoxShape.circle,
                                 ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.only(top: 2),
                                 child: Text(
-                                  line,
+                                  '${n + 1}',
                                   style: TextStyle(
-                                    fontSize: 14,
-                                    height: 1.45,
-                                    color: t.ink,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: t.ink2,
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.shield_outlined, size: 16, color: t.ink3),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: FinePrint(
-                        s(full ? 'phone.sp.gate' : 'phone.sp.gate.q'),
-                        align: TextAlign.left,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        GlassActionBar(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: double.infinity,
-                child: ActionButton(
-                  s(full ? 'phone.sp.go.full' : 'phone.sp.go.quick'),
-                  kind: BtnKind.primary,
-                  icon: Icons.lock_outline,
-                  onPressed: picked == null || !canSend
-                      ? null
-                      : () => Navigator.of(context).push(
-                          pageRoute<void>(
-                            StartPreviewScreen(issueId: picked.id, mode: _mode),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    line,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      height: 1.45,
+                                      color: t.ink,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              FinePrint(
-                '${s('phone.rq.unlock', {'os': bioName(s)})} · $sendNote',
-              ),
-              // The floating tab bar sits over the bottom of the bar.
-              SizedBox(height: 56 + MediaQuery.viewPaddingOf(context).bottom),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.shield_outlined, size: 16, color: t.ink3),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: FinePrint(
+                          s(full ? 'phone.sp.gate' : 'phone.sp.gate.q'),
+                          align: TextAlign.left,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              // Clear of the floating tab bar when there is no action bar above it.
+              if (picked == null) const SizedBox(height: 96),
             ],
           ),
         ),
+        if (picked != null)
+          GlassActionBar(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: ActionButton(
+                    s(full ? 'phone.sp.go.full' : 'phone.sp.go.quick'),
+                    kind: BtnKind.primary,
+                    icon: Icons.lock_outline,
+                    onPressed: picked == null || !canSend
+                        ? null
+                        : () => Navigator.of(context).push(
+                            pageRoute<void>(
+                              StartPreviewScreen(
+                                issueId: picked.id,
+                                mode: _mode,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FinePrint(
+                  '${s('phone.rq.unlock', {'os': bioName(s)})} · $sendNote',
+                ),
+                // The floating tab bar sits over the bottom of the bar.
+                SizedBox(height: 64 + MediaQuery.viewPaddingOf(context).bottom),
+              ],
+            ),
+          ),
       ],
     );
   }
