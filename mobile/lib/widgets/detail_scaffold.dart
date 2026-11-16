@@ -45,7 +45,7 @@ class DetailScaffold extends ConsumerWidget {
               child: Row(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(left: 8),
+                    padding: const EdgeInsets.only(left: 16),
                     child: Semantics(
                       button: true,
                       label: s('phone.a.back'),
@@ -77,22 +77,25 @@ class DetailScaffold extends ConsumerWidget {
                     ),
                   ),
                   Expanded(
-                    child: Semantics(
-                      header: true,
-                      child: Text(
-                        title,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          color: t.ink,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Semantics(
+                        header: true,
+                        child: Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: t.ink,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 52),
+                  const SizedBox(width: 16),
                 ],
               ),
             ),
@@ -103,15 +106,9 @@ class DetailScaffold extends ConsumerWidget {
               ),
             ),
             if (actions != null)
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: t.surface.withValues(alpha: .7),
-                  border: Border(top: BorderSide(width: .5, color: t.line)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                  child: actions,
-                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: actions,
               ),
           ],
         ),

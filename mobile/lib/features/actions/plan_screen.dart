@@ -5,6 +5,7 @@ import 'package:markdown/markdown.dart' as md;
 
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/glass.dart';
 import '../../widgets/status_banner.dart';
 import 'action_screen_parts.dart';
 import 'action_widgets.dart';
@@ -236,35 +237,21 @@ class _PlanNoteScreenState extends ConsumerState<PlanNoteScreen> {
           ),
         ),
         const SizedBox(height: 6),
-        TextField(
-          controller: _note,
-          minLines: 4,
-          maxLines: 8,
-          textInputAction: TextInputAction.newline,
-          decoration: InputDecoration(
-            hintText: s('phone.pn.ph'),
-            filled: true,
-            fillColor: t.isDark ? t.surface2 : const Color(0x99FFFFFF),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide(
-                color: t.isDark
-                    ? const Color(0x17FFFFFF)
-                    : const Color(0xE6FFFFFF),
-                width: .5,
-              ),
+        Glass(
+          radius: 16,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: TextField(
+            controller: _note,
+            minLines: 4,
+            maxLines: 8,
+            textInputAction: TextInputAction.newline,
+            cursorColor: t.accentInk,
+            decoration: InputDecoration.collapsed(
+              hintText: s('phone.pn.ph'),
+              hintStyle: TextStyle(fontSize: 16, color: t.ink3),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide(
-                color: t.isDark
-                    ? const Color(0x17FFFFFF)
-                    : const Color(0xE6FFFFFF),
-                width: .5,
-              ),
-            ),
+            style: TextStyle(fontSize: 16, color: t.ink),
           ),
-          style: TextStyle(fontSize: 16, color: t.ink),
         ),
         const SizedBox(height: 10),
         Wrap(
@@ -272,16 +259,50 @@ class _PlanNoteScreenState extends ConsumerState<PlanNoteScreen> {
           runSpacing: 6,
           children: [
             for (final k in const ['phone.pn.c1', 'phone.pn.c2', 'phone.pn.c3'])
-              ActionChip(
-                label: Text(s(k)),
-                onPressed: () => _add(s(k)),
-                materialTapTargetSize: MaterialTapTargetSize.padded,
-              ),
+              _SuggestionChip(label: s(k), onTap: () => _add(s(k))),
           ],
         ),
         const SizedBox(height: 14),
         FinePrint(s('phone.pn.n'), align: TextAlign.left),
       ],
+    );
+  }
+}
+
+/// A capsule of glass that adds a ready-made phrase to the note.
+class _SuggestionChip extends StatelessWidget {
+  const _SuggestionChip({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return InkWell(
+      borderRadius: BorderRadius.circular(22),
+      onTap: onTap,
+      child: Glass(
+        radius: 22,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: t.ink2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
