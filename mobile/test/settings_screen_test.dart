@@ -158,6 +158,29 @@ void main() {
     },
   );
 
+  testWidgets('Settings: every row keeps its icon centred on the row', (
+    tester,
+  ) async {
+    await pump(tester, paired: computer());
+    for (final (icon, title, subtitle) in <(IconData, String, String)>[
+      (
+        Icons.verified_user_outlined,
+        'No “Always allow”',
+        'The phone can only answer the request in front of you',
+      ),
+      (
+        Icons.format_list_bulleted,
+        'App log',
+        'Pairing, disconnects, tickets started',
+      ),
+    ]) {
+      final y = tester.getCenter(find.byIcon(icon).first).dy;
+      final top = tester.getTopLeft(find.text(title).last).dy;
+      final bottom = tester.getBottomLeft(find.text(subtitle).first).dy;
+      expect(y, closeTo((top + bottom) / 2, 1.5), reason: title);
+    }
+  });
+
   testWidgets('the paired computer and how it is; the rights are one row', (
     tester,
   ) async {
