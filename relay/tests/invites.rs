@@ -47,6 +47,8 @@ async fn a_valid_code_lets_a_guest_computer_in_and_the_owner_sees_it() {
     guest.send(&Frame::PairOpen { relay_token_hash: token_pair(1).1, ttl: 120 }).await;
     guest.expect(is_err(ErrorCode::Invite), 1000).await;
 
+    // An owner that is connected hears of the new computer without asking again.
+    let mut o = Dev::connect(&s, owner.clone()).await;
     redeem(&mut guest, &code(&owner, "test-relay", week())).await;
     guest.expect(result(true, None), 1000).await;
     guest.expect(|f| matches!(f, Frame::InviteState { invited: true, owner: false, .. }), 1000).await;
@@ -54,10 +56,8 @@ async fn a_valid_code_lets_a_guest_computer_in_and_the_owner_sees_it() {
     guest.send(&Frame::PairOpen { relay_token_hash: token_pair(2).1, ttl: 120 }).await;
     guest.none(is_err(ErrorCode::Invite), 300).await;
 
-    let mut o = Dev::connect(&s, owner.clone()).await;
-    o.send(&Frame::InviteQuery {}).await;
     let gid = guest.id();
-    let Frame::InviteState { owner: true, invited: true, relay_id, invitees } = o.expect(|f| matches!(f, Frame::InviteState { .. }), 1000).await else { panic!("not an owner") };
+    let Frame::InviteState { owner: true, invited: true, relay_id, invitees } = o.expect(|f| matches!(f, Frame::InviteState { invitees, .. } if !invitees.is_empty()), 1000).await else { panic!("not an owner") };
     assert_eq!(relay_id.as_deref(), Some("test-relay"));
     assert_eq!(invitees.len(), 1);
     assert_eq!((invitees[0].id.as_str(), invitees[0].label.as_str(), invitees[0].by.clone()), (gid.as_str(), "tester", owner.device_id()));

@@ -353,9 +353,17 @@ impl Hub {
                     Ok(already) => (true, already.then_some(InviteReason::Already)),
                     Err(r) => (false, Some(r)),
                 };
+                let added = ok && reason.is_none();
                 self.send_to(me, Frame::InviteResult { ok, reason });
                 if ok {
                     self.invite_state(me);
+                }
+                if added {
+                    // The owners that are connected see the new computer in their list at once.
+                    let owners: Vec<String> = self.owners.iter().filter(|o| self.online.contains_key(*o) && *o != me).cloned().collect();
+                    for o in owners {
+                        self.invite_state(&o);
+                    }
                 }
             }
             Frame::InviteRemove { id } => self.invite_remove(me, &id),
