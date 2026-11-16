@@ -225,7 +225,10 @@ final class SurfacesTests: XCTestCase {
       XCTAssertTrue(m.rows(5).isEmpty)
       XCTAssertFalse(m.headline.contains("shop") || m.headline.contains("blog"))
       XCTAssertEqual(m.count, 3)
+      XCTAssertFalse(m.inlineLine.contains("Studio Mac"), "\(lang): no computer name on the Lock Screen")
+      XCTAssertFalse(try model(list(waiting: 0), hide: true, lang: lang).inlineLine.contains("Studio Mac"))
     }
+    XCTAssertTrue(try model(list(waiting: 3)).inlineLine.contains("Studio Mac"), "with details on it names the computer")
   }
 
   func testTheCountAndTheLinks() throws {

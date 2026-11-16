@@ -267,16 +267,24 @@ struct HomeLargeView: View {
 
 // MARK: Lock Screen
 
+extension SurfaceModel {
+  /// The inline Lock Screen line: the count and the computer, or the age of old data. With Hide details on, counts only.
+  var inlineLine: String {
+    let who = hide ? "" : " · \(list.computerName)"
+    switch mode {
+    case .stale: return updated
+    case .needs: return "\(count) \(text("phone.wg.need.label"))\(who)"
+    case .none: return "\(text("phone.wg.none"))\(who)"
+    }
+  }
+}
+
 struct LockInlineView: View {
   let model: SurfaceModel
   var body: some View {
-    // The inline family is one line of text: the count and the computer, or the age of old data.
-    let line: String = model.mode == .stale ? model.updated
-      : model.mode == .needs ? "\(model.count) \(model.text("phone.wg.need.label")) · \(model.list.computerName)"
-      : "\(model.text("phone.wg.none")) · \(model.list.computerName)"
     HStack(spacing: 4) {
       Image(systemName: "pawprint")
-      Text(line)
+      Text(model.inlineLine)
     }
   }
 }
@@ -308,12 +316,12 @@ struct LockRectangularView: View {
       }.opacity(0.85)
       if let r = model.rows(1).first {
         Text(r.name).font(.system(size: 14, weight: .semibold)).lineLimit(1).privacySensitive()
-        Text(r.project.isEmpty ? model.list.computerName : "\(r.project) · \(model.list.computerName)").font(.system(size: 11)).opacity(0.75).lineLimit(1)
+        Text(r.project.isEmpty ? model.list.computerName : "\(r.project) · \(model.list.computerName)").font(.system(size: 11)).opacity(0.75).lineLimit(1).privacySensitive()
       } else if model.mode == .needs {
         Text(model.text("phone.wg.hidden")).font(.system(size: 13, weight: .semibold)).lineLimit(1)
       } else {
         Text(model.mode == .stale ? model.updated : model.text("phone.wg.none")).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-        Text(model.list.computerName).font(.system(size: 11)).opacity(0.75).lineLimit(1)
+        if !model.hide { Text(model.list.computerName).font(.system(size: 11)).opacity(0.75).lineLimit(1) }
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../widgets/glass_backdrop.dart';
+import '../../data/models.dart' show Session, WaitingKind;
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import 'action_screen_parts.dart';
@@ -69,10 +70,16 @@ class SessionScreen extends ConsumerWidget {
             ChipTone.info,
           ),
           SessionPhase.waiting => (
-            // Nothing held for this phone: Claude asks at the computer, so it is not an approval to give here.
-            ref.watch(homeSessionProvider(id))?.answerAtComputer == true
-                ? s('phone.status.atpc')
-                : s('phone.status.waiting'),
+            // What it waits for: nothing held for this phone means Claude asks at the computer; a held plan or
+            // question names itself; a request is an approval.
+            switch (ref.watch(homeSessionProvider(id))) {
+              Session(answerAtComputer: true) => s('phone.status.atpc'),
+              Session(waitingKind: WaitingKind.question) => s(
+                'phone.status.question',
+              ),
+              Session(waitingKind: WaitingKind.plan) => s('phone.status.plan'),
+              _ => s('phone.status.waiting'),
+            },
             ChipTone.accent,
           ),
           SessionPhase.idle => (s('phone.status.idle'), ChipTone.plain),

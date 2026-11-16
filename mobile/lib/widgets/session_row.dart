@@ -102,6 +102,8 @@ class SessionRow extends StatelessWidget {
                                 ),
                                 Text(
                                   meta,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(fontSize: 12, color: t.ink3),
                                 ),
                               ],

@@ -49,7 +49,7 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
         let held = s.state == "waiting" && pending.values().any(|p| p.sid == s.id);
         let held_request = pending.values().any(|p| p.sid == s.id && p.kind() == Kind::Request); // Stop is only for a plain request
         let state = if s.state == "waiting" && !held { "atComputer".to_string() } else { s.state.clone() };
-        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held_request, lines: activity_lines(s).count().min(40) as u8 }
+        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held_request, lines: activity_lines(s).len().min(40) as u8 }
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
         id: id.clone(), session: p.sid.clone(), what: match p.kind() { Kind::Plan => WaitingKind::Plan, Kind::Question => WaitingKind::Question, Kind::Request => WaitingKind::Request },
@@ -125,15 +125,22 @@ fn built(id: &str, p: &Pending) -> Detail {
     }
 }
 
-// The lines of a session a phone may read: what it did and said, never what the person typed.
-fn activity_lines(s: &crate::state::Session) -> impl Iterator<Item = &crate::state::LogLine> { s.log.iter().filter(|l| l.kind != "prompt" && l.kind != "system" && !(l.text.is_empty() && l.tool.is_empty())) }
+// The lines of a session a phone may read, since the person's last prompt: what it did, then what Claude said (its last
+// reply, kept apart from the log the panel shows), never what the person typed.
+fn activity_lines(s: &crate::state::Session) -> Vec<String> {
+    let from = s.log.iter().rposition(|l| l.kind == "prompt").map_or(0, |i| i + 1);
+    let mut lines: Vec<String> = s.log[from..].iter().filter(|l| l.kind != "system" && !(l.text.is_empty() && l.tool.is_empty()))
+        .map(|l| if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) }).collect();
+    if !s.summary.is_empty() { lines.push(s.summary.clone()); }
+    lines
+}
 
 // A session's last lines (at most 40, the prompt lines left out), redacted, for a phone with "See session activity".
 pub fn session_detail(sessions: &Sessions, id: &str, rights: Rights) -> Result<Detail, &'static str> {
     let s = sessions.get(id).ok_or("unknown")?;
     if !rights.activity { return Err("right"); }
-    let mut text = activity_lines(s).map(|l| {
-        let line = if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) };
+    let all = activity_lines(s);
+    let mut text = all[all.len().saturating_sub(40)..].iter().map(|line| {
         room::redact(&line.chars().zip(odd_flags(&line)).filter(|(c, odd)| !odd || *c == '\n' || *c == '\t').map(|(c, _)| c).collect::<String>()).0.replace('\n', " ")
     }).collect::<Vec<_>>().join("\n");
     let cut = text.len() > MAX_TOOL_INPUT;
@@ -235,20 +242,24 @@ mod tests {
         let mut s = crate::state::Session::default();
         s.id = "s1".into();
         let l = |kind: &str, text: &str, tool: &str| crate::state::LogLine { t: 1, kind: kind.into(), text: text.into(), tool: tool.into() };
-        s.log = vec![l("prompt", "SECRET PROMPT", ""), l("tool", "npm test ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4", "Bash"), l("tool", "src/a.rs", "Edit")];
+        s.summary = "All tests pass now".into();
+        s.log = vec![l("tool", "OLD TURN", "Read"), l("prompt", "SECRET PROMPT", ""), l("tool", "npm test ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4", "Bash"), l("tool", "src/a.rs", "Edit")];
         sessions.insert("s1".into(), s);
         let rights = Rights { activity: true, ..Default::default() };
         let d = session_detail(&sessions, "s1", rights).unwrap();
         assert_eq!(d.what, DetailKind::LastLines);
         assert!(d.text.contains("Bash npm test") && d.text.contains("Edit src/a.rs") && !d.text.contains("SECRET PROMPT") && !d.text.contains("ghp_a1B2"), "{}", d.text);
+        assert!(!d.text.contains("OLD TURN"), "only the lines since the last prompt");
+        assert_eq!(d.text.lines().last(), Some("All tests pass now"), "Claude's reply comes last, as a bare line");
         assert_eq!(session_detail(&sessions, "s1", Rights::default()), Err("right"));
         assert_eq!(session_detail(&sessions, "nope", rights), Err("unknown"));
         // the count Home carries is what `detail` returns, and only a phone that may read the lines gets it
         let h = home(&sessions, &HashMap::new(), "Studio", 1, ComputerState::Online, vec![]);
-        assert_eq!(h.sessions[0].lines, 2, "the prompt is not counted");
-        assert_eq!(for_phone(h.clone(), rights).sessions[0].lines, 2);
+        assert_eq!(h.sessions[0].lines, 3, "two tools and the reply; not the prompt, not the old turn");
+        assert_eq!(for_phone(h.clone(), rights).sessions[0].lines, 3);
         assert_eq!(for_phone(h, Rights::default()).sessions[0].lines, 0, "no right: no count");
         sessions.get_mut("s1").unwrap().log.clear();
+        sessions.get_mut("s1").unwrap().summary.clear();
         assert_eq!(session_detail(&sessions, "s1", rights).unwrap().text, "", "no lines: an empty answer");
     }
 

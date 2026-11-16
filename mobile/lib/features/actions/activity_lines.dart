@@ -71,7 +71,7 @@ class ActivityLines extends StatelessWidget {
         children: [
           for (var i = 0; i < lines.length; i++) ...[
             if (i > 0) Divider(height: .5, thickness: .5, color: t.line),
-            _Row(splitActivityLine(lines[i])),
+            _Row(key: ValueKey('$i:${lines[i]}'), splitActivityLine(lines[i])),
           ],
         ],
       ),
@@ -81,7 +81,7 @@ class ActivityLines extends StatelessWidget {
 
 /// One line. A long text is cut at two lines; a tap opens the whole of it and a second tap folds it again.
 class _Row extends StatefulWidget {
-  const _Row(this.line);
+  const _Row(this.line, {super.key});
   final ({String tool, String text}) line;
 
   @override

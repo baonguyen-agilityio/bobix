@@ -12,7 +12,6 @@ class PressFeedback extends StatefulWidget {
     required this.child,
     this.scale = .97,
     this.opacity = .8,
-    this.onPressedChanged,
   });
 
   final Widget child;
@@ -22,9 +21,6 @@ class PressFeedback extends StatefulWidget {
 
   /// Opacity while pressed (1 keeps it).
   final double opacity;
-
-  /// Tells a parent that wants to draw its own pressed state (the tab bar's pills) when the press starts and ends.
-  final ValueChanged<bool>? onPressedChanged;
 
   /// Whether this platform answers a press by dimming (iOS look) rather than by a ripple.
   static bool dims(BuildContext context) =>
@@ -44,7 +40,6 @@ class _PressFeedbackState extends State<PressFeedback> {
   void _set(bool down) {
     if (_down == down) return;
     setState(() => _down = down);
-    widget.onPressedChanged?.call(down);
   }
 
   @override

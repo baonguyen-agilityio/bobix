@@ -7,14 +7,15 @@ void main() {
   testWidgets('every task card is as high as the next, whatever its words', (
     tester,
   ) async {
-    Widget row(String title, String subtitle) => SessionRow(
-      petDesign: 'cat',
-      petColor: 1,
-      petState: 'working',
-      title: title,
-      subtitle: subtitle,
-      meta: 'project #1',
-    );
+    Widget row(String title, String subtitle, [String meta = 'project #1']) =>
+        SessionRow(
+          petDesign: 'cat',
+          petColor: 1,
+          petState: 'working',
+          title: title,
+          subtitle: subtitle,
+          meta: meta,
+        );
     await tester.pumpWidget(
       MaterialApp(
         theme: bobixTheme(Brightness.light),
@@ -22,6 +23,11 @@ void main() {
           body: Column(
             children: [
               row('Short', 'Now Bash'),
+              row(
+                'Short',
+                'Now Bash',
+                List.filled(8, 'a-long-project-name').join('-'),
+              ),
               row(
                 List.filled(30, 'a very long title').join(' '),
                 List.filled(30, 'and a long line').join(' '),
