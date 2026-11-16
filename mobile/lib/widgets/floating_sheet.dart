@@ -6,6 +6,19 @@ import 'glass.dart';
 /// The gap between a floating sheet and the sides and bottom edge of the screen.
 const double sheetGap = 8;
 
+/// The corner radius of the display of a phone with a home indicator (an iPhone with Face ID is about 55 pt). Flutter
+/// has no API for it, so this is the common value.
+const double _displayRadius = 55;
+
+/// Only a phone with a home indicator has display corners this size; an iPad's are smaller. The radius is an
+/// approximation: Flutter cannot read the real one.
+bool _followsDisplayCorners(BuildContext context) =>
+    MediaQuery.viewPaddingOf(context).bottom > 0 &&
+    MediaQuery.sizeOf(context).shortestSide < 600;
+
+/// The top corners are plain; the bottom ones follow the display, concentric with it: its radius less the gap.
+const double _sheetTopRadius = 24;
+
 /// The prototype's bottom sheet: a Liquid Glass card (blurred backdrop, translucent fill, sheen, hairline border and a
 /// deep outer shadow) that floats [sheetGap] off the sides and the bottom edge of the screen, with a grab handle on top.
 /// The home indicator sits inside the card, so the card's own bottom padding grows by what the indicator needs. Shown
@@ -37,7 +50,14 @@ class FloatingSheet extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(sheetGap, 0, sheetGap, sheetGap),
         child: Glass(
-          radius: 32,
+          corners: BorderRadius.vertical(
+            top: const Radius.circular(_sheetTopRadius),
+            bottom: Radius.circular(
+              _followsDisplayCorners(context)
+                  ? _displayRadius - sheetGap
+                  : _sheetTopRadius,
+            ),
+          ),
           blur: true,
           tint: t.isDark
               ? t.surface.withValues(alpha: .86)

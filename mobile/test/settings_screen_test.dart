@@ -530,9 +530,23 @@ void main() {
     tester,
   ) async {
     await pump(tester, paired: computer());
-    expect(find.text('Aa'), findsNWidgets(3));
+    // Light and Dark draw it once; System draws it twice, one ink per half.
+    expect(find.text('Aa'), findsNWidgets(4));
     for (final name in ['Light', 'Dark', 'System', 'English', 'Tiếng Việt']) {
       expect(find.text(name), findsOneWidget, reason: name);
+    }
+    // The System swatch shows a light and a dark half: both are painted, with a height (a box without one is invisible).
+    for (final color in const [Color(0xFFF4F5F8), Color(0xFF131418)]) {
+      final halves = find.byWidgetPredicate(
+        (w) => w is ColoredBox && w.color == color,
+      );
+      expect(halves, findsNWidgets(2), reason: '$color');
+      for (final h in halves.evaluate()) {
+        expect(
+          tester.getSize(find.byElementPredicate((e) => e == h)).height,
+          greaterThan(0),
+        );
+      }
     }
     expect(find.text('EN'), findsOneWidget);
     expect(find.text('VI'), findsOneWidget);

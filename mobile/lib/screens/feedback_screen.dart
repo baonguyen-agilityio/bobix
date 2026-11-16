@@ -9,6 +9,7 @@ import '../config/flavor.dart';
 import '../feedback/feedback_text.dart';
 import '../l10n/l10n.dart';
 import '../link/link_providers.dart';
+import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
 import '../widgets/glass.dart';
@@ -141,10 +142,7 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
         TextField(
           controller: _title,
           maxLength: 120,
-          decoration: InputDecoration(
-            labelText: s('phone.fb.title.l'),
-            border: const OutlineInputBorder(),
-          ),
+          decoration: bobixFieldDecoration(t, label: s('phone.fb.title.l')),
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 8),
@@ -152,10 +150,10 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
           controller: _desc,
           minLines: 5,
           maxLines: 10,
-          decoration: InputDecoration(
-            labelText: s('phone.fb.desc.l'),
+          decoration: bobixFieldDecoration(
+            t,
+            label: s('phone.fb.desc.l'),
             alignLabelWithHint: true,
-            border: const OutlineInputBorder(),
           ),
           onChanged: (_) => setState(() {}),
         ),

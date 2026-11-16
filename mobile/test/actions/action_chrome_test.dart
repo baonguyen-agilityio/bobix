@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/data/models.dart';
+import 'package:phone/features/actions/action_widgets.dart' show CodeBlock;
 import 'package:phone/features/actions/actions_models.dart';
 import 'package:phone/features/actions/request_screen.dart';
 import 'package:phone/features/actions/result_screen.dart';
@@ -140,7 +141,11 @@ void main() {
     await tester.tap(find.text('See the log'));
     await settle(tester);
     expect(find.text('Denied Bash'), findsOneWidget);
-    expect(find.text('npm test -- checkout'), findsOneWidget);
+    // Once in the log row's code block (the task log also lists the session's activity, which may name the same command).
+    expect(
+      find.widgetWithText(CodeBlock, 'npm test -- checkout'),
+      findsOneWidget,
+    );
     expect(find.text('Applied'), findsOneWidget);
   });
 
@@ -179,6 +184,25 @@ void main() {
         );
         expect(find.text(tr(lang, 'lg.today')), findsOneWidget);
         expect(find.text(tr(lang, 'tl.empty')), findsOneWidget);
+        // What the session did sits above the commands, each with its own title.
+        expect(find.text(tr(lang, 'sv.act')), findsOneWidget);
+        expect(find.text(tr(lang, 'tl.cmds')), findsOneWidget);
+        expect(find.text('src/checkout/form.ts'), findsOneWidget);
+        expect(find.text('Edit'), findsOneWidget);
+        expect(find.text('startup'), findsOneWidget);
+      });
+
+      testWidgets('no activity for an id that is not a session ($lang)', (
+        tester,
+      ) async {
+        await pumpScreen(
+          tester,
+          const TaskLogScreen(sessionId: 'req-bash'),
+          lang: lang,
+          home: _home,
+        );
+        expect(find.text(tr(lang, 'sv.act')), findsNothing);
+        expect(find.text(tr(lang, 'tl.cmds')), findsOneWidget);
       });
 
       testWidgets('filled ($lang)', (tester) async {

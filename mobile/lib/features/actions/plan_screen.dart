@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../widgets/glass_backdrop.dart';
+
 import 'package:markdown/markdown.dart' as md;
 
 import '../../l10n/l10n.dart';
@@ -120,11 +123,9 @@ class PlanScreen extends ConsumerWidget {
               icon: Icons.edit_note_outlined,
               onPressed: !canSend
                   ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => PlanNoteScreen(plan: p),
-                      ),
-                    ),
+                  : () =>
+                        Navigator.of(context)
+                            .push(pageRoute<void>(PlanNoteScreen(plan: p))),
             ),
             primary: ActionButton(
               s('phone.pl.approve'),

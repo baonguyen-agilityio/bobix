@@ -150,7 +150,10 @@ void main() {
             brightness: b,
           );
           expect(find.text(tr(lang, 'sv.act')), findsOneWidget);
-          expect(richText(tester), contains('npm test -- checkout'));
+          // Three of the five lines, the newest, and a way to the rest.
+          expect(richText(tester), contains('src/checkout/total.ts'));
+          expect(richText(tester), isNot(contains('applyCoupon')));
+          expect(find.text(tr(lang, 'sv.all')), findsOneWidget);
           expect(button(tr(lang, 'sv.stop')), findsNothing);
           expect(find.byType(TextField), findsNothing);
         });
@@ -281,6 +284,20 @@ void main() {
       expect(find.text(tr('en', 'sp.go.full')), findsOneWidget);
     });
 
+    testWidgets(
+      'with no issue to start there is no mode, no steps and no button',
+      (tester) async {
+        await pumpScreen(
+          tester,
+          const Scaffold(body: SafeArea(child: StartScreen())),
+          source: _NoIssues(),
+        );
+        expect(find.text(tr('en', 'sp.noissues')), findsOneWidget);
+        expect(find.text(tr('en', 'sp.how')), findsNothing);
+        expect(find.text(tr('en', 'sp.go.full')), findsNothing);
+      },
+    );
+
     testWidgets('the Full steps name no branch the phone cannot know', (
       tester,
     ) async {
@@ -406,4 +423,9 @@ void main() {
       expect(off(tester, tr('en', 'sp.go.quick')), isTrue);
     });
   });
+}
+
+class _NoIssues extends FixtureActionsSource {
+  @override
+  Future<List<StartIssue>> issues() async => const [];
 }

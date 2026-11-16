@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/glass_backdrop.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import 'action_screen_parts.dart';
@@ -8,6 +9,7 @@ import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
 import 'command_flow.dart';
+import 'activity_lines.dart';
 import 'request_screen.dart';
 
 final sessionProvider = FutureProvider.autoDispose
@@ -25,7 +27,6 @@ class SessionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
-    final t = context.tokens;
     final canSend = ref.watch(canSendProvider);
     final c = ref.watch(actionsSourceProvider).computerName;
     final session = ref.watch(sessionProvider(id));
@@ -88,48 +89,65 @@ class SessionScreen extends ConsumerWidget {
               tone: tone,
               where: d.issue == null ? d.project : '${d.project} #${d.issue}',
             ),
+            // Waiting, but nothing is held for this phone: it can only be answered on the computer, and says so.
+            // Not when a plan or a question is held for this phone: Home opens those on their own screens.
+            if (d.phase == SessionPhase.waiting &&
+                d.waitingOnRequest == null &&
+                ref.watch(homeSessionProvider(d.id))?.waitingId == null) ...[
+              const SizedBox(height: 12),
+              _AtComputerNote(s('phone.sv.atpc.d', {'c': c})),
+            ],
             if (d.waitingOnRequest != null) ...[
               const SizedBox(height: 12),
               ActionButton(
                 s('phone.sv.open'),
                 icon: Icons.chevron_right,
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => RequestScreen(id: d.waitingOnRequest!),
-                  ),
-                ),
+                onPressed: () => Navigator.of(
+                  context,
+                ).push(pageRoute<void>(RequestScreen(id: d.waitingOnRequest!))),
               ),
             ],
-            if (d.lines != null) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
-                child: Semantics(
-                  header: true,
-                  child: Text(
-                    s('phone.sv.act'),
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: t.ink,
-                    ),
-                  ),
-                ),
-              ),
-              CodeBlock(
-                d.lines!.isEmpty
-                    ? s('phone.sv.lines.empty')
-                    : d.lines!.join('\n'),
-                fontSize: 12,
-              ),
-              const SizedBox(height: 8),
-              FinePrint(
-                s('phone.sv.act.n', {'c': c, 'tm': d.linesAt}),
-                align: TextAlign.left,
-              ),
-            ],
+            SessionActivity(
+              lines: d.lines,
+              at: d.linesAt,
+              empty: s('phone.sv.lines.empty'),
+              limit: 3,
+              onSeeAll: taskLogOpener(context, ref, d.id),
+            ),
           ],
         );
       },
+    );
+  }
+}
+
+/// Why a waiting session has nothing to answer on the phone.
+class _AtComputerNote extends StatelessWidget {
+  const _AtComputerNote(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: t.accentBg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.desktop_mac_outlined, size: 18, color: t.accentInk),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 14, height: 1.45, color: t.ink),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../widgets/glass_backdrop.dart';
 import '../data/models.dart';
 import '../features/actions/action_widgets.dart' show bioName;
 import '../keys/platform_secure_keys.dart';
@@ -56,8 +57,7 @@ class SettingsScreen extends ConsumerWidget {
 
     final logCount = ref.watch(appLogProvider).length;
     void open(Widget screen) =>
-        Navigator.of(context)
-            .push(MaterialPageRoute<void>(builder: (_) => screen));
+        Navigator.of(context).push(pageRoute<void>(screen));
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
@@ -840,7 +840,6 @@ class _ThemeSwatch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const aa = TextStyle(fontSize: 17, fontWeight: FontWeight.w600);
     final Widget face = switch (choice) {
       ThemeChoice.light => const ColoredBox(
         color: _lightBg,
@@ -872,19 +871,33 @@ class _ThemeSwatch extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           const Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(child: ColoredBox(color: _lightBg)),
               Expanded(child: ColoredBox(color: _darkBg)),
             ],
           ),
-          Center(
-            child: ShaderMask(
-              blendMode: BlendMode.srcIn,
-              shaderCallback: (r) => const LinearGradient(
-                colors: [_lightInk, _lightInk, _darkInk, _darkInk],
-                stops: [0, .5, .5, 1],
-              ).createShader(r),
-              child: const Text('Aa', style: aa),
+          const Center(
+            child: Text(
+              'Aa',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: _lightInk,
+              ),
+            ),
+          ),
+          ClipRect(
+            clipper: _RightHalf(),
+            child: const Center(
+              child: Text(
+                'Aa',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: _darkInk,
+                ),
+              ),
             ),
           ),
         ],
@@ -904,6 +917,16 @@ class _ThemeSwatch extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The right half of the box: the dark ink of the system swatch is drawn only there.
+class _RightHalf extends CustomClipper<Rect> {
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(size.width / 2, 0, size.width, size.height);
+
+  @override
+  bool shouldReclip(_RightHalf old) => false;
 }
 
 /// The language's code over a greeting in it.

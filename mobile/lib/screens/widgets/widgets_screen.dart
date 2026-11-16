@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/glass_backdrop.dart';
 import '../../features/actions/action_widgets.dart' show bioName;
 import '../../l10n/l10n.dart';
 import '../../theme/oklch.dart';
@@ -22,9 +23,7 @@ class WidgetsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
-    void open(Widget page) =>
-        Navigator.of(context)
-            .push(MaterialPageRoute<void>(builder: (_) => page));
+    void open(Widget page) => Navigator.of(context).push(pageRoute<void>(page));
     return DetailScaffold(
       title: s('phone.settings.wg'),
       children: [
