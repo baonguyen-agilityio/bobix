@@ -78,7 +78,9 @@ pub struct PushJob {
 
 /// The list of invited computers, looked at again when the file changed, at most once per `every`.
 struct Invites {
-    path: std::path::PathBuf,
+    /// Owner ids from `OWNER_IDS`: always invited, fixed for the life of the process.
+    fixed: HashSet<String>,
+    path: Option<std::path::PathBuf>,
     every: Duration,
     checked: Option<Instant>,
     seen: Option<SystemTime>,
@@ -87,12 +89,17 @@ struct Invites {
 
 impl Invites {
     fn contains(&mut self, id: &str) -> bool {
+        self.fixed.contains(id) || self.in_file(id)
+    }
+
+    fn in_file(&mut self, id: &str) -> bool {
+        let Some(path) = &self.path else { return false };
         if self.checked.is_none_or_older(self.every) {
             self.checked = Some(Instant::now());
-            let modified = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+            let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
             if modified != self.seen || modified.is_none() {
                 self.seen = modified;
-                let text = std::fs::read_to_string(&self.path).unwrap_or_default();
+                let text = std::fs::read_to_string(path).unwrap_or_default();
                 self.ids = text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect();
             }
         }
@@ -135,7 +142,8 @@ pub fn now_ms() -> u64 {
 
 impl Hub {
     pub fn new(cfg: Config) -> Hub {
-        let invites = cfg.invite_file.clone().map(|path| Invites { path, every: cfg.invite_recheck, checked: None, seen: None, ids: HashSet::new() });
+        let invites = (cfg.invite_file.is_some() || !cfg.owner_ids.is_empty())
+            .then(|| Invites { fixed: cfg.owner_ids.iter().cloned().collect(), path: cfg.invite_file.clone(), every: cfg.invite_recheck, checked: None, seen: None, ids: HashSet::new() });
         let revoked = Revoked::load(cfg.revoked_dir.clone(), cfg.revoked_days, now_ms());
         Hub {
             cfg: cfg.clone(),

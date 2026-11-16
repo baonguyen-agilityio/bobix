@@ -13,6 +13,8 @@ pub struct Config {
     /// The id a phone's push grant must name (`RELAY_ID`).
     pub relay_id: String,
     pub invite_file: Option<PathBuf>,
+    /// The relay owner's computers (`OWNER_IDS`), read once at start; always invited, in addition to the ones in `invite_file`.
+    pub owner_ids: Vec<String>,
     pub gateway_keys_file: Option<PathBuf>,
     /// One small file per desktop. `None` keeps the list in memory only (`--dev`).
     pub revoked_dir: Option<PathBuf>,
@@ -69,9 +71,44 @@ pub struct Config {
     pub gateway_window: Duration,
 }
 
+/// Where a credential comes from: a file, or bytes decoded from an environment variable (for a platform with no shell to
+/// write a file with). The bytes are held in memory only and never print, not even in `Debug`.
+#[derive(Clone)]
+pub enum KeySource {
+    File(PathBuf),
+    Inline(Vec<u8>),
+}
+
+impl std::fmt::Debug for KeySource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KeySource::File(_) => f.write_str("KeySource::File"),
+            KeySource::Inline(_) => f.write_str("KeySource::Inline(<redacted>)"),
+        }
+    }
+}
+
+impl KeySource {
+    /// The credential's bytes; a read error names `file_var`, never the path or any content.
+    pub fn read(&self, file_var: &str) -> Result<Vec<u8>, String> {
+        match self {
+            KeySource::File(p) => std::fs::read(p).map_err(|e| format!("cannot read {file_var}: {e}")),
+            KeySource::Inline(b) => Ok(b.clone()),
+        }
+    }
+
+    /// The variable that supplied this credential, for error messages.
+    pub fn var<'a>(&self, file_var: &'a str, base64_var: &'a str) -> &'a str {
+        match self {
+            KeySource::File(_) => file_var,
+            KeySource::Inline(_) => base64_var,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ApnsConfig {
-    pub key_file: PathBuf,
+    pub key: KeySource,
     pub key_id: String,
     pub team_id: String,
     /// The app's bundle id.
@@ -82,7 +119,7 @@ pub struct ApnsConfig {
 
 #[derive(Clone, Debug)]
 pub struct FcmConfig {
-    pub service_account_file: PathBuf,
+    pub credential: KeySource,
     pub base_url: String,
 }
 
@@ -94,6 +131,7 @@ impl Config {
             public_url: "ws://127.0.0.1:8787".into(),
             relay_id: "dev".into(),
             invite_file: None,
+            owner_ids: Vec::new(),
             gateway_keys_file: None,
             revoked_dir: None,
             log_dir: None,
@@ -137,8 +175,21 @@ impl Config {
 
     /// Reads the environment. `--dev` only changes defaults (localhost, nothing persisted, no credentials needed).
     pub fn from_env(dev: bool) -> Result<Config, String> {
+        Config::from_vars(dev, |n| std::env::var(n).ok())
+    }
+
+    /// The one startup line about invitations; never the ids.
+    pub fn invitations_line(&self) -> String {
+        if self.owner_ids.is_empty() && self.invite_file.is_none() {
+            return "invitations: off".into();
+        }
+        format!("invitations: on ({} ids from OWNER_IDS, file: {})", self.owner_ids.len(), if self.invite_file.is_some() { "yes" } else { "no" })
+    }
+
+    /// `from_env` over any lookup, so tests need not touch the process environment.
+    pub fn from_vars(dev: bool, lookup: impl Fn(&str) -> Option<String>) -> Result<Config, String> {
         let mut c = Config::base(dev);
-        let var = |n: &str| std::env::var(n).ok().filter(|v| !v.is_empty());
+        let var = |n: &str| lookup(n).filter(|v| !v.is_empty());
         let need = |n: &str| var(n).ok_or_else(|| format!("{n} is required (set it, or run with --dev to try the relay on this machine)"));
         if let Some(a) = var("RELAY_ADDR") {
             c.addr = a;
@@ -159,6 +210,10 @@ impl Config {
         c.relay_id = if dev { var("RELAY_ID").unwrap_or(c.relay_id) } else { need("RELAY_ID")? };
         c.revoked_dir = if dev { var("REVOKED_DIR").map(Into::into) } else { Some(need("REVOKED_DIR")?.into()) };
         c.invite_file = var("INVITE_FILE").map(Into::into);
+        // Read raw: a variable that is set but empty must not pass for "unset", or the relay would run open without a word.
+        if let Some(ids) = lookup("OWNER_IDS") {
+            c.owner_ids = parse_owner_ids(&ids)?;
+        }
         c.gateway_keys_file = var("GATEWAY_KEYS_FILE").map(Into::into);
         c.log_dir = var("LOG_DIR").map(Into::into);
         c.gateway_url = var("PUSH_GATEWAY_URL");
@@ -170,9 +225,9 @@ impl Config {
         }
 
         c.gateway_key_file = var("PUSH_GATEWAY_KEY_FILE").map(Into::into);
-        if let Some(key_file) = var("APNS_KEY_FILE") {
+        if let Some(key) = key_source(&var, "APNS_KEY_FILE", "APNS_KEY_BASE64")? {
             c.apns = Some(ApnsConfig {
-                key_file: key_file.into(),
+                key,
                 key_id: need("APNS_KEY_ID")?,
                 team_id: need("APNS_TEAM_ID")?,
                 topic: need("APNS_TOPIC")?,
@@ -180,11 +235,53 @@ impl Config {
                 production_url: "https://api.push.apple.com".into(),
             });
         }
-        if let Some(f) = var("FCM_SERVICE_ACCOUNT_FILE") {
-            c.fcm = Some(FcmConfig { service_account_file: f.into(), base_url: "https://fcm.googleapis.com".into() });
+        if let Some(credential) = key_source(&var, "FCM_SERVICE_ACCOUNT_FILE", "FCM_SERVICE_ACCOUNT_BASE64")? {
+            c.fcm = Some(FcmConfig { credential, base_url: "https://fcm.googleapis.com".into() });
         }
         Ok(c)
     }
+}
+
+/// The credential named by exactly one of `file_var` / `base64_var`, or `None` when neither is set.
+fn key_source(var: &dyn Fn(&str) -> Option<String>, file_var: &str, base64_var: &str) -> Result<Option<KeySource>, String> {
+    match (var(file_var), var(base64_var)) {
+        (None, None) => Ok(None),
+        (Some(f), None) => Ok(Some(KeySource::File(f.into()))),
+        (None, Some(b)) => Ok(Some(KeySource::Inline(decode_base64(&b, base64_var)?))),
+        (Some(_), Some(_)) => Err(format!("{file_var} and {base64_var} are both set: set only one")),
+    }
+}
+
+/// Standard-alphabet base64, newlines and other whitespace tolerated. The error names the variable only: what it holds is a secret.
+fn decode_base64(text: &str, var: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    let compact: String = text.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    match base64::engine::general_purpose::STANDARD.decode(compact) {
+        Ok(b) if !b.is_empty() => Ok(b),
+        _ => Err(format!("{var} could not be decoded: it must be the file's content in base64 (standard alphabet)")),
+    }
+}
+
+/// `OWNER_IDS`: device ids (32 lowercase hex characters) separated by commas, spaces around each ignored. The error names
+/// the variable and the entry's position, never its text.
+pub fn parse_owner_ids(list: &str) -> Result<Vec<String>, String> {
+    let mut ids = Vec::new();
+    for (i, raw) in list.split(',').enumerate() {
+        let id = raw.trim();
+        if id.is_empty() {
+            continue; // a trailing comma is harmless
+        }
+        if id.len() != 32 || !id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return Err(format!("OWNER_IDS entry {} is not a device id (32 lowercase hex characters)", i + 1));
+        }
+        if !ids.iter().any(|x| x == id) {
+            ids.push(id.to_owned());
+        }
+    }
+    if ids.is_empty() {
+        return Err("OWNER_IDS has no device id in it".into());
+    }
+    Ok(ids)
 }
 
 /// The address `--dev` checks device signatures against when `RELAY_PUBLIC_URL` is not set: its own, on loopback. Listening
@@ -222,7 +319,19 @@ pub fn check_dev_bind(addr: &str, forced: bool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_dev_bind, check_public_url, dev_public_url};
+    use super::{check_dev_bind, check_public_url, dev_public_url, parse_owner_ids, Config, KeySource};
+    use std::collections::HashMap;
+
+    /// `--dev`-free production settings plus `extra`, looked up from a map instead of the process environment.
+    fn from(extra: &[(&str, &str)]) -> Result<Config, String> {
+        let m: HashMap<String, String> = [("RELAY_PUBLIC_URL", "wss://relay.example"), ("RELAY_ID", "r"), ("REVOKED_DIR", "d")].iter().chain(extra).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        Config::from_vars(false, |n| m.get(n).cloned())
+    }
+
+    const ID_A: &str = "00112233445566778899aabbccddeeff";
+    const ID_B: &str = "ffeeddccbbaa99887766554433221100";
+    const APNS: [(&str, &str); 3] = [("APNS_KEY_ID", "K"), ("APNS_TEAM_ID", "T"), ("APNS_TOPIC", "app.example")];
+
 
     #[test]
     fn a_plain_private_address_is_for_dev_only() {
@@ -269,5 +378,91 @@ mod tests {
         assert!(check_dev_bind("0.0.0.0:8787", false).is_err());
         assert!(check_dev_bind("192.168.1.5:8787", false).is_err());
         assert!(check_dev_bind("0.0.0.0:8787", true).is_ok());
+    }
+
+    #[test]
+    fn owner_ids_accept_spaced_lowercase_hex_and_refuse_everything_else() {
+        let list = format!(" {ID_A} , {ID_B},{ID_A},");
+        assert_eq!(parse_owner_ids(&list).unwrap(), vec![ID_A, ID_B]);
+        assert_eq!(from(&[("OWNER_IDS", ID_A)]).unwrap().owner_ids, vec![ID_A]);
+        assert!(from(&[]).unwrap().owner_ids.is_empty());
+        for bad in [&ID_A.to_uppercase(), &ID_A[1..], "not-an-id", &format!("{ID_A}00"), &format!("{ID_A};{ID_B}"), &ID_A.replace('0', "g"), ","] {
+            let e = parse_owner_ids(bad).unwrap_err();
+            assert!(e.contains("OWNER_IDS"), "{e}");
+            assert!(!e.contains(bad.trim_matches(',')) || bad == ",", "the message echoed the value: {e}");
+        }
+        assert!(parse_owner_ids(&format!("{ID_A},nope")).unwrap_err().contains("entry 2"));
+        assert!(from(&[("OWNER_IDS", "nope")]).unwrap_err().contains("OWNER_IDS"));
+        // Set but empty is an error, not "unset": the relay must not start open by accident.
+        for empty in ["", "  "] {
+            let e = from(&[("OWNER_IDS", empty)]).unwrap_err();
+            assert!(e.contains("OWNER_IDS"), "{e}");
+        }
+    }
+
+    #[test]
+    fn the_startup_line_counts_invitations_without_naming_them() {
+        assert_eq!(from(&[]).unwrap().invitations_line(), "invitations: off");
+        assert_eq!(from(&[("OWNER_IDS", &format!("{ID_A},{ID_B}"))]).unwrap().invitations_line(), "invitations: on (2 ids from OWNER_IDS, file: no)");
+        let both = from(&[("OWNER_IDS", ID_A), ("INVITE_FILE", "/x/invites.txt")]).unwrap().invitations_line();
+        assert_eq!(both, "invitations: on (1 ids from OWNER_IDS, file: yes)");
+        assert!(!both.contains(ID_A));
+    }
+
+    #[test]
+    fn the_apns_key_comes_from_a_file_or_from_base64_but_not_both() {
+        let fake_pem = "-----BEGIN PRIVATE KEY-----\nnot a real key\n-----END PRIVATE KEY-----\n";
+        let b64 = base64_of(fake_pem.as_bytes());
+        // Wrapped lines and a trailing newline are tolerated.
+        let wrapped = format!("{}\n{}\n", &b64[..20], &b64[20..]);
+        for text in [b64.as_str(), wrapped.as_str()] {
+            let mut v = vec![("APNS_KEY_BASE64", text)];
+            v.extend(APNS);
+            let cfg = from(&v).unwrap();
+            let KeySource::Inline(bytes) = cfg.apns.unwrap().key else { panic!("expected an inline key") };
+            assert_eq!(bytes, fake_pem.as_bytes());
+        }
+        let mut v = vec![("APNS_KEY_FILE", "/some/key.p8")];
+        v.extend(APNS);
+        assert!(matches!(from(&v).unwrap().apns.unwrap().key, KeySource::File(_)));
+
+        let mut both = vec![("APNS_KEY_FILE", "/some/key.p8"), ("APNS_KEY_BASE64", b64.as_str())];
+        both.extend(APNS);
+        let e = from(&both).unwrap_err();
+        assert!(e.contains("APNS_KEY_FILE") && e.contains("APNS_KEY_BASE64") && !e.contains(&b64), "{e}");
+        // The other three stay required.
+        assert!(from(&[("APNS_KEY_BASE64", b64.as_str())]).unwrap_err().contains("APNS_KEY_ID"));
+    }
+
+    #[test]
+    fn a_base64_failure_names_the_variable_and_never_the_content() {
+        let secret = "SECRETKEYMATERIAL!!not-base64";
+        for var in ["APNS_KEY_BASE64", "FCM_SERVICE_ACCOUNT_BASE64"] {
+            let mut v = vec![(var, secret)];
+            v.extend(APNS);
+            let e = from(&v).unwrap_err();
+            assert!(e.contains(var) && e.contains("could not be decoded"), "{e}");
+            assert!(!e.contains("SECRETKEY") && !e.contains("not-base64"), "the message echoed the value: {e}");
+        }
+        // Valid base64 of nothing is not a key either.
+        assert!(from(&[("APNS_KEY_BASE64", "===")]).is_err());
+    }
+
+    #[test]
+    fn the_fcm_service_account_comes_from_a_file_or_from_base64_but_not_both() {
+        let b64 = base64_of(br#"{"fake":true}"#);
+        assert!(matches!(from(&[("FCM_SERVICE_ACCOUNT_BASE64", b64.as_str())]).unwrap().fcm.unwrap().credential, KeySource::Inline(_)));
+        assert!(from(&[("FCM_SERVICE_ACCOUNT_FILE", "/x.json"), ("FCM_SERVICE_ACCOUNT_BASE64", b64.as_str())]).unwrap_err().contains("both set"));
+    }
+
+    #[test]
+    fn an_inline_key_never_prints() {
+        let k = KeySource::Inline(b"SECRETKEYMATERIAL".to_vec());
+        assert!(!format!("{k:?}").contains("SECRET"));
+    }
+
+    fn base64_of(bytes: &[u8]) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(bytes)
     }
 }
