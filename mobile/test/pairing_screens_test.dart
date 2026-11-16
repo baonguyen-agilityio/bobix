@@ -10,7 +10,6 @@ import 'package:phone/app.dart';
 import 'package:phone/keys/platform_secure_keys.dart';
 import 'package:phone/l10n/l10n.dart';
 import 'package:phone/data/phone_data.dart';
-import 'package:phone/features/actions/action_widgets.dart' show GlassActionBar;
 import 'package:phone/widgets/detail_scaffold.dart' show PillButton;
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_providers.dart';
@@ -19,6 +18,7 @@ import 'package:phone/link/pairing_controller.dart';
 import 'package:phone/link/pairing_service.dart';
 import 'package:phone/link/relay_session.dart';
 import 'package:phone/screens/pair_again_screen.dart';
+import 'package:phone/screens/pair_chrome.dart';
 import 'package:phone/screens/pairing_screens.dart';
 import 'package:phone/src/rust/api/messages.dart';
 
@@ -457,9 +457,9 @@ void main() {
           }
         }
         expect(find.text('Back'), back ? findsOneWidget : findsNothing);
-        // The action sits in the glass bar at the bottom, across the width of the screen.
+        // The action sits in the bar at the bottom, across the width of the screen.
         // (The scan page has none: the camera is the action.)
-        final bar = find.byType(GlassActionBar);
+        final bar = find.byType(PairActionBar);
         if (st.step == PairStep.scan) {
           expect(bar, findsNothing);
           continue;
@@ -675,4 +675,67 @@ void main() {
       expect(find.text(title), findsOneWidget, reason: lang);
     }
   });
+
+  testWidgets(
+    'an icon beside wrapped small print is centred on the first line',
+    (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 800 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        host(
+          home: const Scaffold(
+            body: Padding(
+              padding: EdgeInsets.all(16),
+              child: ShieldNote(
+                'Off by default. Messages are never written to a file on your phone and nothing here can be allowed for good, '
+                'so every command asks you first, however long this sentence runs.',
+                center: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final text = tester.getRect(find.textContaining('Off by default'));
+      final icon = tester.getRect(find.byIcon(shieldCheckIcon));
+      expect(text.height, greaterThan(24), reason: 'the text wraps');
+      const lineHeight = 12 * 1.35;
+      expect(icon.center.dy, closeTo(text.top + lineHeight / 2, 1));
+    },
+  );
+
+  testWidgets(
+    'a numbered step: centred when it is one line, top level when it wraps',
+    (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 800 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        host(
+          home: const Scaffold(
+            body: Padding(
+              padding: EdgeInsets.all(16),
+              child: NumberedSteps([
+                'Short line',
+                'A step long enough to wrap over two lines on a phone screen, because it keeps going and going',
+              ]),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final one = tester.getRect(find.text('Short line'));
+      final circle0 = tester.getRect(
+        find.byKey(const Key('numbered-step-circle-0')),
+      );
+      expect(circle0.center.dy, closeTo(one.center.dy, 1));
+      final two = tester.getRect(find.textContaining('A step long enough'));
+      final circle1 = tester.getRect(
+        find.byKey(const Key('numbered-step-circle-1')),
+      );
+      expect(two.height, greaterThan(30), reason: 'the text wraps');
+      expect(circle1.top, closeTo(two.top, 1));
+    },
+  );
 }

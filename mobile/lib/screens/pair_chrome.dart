@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../features/actions/action_widgets.dart'
-    show GlassActionBar, HeaderPill;
+import '../features/actions/action_widgets.dart' show HeaderPill;
 import '../l10n/l10n.dart';
 import '../theme/tokens.dart';
 import '../widgets/glass.dart';
+
+/// The shield with a check that stands for "no Always allow" and for the small print about what stays safe: one icon
+/// for the pair-name row, the permissions rows and every [ShieldNote].
+const shieldCheckIcon = Icons.verified_user_outlined;
 
 /// The frame of every pairing page and of the pages that end a pairing (disconnected, pair again): a centred title with
 /// a "Back" pill when [onBack] is set, step dots under it, a body that scrolls, and the actions in a glass bar at the
@@ -80,12 +83,57 @@ class PairPage extends ConsumerWidget {
                 children: children,
               ),
             ),
-            if (actions != null) GlassActionBar(child: actions!),
+            if (actions != null) PairActionBar(child: actions!),
           ],
         ),
       ),
     );
   }
+}
+
+/// The actions at the bottom of a pairing page. It has no fill and no edge, so the buttons seem to rest on the page
+/// itself; the list above ends where the bar begins, so nothing scrolls under it.
+class PairActionBar extends StatelessWidget {
+  const PairActionBar({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: child);
+}
+
+/// An icon that sits beside wrapped text: it is centred on the text's first line, not on the whole block. [style] is
+/// the text's style (it must set `fontSize` and `height`); the icon's box is as tall as one line at the user's text size.
+class FirstLineIcon extends StatelessWidget {
+  const FirstLineIcon({
+    super.key,
+    required this.icon,
+    required this.size,
+    required this.style,
+  });
+  final Widget icon;
+
+  /// The icon's width and height.
+  final double size;
+  final TextStyle style;
+
+  /// The height of one line of [style] at the text scale in [context].
+  static double lineHeight(BuildContext context, TextStyle style) =>
+      MediaQuery.textScalerOf(context).scale(style.fontSize!) *
+      (style.height ?? 1.2);
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: SizedBox(
+      width: size,
+      height: lineHeight(context, style),
+      child: OverflowBox(
+        maxWidth: size,
+        maxHeight: double.infinity,
+        child: icon,
+      ),
+    ),
+  );
 }
 
 /// Three dots: the step the person is on is a long accent pill, the steps behind it are accent, the ones ahead are grey.
@@ -197,55 +245,62 @@ class PairHero extends StatelessWidget {
   }
 }
 
-/// A numbered list: a small grey circle with the number, then the line.
+/// A numbered list: a small grey circle with the number, then the line. The circle is centred on a one-line item; on
+/// an item that wraps its top lines up with the first line's top.
 class NumberedSteps extends StatelessWidget {
   const NumberedSteps(this.lines, {super.key});
   final List<String> lines;
 
+  static const circle = 26.0;
+  static const gap = 10.0;
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    final style = TextStyle(fontSize: 14, height: 1.45, color: t.ink);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (var i = 0; i < lines.length; i++)
           Padding(
             padding: EdgeInsets.only(top: i == 0 ? 0 : 10),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 26,
-                  height: 26,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: t.surface3,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text(
-                    '${i + 1}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: t.ink2,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 3),
-                    child: Text(
-                      lines[i],
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.45,
-                        color: t.ink,
+            child: LayoutBuilder(
+              builder: (context, box) {
+                final painter = TextPainter(
+                  text: TextSpan(text: lines[i], style: style),
+                  textDirection: Directionality.of(context),
+                  textScaler: MediaQuery.textScalerOf(context),
+                )..layout(maxWidth: box.maxWidth - circle - gap);
+                final wraps = painter.computeLineMetrics().length > 1;
+                painter.dispose();
+                return Row(
+                  crossAxisAlignment: wraps
+                      ? CrossAxisAlignment.start
+                      : CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      key: Key('numbered-step-circle-$i'),
+                      width: circle,
+                      height: circle,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: t.surface3,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${i + 1}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: t.ink2,
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ],
+                    const SizedBox(width: gap),
+                    Expanded(child: Text(lines[i], style: style)),
+                  ],
+                );
+              },
             ),
           ),
       ],
@@ -292,7 +347,7 @@ class KeyValueCard extends StatelessWidget {
   }
 }
 
-/// Small print with a shield in front of it.
+/// Small print with a shield in front of it. The shield is centred on the first line, however many lines follow.
 class ShieldNote extends StatelessWidget {
   const ShieldNote(this.text, {super.key, this.center = true});
   final String text;
@@ -301,20 +356,24 @@ class ShieldNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    final style = TextStyle(fontSize: 12, height: 1.35, color: t.ink3);
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: center
           ? MainAxisAlignment.center
           : MainAxisAlignment.start,
       children: [
-        ExcludeSemantics(
-          child: Icon(Icons.shield_outlined, size: 16, color: t.ink3),
+        FirstLineIcon(
+          icon: Icon(shieldCheckIcon, size: 16, color: t.ink3),
+          size: 16,
+          style: style,
         ),
         const SizedBox(width: 6),
         Flexible(
           child: Text(
             text,
             textAlign: center ? TextAlign.center : TextAlign.start,
-            style: TextStyle(fontSize: 12, height: 1.35, color: t.ink3),
+            style: style,
           ),
         ),
       ],

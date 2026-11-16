@@ -413,21 +413,19 @@ class _DetailsState extends ConsumerState<_Details> {
                     vertical: 10,
                   ),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.shield_outlined, size: 22, color: t.ink2),
+                      FirstLineIcon(
+                        icon: Icon(shieldCheckIcon, size: 22, color: t.ink2),
+                        size: 22,
+                        style: _neverTitle(t),
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              s('phone.pair.never'),
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
-                                color: t.ink,
-                              ),
-                            ),
+                            Text(s('phone.pair.never'), style: _neverTitle(t)),
                             Text(
                               s('phone.pair.never.d'),
                               style: TextStyle(fontSize: 12, color: t.ink3),
@@ -652,3 +650,11 @@ class _Failed extends ConsumerWidget {
     );
   }
 }
+
+/// The title of the "No Always allow" row; the shield is centred on its first line.
+TextStyle _neverTitle(BobixTokens t) => TextStyle(
+  fontSize: 15,
+  height: 1.3,
+  fontWeight: FontWeight.w500,
+  color: t.ink,
+);
