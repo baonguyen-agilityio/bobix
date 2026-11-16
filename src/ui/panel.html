@@ -1253,7 +1253,7 @@ function phonesInviteHTML(d) {
       <div class="acts" style="margin:6px 0 0"><input type="text" id="phones-inv-label" maxlength="40" placeholder="${esc(T('phones.inv.label'))}" aria-label="${esc(T('phones.inv.label'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0">
         <select id="phones-inv-days" aria-label="${esc(T('phones.inv.valid'))}">${inv.days.map(n => `<option value="${n}" ${n === inviteDays ? 'selected' : ''}>${esc(n === 1 ? T('phones.inv.day') : T('phones.inv.days', { n }))}</option>`).join('')}</select>
         <button class="btn" type="button" data-act="phones-inv-create">${esc(T('phones.inv.create'))}</button></div>
-      ${inv.made ? `<p><code data-inv-code style="word-break:break-all"></code></p><p><button class="btn sm" type="button" data-act="phones-inv-copy">${esc(T('phones.copy'))}</button> <span class="note" data-inv-expires></span></p>` : ''}
+      ${inv.made ? `<p><code data-inv-code style="word-break:break-all"></code></p><p><button class="btn sm" type="button" data-act="phones-inv-copy">${esc(T('phones.copy'))}</button> <span class="note" data-inv-expires></span></p><p class="note" data-inv-relay></p>` : ''}
       <div class="lbl" style="margin-top:10px">${esc(T('phones.inv.list'))}</div>${list ? `<ul class="rows">${list}</ul>` : `<p class="note">${esc(T('phones.inv.none'))}</p>`}</div></div>`;
   }
   if (inv.invited && d.status !== 'invite') return '';
@@ -1298,7 +1298,7 @@ function fillPhoneText(box) {
   const rel = box.querySelector('#phones-relay');
   if (rel && !rel.dataset.set) { rel.value = d.relay || ''; rel.dataset.set = '1'; }
   const made = d.invite?.made;
-  if (made) { box.querySelector('[data-inv-code]').textContent = made.code; box.querySelector('[data-inv-expires]').textContent = T('phones.inv.expires', { date: new Date(made.expires).toLocaleString(LOCALE(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }); }
+  if (made) { box.querySelector('[data-inv-code]').textContent = made.code; box.querySelector('[data-inv-expires]').textContent = T('phones.inv.expires', { date: new Date(made.expires).toLocaleString(LOCALE(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }); box.querySelector('[data-inv-relay]').textContent = T('phones.inv.for', { relay: made.relay || '' }); }
   for (const li of box.querySelectorAll('[data-inv]')) {
     const x = (d.invite?.invitees || []).find(y => y.id === li.dataset.inv);
     if (x) { li.querySelector('[data-inv-label]').textContent = x.label || T('phones.inv.nolabel'); li.querySelector('[data-inv-at]').textContent = new Date(x.at).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' }); }

@@ -93,7 +93,7 @@ struct Invites {
     known: bool,
     relay_id: Option<String>,
     invitees: Vec<Invitee>,
-    made: Option<(String, u64)>,
+    made: Option<(String, u64, String)>, // code, expiry, the relay id it is for
     pending: Option<String>,
     result: Option<String>,
 }
@@ -946,7 +946,7 @@ pub fn view(b: &Arc<Bobix>) -> Value {
 
 fn invite_view(i: &Invites) -> Value {
     json!({ "known": i.known, "owner": i.owner, "invited": i.invited, "pending": i.pending.is_some(), "result": i.result, "days": INVITE_DAYS,
-        "made": i.made.as_ref().map(|(code, expires)| json!({ "code": code, "expires": expires })),
+        "made": i.made.as_ref().map(|(code, expires, relay)| json!({ "code": code, "expires": expires, "relay": relay })),
         "invitees": i.invitees.iter().map(|x| json!({ "id": x.id, "label": x.label, "at": x.at })).collect::<Vec<_>>() })
 }
 
@@ -960,7 +960,7 @@ pub fn invite_create(b: &Arc<Bobix>, days: u64, label: &str) -> Result<Value, St
         let relay_id = st.invites.relay_id.clone().ok_or("notOwner")?;
         let expires = now() + days * DAY_MS;
         let code = InviteCode::create(st.identity.as_ref().ok_or("identity")?, &relay_id, label, expires).map_err(|_| "label".to_string())?;
-        st.invites.made = Some((code, expires));
+        st.invites.made = Some((code, expires, relay_id));
     }
     b.broadcast();
     Ok(view(b))
