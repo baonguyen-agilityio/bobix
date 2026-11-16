@@ -137,6 +137,27 @@ void main() {
     return link;
   }
 
+  testWidgets(
+    'the Computers section: every row\'s icon is centred on its row',
+    (tester) async {
+      await pump(tester, paired: computer());
+      final qr = tester.getCenter(find.byIcon(Icons.qr_code_2)).dy;
+      final top = tester.getTopLeft(find.text('Connect another computer')).dy;
+      final bottom = tester
+          .getBottomLeft(
+            find.text(
+              'One computer at a time for now. Disconnect this one first.',
+            ),
+          )
+          .dy;
+      expect(qr, closeTo((top + bottom) / 2, 1.5));
+      final laptop = tester.getCenter(find.byIcon(Icons.monitor)).dy;
+      final name = tester.getTopLeft(find.text('Studio Mac (demo)')).dy;
+      final conn = tester.getBottomLeft(find.textContaining('online')).dy;
+      expect(laptop, closeTo((name + conn) / 2, 1.5));
+    },
+  );
+
   testWidgets('the paired computer and how it is; the rights are one row', (
     tester,
   ) async {

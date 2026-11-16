@@ -78,12 +78,14 @@ class SettingsScreen extends ConsumerWidget {
                   state(status?.conn),
                 ].join(' · '),
                 trailing: _DisconnectButton(computer: computer.name),
+                centered: true,
               ),
               _Row(
                 icon: Icons.qr_code_2,
                 title: s('phone.settings.another'),
                 subtitle: s('phone.settings.another.d'),
                 accent: true,
+                centered: true,
               ),
             ],
           ),
@@ -495,6 +497,7 @@ class _Row extends StatelessWidget {
     this.muted = false,
     this.accent = false,
     this.chevron = false,
+    this.centered = false,
   });
 
   final IconData? icon;
@@ -507,6 +510,10 @@ class _Row extends StatelessWidget {
   final VoidCallback? onTap;
   final _Tile tile;
   final bool muted, accent, chevron;
+
+  /// The icon stays centred on the row even when its text has a second line (the Computers section); elsewhere a bare
+  /// icon sits on the text's first line.
+  final bool centered;
 
   @override
   Widget build(BuildContext context) {
@@ -522,7 +529,7 @@ class _Row extends StatelessWidget {
     );
     // A bare icon beside the title and its second line sits on the first line, not between the two lines.
     final lead = tile == _Tile.none
-        ? (subtitle != null
+        ? (subtitle != null && !centered
               ? FirstLineIcon(
                   icon: glyph(24, accent ? t.accentInk : t.ink),
                   size: 24,
@@ -551,7 +558,8 @@ class _Row extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           child: Row(
-            crossAxisAlignment: tile == _Tile.none && subtitle != null
+            crossAxisAlignment:
+                tile == _Tile.none && subtitle != null && !centered
                 ? CrossAxisAlignment.start
                 : CrossAxisAlignment.center,
             children: [
