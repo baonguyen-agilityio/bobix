@@ -34,7 +34,11 @@ void main() {
     expect(f['token'], 'ab12cd');
     final ends = clock.add(const Duration(days: 29)).millisecondsSinceEpoch;
     expect(f['grant'], 'grant-ab12cd-relay.example.test-$ends');
-    expect(ends - clock.millisecondsSinceEpoch, lessThan(30 * 24 * 3600 * 1000), reason: 'inside what the relay accepts');
+    expect(
+      ends - clock.millisecondsSinceEpoch,
+      lessThan(30 * 24 * 3600 * 1000),
+      reason: 'inside what the relay accepts',
+    );
   });
 
   test('a production build registers as production', () async {
@@ -74,7 +78,10 @@ void main() {
     clock = clock.add(const Duration(days: 13));
     await reg.renewIfDue();
     expect(sent, hasLength(2), reason: '6 days are left: renewed');
-    expect(platform.grants.last['expiresMs'], clock.add(const Duration(days: 29)).millisecondsSinceEpoch);
+    expect(
+      platform.grants.last['expiresMs'],
+      clock.add(const Duration(days: 29)).millisecondsSinceEpoch,
+    );
   });
 
   test('a send that failed is tried again by the next renewal and by the next connection', () async {
@@ -97,15 +104,18 @@ void main() {
     expect(sent, isEmpty);
   });
 
-  test('a dropped connection is not used and a new one registers again', () async {
-    await reg.connected('r', send);
-    reg.disconnected('r');
-    clock = clock.add(const Duration(days: 25));
-    await reg.renewIfDue();
-    expect(sent, hasLength(1));
-    await reg.connected('r', send);
-    expect(sent, hasLength(2));
-  });
+  test(
+    'a dropped connection is not used and a new one registers again',
+    () async {
+      await reg.connected('r', send);
+      reg.disconnected('r');
+      clock = clock.add(const Duration(days: 25));
+      await reg.renewIfDue();
+      expect(sent, hasLength(1));
+      await reg.connected('r', send);
+      expect(sent, hasLength(2));
+    },
+  );
 
   test('a forgotten relay is no longer renewed, the others are', () async {
     final other = <Map<String, Object?>>[];
@@ -120,7 +130,10 @@ void main() {
 
   group('permission', () {
     test('asks once, after pairing, and registers when allowed', () async {
-      expect(await reg.requestPermissionAndRegister(), PushPermission.authorized);
+      expect(
+        await reg.requestPermissionAndRegister(),
+        PushPermission.authorized,
+      );
       expect(platform.calls, ['requestPermission']);
     });
 
@@ -128,7 +141,9 @@ void main() {
       platform.allow = false;
       expect(await reg.requestPermissionAndRegister(), PushPermission.denied);
       expect(await reg.requestPermissionAndRegister(), PushPermission.denied);
-      expect(platform.calls, ['requestPermission'], reason: 'the system dialog is not asked for again');
+      expect(platform.calls, [
+        'requestPermission',
+      ], reason: 'the system dialog is not asked for again');
       await reg.openSystemSettings();
       expect(platform.calls.last, 'openSettings');
     });
@@ -149,7 +164,11 @@ void main() {
   });
 
   test('a tap carries the computer, the request and the kind', () {
-    final t = PushTap.tryParse({'computer': 'c', 'ref': 'r1', 'kind': 'waiting'});
+    final t = PushTap.tryParse({
+      'computer': 'c',
+      'ref': 'r1',
+      'kind': 'waiting',
+    });
     expect(t, const PushTap(computerId: 'c', ref: 'r1', kind: 'waiting'));
   });
 
@@ -185,7 +204,11 @@ void main() {
     });
 
     test('the platform can be given', () async {
-      final r = PushRegistration(platform_(), now: () => clock, platform: 'android');
+      final r = PushRegistration(
+        platform_(),
+        now: () => clock,
+        platform: 'android',
+      );
       final out = <Map<String, Object?>>[];
       await r.connected('r', (f) async => out.add(f));
       r.dispose();
