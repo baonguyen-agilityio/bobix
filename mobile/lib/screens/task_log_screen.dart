@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../features/actions/action_screen_parts.dart';
 import '../features/actions/action_widgets.dart';
 import '../features/actions/actions_source.dart';
+import '../features/actions/activity_lines.dart';
+import '../features/actions/session_screen.dart' show sessionProvider;
 import '../l10n/l10n.dart';
 import '../lock/secure_scope.dart';
 import '../log/activity_log.dart';
@@ -27,6 +29,11 @@ class TaskLogScreen extends ConsumerWidget {
         title: s('phone.tl.title'),
         children: [
           ActionSessionCard(id: sessionId),
+          // What the session did lately, read from the computer; empty (and absent) when this phone may not read it.
+          SessionActivity(
+            lines: ref.watch(sessionProvider(sessionId)).value?.lines,
+            at: ref.watch(sessionProvider(sessionId)).value?.linesAt ?? '',
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
             child: Text(

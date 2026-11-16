@@ -530,7 +530,8 @@ void main() {
     tester,
   ) async {
     await pump(tester, paired: computer());
-    expect(find.text('Aa'), findsNWidgets(3));
+    // Light and Dark draw it once; System draws it twice, one ink per half.
+    expect(find.text('Aa'), findsNWidgets(4));
     for (final name in ['Light', 'Dark', 'System', 'English', 'Tiếng Việt']) {
       expect(find.text(name), findsOneWidget, reason: name);
     }
