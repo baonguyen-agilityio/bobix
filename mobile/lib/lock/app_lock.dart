@@ -11,8 +11,10 @@ import '../l10n/l10n.dart';
 import '../pets/pet_view.dart';
 import '../link/link_providers.dart';
 import '../settings/app_settings.dart';
+import '../theme/oklch.dart';
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
+import '../widgets/glass_backdrop.dart';
 
 /// The app lock and the cover.
 ///
@@ -226,7 +228,8 @@ class LockScreen extends ConsumerWidget {
   }
 }
 
-/// The plain screen the app switcher keeps a picture of: nothing of the app shows.
+/// The screen the app switcher keeps a picture of: the app icon on the page's own wash, nothing of the app. The wash is
+/// an opaque fill, so whatever is behind never shows.
 class CoverScreen extends ConsumerWidget {
   const CoverScreen({super.key});
 
@@ -236,15 +239,32 @@ class CoverScreen extends ConsumerWidget {
     return Semantics(
       container: true,
       explicitChildNodes: true,
-      child: Material(
-        color: t.bg,
-        child: Center(
-          child: Text(
-            'Bobix',
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: t.ink3,
+      child: GlassBackdrop(
+        child: SizedBox.expand(
+          child: Center(
+            child: DecoratedBox(
+              key: const ValueKey('cover-icon'),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [oklch(75, .15, 40), oklch(58, .18, 28)],
+                ),
+                boxShadow: t.isDark
+                    ? null
+                    : const [
+                        BoxShadow(
+                          color: Color(0x2E141828),
+                          blurRadius: 14,
+                          offset: Offset(0, 6),
+                        ),
+                      ],
+              ),
+              child: const SizedBox.square(
+                dimension: 96,
+                child: Icon(Icons.pets_outlined, size: 44, color: Colors.white),
+              ),
             ),
           ),
         ),
