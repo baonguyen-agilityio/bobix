@@ -231,7 +231,7 @@ class _StartScreenState extends ConsumerState<StartScreen> {
                     s(full ? 'phone.sp.go.full' : 'phone.sp.go.quick'),
                     kind: BtnKind.primary,
                     icon: Icons.lock_outline,
-                    onPressed: picked == null || !canSend
+                    onPressed: !canSend
                         ? null
                         : () => Navigator.of(context).push(
                             pageRoute<void>(
