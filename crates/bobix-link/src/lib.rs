@@ -8,6 +8,7 @@
 pub mod command;
 pub mod counters;
 pub mod envelope;
+pub mod invite;
 pub mod keys;
 pub mod link;
 pub mod messages;

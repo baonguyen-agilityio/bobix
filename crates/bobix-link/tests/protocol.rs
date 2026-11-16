@@ -542,6 +542,16 @@ fn every_frame_round_trips_with_documented_names() {
             json!({"type":"pushToken","platform":"ios","env":"sandbox","kind":"pushToStart","ref":"r","token":"t","grant":"g"}),
         ),
         (Frame::Error { code: ErrorCode::Grant, who: None, peer: None }, json!({"type":"error","code":"grant"})),
+        (Frame::InviteQuery {}, json!({"type":"inviteQuery"})),
+        (Frame::InviteRedeem { code: "c".into() }, json!({"type":"inviteRedeem","code":"c"})),
+        (Frame::InviteRemove { id: "d".into() }, json!({"type":"inviteRemove","id":"d"})),
+        (Frame::InviteState { owner: false, invited: false, relay_id: None, invitees: vec![] }, json!({"type":"inviteState","owner":false,"invited":false})),
+        (
+            Frame::InviteState { owner: true, invited: true, relay_id: Some("r".into()), invitees: vec![Invitee { id: "d".into(), label: "l".into(), by: "o".into(), at: 7 }] },
+            json!({"type":"inviteState","owner":true,"invited":true,"relayId":"r","invitees":[{"id":"d","label":"l","by":"o","at":7}]}),
+        ),
+        (Frame::InviteResult { ok: false, reason: Some(InviteReason::OtherRelay) }, json!({"type":"inviteResult","ok":false,"reason":"otherRelay"})),
+        (Frame::InviteResult { ok: true, reason: None }, json!({"type":"inviteResult","ok":true})),
     ];
     for (f, expected) in frames {
         assert_eq!(serde_json::to_value(&f).unwrap(), expected);
@@ -552,6 +562,7 @@ fn every_frame_round_trips_with_documented_names() {
     }
     // an error code a newer relay invents still parses
     assert_eq!(Frame::parse(r#"{"type":"error","code":"brandNew"}"#), Ok(Frame::Error { code: ErrorCode::Other, who: None, peer: None }));
+    assert_eq!(Frame::parse(r#"{"type":"inviteResult","ok":false,"reason":"brandNew"}"#), Ok(Frame::InviteResult { ok: false, reason: Some(InviteReason::Other) }));
 }
 
 #[test]
