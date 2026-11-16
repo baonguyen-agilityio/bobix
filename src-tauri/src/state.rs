@@ -393,7 +393,17 @@ pub fn refresh(s: &mut Session, with_summary: bool, now: u64) -> bool {
         if b.len() > 20 { b.drain(..b.len() - 20); }
         s.branches = b;
     }
-    if with_summary { if let Some(t) = &r.text { s.summary = short(&plain(t), 600); s.report = clip(t, TEXT_MAX); } }
+    if with_summary {
+        if let Some(t) = &r.text {
+            s.summary = short(&plain(t), 600);
+            s.report = clip(t, TEXT_MAX);
+            // Claude's reply joins the session's lines (what a phone with the activity right reads), once per reply.
+            if !s.summary.is_empty() && !s.log.last().is_some_and(|l| l.kind == "say" && l.text == s.summary) {
+                s.log.push(LogLine { t: now, kind: "say".into(), text: s.summary.clone(), tool: String::new() });
+                if s.log.len() > 40 { s.log.remove(0); }
+            }
+        }
+    }
     if r.interrupted && (s.state == "working" || s.state == "waiting") {
         leave_wait(s, now);
         s.ask.clear(); s.ask_tool.clear(); s.state = "idle".into(); s.since = now;
@@ -612,6 +622,10 @@ mod tests {
         assert_eq!(len16(&s.summary), 600);
         assert!(!s.summary.contains('\n'));
         assert!(s.summary.starts_with("Done one two xxx"));
+        let say = s.log.last().unwrap();
+        assert_eq!((say.kind.as_str(), say.text.as_str()), ("say", s.summary.as_str()), "Claude's reply is a line of the session");
+        refresh(m.get_mut("r1").unwrap(), true, now());
+        assert_eq!(m["r1"].log.iter().filter(|l| l.kind == "say").count(), 1, "the same reply is not added twice");
         ap(&mut m, json!({ "session_id": "r1", "hook_event_name": "UserPromptSubmit", "prompt": "again" }));
         assert_eq!(m["r1"].report, "");
         fs::remove_file(&f).unwrap();

@@ -181,7 +181,7 @@ fn desktop_messages_round_trip_with_documented_names() {
     let home = DesktopMsg::Home(Home {
         sent_at: NOW,
         computer: Computer { name: "Studio".into(), state: ComputerState::Online, unfinished: 0 },
-        sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 }, can_stop: false }],
+        sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 }, can_stop: false, lines: 0 }],
         waiting: vec![waiting],
         groups: vec![Group { group: GroupKind::NeedsYou, ids: vec!["r1".into()] }],
         rights: Some(Rights { answer: true, stop: true, ..Default::default() }),
@@ -288,7 +288,7 @@ fn limits_are_measured_in_bytes() {
 
 #[test]
 fn session_info_says_whether_stop_is_possible() {
-    let info = |can_stop| SessionInfo { id: "s".into(), title: "t".into(), project: "p".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 1 }, can_stop };
+    let info = |can_stop| SessionInfo { id: "s".into(), title: "t".into(), project: "p".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 1 }, can_stop, lines: 0 };
     assert_eq!(serde_json::to_value(info(true)).unwrap()["canStop"], true);
     assert_eq!(serde_json::to_value(info(false)).unwrap()["canStop"], false);
     // a desktop from before the flag omits it: that reads as "not possible"

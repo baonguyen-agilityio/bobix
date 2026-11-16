@@ -49,7 +49,7 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
         let held = s.state == "waiting" && pending.values().any(|p| p.sid == s.id);
         let held_request = pending.values().any(|p| p.sid == s.id && p.kind() == Kind::Request); // Stop is only for a plain request
         let state = if s.state == "waiting" && !held { "atComputer".to_string() } else { s.state.clone() };
-        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held_request }
+        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held_request, lines: activity_lines(s).count().min(40) as u8 }
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
         id: id.clone(), session: p.sid.clone(), what: match p.kind() { Kind::Plan => WaitingKind::Plan, Kind::Question => WaitingKind::Question, Kind::Request => WaitingKind::Request },
@@ -85,6 +85,7 @@ pub fn groups(work: &crate::work::Work, settings: &serde_json::Value, sessions: 
 pub fn for_phone(mut h: Home, rights: Rights) -> Home {
     h.rights = Some(rights);
     if !(rights.stop && rights.answer) { for s in &mut h.sessions { s.can_stop = false; } }
+    if !rights.activity { for s in &mut h.sessions { s.lines = 0; } }
     h
 }
 
@@ -124,11 +125,14 @@ fn built(id: &str, p: &Pending) -> Detail {
     }
 }
 
+// The lines of a session a phone may read: what it did and said, never what the person typed.
+fn activity_lines(s: &crate::state::Session) -> impl Iterator<Item = &crate::state::LogLine> { s.log.iter().filter(|l| l.kind != "prompt" && l.kind != "system" && !(l.text.is_empty() && l.tool.is_empty())) }
+
 // A session's last lines (at most 40, the prompt lines left out), redacted, for a phone with "See session activity".
 pub fn session_detail(sessions: &Sessions, id: &str, rights: Rights) -> Result<Detail, &'static str> {
     let s = sessions.get(id).ok_or("unknown")?;
     if !rights.activity { return Err("right"); }
-    let mut text = s.log.iter().filter(|l| l.kind != "prompt" && l.kind != "system").map(|l| {
+    let mut text = activity_lines(s).map(|l| {
         let line = if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) };
         room::redact(&line.chars().zip(odd_flags(&line)).filter(|(c, odd)| !odd || *c == '\n' || *c == '\t').map(|(c, _)| c).collect::<String>()).0.replace('\n', " ")
     }).collect::<Vec<_>>().join("\n");
@@ -239,6 +243,11 @@ mod tests {
         assert!(d.text.contains("Bash npm test") && d.text.contains("Edit src/a.rs") && !d.text.contains("SECRET PROMPT") && !d.text.contains("ghp_a1B2"), "{}", d.text);
         assert_eq!(session_detail(&sessions, "s1", Rights::default()), Err("right"));
         assert_eq!(session_detail(&sessions, "nope", rights), Err("unknown"));
+        // the count Home carries is what `detail` returns, and only a phone that may read the lines gets it
+        let h = home(&sessions, &HashMap::new(), "Studio", 1, ComputerState::Online, vec![]);
+        assert_eq!(h.sessions[0].lines, 2, "the prompt is not counted");
+        assert_eq!(for_phone(h.clone(), rights).sessions[0].lines, 2);
+        assert_eq!(for_phone(h, Rights::default()).sessions[0].lines, 0, "no right: no count");
         sessions.get_mut("s1").unwrap().log.clear();
         assert_eq!(session_detail(&sessions, "s1", rights).unwrap().text, "", "no lines: an empty answer");
     }

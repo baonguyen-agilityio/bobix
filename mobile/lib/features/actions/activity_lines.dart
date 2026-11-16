@@ -79,51 +79,72 @@ class ActivityLines extends StatelessWidget {
   }
 }
 
-class _Row extends StatelessWidget {
+/// One line. A long text is cut at two lines; a tap opens the whole of it and a second tap folds it again.
+class _Row extends StatefulWidget {
   const _Row(this.line);
   final ({String tool, String text}) line;
 
   @override
+  State<_Row> createState() => _RowState();
+}
+
+class _RowState extends State<_Row> {
+  bool _open = false;
+
+  @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (line.tool.isNotEmpty)
-            Text(
-              line.tool,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: t.accentInk,
-              ),
-            ),
-          if (line.text.isNotEmpty)
-            Padding(
-              padding: EdgeInsets.only(top: line.tool.isEmpty ? 0 : 2),
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    for (final p in showEscapes(line.text))
-                      TextSpan(
-                        text: p.text,
-                        style: p.escaped
-                            ? TextStyle(
-                                fontWeight: FontWeight.w700,
-                                backgroundColor: t.err.withValues(alpha: .28),
-                              )
-                            : null,
-                      ),
-                  ],
+    final line = widget.line;
+    return InkWell(
+      onTap: line.text.isEmpty ? null : () => setState(() => _open = !_open),
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (line.tool.isNotEmpty)
+                Text(
+                  line.tool,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: t.accentInk,
+                  ),
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, height: 1.4, color: t.ink),
-              ),
-            ),
-        ],
+              if (line.text.isNotEmpty)
+                Padding(
+                  padding: EdgeInsets.only(top: line.tool.isEmpty ? 0 : 2),
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        for (final p in showEscapes(line.text))
+                          TextSpan(
+                            text: p.text,
+                            style: p.escaped
+                                ? TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    backgroundColor: t.err.withValues(
+                                      alpha: .28,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                      ],
+                    ),
+                    maxLines: _open ? null : 2,
+                    overflow: _open
+                        ? TextOverflow.visible
+                        : TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, height: 1.4, color: t.ink),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
