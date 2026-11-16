@@ -1138,9 +1138,9 @@ mod tests {
 
     #[test]
     fn names_are_plain_and_short() {
-        assert!(valid_name("Bao's iPhone") && valid_name(&"é".repeat(40)));
+        assert!(valid_name("Kim's iPhone") && valid_name(&"é".repeat(40)));
         for bad in ["", &"a".repeat(41), "x\u{202e}y", "a\nb", "a\u{7}", "zero\u{200b}width", "tag\u{e0041}"] { assert!(!valid_name(bad), "{bad:?}"); }
-        assert!(valid_name("Bao's \u{260E}\u{FE0F}") && valid_name("\u{2705}\u{FE0F} work"), "emoji with a presentation selector");
+        assert!(valid_name("Kim's \u{260E}\u{FE0F}") && valid_name("\u{2705}\u{FE0F} work"), "emoji with a presentation selector");
         for bad in ["\u{FE0F}", "x \u{FE0F}", "\u{26A0}\u{FE0F}\u{FE0F}"] { assert!(!valid_name(bad), "{bad:?}"); }
         assert!(valid_name("<b>x</b>"), "markup is plain text here; the panel sets it with textContent");
     }

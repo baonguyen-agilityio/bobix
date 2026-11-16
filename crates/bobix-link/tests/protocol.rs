@@ -749,7 +749,7 @@ fn invisible_letters_and_variation_selectors_are_hidden_characters_too() {
 #[test]
 fn emoji_presentation_selectors_pass_after_a_visible_character_and_are_hidden_anywhere_else() {
     use bobix_link::messages::{has_odd, is_plain_text, odd_flags, visible_escapes};
-    for ok in ["\u{26A0}\u{FE0F} careful", "done \u{2705}\u{FE0F}", "\u{2764}\u{FE0E}", "a\u{FE0F}", "Bao's \u{260E}\u{FE0F}"] {
+    for ok in ["\u{26A0}\u{FE0F} careful", "done \u{2705}\u{FE0F}", "\u{2764}\u{FE0E}", "a\u{FE0F}", "Kim's \u{260E}\u{FE0F}"] {
         assert!(!has_odd(ok), "{ok:?}");
         assert!(is_plain_text(ok, 64) && !visible_escapes(ok).1, "{ok:?}");
     }

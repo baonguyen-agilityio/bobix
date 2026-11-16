@@ -236,10 +236,10 @@ void main() {
       await tester.tap(find.text('Ask the computer to confirm'));
       await tester.pump();
       expect(_Naming.names, ['Phone']);
-      await tester.enterText(find.byType(TextField).first, 'Bao’s iPhone');
+      await tester.enterText(find.byType(TextField).first, 'Kim’s iPhone');
       await tester.tap(find.text('Ask the computer to confirm'));
       await tester.pump();
-      expect(_Naming.names, ['Phone', 'Bao’s iPhone']);
+      expect(_Naming.names, ['Phone', 'Kim’s iPhone']);
     },
   );
 

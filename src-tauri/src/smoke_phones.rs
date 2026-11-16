@@ -89,7 +89,11 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
         for (let t = 0; t < 8000 && !document.querySelector('[data-pr^=\"row:\"][data-r=\"activity\"]'); t += 100) await new Promise(r => setTimeout(r, 100)); \
         const c = document.querySelector('[data-pr^=\"row:\"][data-r=\"activity\"]'); if (!c) return false; if (c.checked !== {on}) c.click(); return true; }})()"), 12);
     let no_activity = "\"rights\":{\"answer\":true,\"plan\":true,\"question\":true,\"start\":false,\"stop\":true,\"activity\":false}";
-    r["rightsClick"] = json!(click(false) == json!(true) && rights_line(no_activity) && click(true) == json!(true) && rights_line(all_but_start));
+    // the last check looks only at homes that arrived after the second click: the same line came at pairing
+    let rights_after = |from: usize, has: &'static str| until(10, || fake.lines.lock().unwrap().iter().skip(from).any(|l| l.contains("\"kind\":\"home\"") && l.contains(has)));
+    let first = click(false) == json!(true) && rights_line(no_activity);
+    let before = fake.lines.lock().unwrap().len();
+    r["rightsClick"] = json!(first && click(true) == json!(true) && rights_after(before, all_but_start));
     r["pairedSeen"] = json!(until(10, || fake.saw("paired with")));
     r["confirmWithoutPairing"] = json!(phones::pair_confirm(b, granted).is_err());
     // What a phone sees: a request held in the app reaches it as a redacted preview, a notice and, on asking, the whole thing.
