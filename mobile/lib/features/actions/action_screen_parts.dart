@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/glass_backdrop.dart';
 import '../../data/models.dart';
 import '../../data/phone_data.dart';
 import '../../l10n/l10n.dart';
@@ -32,8 +33,8 @@ final phoneNameProvider = Provider<String?>(
 /// Opens the log of the task [id] belongs to.
 VoidCallback taskLogOpener(BuildContext context, WidgetRef ref, String id) =>
     () => Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => TaskLogScreen(
+      pageRoute<void>(
+        TaskLogScreen(
           sessionId: sessionFor(ref.read(homeProvider).value, id)?.id ?? id,
         ),
       ),

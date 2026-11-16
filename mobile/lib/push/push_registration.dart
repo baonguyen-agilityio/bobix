@@ -82,7 +82,11 @@ class PushRegistration {
   /// A token of a Live Activity (`activity`, [ref] is the activity's id) or the token that lets a push start one
   /// (`pushToStart`). Each is registered with a grant like the device token, on every connected relay, and again on every
   /// connection and renewal. A later token of the same kind and [ref] takes the place of the earlier one.
-  Future<void> registerExtra({required String kind, String? ref, required String token}) async {
+  Future<void> registerExtra({
+    required String kind,
+    String? ref,
+    required String token,
+  }) async {
     _extra['$kind|${ref ?? ''}'] = (kind: kind, ref: ref, token: token);
     for (final id in _links.keys.toList()) {
       await _sendExtras(id);
@@ -90,7 +94,8 @@ class PushRegistration {
   }
 
   /// The activity ended: its token is not registered again.
-  void clearExtra(String kind, {String? ref}) => _extra.remove('$kind|${ref ?? ''}');
+  void clearExtra(String kind, {String? ref}) =>
+      _extra.remove('$kind|${ref ?? ''}');
 
   Future<void> _sendExtras(String relayId) async {
     final send = _links[relayId]?.send;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../widgets/glass_backdrop.dart';
 import '../data/models.dart';
 import '../data/phone_data.dart';
 import '../l10n/l10n.dart';
@@ -30,7 +31,7 @@ void openSession(BuildContext context, Session x) {
           WaitingKind.question => QuestionScreen(id: id),
           _ => RequestScreen(id: id),
         };
-  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+  Navigator.of(context).push(pageRoute<void>(page));
 }
 
 /// What a waiting session asks for, in one line (what Home and Pets show under its name).

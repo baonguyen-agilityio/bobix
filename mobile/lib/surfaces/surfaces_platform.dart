@@ -64,7 +64,9 @@ class ChannelSurfacesPlatform implements SurfacesPlatform {
 
   @override
   Future<bool> liveActivities() async {
-    final m = await _channel.invokeMethod<Map<Object?, Object?>>('capabilities');
+    final m = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'capabilities',
+    );
     return m?['liveActivities'] == true;
   }
 
@@ -73,13 +75,17 @@ class ChannelSurfacesPlatform implements SurfacesPlatform {
       _channel.invokeMethod<void>('writeList', {'json': json});
 
   @override
-  Future<void> writePet(String design, int color, String state, Uint8List png) =>
-      _channel.invokeMethod<void>('writePet', {
-        'design': design,
-        'color': color,
-        'state': state,
-        'png': png,
-      });
+  Future<void> writePet(
+    String design,
+    int color,
+    String state,
+    Uint8List png,
+  ) => _channel.invokeMethod<void>('writePet', {
+    'design': design,
+    'color': color,
+    'state': state,
+    'png': png,
+  });
 
   @override
   Future<void> clear() => _channel.invokeMethod<void>('clearSurfaces');

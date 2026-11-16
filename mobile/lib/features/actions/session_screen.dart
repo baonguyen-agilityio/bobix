@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/glass_backdrop.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import 'action_screen_parts.dart';
@@ -93,11 +94,9 @@ class SessionScreen extends ConsumerWidget {
               ActionButton(
                 s('phone.sv.open'),
                 icon: Icons.chevron_right,
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => RequestScreen(id: d.waitingOnRequest!),
-                  ),
-                ),
+                onPressed: () => Navigator.of(
+                  context,
+                ).push(pageRoute<void>(RequestScreen(id: d.waitingOnRequest!))),
               ),
             ],
             if (d.lines != null) ...[

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../widgets/glass_backdrop.dart';
 import '../data/models.dart';
 import '../features/actions/action_widgets.dart' show bioName;
 import '../keys/platform_secure_keys.dart';
@@ -56,8 +57,7 @@ class SettingsScreen extends ConsumerWidget {
 
     final logCount = ref.watch(appLogProvider).length;
     void open(Widget screen) =>
-        Navigator.of(context)
-            .push(MaterialPageRoute<void>(builder: (_) => screen));
+        Navigator.of(context).push(pageRoute<void>(screen));
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),

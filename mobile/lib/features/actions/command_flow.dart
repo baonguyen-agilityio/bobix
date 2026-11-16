@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/glass_backdrop.dart';
 import '../../widgets/face_id_icon.dart';
 
 import '../../data/phone_data.dart';
@@ -102,9 +103,7 @@ Future<void> runCommand(
     ),
   );
   navigator.pushReplacement(
-    MaterialPageRoute<void>(
-      builder: (_) => ResultScreen(command: command, first: first),
-    ),
+    pageRoute<void>(ResultScreen(command: command, first: first)),
   );
 }
 

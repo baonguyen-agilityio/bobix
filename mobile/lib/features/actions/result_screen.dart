@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/glass_backdrop.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
@@ -235,9 +236,8 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
         : sessionFor(ref.read(homeProvider).value, cmd.target)?.id ??
               cmd.target;
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            id == null ? const AppLogScreen() : TaskLogScreen(sessionId: id),
+      pageRoute<void>(
+        id == null ? const AppLogScreen() : TaskLogScreen(sessionId: id),
       ),
     );
   }

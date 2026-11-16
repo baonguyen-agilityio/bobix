@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/glass_backdrop.dart';
 import '../../data/models.dart';
 import '../../data/phone_data.dart';
 import '../../l10n/l10n.dart';
@@ -227,11 +228,8 @@ class _StartScreenState extends ConsumerState<StartScreen> {
                   onPressed: picked == null || !canSend
                       ? null
                       : () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => StartPreviewScreen(
-                              issueId: picked.id,
-                              mode: _mode,
-                            ),
+                          pageRoute<void>(
+                            StartPreviewScreen(issueId: picked.id, mode: _mode),
                           ),
                         ),
                 ),

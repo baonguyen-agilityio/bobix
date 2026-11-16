@@ -7,7 +7,11 @@ import 'pet_png.dart';
 import 'shared_list.dart';
 import 'surfaces_platform.dart';
 
-typedef PetRenderer = Future<Uint8List> Function(String design, int color, String state);
+typedef PetRenderer = Future<Uint8List> Function(
+  String design,
+  int color,
+  String state,
+);
 
 /// Keeps the widgets, the controls and the Live Activity in step with the last `home`: writes the shared list and the
 /// pets' images, and starts, updates or ends the activity.
@@ -51,7 +55,13 @@ class SurfacesSync {
     }
     try {
       await _platform.writeList(
-        SharedListJson.build(home, computerId: computerId, canStart: canStart, now: now, builtAt: _builtAt),
+        SharedListJson.build(
+          home,
+          computerId: computerId,
+          canStart: canStart,
+          now: now,
+          builtAt: _builtAt,
+        ),
       );
     } catch (_) {
       // A surface that is not refreshed goes stale on its own; the app goes on.
@@ -61,7 +71,10 @@ class SurfacesSync {
 
   /// Writes the last `home` again, as the heartbeat: only while the computer was reachable then (once the app is paused or the
   /// computer is gone, the data is left to age into stale). The seconds a request still has count down from when it was built.
-  Future<void> again({required String computerId, required bool canStart}) async {
+  Future<void> again({
+    required String computerId,
+    required bool canStart,
+  }) async {
     final h = _last;
     if (!visible || h == null || h.conn != ConnState.ok) return;
     await sync(h, computerId: computerId, canStart: canStart, again: true);
@@ -71,7 +84,12 @@ class SurfacesSync {
     final key = '$design-$color-$state';
     if (_petsWritten.contains(key)) return;
     try {
-      await _platform.writePet(design, color, state, await _renderPet(design, color, state));
+      await _platform.writePet(
+        design,
+        color,
+        state,
+        await _renderPet(design, color, state),
+      );
       _petsWritten.add(key);
     } catch (_) {
       // The surface draws a paw instead; the next sync tries again.

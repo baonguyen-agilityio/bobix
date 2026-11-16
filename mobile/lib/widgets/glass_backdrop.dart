@@ -57,3 +57,8 @@ class _WashPainter extends CustomPainter {
   @override
   bool shouldRepaint(_WashPainter old) => old.base != base;
 }
+
+/// A screen route that paints its own backdrop. The backdrop under the navigator is not enough: screens are
+/// transparent, so while a route slides in or out the page below would show through it.
+Route<T> pageRoute<T>(Widget page) =>
+    MaterialPageRoute<T>(builder: (_) => GlassBackdrop(child: page));
