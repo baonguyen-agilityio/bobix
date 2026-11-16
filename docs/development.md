@@ -267,6 +267,12 @@ What is set up in the repository:
   keychain group `dev.bobix.phone.keys`; the app alone also lists `dev.bobix.phone.app-keys`. `aps-environment` stays
   `development` in `Runner.entitlements`: Xcode puts `production` into the signed app when it signs for distribution. No team id is
   committed (`ios/Flutter/Local.xcconfig` stays untracked).
+- **Signing is automatic** (`CODE_SIGN_STYLE = Automatic` on the app and both extensions, in every configuration). The only per-developer
+  value is `DEVELOPMENT_TEAM`, which the owner sets to their paid Apple Developer team in the untracked `ios/Flutter/Local.xcconfig`.
+- **Privacy manifests.** `PrivacyInfo.xcprivacy` in `Runner`, `NotificationService` and `BobixWidgets`: no tracking, no collected data (the developer
+  receives nothing; messages are sealed end to end), and one required-reason API, file timestamps (reason `C617.1`, files in the app's own container and App Group), which the Rust push core and link crate
+  reach through `std::fs` (`create_dir_all`, `read` call `stat`/`fstat`; nothing reads a timestamp). No `UserDefaults`, disk-space, boot-time or keyboard API is used.
+  Re-check with `nm -u` on the archived binaries after adding a dependency; plugins ship their own manifests.
 
 Steps, once and then for every build:
 
