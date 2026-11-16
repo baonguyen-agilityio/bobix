@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import 'glass.dart';
 
@@ -28,7 +27,10 @@ class GlassTabBar extends StatelessWidget {
   final int startIndex;
   final ValueChanged<int> onSelect;
 
-  static const double capsulePad = 3, itemW = 48, itemH = 36;
+  static const double capsulePad = 3, itemW = 56, itemH = 42;
+
+  /// The capsule's height; also the height of an item's touch target.
+  static const double barH = itemH + capsulePad * 2;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +54,7 @@ class GlassTabBar extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Icon(s.icon, size: 20, color: on ? t.accentInk : t.ink2),
+            Icon(s.icon, size: 24, color: on ? t.accentInk : t.ink2),
             if (s.badge > 0)
               Positioned(
                 top: 1,
@@ -92,7 +94,7 @@ class GlassTabBar extends StatelessWidget {
       child: InkResponse(
         onTap: () => onSelect(i),
         radius: 30,
-        child: const SizedBox(width: itemW, height: minTouch),
+        child: const SizedBox(width: itemW, height: barH),
       ),
     );
 
@@ -107,7 +109,7 @@ class GlassTabBar extends StatelessWidget {
         children: [
           SizedBox(
             width: itemW * slots.length + capsulePad * 2,
-            height: minTouch,
+            height: barH,
             child: Stack(
               alignment: Alignment.center,
               children: [
@@ -170,9 +172,9 @@ class GlassTabBar extends StatelessWidget {
                     ),
                   ),
                   child: SizedBox(
-                    width: minTouch,
-                    height: minTouch,
-                    child: Icon(start.icon, size: 22, color: t.onAccent),
+                    width: barH,
+                    height: barH,
+                    child: Icon(start.icon, size: 26, color: t.onAccent),
                   ),
                 ),
               ),

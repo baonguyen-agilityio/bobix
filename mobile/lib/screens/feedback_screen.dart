@@ -141,10 +141,7 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
         TextField(
           controller: _title,
           maxLength: 120,
-          decoration: InputDecoration(
-            labelText: s('phone.fb.title.l'),
-            border: const OutlineInputBorder(),
-          ),
+          decoration: InputDecoration(labelText: s('phone.fb.title.l')),
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 8),
@@ -155,7 +152,6 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
           decoration: InputDecoration(
             labelText: s('phone.fb.desc.l'),
             alignLabelWithHint: true,
-            border: const OutlineInputBorder(),
           ),
           onChanged: (_) => setState(() {}),
         ),

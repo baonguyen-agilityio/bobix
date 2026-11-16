@@ -14,6 +14,7 @@ class Glass extends StatelessWidget {
     super.key,
     required this.child,
     this.radius = 16,
+    this.corners,
     this.padding,
     this.tint,
     this.border,
@@ -30,6 +31,9 @@ class Glass extends StatelessWidget {
 
   final Widget child;
   final double radius;
+
+  /// Different radii per corner; replaces [radius] when set.
+  final BorderRadius? corners;
   final EdgeInsetsGeometry? padding;
   final Color? tint;
   final Color? border;
@@ -48,7 +52,7 @@ class Glass extends StatelessWidget {
     final fill =
         tint ??
         (t.isDark ? t.surface2.withValues(alpha: .6) : const Color(0x85FFFFFF));
-    final shape = BorderRadius.circular(radius);
+    final shape = corners ?? BorderRadius.circular(radius);
     final content = Padding(padding: padding ?? EdgeInsets.zero, child: child);
     final body = DecoratedBox(
       decoration: BoxDecoration(
@@ -85,7 +89,7 @@ class Glass extends StatelessWidget {
     final blurred = blur && blurEnabled;
     return CustomPaint(
       painter: _OuterShadow(
-        radius: radius,
+        shape: shape,
         color: shadowColor ?? Color(t.isDark ? 0x4D000000 : 0x12141828),
         blur: shadowBlur,
         offset: shadowOffset,
@@ -107,22 +111,20 @@ class Glass extends StatelessWidget {
 /// translucent surface it would darken the glass from inside.)
 class _OuterShadow extends CustomPainter {
   const _OuterShadow({
-    required this.radius,
+    required this.shape,
     required this.color,
     required this.blur,
     required this.offset,
   });
 
-  final double radius, blur;
+  final BorderRadius shape;
+  final double blur;
   final Color color;
   final Offset offset;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final box = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(radius),
-    );
+    final box = shape.toRRect(Offset.zero & size);
     final outside = Path.combine(
       PathOperation.difference,
       Path()..addRect((Offset.zero & size).inflate(blur * 3 + 8)),
@@ -141,7 +143,7 @@ class _OuterShadow extends CustomPainter {
 
   @override
   bool shouldRepaint(_OuterShadow old) =>
-      old.radius != radius ||
+      old.shape != shape ||
       old.color != color ||
       old.blur != blur ||
       old.offset != offset;

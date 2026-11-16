@@ -840,7 +840,6 @@ class _ThemeSwatch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const aa = TextStyle(fontSize: 17, fontWeight: FontWeight.w600);
     final Widget face = switch (choice) {
       ThemeChoice.light => const ColoredBox(
         color: _lightBg,
@@ -877,14 +876,27 @@ class _ThemeSwatch extends StatelessWidget {
               Expanded(child: ColoredBox(color: _darkBg)),
             ],
           ),
-          Center(
-            child: ShaderMask(
-              blendMode: BlendMode.srcIn,
-              shaderCallback: (r) => const LinearGradient(
-                colors: [_lightInk, _lightInk, _darkInk, _darkInk],
-                stops: [0, .5, .5, 1],
-              ).createShader(r),
-              child: const Text('Aa', style: aa),
+          const Center(
+            child: Text(
+              'Aa',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: _lightInk,
+              ),
+            ),
+          ),
+          ClipRect(
+            clipper: _RightHalf(),
+            child: const Center(
+              child: Text(
+                'Aa',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: _darkInk,
+                ),
+              ),
             ),
           ),
         ],
@@ -904,6 +916,16 @@ class _ThemeSwatch extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The right half of the box: the dark ink of the system swatch is drawn only there.
+class _RightHalf extends CustomClipper<Rect> {
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(size.width / 2, 0, size.width, size.height);
+
+  @override
+  bool shouldReclip(_RightHalf old) => false;
 }
 
 /// The language's code over a greeting in it.
