@@ -150,7 +150,10 @@ void main() {
             brightness: b,
           );
           expect(find.text(tr(lang, 'sv.act')), findsOneWidget);
-          expect(richText(tester), contains('npm test -- checkout'));
+          // Three of the five lines, the newest, and a way to the rest.
+          expect(richText(tester), contains('src/checkout/total.ts'));
+          expect(richText(tester), isNot(contains('applyCoupon')));
+          expect(find.text(tr(lang, 'sv.all')), findsOneWidget);
           expect(button(tr(lang, 'sv.stop')), findsNothing);
           expect(find.byType(TextField), findsNothing);
         });

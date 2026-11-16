@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/phone_data.dart';
 import '../features/actions/action_screen_parts.dart';
 import '../features/actions/action_widgets.dart';
 import '../features/actions/actions_source.dart';
@@ -24,21 +25,44 @@ class TaskLogScreen extends ConsumerWidget {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     final c = ref.watch(actionsSourceProvider).computerName;
+    final isSession =
+        ref.watch(homeProvider).value?.sessions.any((x) => x.id == sessionId) ??
+        false;
+    final detail = isSession
+        ? ref.watch(sessionProvider(sessionId)).value
+        : null;
     return SecureScope(
       child: DetailScaffold(
         title: s('phone.tl.title'),
         children: [
           ActionSessionCard(id: sessionId),
-          // What the session did lately, read from the computer; empty (and absent) when this phone may not read it.
-          SessionActivity(
-            lines: ref.watch(sessionProvider(sessionId)).value?.lines,
-            at: ref.watch(sessionProvider(sessionId)).value?.linesAt ?? '',
-          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
             child: Text(
               s('phone.tl.n', {'c': c}),
               style: TextStyle(fontSize: 14, height: 1.5, color: t.ink2),
+            ),
+          ),
+          // Only when the id is a real session: for an id that fell back to a request, a plan or a question it would
+          // show that item's tool input.
+          if (isSession)
+            SessionActivity(
+              lines: detail?.lines,
+              at: detail?.linesAt ?? '',
+              empty: s('phone.tl.act.empty'),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
+            child: Semantics(
+              header: true,
+              child: Text(
+                s('phone.tl.cmds'),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: t.ink,
+                ),
+              ),
             ),
           ),
           LogEntries(

@@ -90,8 +90,10 @@ class SessionScreen extends ConsumerWidget {
               where: d.issue == null ? d.project : '${d.project} #${d.issue}',
             ),
             // Waiting, but nothing is held for this phone: it can only be answered on the computer, and says so.
+            // Not when a plan or a question is held for this phone: Home opens those on their own screens.
             if (d.phase == SessionPhase.waiting &&
-                d.waitingOnRequest == null) ...[
+                d.waitingOnRequest == null &&
+                ref.watch(homeSessionProvider(d.id))?.waitingId == null) ...[
               const SizedBox(height: 12),
               _AtComputerNote(s('phone.sv.atpc.d', {'c': c})),
             ],
@@ -105,7 +107,13 @@ class SessionScreen extends ConsumerWidget {
                 ).push(pageRoute<void>(RequestScreen(id: d.waitingOnRequest!))),
               ),
             ],
-            SessionActivity(lines: d.lines, at: d.linesAt),
+            SessionActivity(
+              lines: d.lines,
+              at: d.linesAt,
+              empty: s('phone.sv.lines.empty'),
+              limit: 3,
+              onSeeAll: taskLogOpener(context, ref, d.id),
+            ),
           ],
         );
       },

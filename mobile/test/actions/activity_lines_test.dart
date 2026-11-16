@@ -2,26 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/features/actions/activity_lines.dart';
 
 void main() {
-  test('an activity line splits into the tool and what it did', () {
-    expect(splitActivityLine('Bash ls -la'), (
-      time: '',
-      tool: 'Bash',
-      text: 'ls -la',
-    ));
-    expect(splitActivityLine('SendMessage'), (
-      time: '',
-      tool: 'SendMessage',
-      text: '',
-    ));
+  // The computer sends `{tool} {text}` for a tool and the bare text for anything else.
+  test('a line names a tool only when it starts with one', () {
+    expect(splitActivityLine('Bash ls -la'), (tool: 'Bash', text: 'ls -la'));
+    expect(splitActivityLine('SendMessage'), (tool: 'SendMessage', text: ''));
     expect(splitActivityLine('mcp__server__send_message hello'), (
-      time: '',
       tool: 'send_message',
       text: 'hello',
     ));
-    expect(splitActivityLine('./run --all'), (
-      time: '',
+    expect(splitActivityLine('startup'), (tool: '', text: 'startup'));
+    expect(splitActivityLine('Claude needs your permission to use Bash'), (
       tool: '',
-      text: './run --all',
+      text: 'Claude needs your permission to use Bash',
     ));
   });
 }

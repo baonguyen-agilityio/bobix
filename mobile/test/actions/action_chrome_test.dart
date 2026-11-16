@@ -184,6 +184,25 @@ void main() {
         );
         expect(find.text(tr(lang, 'lg.today')), findsOneWidget);
         expect(find.text(tr(lang, 'tl.empty')), findsOneWidget);
+        // What the session did sits above the commands, each with its own title.
+        expect(find.text(tr(lang, 'sv.act')), findsOneWidget);
+        expect(find.text(tr(lang, 'tl.cmds')), findsOneWidget);
+        expect(find.text('src/checkout/form.ts'), findsOneWidget);
+        expect(find.text('Edit'), findsOneWidget);
+        expect(find.text('startup'), findsOneWidget);
+      });
+
+      testWidgets('no activity for an id that is not a session ($lang)', (
+        tester,
+      ) async {
+        await pumpScreen(
+          tester,
+          const TaskLogScreen(sessionId: 'req-bash'),
+          lang: lang,
+          home: _home,
+        );
+        expect(find.text(tr(lang, 'sv.act')), findsNothing);
+        expect(find.text(tr(lang, 'tl.cmds')), findsOneWidget);
       });
 
       testWidgets('filled ($lang)', (tester) async {

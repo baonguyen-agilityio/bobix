@@ -272,11 +272,11 @@ String _slug(String s) => s
     .replaceAll(RegExp(r'^-|-$'), '');
 
 const _lines = [
-  '21:13  Edit  src/checkout/form.ts',
-  '21:12  Bash  npm test -- checkout',
-  '21:11  Read  src/checkout/total.ts',
-  '21:10  Grep  "applyCoupon"',
-  '21:08  Prompt  #38 Fix the cart total rounding',
+  'Edit src/checkout/form.ts',
+  'Bash npm test -- checkout',
+  'Read src/checkout/total.ts',
+  'Grep "applyCoupon"',
+  'startup',
 ];
 
 const _issues = [

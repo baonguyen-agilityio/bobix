@@ -10,6 +10,12 @@ const double sheetGap = 8;
 /// has no API for it, so this is the common value.
 const double _displayRadius = 55;
 
+/// Only a phone with a home indicator has display corners this size; an iPad's are smaller. The radius is an
+/// approximation: Flutter cannot read the real one.
+bool _followsDisplayCorners(BuildContext context) =>
+    MediaQuery.viewPaddingOf(context).bottom > 0 &&
+    MediaQuery.sizeOf(context).shortestSide < 600;
+
 /// The top corners are plain; the bottom ones follow the display, concentric with it: its radius less the gap.
 const double _sheetTopRadius = 24;
 
@@ -47,7 +53,7 @@ class FloatingSheet extends StatelessWidget {
           corners: BorderRadius.vertical(
             top: const Radius.circular(_sheetTopRadius),
             bottom: Radius.circular(
-              MediaQuery.viewPaddingOf(context).bottom > 0
+              _followsDisplayCorners(context)
                   ? _displayRadius - sheetGap
                   : _sheetTopRadius,
             ),

@@ -1,9 +1,9 @@
 import Flutter
 import UIKit
 
-/// The app switcher keeps a picture of the app when it goes away. While the scene is not active an opaque cover (the app tile on the page colour) hides the
-/// content, so nothing of a request, a plan or a session is in that picture. (Dart covers the screen too, but only native
-/// code can do it before the system takes the picture.)
+/// The app switcher keeps a picture of the app when it goes away. While the scene is not active an opaque cover (the
+/// app tile on the page colour) hides the content, so nothing of a request, a plan or a session is in that picture.
+/// (Dart covers the screen too, but only native code can do it before the system takes the picture.)
 class SceneDelegate: FlutterSceneDelegate {
   private var cover: UIView?
 

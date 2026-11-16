@@ -25,21 +25,6 @@ ThemeData bobixTheme(Brightness brightness) {
           error: t.err,
         ),
     dividerColor: t.line,
-    // Text fields: rounded and softly filled like the glass cards, a hairline border, the accent when focused.
-    inputDecorationTheme: InputDecorationTheme(
-      filled: true,
-      fillColor: t.isDark
-          ? t.surface2.withValues(alpha: .6)
-          : const Color(0x85FFFFFF),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      labelStyle: TextStyle(color: t.ink3),
-      floatingLabelStyle: TextStyle(color: t.accentInk),
-      border: _inputBorder(t.lineStrong),
-      enabledBorder: _inputBorder(t.lineStrong),
-      focusedBorder: _inputBorder(t.accent, width: 1.5),
-      errorBorder: _inputBorder(t.err),
-      focusedErrorBorder: _inputBorder(t.err, width: 1.5),
-    ),
     textTheme:
         (brightness == Brightness.dark
                 ? Typography.material2021().white
@@ -56,8 +41,32 @@ ThemeData bobixTheme(Brightness brightness) {
   );
 }
 
-OutlineInputBorder _inputBorder(Color color, {double width = 1}) =>
-    OutlineInputBorder(
-      borderRadius: BorderRadius.circular(16),
-      borderSide: BorderSide(color: color, width: width),
-    );
+/// The decoration of a boxed text field: rounded, softly filled like the glass cards, a hairline border and the accent
+/// when focused. Fields that sit inside a card of their own (a `Glass` around a bare field) do not use it.
+InputDecoration bobixFieldDecoration(
+  BobixTokens t, {
+  required String label,
+  bool alignLabelWithHint = false,
+}) {
+  OutlineInputBorder border(Color color, [double width = 1]) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: color, width: width),
+      );
+  return InputDecoration(
+    labelText: label,
+    alignLabelWithHint: alignLabelWithHint,
+    filled: true,
+    fillColor: t.isDark
+        ? t.surface2.withValues(alpha: .6)
+        : const Color(0x85FFFFFF),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    labelStyle: TextStyle(color: t.ink3),
+    floatingLabelStyle: TextStyle(color: t.accentInk),
+    border: border(t.lineStrong),
+    enabledBorder: border(t.lineStrong),
+    focusedBorder: border(t.accent, 1.5),
+    errorBorder: border(t.err),
+    focusedErrorBorder: border(t.err, 1.5),
+  );
+}

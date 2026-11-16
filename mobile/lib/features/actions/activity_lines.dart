@@ -2,35 +2,51 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../theme/theme.dart' show minTouch;
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
 import 'action_widgets.dart' show FinePrint;
 import 'hidden_chars.dart' show showEscapes;
 import 'actions_source.dart';
 
-/// One line of a session's activity split into its time, the tool it names and what it did. The computer sends plain
-/// lines like `21:13 Edit src/app.js` or `Bash ls -la`: an optional time, a first word that looks like a tool name, then
-/// the rest.
-({String time, String tool, String text}) splitActivityLine(String line) {
-  var rest = line.trim();
-  var time = '';
-  final t = RegExp(
-    r'^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.*)$',
-    dotAll: true,
-  ).firstMatch(rest);
-  if (t != null) {
-    time = t.group(1)!;
-    rest = t.group(2)!;
+/// Tools the computer names at the start of a line. A line is `{tool} {text}` for a tool and the bare text for anything
+/// else (a session starting, a notice), so the first word is only a tool when it is one of these or an MCP tool.
+const _knownTools = {
+  'Bash',
+  'BashOutput',
+  'KillBash',
+  'Read',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'Glob',
+  'Grep',
+  'LS',
+  'Task',
+  'Agent',
+  'Skill',
+  'TodoWrite',
+  'WebFetch',
+  'WebSearch',
+  'SendMessage',
+  'AskUserQuestion',
+  'ExitPlanMode',
+  'EnterPlanMode',
+};
+
+/// One line of a session's activity split into the tool it names (empty when it names none) and what it did.
+({String tool, String text}) splitActivityLine(String line) {
+  final rest = line.trim();
+  final m = RegExp(r'^(\S+)(?:\s+(.*))?$', dotAll: true).firstMatch(rest);
+  if (m == null) return (tool: '', text: rest);
+  final first = m.group(1)!;
+  if (!_knownTools.contains(first) && !first.startsWith('mcp__')) {
+    return (tool: '', text: rest);
   }
-  final m = RegExp(
-    r'^([A-Za-z][A-Za-z0-9_]*)(?:\s+(.*))?$',
-    dotAll: true,
-  ).firstMatch(rest);
-  if (m == null) return (time: time, tool: '', text: rest);
-  var tool = m.group(1)!;
   // `mcp__server__send_message` reads as `send_message`.
-  if (tool.startsWith('mcp__')) tool = tool.split('__').last;
-  return (time: time, tool: tool, text: m.group(2) ?? '');
+  final tool = first.startsWith('mcp__') ? first.split('__').last : first;
+  return (tool: tool, text: m.group(2) ?? '');
 }
 
 /// A session's last lines as a list a person can read: the tool as a small label, what it did on up to two lines.
@@ -44,15 +60,9 @@ class ActivityLines extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
     if (lines.isEmpty) {
-      return Glass(
-        padding: const EdgeInsets.all(18),
-        child: Center(
-          child: Text(
-            empty,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, height: 1.5, color: t.ink2),
-          ),
-        ),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Text(empty, style: TextStyle(fontSize: 14, color: t.ink3)),
       );
     }
     return Glass(
@@ -71,7 +81,7 @@ class ActivityLines extends StatelessWidget {
 
 class _Row extends StatelessWidget {
   const _Row(this.line);
-  final ({String time, String tool, String text}) line;
+  final ({String tool, String text}) line;
 
   @override
   Widget build(BuildContext context) {
@@ -81,32 +91,18 @@ class _Row extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (line.tool.isNotEmpty || line.time.isNotEmpty)
-            Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: line.tool,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: t.accentInk,
-                    ),
-                  ),
-                  if (line.tool.isNotEmpty && line.time.isNotEmpty)
-                    const TextSpan(text: '  '),
-                  TextSpan(
-                    text: line.time,
-                    style: TextStyle(color: t.ink3),
-                  ),
-                ],
+          if (line.tool.isNotEmpty)
+            Text(
+              line.tool,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: t.accentInk,
               ),
-              style: const TextStyle(fontSize: 12),
             ),
           if (line.text.isNotEmpty)
             Padding(
-              padding: EdgeInsets.only(
-                top: line.tool.isEmpty && line.time.isEmpty ? 0 : 2,
-              ),
+              padding: EdgeInsets.only(top: line.tool.isEmpty ? 0 : 2),
               child: Text.rich(
                 TextSpan(
                   children: [
@@ -134,16 +130,28 @@ class _Row extends StatelessWidget {
 }
 
 /// The activity block of one session: its title, the list and the note on where the lines come from. Nothing when the
-/// computer did not grant this phone the right to read them ([lines] null).
+/// computer did not grant this phone the right to read them ([lines] null). [limit] keeps only the newest lines and
+/// [onSeeAll] adds a link to the rest; [empty] is the one muted line shown when there is nothing yet.
 class SessionActivity extends ConsumerWidget {
-  const SessionActivity({super.key, required this.lines, required this.at});
+  const SessionActivity({
+    super.key,
+    required this.lines,
+    required this.at,
+    required this.empty,
+    this.limit,
+    this.onSeeAll,
+  });
   final List<String>? lines;
   final String at;
+  final String empty;
+  final int? limit;
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final lines = this.lines;
-    if (lines == null) return const SizedBox.shrink();
+    final all = lines;
+    if (all == null) return const SizedBox.shrink();
+    final shown = limit == null ? all : all.take(limit!).toList();
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     final c = ref.watch(actionsSourceProvider).computerName;
@@ -152,24 +160,50 @@ class SessionActivity extends ConsumerWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
-          child: Semantics(
-            header: true,
-            child: Text(
-              s('phone.sv.act'),
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: t.ink,
+          child: Row(
+            children: [
+              Expanded(
+                child: Semantics(
+                  header: true,
+                  child: Text(
+                    s('phone.sv.act'),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: t.ink,
+                    ),
+                  ),
+                ),
               ),
-            ),
+              if (onSeeAll != null && all.isNotEmpty)
+                InkWell(
+                  onTap: onSeeAll,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: minTouch),
+                    child: Center(
+                      widthFactor: 1,
+                      child: Text(
+                        s('phone.sv.all'),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: t.accentInk,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
-        ActivityLines(lines, empty: s('phone.sv.lines.empty')),
-        const SizedBox(height: 8),
-        FinePrint(
-          s('phone.sv.act.n', {'c': c, 'tm': at}),
-          align: TextAlign.left,
-        ),
+        ActivityLines(shown, empty: empty),
+        if (all.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          FinePrint(
+            s('phone.sv.act.n', {'c': c, 'tm': at}),
+            align: TextAlign.left,
+          ),
+        ],
       ],
     );
   }
