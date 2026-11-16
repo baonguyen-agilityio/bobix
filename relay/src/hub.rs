@@ -5,8 +5,10 @@
 use crate::config::Config;
 use crate::mailbox::{Mailbox, Packet, Put};
 use crate::push::{token_kind_for, verify_grant, PushRequest};
+use crate::invited::{Invited, Redeemed};
 use crate::revoked::Revoked;
-use bobix_link::relay_frames::{ApnsEnv, ErrorCode, Frame, Platform, PresenceState, Push, TokenKind};
+use bobix_link::invite::{InviteCode, MAX_VALIDITY_MS};
+use bobix_link::relay_frames::{ApnsEnv, ErrorCode, Frame, InviteReason, Platform, PresenceState, Push, TokenKind};
 use bobix_link::messages::{Who, MAX_PUSH_BODY};
 use bobix_link::{b64, b64_decode, hex, random, sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -133,7 +135,13 @@ pub struct Hub {
     pairs: HashMap<String, Pair>,
     tokens: HashMap<String, Vec<TokenReg>>,
     invites: Option<Invites>,
+    /// `OWNER_IDS`: invited, and the only computers whose invite codes count.
+    owners: HashSet<String>,
+    /// The computers invited by a code (`INVITED_FILE`).
+    pub invited: Invited,
     pub revoked: Revoked,
+    /// Lines for the relay's log, taken by the socket task after each frame (the hub holds no logger).
+    pub said: Vec<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -141,11 +149,17 @@ pub fn now_ms() -> u64 {
 }
 
 impl Hub {
+    /// Panics when `INVITED_FILE` cannot be read; the relay itself starts through `try_new`.
     pub fn new(cfg: Config) -> Hub {
+        Hub::try_new(cfg).expect("INVITED_FILE")
+    }
+
+    pub fn try_new(cfg: Config) -> Result<Hub, String> {
+        let invited = Invited::load(cfg.invited_file.clone(), now_ms())?;
         let invites = (cfg.invite_file.is_some() || !cfg.owner_ids.is_empty())
             .then(|| Invites { fixed: cfg.owner_ids.iter().cloned().collect(), path: cfg.invite_file.clone(), every: cfg.invite_recheck, checked: None, seen: None, ids: HashSet::new() });
         let revoked = Revoked::load(cfg.revoked_dir.clone(), cfg.revoked_days, now_ms());
-        Hub {
+        Ok(Hub {
             cfg: cfg.clone(),
             next_conn: 0,
             online: HashMap::new(),
@@ -159,8 +173,11 @@ impl Hub {
             pairs: HashMap::new(),
             tokens: HashMap::new(),
             invites,
+            owners: cfg.owner_ids.iter().cloned().collect(),
+            invited,
             revoked,
-        }
+            said: Vec::new(),
+        })
     }
 
     // ---- small helpers -------------------------------------------------------------------------------------------
@@ -212,7 +229,8 @@ impl Hub {
 
     /// With invitations on, a device that is not invited is a guest: it is admitted through an invited desktop.
     pub fn is_guest(&mut self, id: &str) -> bool {
-        self.invites.as_mut().is_some_and(|i| !i.contains(id))
+        let by_code = self.invited.contains(id);
+        self.invites.as_mut().is_some_and(|i| !by_code && !i.contains(id))
     }
 
     /// The device has told the relay whom it allows (and, for a guest, at least one of them is an invited computer).
@@ -221,7 +239,7 @@ impl Hub {
     }
 
     fn invited(&mut self, id: &str) -> bool {
-        self.invites.as_mut().is_none_or(|i| i.contains(id))
+        !self.is_guest(id)
     }
 
     // ---- connection life -----------------------------------------------------------------------------------------
@@ -329,9 +347,78 @@ impl Hub {
             Frame::PushToken { platform, env, kind, r#ref, token, grant } => {
                 self.push_token(me, TokenReg { platform, env, kind, r#ref, token, grant, expires_ms: 0 })
             }
+            Frame::InviteQuery {} => self.invite_state(me),
+            Frame::InviteRedeem { code } => {
+                let (ok, reason) = match self.redeem(me, &code) {
+                    Ok(already) => (true, already.then_some(InviteReason::Already)),
+                    Err(r) => (false, Some(r)),
+                };
+                self.send_to(me, Frame::InviteResult { ok, reason });
+                if ok {
+                    self.invite_state(me);
+                }
+            }
+            Frame::InviteRemove { id } => self.invite_remove(me, &id),
             _ => self.err(me, ErrorCode::Malformed, None),
         }
         jobs
+    }
+
+    // ---- invitations by code -------------------------------------------------------------------------------------------
+
+    fn invite_state(&mut self, me: &str) {
+        let owner = self.owners.contains(me);
+        let invited = !self.is_guest(me);
+        let (relay_id, invitees) = if owner { (Some(self.cfg.relay_id.clone()), self.invited.list()) } else { (None, vec![]) };
+        self.send_to(me, Frame::InviteState { owner, invited, relay_id, invitees });
+    }
+
+    /// Ok(true) when `me` was invited already (the code is not spent), Ok(false) when the code let it in.
+    fn redeem(&mut self, me: &str, code: &str) -> Result<bool, InviteReason> {
+        let c = InviteCode::parse(code).map_err(|_| InviteReason::Invalid)?;
+        let owner = c.owner_id();
+        if !self.owners.contains(&owner) {
+            return Err(InviteReason::NotOwner);
+        }
+        if c.relay_id != self.cfg.relay_id {
+            return Err(InviteReason::OtherRelay);
+        }
+        let now = now_ms();
+        if c.expires_ms <= now {
+            return Err(InviteReason::Expired);
+        }
+        if c.expires_ms > now + MAX_VALIDITY_MS {
+            return Err(InviteReason::Invalid);
+        }
+        if !self.is_guest(me) {
+            return Ok(true);
+        }
+        match self.invited.redeem(me, &c.nonce_key(), c.expires_ms, &c.label, &owner, now) {
+            Redeemed::Added => {
+                self.said.push(format!("{me} invited by a code of {owner}"));
+                Ok(false)
+            }
+            Redeemed::Used => Err(InviteReason::Used),
+            Redeemed::TooMany => Err(InviteReason::TooMany),
+            Redeemed::NotSaved => {
+                self.said.push("INVITED_FILE could not be written: an invite code was refused".into());
+                Err(InviteReason::Server)
+            }
+        }
+    }
+
+    /// An owner stops inviting a computer that got in by a code. Its socket is closed: it comes back as a guest.
+    fn invite_remove(&mut self, me: &str, id: &str) {
+        if !self.owners.contains(me) {
+            return self.err(me, ErrorCode::Invite, None);
+        }
+        if self.invited.remove(id) {
+            self.said.push(format!("{id} no longer invited (removed by {me})"));
+            if let Some(c) = self.online.get(id) {
+                c.tx.send(Out::Close);
+            }
+        }
+        self.invite_state(me);
     }
 
     fn peers(&mut self, me: &str, guest: bool, allow: Vec<String>) {

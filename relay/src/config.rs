@@ -15,6 +15,11 @@ pub struct Config {
     pub invite_file: Option<PathBuf>,
     /// The relay owner's computers (`OWNER_IDS`), read once at start; always invited, in addition to the ones in `invite_file`.
     pub owner_ids: Vec<String>,
+    /// The computers that got in by an invite code and the codes spent (`INVITED_FILE`). `None` keeps them in memory only
+    /// (`--dev`); required outside `--dev` when `OWNER_IDS` is set.
+    pub invited_file: Option<PathBuf>,
+    /// Invite codes one socket may present per minute.
+    pub redeem_per_min: u32,
     pub gateway_keys_file: Option<PathBuf>,
     /// One small file per desktop. `None` keeps the list in memory only (`--dev`).
     pub revoked_dir: Option<PathBuf>,
@@ -132,6 +137,8 @@ impl Config {
             relay_id: "dev".into(),
             invite_file: None,
             owner_ids: Vec::new(),
+            invited_file: None,
+            redeem_per_min: 5,
             gateway_keys_file: None,
             revoked_dir: None,
             log_dir: None,
@@ -213,6 +220,10 @@ impl Config {
         // Read raw: a variable that is set but empty must not pass for "unset", or the relay would run open without a word.
         if let Some(ids) = lookup("OWNER_IDS") {
             c.owner_ids = parse_owner_ids(&ids)?;
+        }
+        c.invited_file = var("INVITED_FILE").map(Into::into);
+        if !dev && !c.owner_ids.is_empty() && c.invited_file.is_none() {
+            return Err("INVITED_FILE is required with OWNER_IDS: the file on the persistent volume that keeps the computers invited by a code, such as /data/invited.json".into());
         }
         c.gateway_keys_file = var("GATEWAY_KEYS_FILE").map(Into::into);
         c.log_dir = var("LOG_DIR").map(Into::into);
@@ -324,8 +335,18 @@ mod tests {
 
     /// `--dev`-free production settings plus `extra`, looked up from a map instead of the process environment.
     fn from(extra: &[(&str, &str)]) -> Result<Config, String> {
-        let m: HashMap<String, String> = [("RELAY_PUBLIC_URL", "wss://relay.example"), ("RELAY_ID", "r"), ("REVOKED_DIR", "d")].iter().chain(extra).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let m: HashMap<String, String> = [("RELAY_PUBLIC_URL", "wss://relay.example"), ("RELAY_ID", "r"), ("REVOKED_DIR", "d"), ("INVITED_FILE", "/x/invited.json")].iter().chain(extra).map(|(k, v)| (k.to_string(), v.to_string())).collect();
         Config::from_vars(false, |n| m.get(n).cloned())
+    }
+
+    #[test]
+    fn owner_ids_need_a_file_for_the_computers_invited_by_a_code() {
+        let vars = |extra: &'static [(&'static str, &'static str)]| move |n: &str| [("RELAY_PUBLIC_URL", "wss://relay.example"), ("RELAY_ID", "r"), ("REVOKED_DIR", "d")].iter().chain(extra).find(|(k, _)| *k == n).map(|(_, v)| v.to_string());
+        let e = Config::from_vars(false, vars(&[("OWNER_IDS", ID_A)])).unwrap_err();
+        assert!(e.contains("INVITED_FILE"), "{e}");
+        assert!(Config::from_vars(false, vars(&[])).is_ok(), "without owners there are no codes to keep");
+        assert!(Config::from_vars(true, vars(&[("OWNER_IDS", ID_A)])).unwrap().invited_file.is_none(), "--dev keeps them in memory");
+        assert_eq!(from(&[("OWNER_IDS", ID_A)]).unwrap().invited_file.unwrap(), std::path::PathBuf::from("/x/invited.json"));
     }
 
     const ID_A: &str = "00112233445566778899aabbccddeeff";
