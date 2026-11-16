@@ -1987,6 +1987,16 @@ fn phones_new_identity(b: B) -> Result<Value, String> { phones::new_identity(&b)
 #[cfg(feature = "phones")]
 #[tauri::command]
 fn phones_log(b: B) -> Value { phones::log(&b) }
+// The owner's computer makes an invite code valid `days` days (1, 7 or 30), with an optional label.
+#[cfg(feature = "phones")]
+#[tauri::command]
+fn phones_invite_create(days: u64, label: Option<String>, b: B) -> Result<Value, String> { phones::invite_create(&b, days, label.as_deref().unwrap_or("")) }
+#[cfg(feature = "phones")]
+#[tauri::command]
+fn phones_invite_redeem(code: String, b: B) -> Result<Value, String> { phones::invite_redeem(&b, &code) }
+#[cfg(feature = "phones")]
+#[tauri::command]
+fn phones_invite_remove(id: String, b: B) -> Result<Value, String> { phones::invite_remove(&b, &id) }
 
 pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answer", "test_event", "page_error", "smoke_page", "install_hooks", "uninstall_hooks",
     "open_session", "settings_set", "settings_reset", "reveal_settings", "diagnostics_copy", "feedback_info", "feedback_send", "work_refresh", "work_open", "work_cancel", "work_start",
@@ -1994,7 +2004,7 @@ pub const COMMANDS: &[&str] = &["state", "rects", "pet_click", "pet_set", "answe
     "ticket_prep", "ticket_start", "ticket_classify", "ticket_answer", "ticket_seen", "ticket_summary", "ticket_clean", "ticket_review", "ticket_mr", "claude_tests", "ticket_ci", "ticket_detail", "ticket_remove", "usage_effects", "update_act",
     "question_answer"];
 // Granted and registered only in a build with the `phones` feature (Cargo.toml); the test below keeps this list, the handler and build.rs in step.
-pub const PHONE_COMMANDS: &[&str] = &["phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log"];
+pub const PHONE_COMMANDS: &[&str] = &["phones_state", "phones_enable", "phones_relay", "phones_pair_start", "phones_pair_cancel", "phones_pair_confirm", "phones_rights", "phones_disconnect", "phones_new_identity", "phones_log", "phones_invite_create", "phones_invite_redeem", "phones_invite_remove"];
 
 pub fn install(b: &Bobix) -> Value { install_at(b, b.port) }
 
@@ -2120,7 +2130,10 @@ fn main() {
             #[cfg(feature = "phones")] phones_rights,
             #[cfg(feature = "phones")] phones_disconnect,
             #[cfg(feature = "phones")] phones_new_identity,
-            #[cfg(feature = "phones")] phones_log])
+            #[cfg(feature = "phones")] phones_log,
+            #[cfg(feature = "phones")] phones_invite_create,
+            #[cfg(feature = "phones")] phones_invite_redeem,
+            #[cfg(feature = "phones")] phones_invite_remove])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory); // no Dock icon, like LSUIElement

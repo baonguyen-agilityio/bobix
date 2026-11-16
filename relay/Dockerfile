@@ -6,8 +6,8 @@
 # Settings are environment variables (see relay/README.md). Required to start:
 #   RELAY_PUBLIC_URL   the address devices connect to, such as wss://relay.example
 #   RELAY_ID           the id push grants name
-# Already set in this image: RELAY_ADDR, REVOKED_DIR and LOG_DIR (all under /data, so mount a volume there).
-# For a beta also set INVITE_FILE (such as /data/invites.txt) and, behind a proxy you trust, CLIENT_IP_HEADER.
+# Already set in this image: RELAY_ADDR, REVOKED_DIR, INVITED_FILE and LOG_DIR (all under /data, so mount a volume there).
+# For a beta also set OWNER_IDS (your computers' device ids; they make invite codes; INVITE_FILE such as /data/invites.txt also works) and, behind a proxy you trust, CLIENT_IP_HEADER.
 # Health check: GET /healthz answers "ok" (the image has no shell or curl, so the platform does the check).
 
 # Both base images are pinned by digest (the multi-arch index). To bump: pull the new tag and copy its digest
@@ -26,8 +26,10 @@ COPY --from=build /relay-bin /relay
 COPY --from=build --chown=65532:65532 /data /data
 ENV RELAY_ADDR=0.0.0.0:8787 \
     REVOKED_DIR=/data/revoked \
+    INVITED_FILE=/data/invited.json \
     LOG_DIR=/data/logs
-VOLUME /data
+# No VOLUME instruction: Railway refuses it ("use Railway Volumes"). Mount persistent storage at /data
+# yourself (docker run -v ...:/data, or a Railway volume at /data).
 EXPOSE 8787
 USER 65532:65532
 ENTRYPOINT ["/relay"]

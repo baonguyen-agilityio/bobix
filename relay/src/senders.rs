@@ -36,8 +36,8 @@ pub struct Apns {
 
 impl Apns {
     pub fn new(cfg: ApnsConfig) -> Result<Apns, String> {
-        let pem = std::fs::read(&cfg.key_file).map_err(|e| format!("cannot read APNS_KEY_FILE: {e}"))?;
-        let key = EncodingKey::from_ec_pem(&pem).map_err(|e| format!("APNS_KEY_FILE is not a .p8 key: {e}"))?;
+        let pem = cfg.key.read("APNS_KEY_FILE")?;
+        let key = EncodingKey::from_ec_pem(&pem).map_err(|e| format!("{} is not a .p8 key: {e}", cfg.key.var("APNS_KEY_FILE", "APNS_KEY_BASE64")))?;
         let (key_id, team) = (cfg.key_id.clone(), cfg.team_id.clone());
         let cache: Mutex<Option<(String, Instant)>> = Mutex::new(None);
         // Apple wants a provider token refreshed between 20 and 60 minutes.
@@ -123,9 +123,10 @@ pub struct Fcm {
 
 impl Fcm {
     pub fn new(cfg: FcmConfig) -> Result<Fcm, String> {
-        let text = std::fs::read_to_string(&cfg.service_account_file).map_err(|e| format!("cannot read FCM_SERVICE_ACCOUNT_FILE: {e}"))?;
-        let v: Value = serde_json::from_str(&text).map_err(|e| format!("FCM_SERVICE_ACCOUNT_FILE is not JSON: {e}"))?;
-        let field = |n: &str| v[n].as_str().map(str::to_owned).ok_or_else(|| format!("FCM_SERVICE_ACCOUNT_FILE has no {n}"));
+        let var = cfg.credential.var("FCM_SERVICE_ACCOUNT_FILE", "FCM_SERVICE_ACCOUNT_BASE64");
+        let bytes = cfg.credential.read("FCM_SERVICE_ACCOUNT_FILE")?;
+        let v: Value = serde_json::from_slice(&bytes).map_err(|_| format!("{var} is not JSON"))?;
+        let field = |n: &str| v[n].as_str().map(str::to_owned).ok_or_else(|| format!("{var} has no {n}"));
         let key = EncodingKey::from_rsa_pem(field("private_key")?.as_bytes()).map_err(|e| format!("service account key: {e}"))?;
         Ok(Fcm {
             project: field("project_id")?,

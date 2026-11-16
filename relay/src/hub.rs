@@ -5,8 +5,10 @@
 use crate::config::Config;
 use crate::mailbox::{Mailbox, Packet, Put};
 use crate::push::{token_kind_for, verify_grant, PushRequest};
+use crate::invited::{Invited, Redeemed};
 use crate::revoked::Revoked;
-use bobix_link::relay_frames::{ApnsEnv, ErrorCode, Frame, Platform, PresenceState, Push, TokenKind};
+use bobix_link::invite::{InviteCode, MAX_VALIDITY_MS};
+use bobix_link::relay_frames::{ApnsEnv, ErrorCode, Frame, InviteReason, Platform, PresenceState, Push, TokenKind};
 use bobix_link::messages::{Who, MAX_PUSH_BODY};
 use bobix_link::{b64, b64_decode, hex, random, sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -78,7 +80,9 @@ pub struct PushJob {
 
 /// The list of invited computers, looked at again when the file changed, at most once per `every`.
 struct Invites {
-    path: std::path::PathBuf,
+    /// Owner ids from `OWNER_IDS`: always invited, fixed for the life of the process.
+    fixed: HashSet<String>,
+    path: Option<std::path::PathBuf>,
     every: Duration,
     checked: Option<Instant>,
     seen: Option<SystemTime>,
@@ -87,12 +91,17 @@ struct Invites {
 
 impl Invites {
     fn contains(&mut self, id: &str) -> bool {
+        self.fixed.contains(id) || self.in_file(id)
+    }
+
+    fn in_file(&mut self, id: &str) -> bool {
+        let Some(path) = &self.path else { return false };
         if self.checked.is_none_or_older(self.every) {
             self.checked = Some(Instant::now());
-            let modified = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+            let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
             if modified != self.seen || modified.is_none() {
                 self.seen = modified;
-                let text = std::fs::read_to_string(&self.path).unwrap_or_default();
+                let text = std::fs::read_to_string(path).unwrap_or_default();
                 self.ids = text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect();
             }
         }
@@ -126,7 +135,13 @@ pub struct Hub {
     pairs: HashMap<String, Pair>,
     tokens: HashMap<String, Vec<TokenReg>>,
     invites: Option<Invites>,
+    /// `OWNER_IDS`: invited, and the only computers whose invite codes count.
+    owners: HashSet<String>,
+    /// The computers invited by a code (`INVITED_FILE`).
+    pub invited: Invited,
     pub revoked: Revoked,
+    /// Lines for the relay's log, taken by the socket task after each frame (the hub holds no logger).
+    pub said: Vec<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -134,10 +149,17 @@ pub fn now_ms() -> u64 {
 }
 
 impl Hub {
+    /// Panics when `INVITED_FILE` cannot be read; the relay itself starts through `try_new`.
     pub fn new(cfg: Config) -> Hub {
-        let invites = cfg.invite_file.clone().map(|path| Invites { path, every: cfg.invite_recheck, checked: None, seen: None, ids: HashSet::new() });
+        Hub::try_new(cfg).expect("INVITED_FILE")
+    }
+
+    pub fn try_new(cfg: Config) -> Result<Hub, String> {
+        let invited = Invited::load(cfg.invited_file.clone(), now_ms())?;
+        let invites = (cfg.invite_file.is_some() || !cfg.owner_ids.is_empty())
+            .then(|| Invites { fixed: cfg.owner_ids.iter().cloned().collect(), path: cfg.invite_file.clone(), every: cfg.invite_recheck, checked: None, seen: None, ids: HashSet::new() });
         let revoked = Revoked::load(cfg.revoked_dir.clone(), cfg.revoked_days, now_ms());
-        Hub {
+        Ok(Hub {
             cfg: cfg.clone(),
             next_conn: 0,
             online: HashMap::new(),
@@ -151,8 +173,11 @@ impl Hub {
             pairs: HashMap::new(),
             tokens: HashMap::new(),
             invites,
+            owners: cfg.owner_ids.iter().cloned().collect(),
+            invited,
             revoked,
-        }
+            said: Vec::new(),
+        })
     }
 
     // ---- small helpers -------------------------------------------------------------------------------------------
@@ -204,7 +229,8 @@ impl Hub {
 
     /// With invitations on, a device that is not invited is a guest: it is admitted through an invited desktop.
     pub fn is_guest(&mut self, id: &str) -> bool {
-        self.invites.as_mut().is_some_and(|i| !i.contains(id))
+        let by_code = self.invited.contains(id);
+        self.invites.as_mut().is_some_and(|i| !by_code && !i.contains(id))
     }
 
     /// The device has told the relay whom it allows (and, for a guest, at least one of them is an invited computer).
@@ -213,7 +239,7 @@ impl Hub {
     }
 
     fn invited(&mut self, id: &str) -> bool {
-        self.invites.as_mut().is_none_or(|i| i.contains(id))
+        !self.is_guest(id)
     }
 
     // ---- connection life -----------------------------------------------------------------------------------------
@@ -321,9 +347,118 @@ impl Hub {
             Frame::PushToken { platform, env, kind, r#ref, token, grant } => {
                 self.push_token(me, TokenReg { platform, env, kind, r#ref, token, grant, expires_ms: 0 })
             }
+            Frame::InviteQuery {} => self.invite_state(me),
+            Frame::InviteRedeem { code } => {
+                let (ok, reason) = match self.redeem(me, &code) {
+                    Ok(already) => (true, already.then_some(InviteReason::Already)),
+                    Err(r) => (false, Some(r)),
+                };
+                let added = ok && reason.is_none();
+                self.send_to(me, Frame::InviteResult { ok, reason });
+                if ok {
+                    self.invite_state(me);
+                }
+                if added {
+                    // The owners that are connected see the new computer in their list at once.
+                    let owners: Vec<String> = self.owners.iter().filter(|o| self.online.contains_key(*o) && *o != me).cloned().collect();
+                    for o in owners {
+                        self.invite_state(&o);
+                    }
+                }
+            }
+            Frame::InviteRemove { id } => self.invite_remove(me, &id),
             _ => self.err(me, ErrorCode::Malformed, None),
         }
         jobs
+    }
+
+    // ---- invitations by code -------------------------------------------------------------------------------------------
+
+    fn invite_state(&mut self, me: &str) {
+        let owner = self.owners.contains(me);
+        let invited = !self.is_guest(me);
+        let (relay_id, invitees) = if owner { (Some(self.cfg.relay_id.clone()), self.invited.list()) } else { (None, vec![]) };
+        self.send_to(me, Frame::InviteState { owner, invited, relay_id, invitees });
+    }
+
+    /// Ok(true) when `me` was invited already (the code is not spent), Ok(false) when the code let it in.
+    fn redeem(&mut self, me: &str, code: &str) -> Result<bool, InviteReason> {
+        let c = InviteCode::parse(code).map_err(|_| InviteReason::Invalid)?;
+        let owner = c.owner_id();
+        if !self.owners.contains(&owner) {
+            return Err(InviteReason::NotOwner);
+        }
+        if c.relay_id != self.cfg.relay_id {
+            return Err(InviteReason::OtherRelay);
+        }
+        let now = now_ms();
+        if c.expires_ms <= now {
+            return Err(InviteReason::Expired);
+        }
+        if c.expires_ms > now + MAX_VALIDITY_MS {
+            return Err(InviteReason::Invalid);
+        }
+        if !self.is_guest(me) {
+            return Ok(true);
+        }
+        match self.invited.redeem(me, &c.nonce_key(), c.expires_ms, &c.label, &owner, now) {
+            Redeemed::Added => {
+                self.said.push(format!("{me} invited by a code of {owner}"));
+                Ok(false)
+            }
+            Redeemed::Used => Err(InviteReason::Used),
+            Redeemed::TooMany => Err(InviteReason::TooMany),
+            Redeemed::NotSaved => {
+                self.said.push("INVITED_FILE could not be written: an invite code was refused".into());
+                Err(InviteReason::Server)
+            }
+        }
+    }
+
+    /// An owner stops inviting a computer that got in by a code. Its socket is closed: it comes back as a guest.
+    fn invite_remove(&mut self, me: &str, id: &str) {
+        if !self.owners.contains(me) {
+            return self.err(me, ErrorCode::Invite, None);
+        }
+        if self.invited.remove(id) {
+            self.said.push(format!("{id} no longer invited (removed by {me})"));
+            self.cut_off(id);
+        }
+        self.invite_state(me);
+    }
+
+    /// A computer that is no longer invited loses, at once, every path that only its invitation opened: what it allowed,
+    /// the guests (its phones) that allowed it, the packets waiting between them. Its socket is closed; it comes back as a
+    /// guest and is held to the guest rules.
+    fn cut_off(&mut self, id: &str) {
+        let now_offline: Vec<String> = self.allow.get(id).into_iter().flatten().filter(|p| self.allows(p, id)).cloned().collect();
+        for p in &now_offline {
+            self.send_to(p, Frame::Presence { peer: id.to_owned(), state: PresenceState::Offline });
+        }
+        self.allow.remove(id);
+        let named: Vec<String> = self.allow.iter().filter(|(_, a)| a.contains(id)).map(|(x, _)| x.clone()).collect();
+        let mut guests = HashSet::new();
+        for x in named {
+            if self.is_guest(&x) {
+                if let Some(a) = self.allow.get_mut(&x) {
+                    a.remove(id);
+                }
+                guests.insert(x);
+            }
+        }
+        // Packets waiting for it, and packets it left for those guests, are dropped; their senders are told.
+        let mut dropped = self.boxes.remove(id).map(|mut b| b.drain_where(|_| true)).unwrap_or_default();
+        for g in &guests {
+            if let Some(b) = self.boxes.get_mut(g) {
+                dropped.extend(b.drain_where(|p| p.from == id));
+            }
+        }
+        for p in dropped {
+            self.notify(&p.from.clone(), Frame::Dropped { pid: p.pid });
+        }
+        if let Some(c) = self.online.get(id) {
+            c.tx.send(Out::Close);
+        }
     }
 
     fn peers(&mut self, me: &str, guest: bool, allow: Vec<String>) {
@@ -333,10 +468,8 @@ impl Hub {
             // A guest is admitted only through invited computers: it can never allow, or be reached by, another guest.
             let ids: Vec<String> = allow.drain().collect();
             allow = ids.into_iter().filter(|a| self.invited(a)).collect();
-            if allow.is_empty() {
-                return self.err(me, ErrorCode::Invite, None);
-            }
         }
+        // Stored even when a guest's list came out empty: an old list must not outlive the invitation that opened it.
         let old = self.allow.insert(me.to_owned(), allow.clone()).unwrap_or_default();
         // Delivery from an id that was dropped stops at once, also for what it already queued.
         let gone = self.boxes.get_mut(me).map(|b| b.drain_where(|p| !allow.contains(&p.from))).unwrap_or_default();
@@ -349,6 +482,9 @@ impl Hub {
                 self.send_to(n, Frame::Presence { peer: me.to_owned(), state: self.state_of(me) });
                 self.send_to(me, Frame::Presence { peer: n.clone(), state: self.state_of(n) });
             }
+        }
+        if guest && allow.is_empty() {
+            self.err(me, ErrorCode::Invite, None);
         }
     }
 
@@ -379,8 +515,9 @@ impl Hub {
             self.send_to(me, Frame::Dropped { pid });
             return vec![];
         }
-        // A packet to oneself would be a reflection; a packet to a device that did not allow the sender is refused.
-        if to == me || !self.allow.get(&to).is_some_and(|a| a.contains(me)) {
+        // A packet to oneself would be a reflection; a packet to a device that did not allow the sender is refused, and so
+        // is one between two guests (a computer that lost its invitation and its phones, before either reconnects).
+        if to == me || !self.allow.get(&to).is_some_and(|a| a.contains(me)) || (self.is_guest(me) && self.is_guest(&to)) {
             self.err(me, ErrorCode::NoPeer, None);
             self.send_to(me, Frame::Dropped { pid });
             return vec![];

@@ -12,7 +12,8 @@ use bobix_link::{
     link::Link,
     messages::*,
     pairing::*,
-    relay_frames::{ErrorCode, Frame, Push},
+    invite::{InviteCode, DAY_MS},
+    relay_frames::{ErrorCode, Frame, InviteReason, Invitee, Push},
 };
 use chacha20poly1305::{aead::{Aead, KeyInit}, XChaCha20Poly1305};
 use serde::{Deserialize, Serialize};
@@ -83,6 +84,22 @@ enum PairWarn { Cancelled, Late(String) }
 fn warning_json(w: &Option<PairWarn>) -> Value {
     match w { None => Value::Null, Some(PairWarn::Cancelled) => json!({ "kind": "cancelled" }), Some(PairWarn::Late(n)) => json!({ "kind": "late", "name": n }) }
 }
+// What the relay said about this computer and invitations (`inviteState`), the code made last (shown until another is
+// made; never stored), a code waiting to be handed to the relay, and the relay's answer to the last one.
+#[derive(Default)]
+struct Invites {
+    owner: bool,
+    invited: bool,
+    known: bool,
+    relay_id: Option<String>,
+    invitees: Vec<Invitee>,
+    made: Option<(String, u64, String)>, // code, expiry, the relay id it is for
+    pending: Option<String>,
+    result: Option<String>,
+}
+/// The validities offered in Settings, in days.
+pub const INVITE_DAYS: [u64; 3] = [1, 7, 30];
+
 struct Moving { url: String, waiting: HashMap<String, String>, since: u64 } // pid → phone id
 struct Revoking { pids: HashSet<String>, since: u64 }
 
@@ -121,6 +138,9 @@ pub struct State {
     inflight: HashSet<String>,                  // `from:cid` of starts still running: a repeat of one gets no answer yet
     starting: HashSet<String>,                  // issues a start from a phone is running for: one at a time
     last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
+    invites: Invites,
+    /// Cuts the link's wait before it reconnects (an invite code was entered while the relay was out of reach).
+    pub wake: Arc<tokio::sync::Notify>,
     deferred: Vec<(String, String, u64)>, // (pid of a `revoked` message, phone id, when): the relay is told to revoke once the phone has it
 }
 
@@ -423,12 +443,9 @@ pub fn on_connected(b: &Arc<Bobix>) -> Vec<Frame> {
     let mut c = b.core.lock().unwrap();
     let st = &mut c.phones;
     st.status = "online".into();
-    let mut out = vec![st.peers_frame()];
-    out.extend(st.store.revoked.iter().map(|r| Frame::Revoke { id: r.id.clone() }));
-    if let Some(p) = st.pairing.as_ref().filter(|p| !p.opened && matches!(p.session.status(now()), PairStatus::Open)) {
-        out.push(Frame::PairOpen { relay_token_hash: b64(&p.session.code().relay_token_hash()), ttl: 120 });
-    }
-    if let Some(p) = st.pairing.as_mut() { p.opened = true; }
+    let mut out = st.login_frames(false);
+    out.push(Frame::InviteQuery {});
+    if let Some(code) = st.invites.pending.clone() { out.push(Frame::InviteRedeem { code }); }
     out
 }
 pub fn link_lost(b: &Arc<Bobix>) {
@@ -453,6 +470,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         let m = st.moving.take().unwrap();
         for id in m.waiting.values() { if let Some(p) = st.store.phones.iter_mut().find(|p| &p.id == id) { p.needs_pairing = true; } }
         st.cfg.relay = m.url;
+        st.invites = Invites::default();
         st.save_cfg();
         st.save_store();
         st.send_close(); // the link reconnects to the new address
@@ -522,6 +540,33 @@ impl State {
         if !self.cfg.on || self.store.phones.is_empty() || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
         match src.idle_ms() { Some(ms) => ms >= crate::presence::AT_COMPUTER_MS, None => self.cfg.hold != "computer" }
     }
+    // The peers, the revocations the relay may not know, an open pairing. After an invite code let this computer in, again:
+    // while it was a guest the relay kept only invited computers from its peers and refused its pairing.
+    fn login_frames(&mut self, again: bool) -> Vec<Frame> {
+        let mut out = vec![self.peers_frame()];
+        out.extend(self.store.revoked.iter().map(|r| Frame::Revoke { id: r.id.clone() }));
+        if let Some(p) = self.pairing.as_ref().filter(|p| (again || !p.opened) && matches!(p.session.status(now()), PairStatus::Open)) {
+            out.push(Frame::PairOpen { relay_token_hash: b64(&p.session.code().relay_token_hash()), ttl: 120 });
+        }
+        if let Some(p) = self.pairing.as_mut() { p.opened = true; }
+        out
+    }
+    fn on_invite_state(&mut self, owner: bool, invited: bool, relay_id: Option<String>, invitees: Vec<Invitee>) {
+        let i = &mut self.invites;
+        (i.owner, i.invited, i.known, i.relay_id, i.invitees) = (owner, invited, true, relay_id.filter(|_| owner), if owner { invitees } else { vec![] });
+        if !owner { i.made = None; }
+        if invited && self.status == "invite" { self.status = "online".into(); }
+        if !invited && self.status == "online" { self.status = "invite".into(); }
+    }
+    fn on_invite_result(&mut self, ok: bool, reason: Option<InviteReason>) -> Vec<Frame> {
+        self.invites.pending = None;
+        let reason = reason.map(|r| serde_json::to_value(r).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default());
+        self.invites.result = Some(if ok { reason.filter(|r| r == "already").unwrap_or_else(|| "ok".into()) } else { reason.unwrap_or_else(|| "other".into()) });
+        if !ok { return vec![]; }
+        self.invites.invited = true;
+        if self.status == "invite" { self.status = "online".into(); }
+        self.login_frames(true)
+    }
     fn send_close(&self) { if let Some(tx) = &self.tx { let _ = tx.send(Out::Close); } } }
 
 // ---------- frames from the relay ----------
@@ -548,6 +593,8 @@ pub fn on_frame(b: &Arc<Bobix>, f: Frame) -> Vec<Frame> {
                     Frame::Presence { peer, state } => {
                         if state == bobix_link::relay_frames::PresenceState::Online { if st.online.insert(peer.clone()) { st.home_now.insert(peer); } } else { st.online.remove(&peer); }
                     }
+                    Frame::InviteState { owner, invited, relay_id, invitees } => { st.on_invite_state(owner, invited, relay_id, invitees); changed = true; }
+                    Frame::InviteResult { ok, reason } => { out.extend(st.on_invite_result(ok, reason)); changed = true; }
                     Frame::Error { code, peer, .. } => match code {
                         ErrorCode::Invite => st.status = "invite".into(),
                         ErrorCode::Update => st.status = "update".into(),
@@ -894,7 +941,58 @@ pub fn view(b: &Arc<Bobix>) -> Value {
     json!({ "unreadable": !st.loaded, "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
         "canRead": !st.cfg.on || crate::presence::source().idle_ms().is_some(), "deviceId": st.computer_id(), "storage": format!("{:?}", st.storage.unwrap_or(crate::secrets::Storage::Keychain)),
         "phones": st.store.phones.iter().map(|p| json!({ "id": p.id, "name": p.name, "rights": p.rights, "since": p.since, "needsPairing": p.needs_pairing, "noPush": p.no_push })).collect::<Vec<_>>(),
-        "revoked": st.store.revoked.len(), "moving": st.moving.is_some(), "linked": st.tx.is_some(), "pairing": pairing })
+        "revoked": st.store.revoked.len(), "moving": st.moving.is_some(), "linked": st.tx.is_some(), "pairing": pairing, "invite": invite_view(&st.invites) })
+}
+
+fn invite_view(i: &Invites) -> Value {
+    json!({ "known": i.known, "owner": i.owner, "invited": i.invited, "pending": i.pending.is_some(), "result": i.result, "days": INVITE_DAYS,
+        "made": i.made.as_ref().map(|(code, expires, relay)| json!({ "code": code, "expires": expires, "relay": relay })),
+        "invitees": i.invitees.iter().map(|x| json!({ "id": x.id, "label": x.label, "at": x.at })).collect::<Vec<_>>() })
+}
+
+// The owner makes a code (signed here, not stored): valid `days` days, for the relay that said this computer is its owner.
+pub fn invite_create(b: &Arc<Bobix>, days: u64, label: &str) -> Result<Value, String> {
+    {
+        let mut c = b.core.lock().unwrap();
+        let st = &mut c.phones;
+        if !INVITE_DAYS.contains(&days) { return Err("days".into()); }
+        if !st.invites.owner { return Err("notOwner".into()); }
+        let relay_id = st.invites.relay_id.clone().ok_or("notOwner")?;
+        let expires = now() + days * DAY_MS;
+        let code = InviteCode::create(st.identity.as_ref().ok_or("identity")?, &relay_id, label, expires).map_err(|_| "label".to_string())?;
+        st.invites.made = Some((code, expires, relay_id));
+    }
+    b.broadcast();
+    Ok(view(b))
+}
+
+// A guest computer hands a code to the relay: at once when it is connected, else right after the next login (the wait
+// before reconnecting is cut short).
+pub fn invite_redeem(b: &Arc<Bobix>, code: &str) -> Result<Value, String> {
+    {
+        let mut c = b.core.lock().unwrap();
+        let st = &mut c.phones;
+        if !st.cfg.on { return Err("off".into()); }
+        InviteCode::parse(code).map_err(|_| "invalid".to_string())?;
+        let code: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+        st.invites.result = None;
+        st.invites.pending = Some(code.clone());
+        if st.status == "online" || st.status == "invite" { st.send(Frame::InviteRedeem { code }); } else { st.wake.notify_one(); }
+    }
+    b.broadcast();
+    Ok(view(b))
+}
+
+// The owner stops inviting a computer that got in by a code; the relay answers with the new list.
+pub fn invite_remove(b: &Arc<Bobix>, id: &str) -> Result<Value, String> {
+    {
+        let c = b.core.lock().unwrap();
+        let st = &c.phones;
+        if !st.invites.owner { return Err("notOwner".into()); }
+        if !st.invites.invitees.iter().any(|x| x.id == id) { return Err("unknown".into()); }
+        st.send(Frame::InviteRemove { id: id.into() });
+    }
+    Ok(view(b))
 }
 
 /// The relay address the desktop accepts: the link crate's rule (`wss://`, or plain `ws://` on this computer or on a private
@@ -943,6 +1041,7 @@ pub fn set_relay(b: &Arc<Bobix>, url: &str) -> Result<Value, String> {
         if st.moving.is_some() { return Err("moving".into()); }
         if !st.cfg.on || st.store.phones.is_empty() || st.cfg.relay.is_empty() || normalize_relay_url(&st.cfg.relay).as_deref() == Some(&norm) {
             st.cfg.relay = url.into();
+            st.invites = Invites::default(); // another relay: its own owners and invitations
             st.save_cfg();
             st.send_close(); // reconnects to the new address
         } else {
@@ -1387,6 +1486,24 @@ mod tests {
         let view = json!({ "local": [{ "path": "team/shop", "issues": [{ "project": "team/shop", "iid": 7, "sessions": ["s1"] }, { "project": "team/shop", "iid": 8, "sessions": [] }] }] });
         assert!(issue_has_session(&view, "team/shop", 7));
         assert!(!issue_has_session(&view, "team/shop", 8) && !issue_has_session(&view, "team/shop", 9) && !issue_has_session(&view, "other", 7));
+    }
+
+    #[test]
+    fn an_invite_code_turns_a_guest_into_an_invited_computer() {
+        let mut st = State::default();
+        st.status = "online".into();
+        st.on_invite_state(false, false, Some("ignored".into()), vec![Invitee { id: "x".into(), label: String::new(), by: "o".into(), at: 1 }]);
+        assert_eq!(st.status, "invite", "the relay said this computer is a guest");
+        assert!(st.invites.relay_id.is_none() && st.invites.invitees.is_empty(), "only an owner keeps the relay id and the list");
+        st.invites.pending = Some("code".into());
+        assert!(st.on_invite_result(false, Some(InviteReason::Used)).is_empty(), "a refusal sends nothing");
+        assert_eq!((st.status.as_str(), st.invites.result.as_deref(), st.invites.pending.is_none()), ("invite", Some("used"), true));
+        let again = st.on_invite_result(true, None);
+        assert!(matches!(again.first(), Some(Frame::Peers { .. })), "the peers the relay filtered while it was a guest go again: {again:?}");
+        assert_eq!((st.status.as_str(), st.invites.result.as_deref(), st.invites.invited), ("online", Some("ok"), true));
+        assert!(st.on_invite_result(true, Some(InviteReason::Already)).len() == 1 && st.invites.result.as_deref() == Some("already"));
+        st.on_invite_state(true, true, Some("relay.example".into()), vec![]);
+        assert_eq!(st.invites.relay_id.as_deref(), Some("relay.example"));
     }
 
     #[test]
