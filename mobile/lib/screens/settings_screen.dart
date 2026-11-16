@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -225,12 +223,6 @@ class SettingsScreen extends ConsumerWidget {
     await ref.read(settingsProvider.notifier).setRequireUnlock(on);
   }
 }
-
-/// The glyph of the phone's own check: the Face ID face on iPhone, a fingerprint elsewhere.
-Widget bioGlyph({double size = 24, Color? color}) =>
-    defaultTargetPlatform == TargetPlatform.iOS
-    ? FaceIdIcon(size: size, color: color)
-    : Icon(Icons.fingerprint, size: size, color: color);
 
 /// The rights the computer granted this phone, in the order Settings lists them.
 List<(String, bool)> _rights(PhoneRights r) {

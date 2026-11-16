@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// The iOS biometric glyph: four rounded corner brackets around a face (two eyes, a nose, a smile). Material has no
@@ -68,3 +69,9 @@ class _FaceIdPainter extends CustomPainter {
   @override
   bool shouldRepaint(_FaceIdPainter old) => old.color != color;
 }
+
+/// The glyph of the phone's own check: the Face ID face on iPhone, a fingerprint elsewhere.
+Widget bioGlyph({double size = 24, Color? color}) =>
+    defaultTargetPlatform == TargetPlatform.iOS
+    ? FaceIdIcon(size: size, color: color)
+    : Icon(Icons.fingerprint, size: size, color: color);

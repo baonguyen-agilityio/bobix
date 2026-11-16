@@ -1,8 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../widgets/face_id_icon.dart';
 
 import '../features/actions/action_widgets.dart' show bioName;
 import '../keys/platform_secure_keys.dart';
@@ -214,9 +215,7 @@ class LockScreen extends ConsumerWidget {
                 PillButton(
                   label: s('phone.lock.open', {'os': bioName(s)}),
                   primary: true,
-                  icon: defaultTargetPlatform == TargetPlatform.iOS
-                      ? Icons.face_unlock_outlined
-                      : Icons.fingerprint,
+                  iconBuilder: (c) => bioGlyph(size: 20, color: c),
                   onPressed: onUnlock,
                 ),
               ],

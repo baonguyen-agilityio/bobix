@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../widgets/face_id_icon.dart';
+
 import '../../data/phone_data.dart';
 import '../../l10n/l10n.dart';
 import '../../log/activity_log.dart';
@@ -162,13 +164,9 @@ class _UnlockSheetState extends ConsumerState<UnlockSheet> {
               color: _ok ? t.okBg : t.accentBg,
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              _ok
-                  ? Icons.check_rounded
-                  : (ios ? Icons.face_unlock_outlined : Icons.fingerprint),
-              size: 40,
-              color: c,
-            ),
+            child: _ok
+                ? Icon(Icons.check_rounded, size: 40, color: c)
+                : bioGlyph(size: 40, color: c),
           ),
         ),
         const SizedBox(height: 10),

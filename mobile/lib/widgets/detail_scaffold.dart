@@ -126,6 +126,7 @@ class PillButton extends StatelessWidget {
     this.primary = false,
     this.danger = false,
     this.icon,
+    this.iconBuilder,
     this.compact = false,
   });
 
@@ -133,6 +134,9 @@ class PillButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool primary, danger, compact;
   final IconData? icon;
+
+  /// A drawn glyph in place of [icon] (the Face ID mark); gets the label's colour.
+  final Widget Function(Color color)? iconBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -183,7 +187,10 @@ class PillButton extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    if (icon != null) ...[
+                    if (iconBuilder != null) ...[
+                      iconBuilder!(fg),
+                      const SizedBox(width: 8),
+                    ] else if (icon != null) ...[
                       Icon(icon, size: 18, color: fg),
                       const SizedBox(width: 8),
                     ],
