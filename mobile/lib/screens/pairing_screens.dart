@@ -343,7 +343,7 @@ class _DetailsState extends ConsumerState<_Details> {
           ),
         ),
         Glass(
-          radius: 12,
+          radius: 16,
           padding: const EdgeInsets.symmetric(horizontal: 14),
           child: TextField(
             controller: _name,

@@ -99,9 +99,9 @@ void main() {
           final text = find.text(title);
           final paragraph = tester.renderObject<RenderParagraph>(text);
           final header = find
-              .ancestor(of: text, matching: find.byType(Row))
+              .ancestor(of: text, matching: find.byType(Stack))
               .first;
-          // The row that holds the title grew with it (never clipped), and ellipsis is only the backstop.
+          // The header that holds the title grew with it (never clipped), and ellipsis is only the backstop.
           expect(
             tester.getSize(header).height,
             greaterThanOrEqualTo(paragraph.size.height),
@@ -113,5 +113,33 @@ void main() {
         },
       );
     }
+  }
+
+  for (final (name, page) in <(String, Widget)>[
+    ('Back only', ActionPage(title: 'Plan', children: const [])),
+    (
+      'Back and Log',
+      ActionPage(title: 'Plan', onLog: () {}, children: const []),
+    ),
+    (
+      'no pills',
+      ActionPage(title: 'Plan', showBack: false, children: const []),
+    ),
+    ('DetailScaffold', const DetailScaffold(title: 'Plan', children: [])),
+  ]) {
+    testWidgets('$name: the title is centred on the screen', (tester) async {
+      tester.view
+        ..physicalSize = const Size(390, 844)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [langProvider.overrideWith(_En.new)],
+          child: MaterialApp(theme: bobixTheme(Brightness.light), home: page),
+        ),
+      );
+      await tester.pump();
+      expect(tester.getCenter(find.text('Plan')).dx, closeTo(195, 1));
+    });
   }
 }

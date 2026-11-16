@@ -515,6 +515,13 @@ class _Row extends StatelessWidget {
     Widget glyph(double size, Color color) => bio
         ? bioGlyph(size: size, color: color)
         : Icon(icon, size: size, color: color);
+    const titleStyle = TextStyle(
+      fontSize: 15,
+      height: 1.3,
+      fontWeight: FontWeight.w500,
+    );
+    // Every row of Settings keeps its icon vertically centred on the row, whatever its text (the owner's rule for this
+    // screen; the pairing pages align a bare icon to the first line instead).
     final lead = tile == _Tile.none
         ? glyph(24, accent ? t.accentInk : t.ink)
         : Container(
@@ -539,6 +546,7 @@ class _Row extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               lead,
               const SizedBox(width: 12),
@@ -546,14 +554,7 @@ class _Row extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: ink,
-                      ),
-                    ),
+                    Text(title, style: titleStyle.copyWith(color: ink)),
                     if (subtitle != null)
                       Text(
                         subtitle!,

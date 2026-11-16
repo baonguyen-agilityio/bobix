@@ -393,8 +393,8 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            SizedBox(
-              width: 104,
+            Padding(
+              padding: const EdgeInsets.only(right: 14),
               child: Text(
                 s('phone.rq.cwd'),
                 style: TextStyle(fontSize: 13, color: t.ink3),

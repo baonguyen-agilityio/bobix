@@ -137,6 +137,50 @@ void main() {
     return link;
   }
 
+  testWidgets(
+    'the Computers section: every row\'s icon is centred on its row',
+    (tester) async {
+      await pump(tester, paired: computer());
+      final qr = tester.getCenter(find.byIcon(Icons.qr_code_2)).dy;
+      final top = tester.getTopLeft(find.text('Connect another computer')).dy;
+      final bottom = tester
+          .getBottomLeft(
+            find.text(
+              'One computer at a time for now. Disconnect this one first.',
+            ),
+          )
+          .dy;
+      expect(qr, closeTo((top + bottom) / 2, 1.5));
+      final laptop = tester.getCenter(find.byIcon(Icons.monitor)).dy;
+      final name = tester.getTopLeft(find.text('Studio Mac (demo)')).dy;
+      final conn = tester.getBottomLeft(find.textContaining('online')).dy;
+      expect(laptop, closeTo((name + conn) / 2, 1.5));
+    },
+  );
+
+  testWidgets('Settings: every row keeps its icon centred on the row', (
+    tester,
+  ) async {
+    await pump(tester, paired: computer());
+    for (final (icon, title, subtitle) in <(IconData, String, String)>[
+      (
+        Icons.verified_user_outlined,
+        'No “Always allow”',
+        'The phone can only answer the request in front of you',
+      ),
+      (
+        Icons.format_list_bulleted,
+        'App log',
+        'Pairing, disconnects, tickets started',
+      ),
+    ]) {
+      final y = tester.getCenter(find.byIcon(icon).first).dy;
+      final top = tester.getTopLeft(find.text(title).last).dy;
+      final bottom = tester.getBottomLeft(find.text(subtitle).first).dy;
+      expect(y, closeTo((top + bottom) / 2, 1.5), reason: title);
+    }
+  });
+
   testWidgets('the paired computer and how it is; the rights are one row', (
     tester,
   ) async {
