@@ -50,4 +50,24 @@ void main() {
     );
     expect(n, 0);
   });
+
+  test(
+    'a write cut short leaves no broken still, and it is drawn again',
+    () async {
+      var fail = true;
+      Future<Uint8List> render(String d, int c, String s) async {
+        if (fail) throw StateError('cut short');
+        return png;
+      }
+
+      expect(await writeCoverPets(support, render), 0);
+      final dir = Directory('${support.path}/$coverPetsFolder');
+      expect(
+        dir.listSync().where((f) => f.path.endsWith('-working.png')),
+        isEmpty,
+      );
+      fail = false;
+      expect(await writeCoverPets(support, render), designs.length * 3);
+    },
+  );
 }

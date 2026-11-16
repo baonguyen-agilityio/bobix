@@ -63,7 +63,6 @@ class SceneDelegate: FlutterSceneDelegate {
     if let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
       folders.append(support.appendingPathComponent("cover-pets"))
     }
-    if let shared = SharedListStore.directory() { folders.append(shared.appendingPathComponent("pets")) }
     return CoverPet.pick(from: folders)
   }
 
@@ -81,10 +80,9 @@ class SceneDelegate: FlutterSceneDelegate {
   }
 }
 
-/// Which picture the privacy cover shows. The app draws its own stills into `cover-pets` in its support folder the first
-/// time it runs (so there is always one), and the pictures it keeps in the App Group for the widgets count too, working
-/// pets only: the others are drawn in a session's real state (waiting, failed), which would say something about it. A
-/// picture is a pet and nothing else; none at all means the app tile.
+/// Which picture the privacy cover shows: one of the stills the app draws for itself into `cover-pets` in its support
+/// folder the first time it runs, so there is always one. Never a picture the widgets keep in the App Group: those are
+/// drawn in a session's real state and would hint at the computer's sessions. None at all means the app tile.
 enum CoverPet {
   static let suffix = "-working.png"
 

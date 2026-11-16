@@ -30,10 +30,13 @@ Future<int> writeCoverPets(
     for (final (design, color) in coverPetChoices()) {
       final file = File('${dir.path}/$design-$color-working.png');
       if (await file.exists()) continue;
-      await file.writeAsBytes(
+      // Written under another name and renamed, so a write cut short never leaves a broken still behind.
+      final part = File('${file.path}.tmp');
+      await part.writeAsBytes(
         await render(design, color, 'working'),
         flush: true,
       );
+      await part.rename(file.path);
       written++;
     }
   } catch (_) {

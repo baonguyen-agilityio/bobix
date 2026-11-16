@@ -16,18 +16,23 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
   // The stills the privacy cover shows (a pet at work), made once and kept; not waited for.
-  unawaited(
-    getApplicationSupportDirectory().then(
-      (dir) => writeCoverPets(
-        dir,
-        (design, color, state) => renderPetPng(design, color, state),
-      ),
-    ),
-  );
+  unawaited(_writeCoverPets());
   runApp(
     ProviderScope(
       overrides: [linkPhoneData, ...linkActionOverrides],
       child: const BobixApp(),
     ),
   );
+}
+
+Future<void> _writeCoverPets() async {
+  try {
+    final dir = await getApplicationSupportDirectory();
+    await writeCoverPets(
+      dir,
+      (design, color, state) => renderPetPng(design, color, state),
+    );
+  } catch (_) {
+    // The cover shows the app tile instead.
+  }
 }
