@@ -40,8 +40,8 @@ class DetailScaffold extends ConsumerWidget {
       body: SafeArea(
         child: Column(
           children: [
-            SizedBox(
-              height: 52,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 52),
               child: Row(
                 children: [
                   Padding(
@@ -86,6 +86,7 @@ class DetailScaffold extends ConsumerWidget {
                           textAlign: TextAlign.center,
                           // A long title (Vietnamese) wraps to a second line instead of being cut.
                           maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 17,
                             height: 1.15,

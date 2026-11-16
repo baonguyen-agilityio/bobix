@@ -41,8 +41,8 @@ class PairPage extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(
-              height: 52,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 52),
               child: Stack(
                 alignment: Alignment.center,
                 children: [
@@ -55,6 +55,7 @@ class PairPage extends ConsumerWidget {
                           s('phone.pair.title'),
                           textAlign: TextAlign.center,
                           maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 17,
                             height: 1.15,
@@ -67,10 +68,15 @@ class PairPage extends ConsumerWidget {
                   if (onBack != null)
                     Positioned(
                       left: 8,
-                      child: HeaderPill(
-                        label: s('phone.a.back'),
-                        icon: Icons.chevron_left,
-                        onTap: onBack!,
+                      top: 0,
+                      bottom: 0,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: HeaderPill(
+                          label: s('phone.a.back'),
+                          icon: Icons.chevron_left,
+                          onTap: onBack!,
+                        ),
                       ),
                     ),
                 ],

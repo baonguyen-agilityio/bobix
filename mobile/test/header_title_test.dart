@@ -1,4 +1,4 @@
-// A long (Vietnamese) header title may wrap to a second line between the Back and Log pills; it is never cut with an ellipsis.
+// A long (Vietnamese) header title may wrap to a second line between the Back and Log pills; an ellipsis is only the backstop after the last allowed line, and the header grows with the text.
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +11,11 @@ import 'package:phone/widgets/detail_scaffold.dart';
 class _Vi extends Lang {
   @override
   String build() => 'vi';
+}
+
+class _En extends Lang {
+  @override
+  String build() => 'en';
 }
 
 void main() {
@@ -48,16 +53,65 @@ void main() {
                   w.data == 'Quyền của điện thoại này'),
         );
         expect(title, findsOneWidget);
-        // The test font is far wider than a real one, so what is checked is the rule: two lines allowed, no ellipsis.
+        // The test font is far wider than a real one, so what is checked is the rule: two lines allowed, ellipsis only as a backstop.
         final text = tester.widget<Text>(title);
         expect(text.maxLines, 2);
-        expect(text.overflow, isNull);
+        expect(text.overflow, TextOverflow.ellipsis);
         expect(
           tester.renderObject<RenderParagraph>(title).size.height,
           lessThan(52),
         );
         expect(tester.takeException(), isNull);
       });
+    }
+  }
+
+  for (final scale in [1.3, 1.6]) {
+    for (final title in ['Kế hoạch chờ duyệt', 'Plan waiting for approval']) {
+      testWidgets(
+        'text scale $scale, "$title": the header grows, nothing is clipped',
+        (tester) async {
+          tester.view
+            ..physicalSize = const Size(390, 844)
+            ..devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(
+            ProviderScope(
+              // English pill labels: the test font is one em wide per letter, so the long Vietnamese pill labels would
+              // overflow for a reason that has nothing to do with the title.
+              overrides: [langProvider.overrideWith(_En.new)],
+              child: MaterialApp(
+                theme: bobixTheme(Brightness.light),
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(textScaler: TextScaler.linear(scale)),
+                  child: child!,
+                ),
+                home: ActionPage(
+                  title: title,
+                  onLog: () {},
+                  children: const [],
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          final text = find.text(title);
+          final paragraph = tester.renderObject<RenderParagraph>(text);
+          final header = find
+              .ancestor(of: text, matching: find.byType(Row))
+              .first;
+          // The row that holds the title grew with it (never clipped), and ellipsis is only the backstop.
+          expect(
+            tester.getSize(header).height,
+            greaterThanOrEqualTo(paragraph.size.height),
+          );
+          expect(tester.getSize(header).height, greaterThanOrEqualTo(52));
+          expect(tester.widget<Text>(text).maxLines, 2);
+          expect(tester.widget<Text>(text).overflow, TextOverflow.ellipsis);
+          expect(tester.takeException(), isNull);
+        },
+      );
     }
   }
 }

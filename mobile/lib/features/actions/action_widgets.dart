@@ -56,8 +56,8 @@ class ActionPage extends ConsumerWidget {
         body: SafeArea(
           child: Column(
             children: [
-              SizedBox(
-                height: 52,
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 52),
                 child: Row(
                   children: [
                     SizedBox(width: showBack ? 16 : 0),
@@ -79,6 +79,7 @@ class ActionPage extends ConsumerWidget {
                             textAlign: TextAlign.center,
                             // A long title (Vietnamese) wraps to a second line instead of being cut.
                             maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 17,
                               height: 1.15,
@@ -160,7 +161,14 @@ class HeaderPill extends StatelessWidget {
               children: [
                 Icon(icon, size: 20, color: t.accentInk),
                 const SizedBox(width: 2),
-                Text(label, style: TextStyle(fontSize: 16, color: t.accentInk)),
+                // The pills keep a readable size but do not grow without limit, or they would push the title out.
+                MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 1.3,
+                  child: Text(
+                    label,
+                    style: TextStyle(fontSize: 16, color: t.accentInk),
+                  ),
+                ),
               ],
             ),
           ),
