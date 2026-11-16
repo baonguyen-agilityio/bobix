@@ -280,9 +280,9 @@ Steps, once and then for every build:
    (its extensions get `dev.bobix.phone.NotificationService` and `dev.bobix.phone.BobixWidgets`-style ids that Xcode registers). Turn on App Groups,
    Push Notifications and Keychain Sharing for the app (Xcode does it with automatic signing). Copy
    `ios/Flutter/Local.xcconfig.example` to `ios/Flutter/Local.xcconfig` and put your team id in `DEVELOPMENT_TEAM`.
-2. **Every build.** Raise the build number in `mobile/pubspec.yaml` (`0.2.0+2`, and the version before `+` for a new release), then
-   `cd mobile && flutter pub get && cd ios && pod install`. Xcode reads the version from the files these write, so skipping the
-   step archives the old number, which App Store Connect rejects as a duplicate.
+2. **Every build.** Raise the build number in `mobile/pubspec.yaml` (`0.1.0+2`, and the version before `+` for a new release), then
+   `cd mobile && flutter build ios --config-only --release --no-codesign && cd ios && pod install`. Xcode reads the version from
+   `ios/Flutter/Generated.xcconfig`, which `flutter pub get` alone does not rewrite, so skipping the step archives the old number, which App Store Connect rejects as a duplicate.
 3. **Archive.** `open mobile/ios/Runner.xcworkspace`, choose the scheme **Runner TestFlight** and the destination **Any iOS Device
    (arm64)**, then Product → Archive. Use this scheme for Archive only: its Run action is the Debug configuration, which is the
    `prod` flavor. (From a shell: `flutter build ipa` is not used; the scheme is the way.)
