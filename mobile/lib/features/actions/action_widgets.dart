@@ -77,10 +77,11 @@ class ActionPage extends ConsumerWidget {
                           child: Text(
                             title,
                             textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            // A long title (Vietnamese) wraps to a second line instead of being cut.
+                            maxLines: 2,
                             style: TextStyle(
                               fontSize: 17,
+                              height: 1.15,
                               fontWeight: FontWeight.w600,
                               color: t.ink,
                             ),

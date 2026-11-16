@@ -54,10 +54,10 @@ class PairPage extends ConsumerWidget {
                         child: Text(
                           s('phone.pair.title'),
                           textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          maxLines: 2,
                           style: TextStyle(
                             fontSize: 17,
+                            height: 1.15,
                             fontWeight: FontWeight.w600,
                             color: t.ink,
                           ),
