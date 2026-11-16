@@ -8,18 +8,29 @@ import 'action_widgets.dart' show FinePrint;
 import 'hidden_chars.dart' show showEscapes;
 import 'actions_source.dart';
 
-/// One line of a session's activity split into the tool it names and what it did. The computer sends plain lines like
-/// `Bash ls -la` or `Edit src/app.js`: a first word that looks like a tool name, then the rest.
-({String tool, String text}) splitActivityLine(String line) {
+/// One line of a session's activity split into its time, the tool it names and what it did. The computer sends plain
+/// lines like `21:13 Edit src/app.js` or `Bash ls -la`: an optional time, a first word that looks like a tool name, then
+/// the rest.
+({String time, String tool, String text}) splitActivityLine(String line) {
+  var rest = line.trim();
+  var time = '';
+  final t = RegExp(
+    r'^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.*)$',
+    dotAll: true,
+  ).firstMatch(rest);
+  if (t != null) {
+    time = t.group(1)!;
+    rest = t.group(2)!;
+  }
   final m = RegExp(
     r'^([A-Za-z][A-Za-z0-9_]*)(?:\s+(.*))?$',
     dotAll: true,
-  ).firstMatch(line.trim());
-  if (m == null) return (tool: '', text: line.trim());
+  ).firstMatch(rest);
+  if (m == null) return (time: time, tool: '', text: rest);
   var tool = m.group(1)!;
   // `mcp__server__send_message` reads as `send_message`.
   if (tool.startsWith('mcp__')) tool = tool.split('__').last;
-  return (tool: tool, text: m.group(2) ?? '');
+  return (time: time, tool: tool, text: m.group(2) ?? '');
 }
 
 /// A session's last lines as a list a person can read: the tool as a small label, what it did on up to two lines.
@@ -46,6 +57,7 @@ class ActivityLines extends StatelessWidget {
     }
     return Glass(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var i = 0; i < lines.length; i++) ...[
             if (i > 0) Divider(height: .5, thickness: .5, color: t.line),
@@ -59,7 +71,7 @@ class ActivityLines extends StatelessWidget {
 
 class _Row extends StatelessWidget {
   const _Row(this.line);
-  final ({String tool, String text}) line;
+  final ({String time, String tool, String text}) line;
 
   @override
   Widget build(BuildContext context) {
@@ -69,18 +81,32 @@ class _Row extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (line.tool.isNotEmpty)
-            Text(
-              line.tool,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: t.accentInk,
+          if (line.tool.isNotEmpty || line.time.isNotEmpty)
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: line.tool,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: t.accentInk,
+                    ),
+                  ),
+                  if (line.tool.isNotEmpty && line.time.isNotEmpty)
+                    const TextSpan(text: '  '),
+                  TextSpan(
+                    text: line.time,
+                    style: TextStyle(color: t.ink3),
+                  ),
+                ],
               ),
+              style: const TextStyle(fontSize: 12),
             ),
           if (line.text.isNotEmpty)
             Padding(
-              padding: EdgeInsets.only(top: line.tool.isEmpty ? 0 : 2),
+              padding: EdgeInsets.only(
+                top: line.tool.isEmpty && line.time.isEmpty ? 0 : 2,
+              ),
               child: Text.rich(
                 TextSpan(
                   children: [
