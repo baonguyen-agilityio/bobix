@@ -422,11 +422,43 @@ impl Hub {
         }
         if self.invited.remove(id) {
             self.said.push(format!("{id} no longer invited (removed by {me})"));
-            if let Some(c) = self.online.get(id) {
-                c.tx.send(Out::Close);
-            }
+            self.cut_off(id);
         }
         self.invite_state(me);
+    }
+
+    /// A computer that is no longer invited loses, at once, every path that only its invitation opened: what it allowed,
+    /// the guests (its phones) that allowed it, the packets waiting between them. Its socket is closed; it comes back as a
+    /// guest and is held to the guest rules.
+    fn cut_off(&mut self, id: &str) {
+        let now_offline: Vec<String> = self.allow.get(id).into_iter().flatten().filter(|p| self.allows(p, id)).cloned().collect();
+        for p in &now_offline {
+            self.send_to(p, Frame::Presence { peer: id.to_owned(), state: PresenceState::Offline });
+        }
+        self.allow.remove(id);
+        let named: Vec<String> = self.allow.iter().filter(|(_, a)| a.contains(id)).map(|(x, _)| x.clone()).collect();
+        let mut guests = HashSet::new();
+        for x in named {
+            if self.is_guest(&x) {
+                if let Some(a) = self.allow.get_mut(&x) {
+                    a.remove(id);
+                }
+                guests.insert(x);
+            }
+        }
+        // Packets waiting for it, and packets it left for those guests, are dropped; their senders are told.
+        let mut dropped = self.boxes.remove(id).map(|mut b| b.drain_where(|_| true)).unwrap_or_default();
+        for g in &guests {
+            if let Some(b) = self.boxes.get_mut(g) {
+                dropped.extend(b.drain_where(|p| p.from == id));
+            }
+        }
+        for p in dropped {
+            self.notify(&p.from.clone(), Frame::Dropped { pid: p.pid });
+        }
+        if let Some(c) = self.online.get(id) {
+            c.tx.send(Out::Close);
+        }
     }
 
     fn peers(&mut self, me: &str, guest: bool, allow: Vec<String>) {
@@ -436,10 +468,8 @@ impl Hub {
             // A guest is admitted only through invited computers: it can never allow, or be reached by, another guest.
             let ids: Vec<String> = allow.drain().collect();
             allow = ids.into_iter().filter(|a| self.invited(a)).collect();
-            if allow.is_empty() {
-                return self.err(me, ErrorCode::Invite, None);
-            }
         }
+        // Stored even when a guest's list came out empty: an old list must not outlive the invitation that opened it.
         let old = self.allow.insert(me.to_owned(), allow.clone()).unwrap_or_default();
         // Delivery from an id that was dropped stops at once, also for what it already queued.
         let gone = self.boxes.get_mut(me).map(|b| b.drain_where(|p| !allow.contains(&p.from))).unwrap_or_default();
@@ -452,6 +482,9 @@ impl Hub {
                 self.send_to(n, Frame::Presence { peer: me.to_owned(), state: self.state_of(me) });
                 self.send_to(me, Frame::Presence { peer: n.clone(), state: self.state_of(n) });
             }
+        }
+        if guest && allow.is_empty() {
+            self.err(me, ErrorCode::Invite, None);
         }
     }
 
@@ -482,8 +515,9 @@ impl Hub {
             self.send_to(me, Frame::Dropped { pid });
             return vec![];
         }
-        // A packet to oneself would be a reflection; a packet to a device that did not allow the sender is refused.
-        if to == me || !self.allow.get(&to).is_some_and(|a| a.contains(me)) {
+        // A packet to oneself would be a reflection; a packet to a device that did not allow the sender is refused, and so
+        // is one between two guests (a computer that lost its invitation and its phones, before either reconnects).
+        if to == me || !self.allow.get(&to).is_some_and(|a| a.contains(me)) || (self.is_guest(me) && self.is_guest(&to)) {
             self.err(me, ErrorCode::NoPeer, None);
             self.send_to(me, Frame::Dropped { pid });
             return vec![];

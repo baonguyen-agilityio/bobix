@@ -204,3 +204,50 @@ async fn a_guest_that_redeems_in_time_is_not_closed_by_the_guest_rule() {
     g.send(&Frame::InviteQuery {}).await;
     g.expect(|f| matches!(f, Frame::InviteState { invited: true, .. }), 1000).await;
 }
+
+#[tokio::test]
+async fn a_removed_computer_loses_its_phones_too() {
+    let owner = ident();
+    let mut c = cfg();
+    c.owner_ids = vec![owner.device_id()];
+    c.guest_within = Duration::from_millis(500);
+    let s = start(c).await;
+    let (d_id, p_id) = (ident(), ident());
+    let mut d = Dev::connect(&s, d_id.clone()).await;
+    redeem(&mut d, &code(&owner, "test-relay", week())).await;
+    d.expect(result(true, None), 1000).await;
+    // The computer and its phone (a guest) allow each other and talk.
+    let mut p = Dev::connect(&s, p_id.clone()).await;
+    d.send(&Frame::Peers { allow: vec![p.id()] }).await;
+    p.send(&Frame::Peers { allow: vec![d.id()] }).await;
+    d.expect(|f| matches!(f, Frame::Presence { state: PresenceState::Online, .. }), 2000).await;
+    p.expect(|f| matches!(f, Frame::Presence { state: PresenceState::Online, .. }), 2000).await;
+    // A packet waits for the phone's acknowledgement when the owner removes the computer.
+    d.send(&send(&p.id(), "before", 600, None, "AAAA")).await;
+    p.expect(|f| matches!(f, Frame::Msg { pid, .. } if pid == "before"), 1000).await;
+
+    let mut o = Dev::connect(&s, owner.clone()).await;
+    o.send(&Frame::InviteRemove { id: d.id() }).await;
+    d.closed(2000).await;
+    p.expect(|f| matches!(f, Frame::Presence { state: PresenceState::Offline, .. }), 1000).await;
+
+    // Back as a guest, the computer cannot reach its phone nor be reached by it, and the guest rule closes it.
+    let mut d = Dev::connect(&s, d_id).await;
+    d.send(&Frame::Peers { allow: vec![p.id()] }).await;
+    d.expect(is_err(ErrorCode::Invite), 1000).await;
+    d.send(&send(&p.id(), "after", 600, None, "AAAA")).await;
+    d.expect(is_err(ErrorCode::NoPeer), 1000).await;
+    p.send(&send(&d.id(), "back", 600, None, "AAAA")).await;
+    p.expect(is_err(ErrorCode::NoPeer), 1000).await;
+    p.none(|f| matches!(f, Frame::Msg { pid, .. } if pid == "after"), 300).await;
+    let gone = d.id();
+    // The guest rule is checked every `dead_after / 10` (3 s here).
+    d.closed(5000).await;
+    // The phone reconnecting and naming the computer gets nowhere either.
+    drop(p);
+    let mut p = Dev::connect(&s, p_id).await;
+    p.send(&Frame::Peers { allow: vec![gone.clone()] }).await;
+    p.expect(is_err(ErrorCode::Invite), 1000).await;
+    assert!(!s.app.hub.lock().unwrap().has_peers(&p.id()), "the phone's old list does not outlive the invitation");
+    p.closed(5000).await;
+}

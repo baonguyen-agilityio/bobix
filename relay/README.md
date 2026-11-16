@@ -77,7 +77,7 @@ relay adds that computer to `INVITED_FILE`. No redeploy, no shared secret.
   does not use the code up.
 - Nothing in a code is secret, but whoever has an unused one can let one computer in, once, before it expires. Send it
   privately. The owner sees every computer that came in by a code (label, date) in Settings › Phones and can remove it;
-  its connection is closed at once and it is a guest again (its phones lose the relay when they reconnect). A removed
+  its connection is closed at once, its phones see it offline and can no longer reach it (nor it them; packets waiting between them are dropped), and it comes back as a guest. The same holds for an id taken out of `INVITE_FILE`: two guests never reach each other. A removed
   computer needs a new code. Owners and `INVITE_FILE` ids are not on that list.
 - Changing `RELAY_ID` makes the codes not yet used worthless. A computer that makes a new identity in Bobix has a new
   device id and needs a new code.
