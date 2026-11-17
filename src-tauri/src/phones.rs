@@ -918,7 +918,7 @@ fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, no
     match c.pending.get(id) {
         Some(p) if p.kind() != if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request } => return CmdResult::refused(cid, "kind"),
         Some(p) => {
-            if crate::phone_view::shown_cut(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too: only what was shown is known
+            if crate::phone_view::blocks_allow(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too, and a plan with a file cut or not sent: only what was shown is known
             let rights = Rights { answer: true, plan: true, ..Default::default() };
             match crate::phone_view::detail(&c.pending, id, rights) {
                 Ok(d) if command::shown_matches(&d, shown) => {}
@@ -1359,6 +1359,23 @@ mod tests {
         assert!(c.pending.contains_key("escplan"));
         assert_eq!(a(&mut c, "req", "not what was shown", "allow", false, &mut changed).outcome, Outcome::Stale);
         assert!(c.pending.contains_key("req") && !changed, "nothing was applied");
+        // a file that comes with the plan: shown whole it is approved with the plan; cut or only listed it is not, but the plan can go back
+        let file = |cut: bool, sent: bool| bobix_link::messages::PlanFile { name: "phase-01.md".into(), path: "plans/phase-01.md".into(), bytes: 9, text: if sent { "step".into() } else { String::new() }, cut, sent };
+        for (id, f) in [("filecut", file(true, true)), ("fileunsent", file(false, false))] {
+            held(&mut c, id, true, "1. a plan whose file is not whole", false);
+            c.pending.get_mut(id).unwrap().files = vec![file(false, true), f];
+            let sh = shown(&c, id);
+            assert_eq!(a(&mut c, id, &sh, "allow", true, &mut changed).why.as_deref(), Some("cut"), "{id}: not approved from a phone");
+            assert!(c.pending.contains_key(id));
+            assert_eq!(a(&mut c, id, &sh, "deny", true, &mut changed).outcome, Outcome::Ok, "{id}: but sent back");
+        }
+        held(&mut c, "filesok", true, "1. a plan with a whole file", false);
+        c.pending.get_mut("filesok").unwrap().files = vec![file(false, true)];
+        let shf = shown(&c, "filesok");
+        c.pending.get_mut("filesok").unwrap().files[0].text = "step, changed since".into();
+        assert_eq!(a(&mut c, "filesok", &shf, "allow", true, &mut changed).outcome, Outcome::Stale, "a file that is not the one that was shown");
+        let shf = shown(&c, "filesok");
+        assert_eq!(a(&mut c, "filesok", &shf, "allow", true, &mut changed).outcome, Outcome::Ok);
         assert_eq!(a(&mut c, "cutplan", &shcp, "deny", true, &mut changed).outcome, Outcome::Ok, "but a cut plan may be sent back");
         assert_eq!(a(&mut c, "cutreq", &shc, "deny", false, &mut changed).outcome, Outcome::Ok, "deny on a cut request is allowed");
         assert_eq!(a(&mut c, "req", &sh, "allow", false, &mut changed).outcome, Outcome::Ok);

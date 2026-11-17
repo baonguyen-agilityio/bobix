@@ -153,6 +153,91 @@ void main() {
     ],
   };
 
+  test('a plan with files: the files are read from the detail and the hash covers them', () async {
+    home(waiting: [waitingItem('pf', 'plan')], sessions: [session()]);
+    final file = {
+      'name': 'phase-01.md',
+      'path': 'plans/x/phase-01.md',
+      'bytes': 31,
+      'text': '## Phase 1\nDo the first thing.',
+      'sent': true,
+    };
+    link.detailCache['pf'] = {
+      'kind': 'detail',
+      'id': 'pf',
+      'what': 'plan',
+      'text': '# Plan',
+      'cut': false,
+      'odd': false,
+      'files': [
+        file,
+        {
+          ...file,
+          'name': 'phase-02.md',
+          'path': 'plans/x/phase-02.md',
+          'bytes': 52430,
+          'text': '',
+          'sent': false,
+        },
+      ],
+    };
+    final p = await source.plan('pf');
+    expect(
+      [for (final f in p.files) (f.name, f.folder, f.sent, f.cut)],
+      [
+        ('phase-01.md', 'plans/x/', true, false),
+        ('phase-02.md', 'plans/x/', false, false),
+      ],
+    );
+    expect(p.filesPartial, isTrue);
+    ShownFile shown(Map<String, Object?> f) => ShownFile(
+      name: f['name'] as String,
+      path: f['path'] as String,
+      bytes: BigInt.from(f['bytes'] as int),
+      text: f['text'] as String,
+      cut: false,
+      sent: f['sent'] as bool,
+    );
+    final both = [
+      for (final f
+          in (link.detailCache['pf']!['files'] as List)
+              .cast<Map<String, Object?>>())
+        shown(f),
+    ];
+    expect(
+      p.shownHash,
+      await shownHash(
+        text: '# Plan',
+        cut: false,
+        questions: const [],
+        files: both,
+      ),
+    );
+    expect(
+      p.shownHash,
+      isNot(
+        await shownHash(
+          text: '# Plan',
+          cut: false,
+          questions: const [],
+          files: both.take(1).toList(),
+        ),
+      ),
+      reason: 'every file is in the hash',
+    );
+    expect(
+      p.shownHash,
+      isNot(
+        await shownHash(
+          text: '# Plan',
+          cut: false,
+          questions: const [],
+          files: const [],
+        ),
+      ),
+    );
+  });
+
   test('several questions: every part is shown, the hash covers exactly those, and one answer per part is sent', () async {
     home(waiting: [waitingItem('q2', 'question')], sessions: [session()]);
     final detail = twoQuestions();
@@ -177,6 +262,7 @@ void main() {
           multiSelect: true,
         ),
       ],
+      files: const [],
     );
     expect(
       q.shownHash,

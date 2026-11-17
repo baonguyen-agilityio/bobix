@@ -146,6 +146,67 @@ fn shown_covers_the_options_their_order_and_cut() {
     assert_ne!(a.shown, b.shown);
 }
 
+fn plan_file(name: &str, text: &str) -> PlanFile {
+    PlanFile { name: name.into(), path: format!("plans/{name}"), bytes: text.len() as u64, text: text.into(), cut: false, sent: true }
+}
+
+#[test]
+fn a_plan_without_files_hashes_as_before_and_with_files_covers_each_of_them() {
+    // no files: the bytes are the old encoding, so an older phone and an older desktop still agree, and nothing is on the wire
+    let plain = Detail::build("p", DetailKind::Plan, "# Plan", false, vec![]);
+    assert_eq!(plain.shown, shown_hash("# Plan", false, &[]));
+    assert_eq!(plain.shown, shown_hash_with_files("# Plan", false, &[], &[]));
+    assert_eq!(plain.clone().with_files(vec![]).shown, plain.shown);
+    let v: Value = serde_json::from_slice(&DesktopMsg::Detail(plain.clone()).to_json()).unwrap();
+    assert!(v.get("files").is_none());
+    let old = br##"{"kind":"detail","id":"p","what":"plan","text":"# Plan","shown":"","odd":false,"cut":false}"##;
+    let Ok(DesktopMsg::Detail(d)) = DesktopMsg::from_json(old) else { panic!("a detail with no files must still parse") };
+    assert!(d.files.is_empty());
+
+    // with files: whatever the phone shows of a file is in the hash
+    let base = plain.clone().with_files(vec![plan_file("a.md", "one"), plan_file("b.md", "two")]);
+    assert_ne!(base.shown, plain.shown);
+    assert!(command::shown_matches(&base, &base.shown));
+    let changed = |f: &dyn Fn(&mut Vec<PlanFile>)| {
+        let mut files = base.files.clone();
+        f(&mut files);
+        plain.clone().with_files(files)
+    };
+    for other in [
+        changed(&|f| f[1].text = "tw0".into()),
+        changed(&|f| f[0].name = "c.md".into()),
+        changed(&|f| f[0].path = "other/a.md".into()),
+        changed(&|f| f[0].bytes += 1),
+        changed(&|f| f[1].cut = true),
+        changed(&|f| f[1].sent = false),
+        changed(&|f| f.swap(0, 1)),
+        changed(&|f| { f.pop(); }),
+    ] {
+        assert!(!command::shown_matches(&other, &base.shown));
+    }
+    // the boundary between two files' texts cannot move
+    let ab = plain.clone().with_files(vec![plan_file("a.md", "ab"), plan_file("b.md", "c")]);
+    let a_bc = plain.clone().with_files(vec![plan_file("a.md", "a"), plan_file("b.md", "bc")]);
+    assert_ne!(ab.shown, a_bc.shown);
+    let back: DesktopMsg = DesktopMsg::from_json(&DesktopMsg::Detail(base.clone()).to_json()).unwrap();
+    assert_eq!(back, DesktopMsg::Detail(base));
+}
+
+#[test]
+fn the_files_of_a_plan_are_limited() {
+    let with = |files: Vec<PlanFile>| DesktopMsg::Detail(Detail::build("p", DetailKind::Plan, "x", false, vec![]).with_files(files));
+    let full = "a".repeat(MAX_PLAN_FILE_TEXT);
+    assert!(with(vec![plan_file("a.md", &full); 6]).validate().is_ok());
+    assert_eq!(with(vec![plan_file("a.md", &full); 7]).validate(), Err(LimitError::TooLong("files", MAX_PLAN_FILES_TEXT)), "all texts together");
+    assert!(with(vec![plan_file("a.md", "x"); MAX_PLAN_FILES]).validate().is_ok());
+    assert!(with(vec![plan_file("a.md", "x"); MAX_PLAN_FILES + 1]).validate().is_err(), "too many files");
+    assert!(with(vec![plan_file("a.md", &"a".repeat(MAX_PLAN_FILE_TEXT + 1))]).validate().is_err(), "one text");
+    assert!(with(vec![plan_file(&"n".repeat(MAX_PLAN_FILE_NAME + 1), "x")]).validate().is_err(), "a name");
+    // the worst case still fits a sealed frame, though JSON doubles every quote: a full plan and 8 KB of quotes in each of 6 files
+    let worst = DesktopMsg::Detail(Detail::build("p", DetailKind::Plan, &"\"".repeat(MAX_PLAN), false, vec![]).with_files(vec![plan_file("a.md", &"\"".repeat(MAX_PLAN_FILE_TEXT)); 6]));
+    assert!(worst.validate().is_ok() && worst.to_json().len() <= MAX_FRAME / 4 * 3 - 2048, "{} bytes", worst.to_json().len());
+}
+
 #[test]
 fn sync_gives_unknown_for_a_command_never_received() {
     let known = CmdResult::new("aaaa", Outcome::LatePc);
@@ -201,7 +262,7 @@ fn desktop_messages_round_trip_with_documented_names() {
     assert!(round_trip(&DesktopMsg::Home(h)).get("rights").is_none());
 
     let detail = DesktopMsg::Detail(Detail {
-        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![], times: vec![],
+        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![], times: vec![], files: vec![],
     });
     assert_eq!(round_trip(&detail)["what"], "toolInput");
     assert!(round_trip(&detail).get("times").is_none(), "no times, nothing on the wire");
@@ -311,7 +372,7 @@ fn phone_messages_round_trip_with_documented_names() {
 
 #[test]
 fn limits_are_measured_in_bytes() {
-    let detail = |what, text: String| DesktopMsg::Detail(Detail { id: "r".into(), what, text, shown: String::new(), odd: false, cut: false, questions: vec![], times: vec![] });
+    let detail = |what, text: String| DesktopMsg::Detail(Detail { id: "r".into(), what, text, shown: String::new(), odd: false, cut: false, questions: vec![], times: vec![], files: vec![] });
     assert!(detail(DetailKind::ToolInput, "a".repeat(MAX_TOOL_INPUT)).validate().is_ok());
     assert_eq!(detail(DetailKind::ToolInput, "a".repeat(MAX_TOOL_INPUT + 1)).validate(), Err(LimitError::TooLong("detail", MAX_TOOL_INPUT)));
     // 3-byte characters: 6667 of them are 20 001 bytes, though only 6667 characters

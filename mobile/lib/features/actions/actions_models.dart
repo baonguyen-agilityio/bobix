@@ -67,6 +67,37 @@ class RequestOpen extends RequestView {
   final ToolRequest request;
 }
 
+/// One Markdown file that comes with a plan, as the computer sent it: read only.
+class PlanFileDoc {
+  const PlanFileDoc({
+    required this.name,
+    required this.path,
+    required this.bytes,
+    required this.text,
+    this.cut = false,
+    this.sent = true,
+  });
+  final String name, path, text;
+
+  /// The file's size on the computer, not of [text].
+  final int bytes;
+
+  /// [text] is the start of the file only.
+  final bool cut;
+
+  /// [text] was sent. Otherwise the file is only listed (too large, unreadable, not text).
+  final bool sent;
+
+  /// The folder of [path] ("./" when the file is at the top of the project).
+  String get folder {
+    final i = path.lastIndexOf('/');
+    return i < 0 ? './' : path.substring(0, i + 1);
+  }
+
+  /// A file the person cannot read whole here.
+  bool get partial => cut || !sent;
+}
+
 class PlanDoc {
   const PlanDoc({
     required this.id,
@@ -74,8 +105,15 @@ class PlanDoc {
     required this.markdown,
     required this.shownHash,
     this.cut = false,
+    this.files = const [],
   });
   final String id, sessionName, markdown, shownHash;
+
+  /// The files the plan comes with; the hash covers them, so an approval covers exactly these as shown.
+  final List<PlanFileDoc> files;
+
+  /// A file is shortened or not sent: the plan cannot be approved from the phone (sending it back still works).
+  bool get filesPartial => files.any((f) => f.partial);
 
   /// The computer cut the plan (too long, or longer than the cap once hidden characters were escaped): what is shown is
   /// not all of it, so it cannot be approved from the phone. Sending it back stays possible.

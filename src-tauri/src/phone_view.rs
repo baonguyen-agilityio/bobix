@@ -129,11 +129,17 @@ pub fn fit(mut h: Home) -> Home {
 // longer than the cap and `detail` shortened it. The one place that says so; a remote Allow or approve is refused for it.
 pub fn shown_cut(p: &Pending) -> bool { built("", p).cut }
 
-// One held item, whole, with the hash of what is held. Err: "unknown" (not held) or "right" (the phone lacks the right).
+// Whether a remote Approve (or Allow) is refused for what the phone is shown: the text is cut (`shown_cut`), or a file that
+// comes with the plan is shortened or only listed. Sending a plan back is never refused for it.
+pub fn blocks_allow(p: &Pending) -> bool { shown_cut(p) || p.files.iter().any(|f| f.cut || !f.sent) }
+
+// One held item, whole, with the hash of what is held (a plan with its files: they go to no other message, and only to a phone
+// with the plan right, which is checked here). Err: "unknown" (not held) or "right" (the phone lacks the right).
 pub fn detail(pending: &HashMap<String, Pending>, id: &str, rights: Rights) -> Result<Detail, &'static str> {
     let p = pending.get(id).ok_or("unknown")?;
     if !(match p.kind() { Kind::Plan => rights.plan, Kind::Question => rights.question, Kind::Request => rights.answer }) { return Err("right"); }
-    Ok(built(id, p))
+    let d = built(id, p);
+    Ok(if p.kind() == Kind::Plan { d.with_files(p.files.clone()) } else { d })
 }
 
 // The text a phone is shown for a held item. The desktop's escaper runs first (it knows more hidden characters than the
@@ -287,6 +293,41 @@ mod tests {
         assert_eq!(detail(&held("ls", false, false), "nope", all), Err("unknown"));
         let big = detail(&held(&"\u{200b}".repeat(10_000), false, false), "r1", all).unwrap();
         assert!(big.cut && big.text.len() <= MAX_TOOL_INPUT, "escapes that grow past the limit are cut, and marked");
+    }
+
+    #[test]
+    fn a_plans_files_reach_only_a_phone_with_the_plan_right_and_only_in_the_detail() {
+        let file = |name: &str, text: &str, cut: bool, sent: bool| PlanFile { name: name.into(), path: format!("plans/{name}"), bytes: 9, text: text.into(), cut, sent };
+        let mut m = held("the plan", true, false);
+        m.get_mut("r1").unwrap().files = vec![file("a.md", "FILE-BODY-MARKER", false, true)];
+        let plan_right = Rights { plan: true, ..Default::default() };
+        let d = detail(&m, "r1", plan_right).unwrap();
+        assert_eq!(d.files, m["r1"].files);
+        assert_eq!(d.shown, d.shown_now());
+        assert_ne!(d.shown, Detail::build("r1", DetailKind::Plan, "the plan", false, vec![]).shown, "the hash covers the files");
+        // changing a file changes what the phone must have been shown
+        m.get_mut("r1").unwrap().files = vec![file("a.md", "FILE-BODY-MARKER!", false, true)];
+        assert_ne!(detail(&m, "r1", plan_right).unwrap().shown, d.shown);
+        // no plan right: nothing, not even the plan
+        assert_eq!(detail(&m, "r1", Rights { answer: true, question: true, ..Default::default() }), Err("right"));
+        // a request never carries files, whatever it holds
+        let mut req = held("ls", false, false);
+        req.get_mut("r1").unwrap().files = m["r1"].files.clone();
+        assert!(detail(&req, "r1", Rights { answer: true, ..Default::default() }).unwrap().files.is_empty());
+        // the home and the notice of a held plan name no file and carry no text of one
+        let mut sessions = Sessions::new();
+        let mut s = crate::state::Session::default();
+        s.id = "s1".into(); s.state = "waiting".into();
+        sessions.insert("s1".into(), s);
+        let json = String::from_utf8(DesktopMsg::Home(home(&sessions, &m, "Studio", 1, ComputerState::Online, vec![])).to_json()).unwrap();
+        let notice = String::from_utf8(DesktopMsg::Notice(waiting_notice(&m["r1"], "r1", "title")).to_json()).unwrap();
+        for out in [json, notice] { assert!(!out.contains("FILE-BODY") && !out.contains("a.md") && !out.contains("files"), "{out}"); }
+        // a file that is cut or only listed blocks Approve; the same plan whole does not
+        assert!(!blocks_allow(&m["r1"]));
+        for bad in [file("a.md", "x", true, true), file("a.md", "", false, false)] {
+            m.get_mut("r1").unwrap().files = vec![file("b.md", "y", false, true), bad];
+            assert!(blocks_allow(&m["r1"]));
+        }
     }
 
     #[test]

@@ -1991,6 +1991,7 @@ fn wire__crate__api__core__shown_hash_impl(
             let api_cut = <bool>::sse_decode(&mut deserializer);
             let api_questions =
                 <Vec<crate::api::core::ShownQuestion>>::sse_decode(&mut deserializer);
+            let api_files = <Vec<crate::api::core::ShownFile>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
@@ -1998,6 +1999,7 @@ fn wire__crate__api__core__shown_hash_impl(
                         api_text,
                         api_cut,
                         api_questions,
+                        api_files,
                     ))?;
                     std::result::Result::Ok(output_ok)
                 })())
@@ -2471,6 +2473,18 @@ impl SseDecode for Vec<u8> {
     }
 }
 
+impl SseDecode for Vec<crate::api::core::ShownFile> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::core::ShownFile>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::core::ShownQuestion> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -2831,6 +2845,26 @@ impl SseDecode for crate::api::relay::SealedPacket {
         return crate::api::relay::SealedPacket {
             packet: var_packet,
             reserve: var_reserve,
+        };
+    }
+}
+
+impl SseDecode for crate::api::core::ShownFile {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_bytes = <u64>::sse_decode(deserializer);
+        let mut var_text = <String>::sse_decode(deserializer);
+        let mut var_cut = <bool>::sse_decode(deserializer);
+        let mut var_sent = <bool>::sse_decode(deserializer);
+        return crate::api::core::ShownFile {
+            name: var_name,
+            path: var_path,
+            bytes: var_bytes,
+            text: var_text,
+            cut: var_cut,
+            sent: var_sent,
         };
     }
 }
@@ -3617,6 +3651,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::relay::SealedPacket>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::core::ShownFile {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.path.into_into_dart().into_dart(),
+            self.bytes.into_into_dart().into_dart(),
+            self.text.into_into_dart().into_dart(),
+            self.cut.into_into_dart().into_dart(),
+            self.sent.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::core::ShownFile {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::core::ShownFile>
+    for crate::api::core::ShownFile
+{
+    fn into_into_dart(self) -> crate::api::core::ShownFile {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::core::ShownQuestion {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -3884,6 +3940,16 @@ impl SseEncode for Vec<u8> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <u8>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::core::ShownFile> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::core::ShownFile>::sse_encode(item, serializer);
         }
     }
 }
@@ -4198,6 +4264,18 @@ impl SseEncode for crate::api::relay::SealedPacket {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <Vec<u8>>::sse_encode(self.packet, serializer);
         <Option<u64>>::sse_encode(self.reserve, serializer);
+    }
+}
+
+impl SseEncode for crate::api::core::ShownFile {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.path, serializer);
+        <u64>::sse_encode(self.bytes, serializer);
+        <String>::sse_encode(self.text, serializer);
+        <bool>::sse_encode(self.cut, serializer);
+        <bool>::sse_encode(self.sent, serializer);
     }
 }
 

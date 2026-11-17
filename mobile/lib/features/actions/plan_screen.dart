@@ -15,6 +15,7 @@ import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
 import 'command_flow.dart';
+import 'plan_file_screen.dart';
 import '../../widgets/press_feedback.dart';
 
 final planProvider = FutureProvider.autoDispose.family<PlanDoc, String>(
@@ -132,7 +133,7 @@ class PlanScreen extends ConsumerWidget {
               s('phone.pl.approve'),
               kind: BtnKind.primary,
               icon: Icons.lock_outline,
-              onPressed: !canSend || p.cut
+              onPressed: !canSend || p.cut || p.filesPartial
                   ? null
                   : () => runCommand(
                       context,
@@ -144,12 +145,24 @@ class PlanScreen extends ConsumerWidget {
                     ),
             ),
             lock: !p.cut,
+            note: p.files.isEmpty
+                ? null
+                : p.filesPartial
+                ? s('phone.pf.bad.s')
+                : s('phone.pf.ok', {'n': p.files.length}),
             fine: p.cut
                 ? s('phone.pl.cut.s')
                 : '${s('phone.rq.unlock', {'os': bioName(s)})} · ${sendNote(s, conn, c)}',
           ),
           children: [
             const SendOffBanner(),
+            if (p.filesPartial)
+              StatusBanner(
+                kind: BannerKind.err,
+                icon: Icons.error_outline,
+                title: s('phone.pf.bad.h'),
+                body: s('phone.pf.bad.d', {'c': c}),
+              ),
             if (p.cut)
               StatusBanner(
                 kind: BannerKind.warn,
@@ -160,6 +173,7 @@ class PlanScreen extends ConsumerWidget {
             ActionSessionCard(id: p.id, name: p.sessionName),
             ScreenHeading(s('phone.pl.h')),
             PlanMarkdown(p.markdown),
+            if (p.files.isNotEmpty) PlanFilesGroup(p.files),
             const SizedBox(height: 10),
             ShieldNote(s('phone.pl.text')),
             const SizedBox(height: 10),

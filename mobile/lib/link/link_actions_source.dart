@@ -6,6 +6,7 @@ import '../data/models.dart' show ConnState;
 import '../features/actions/actions_models.dart';
 import '../features/actions/actions_source.dart';
 import '../keys/secure_keys.dart';
+import 'plan_files_wire.dart';
 import '../src/rust/api/core.dart' as core;
 import '../src/rust/api/messages.dart' as msg;
 import '../src/rust/api/relay.dart';
@@ -206,6 +207,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
           multiSelect: q['multiSelect'] == true,
         ),
     ],
+    files: shownFilesOf(planFilesOf(d)),
   );
 
   Future<Map<String, dynamic>> _item(String id) async {
@@ -230,6 +232,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       markdown: d['text'] as String,
       shownHash: await _shown(d),
       cut: d['cut'] == true,
+      files: planFilesOf(d),
     );
   }
 

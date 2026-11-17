@@ -25,6 +25,13 @@ pub const MAX_ISSUES: usize = 100;
 pub const MAX_ISSUE_TITLE: usize = 120;
 pub const MAX_ISSUE_PATH: usize = 200;
 pub const MAX_ISSUE_HOST: usize = 100;
+/// The files a plan comes with (`Detail.files`): how many, the longest text of one, all texts together, and the longest
+/// name and folder path. Together with a plan's `MAX_PLAN` they stay far below `MAX_FRAME` even when JSON doubles them.
+pub const MAX_PLAN_FILES: usize = 8;
+pub const MAX_PLAN_FILE_TEXT: usize = 8 * 1024;
+pub const MAX_PLAN_FILES_TEXT: usize = 48 * 1024;
+pub const MAX_PLAN_FILE_NAME: usize = 200;
+pub const MAX_PLAN_FILE_PATH: usize = 400;
 
 /// A command is accepted from this long before to this long after the receiver's clock.
 pub const COMMAND_MAX_AGE_MS: u64 = 10 * 60 * 1000;
@@ -107,11 +114,24 @@ pub fn visible_escapes(text: &str) -> (String, bool) {
 /// as displayed (with visible escapes), whether it was cut, and the questions with their options in order. `detail`
 /// carries it; `answer`, `plan` and `question` send it back; the desktop recomputes it from what it holds.
 pub fn shown_hash(text: &str, cut: bool, questions: &[Question]) -> String {
+    shown_hash_with_files(text, cut, questions, &[])
+}
+
+/// [`shown_hash`] for a plan that comes with files: the files, in order, with everything the phone shows of each (name,
+/// folder, size, text, `cut`, `sent`), are appended after the questions. With no files the bytes are exactly those of
+/// `shown_hash` before files existed, so an older desktop and an older phone still agree.
+pub fn shown_hash_with_files(text: &str, cut: bool, questions: &[Question], files: &[PlanFile]) -> String {
     let mut f = Fields::new("bobix-shown-v1").field(text.as_bytes()).num(cut as u64).num(questions.len() as u64);
     for q in questions {
         f = f.field(q.text.as_bytes()).num(q.multi_select as u64).num(q.options.len() as u64);
         for o in &q.options {
             f = f.field(o.as_bytes());
+        }
+    }
+    if !files.is_empty() {
+        f = f.field(b"files").num(files.len() as u64);
+        for p in files {
+            f = f.field(p.name.as_bytes()).field(p.path.as_bytes()).num(p.bytes).field(p.text.as_bytes()).num(p.cut as u64).num(p.sent as u64);
         }
     }
     hex(&sha256(&[&f.done()]))
@@ -342,7 +362,7 @@ pub struct Detail {
     pub what: DetailKind,
     /// With `odd`, every control or format character is already a visible escape.
     pub text: String,
-    /// See `shown_hash`: covers `text`, `cut` and `questions`.
+    /// See `shown_hash`: covers `text`, `cut`, `questions` and `files`.
     pub shown: String,
     pub odd: bool,
     /// Anything was dropped from `text`: a remote Allow is refused.
@@ -354,6 +374,28 @@ pub struct Detail {
     /// and empty when unknown; a phone uses it only when it counts the lines. Not in `shown_hash`: nothing is approved on it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub times: Vec<u64>,
+    /// For a plan: the Markdown files the plan names inside the session's folder, read when the plan was held. Absent from
+    /// an older desktop and when the plan names none. In `shown_hash`: approving a plan covers exactly these files as shown.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<PlanFile>,
+}
+
+/// One file of a plan. `text` is what the computer chose to send: redacted, with hidden characters as visible escapes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanFile {
+    /// The file's name (its last path component).
+    pub name: String,
+    /// Where it is, relative to the session's folder: the folder and the name, with `/` as the separator.
+    pub path: String,
+    /// The file's size on the computer, in bytes (not of `text`).
+    pub bytes: u64,
+    pub text: String,
+    /// `text` is the start of the file only: the rest was left out. A remote Approve is refused.
+    #[serde(default)]
+    pub cut: bool,
+    /// `text` was sent. When false the file is only listed (too large, unreadable, not text): a remote Approve is refused.
+    pub sent: bool,
 }
 
 impl Detail {
@@ -361,12 +403,19 @@ impl Detail {
     /// the text as displayed, `cut` and `questions`.
     pub fn build(id: &str, what: DetailKind, raw_text: &str, cut: bool, questions: Vec<Question>) -> Detail {
         let (text, odd) = visible_escapes(raw_text);
-        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions, times: vec![] }
+        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions, times: vec![], files: vec![] }
+    }
+
+    /// The same reply for a plan that comes with `files`: `shown` now covers them.
+    pub fn with_files(mut self, files: Vec<PlanFile>) -> Detail {
+        self.files = files;
+        self.shown = self.shown_now();
+        self
     }
 
     /// Recomputes `shown` from the content (not from the stored field).
     pub fn shown_now(&self) -> String {
-        shown_hash(&self.text, self.cut, &self.questions)
+        shown_hash_with_files(&self.text, self.cut, &self.questions, &self.files)
     }
 }
 
@@ -491,11 +540,17 @@ impl DesktopMsg {
                 }
                 Ok(())
             }
-            DesktopMsg::Detail(d) => within(
-                "detail",
-                &d.text,
-                if d.what == DetailKind::Plan { MAX_PLAN } else { MAX_TOOL_INPUT },
-            ),
+            DesktopMsg::Detail(d) => {
+                within("detail", &d.text, if d.what == DetailKind::Plan { MAX_PLAN } else { MAX_TOOL_INPUT })?;
+                if d.files.len() > MAX_PLAN_FILES { return Err(LimitError::TooLong("files", MAX_PLAN_FILES)); }
+                if d.files.iter().map(|f| f.text.len()).sum::<usize>() > MAX_PLAN_FILES_TEXT { return Err(LimitError::TooLong("files", MAX_PLAN_FILES_TEXT)); }
+                for f in &d.files {
+                    within("file", &f.text, MAX_PLAN_FILE_TEXT)?;
+                    within("fileName", &f.name, MAX_PLAN_FILE_NAME)?;
+                    within("filePath", &f.path, MAX_PLAN_FILE_PATH)?;
+                }
+                Ok(())
+            }
             DesktopMsg::StartPrompt(p) => within("prompt", &p.prompt, MAX_PLAN),
             DesktopMsg::Notice(n) => within("notice", &n.body, MAX_PUSH_BODY),
             DesktopMsg::Issues(l) => {

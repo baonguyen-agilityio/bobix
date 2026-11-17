@@ -90,9 +90,38 @@ class FixtureActionsSource implements ActionsSource {
     PlanDoc(
       id: id,
       sessionName: 'Speed up the search page',
-      markdown: id == 'plan-short' ? _planShort : _planLong,
+      markdown: id == 'plan-short' || id.startsWith('plan-files')
+          ? _planShort
+          : _planLong,
       shownHash: 'h-plan-$id',
       cut: id == 'plan-cut',
+      files: switch (id) {
+        'plan-files' => [..._planFiles],
+        // one file too large to send, one shortened
+        'plan-files-big' => [
+          _planFiles[0],
+          const PlanFileDoc(
+            name: 'phase-02-desktop-issue-list.md',
+            path: 'plans/261117-start-repos/phase-02-desktop-issue-list.md',
+            bytes: 52430,
+            text: '',
+            sent: false,
+          ),
+          _planFiles[2],
+        ],
+        'plan-files-cut' => [
+          _planFiles[0],
+          _planFiles[1],
+          PlanFileDoc(
+            name: _planFiles[2].name,
+            path: _planFiles[2].path,
+            bytes: 41880,
+            text: _planFiles[2].text,
+            cut: true,
+          ),
+        ],
+        _ => const [],
+      },
     ),
   );
 
@@ -534,3 +563,63 @@ Details are in [the design note](https://example.test/design) and in <https://ex
 - The token on the computer is valid.
 - No downtime window is needed.
 ''';
+
+/// The files of the made-up plan "Repository filter on Start": three phases, the text of each a few lines of Markdown.
+final _planFiles = [
+  PlanFileDoc(
+    name: 'phase-01-link-messages.md',
+    path: 'plans/261117-start-repos/phase-01-link-messages.md',
+    bytes: 1229,
+    text: [
+      '## Phase 1: link messages',
+      'Add the repository list to what the computer sends to the phone.',
+      '### Steps',
+      '1. Add `repos` to the `work` message: name, host, open issue count, `cloned`.',
+      '2. Add `readError` for when `gh` or `glab` cannot read the issues.',
+      '3. Keep the old message shape working for phones on an older version.',
+      '### Done when',
+      '- A phone on the old version still shows its issue list.',
+      '- A contract test covers the new fields.',
+    ].join('\n'),
+  ),
+  PlanFileDoc(
+    name: 'phase-02-desktop-issue-list.md',
+    path: 'plans/261117-start-repos/phase-02-desktop-issue-list.md',
+    bytes: 2764,
+    text: [
+      '## Phase 2: desktop issue list',
+      'The computer reads the issues of every repository ticked in Work → Repos.',
+      '### Steps',
+      '1. Read open issues per ticked repository with `gh` or `glab`.',
+      '2. Mark a repository `cloned: false` when it has no folder on the computer.',
+      '3. Send the count per repository, not only the total.',
+      '4. When a read fails, send `readError` instead of an empty list.',
+      '### Notes',
+      '- No repository ticked means an empty `repos`, not an error.',
+      '- Issues are read when the phone opens Start, then cached for a minute.',
+    ].join('\n'),
+  ),
+  PlanFileDoc(
+    name: 'phase-03-phone-start-screen.md',
+    path: 'plans/261117-start-repos/phase-03-phone-start-screen.md',
+    bytes: 3481,
+    text: [
+      '## Phase 3: phone Start screen',
+      'A repository row above the issue list, and a sheet to pick one.',
+      '### Steps',
+      '1. Show a Repository row: the current choice and its issue count.',
+      '2. Open a bottom sheet listing All repositories, then each one the computer lists.',
+      '3. Show name, host and open-issue count for each repository.',
+      '4. Add a note “Not on this computer” for a repository that is not cloned.',
+      '5. With All repositories, group the issues under small repository headers.',
+      '6. In the start details add a “Fix it in” line with the issue’s repository.',
+      '### Empty states',
+      '- No repositories listed: say where to choose them on the computer.',
+      '- A repository with no open issues: name it.',
+      '- Issues cannot be read: ask to check that `gh` or `glab` is signed in.',
+      '### Done when',
+      '- The phone cannot change which repositories are listed.',
+      '- Light, dark, every phone size and Android look right.',
+    ].join('\n'),
+  ),
+];

@@ -281,9 +281,35 @@ const crateVectorsJson = r'''{
         "shown": "daab9183148fa4a101c8308df76ea5059a474f2425feff4056cdab60abcc6d21",
         "text": "# Plan\nstep \\u{202e}",
         "what": "plan"
+      },
+      {
+        "cut": false,
+        "files": [
+          {
+            "bytes": 31,
+            "cut": false,
+            "name": "phase-01.md",
+            "path": "plans/x/phase-01.md",
+            "sent": true,
+            "text": "## Phase 1\nDo the first thing."
+          },
+          {
+            "bytes": 52430,
+            "cut": false,
+            "name": "phase-02.md",
+            "path": "plans/x/phase-02.md",
+            "sent": false,
+            "text": ""
+          }
+        ],
+        "note": "a plan with files: each file's name, path, bytes, text, cut and sent follow the questions",
+        "questions": [],
+        "shown": "b83c23031bc835ca72114a16a55295dbdf253b862790bc4f7e6881d1a68d4508",
+        "text": "# Plan",
+        "what": "plan"
       }
     ],
-    "shownNote": "shown = hex SHA-256 of Fields(\"bobix-shown-v1\", text, cut as u64, number of questions, then per question: text, multiSelect as u64, number of options, each option); numbers are u64 big endian as 8-byte fields; every field has a u32 big endian length prefix"
+    "shownNote": "shown = hex SHA-256 of Fields(\"bobix-shown-v1\", text, cut as u64, number of questions, then per question: text, multiSelect as u64, number of options, each option; then, only when the plan has files: \"files\", the number of files and per file: name, path, bytes as u64, text, cut as u64, sent as u64); numbers are u64 big endian as 8-byte fields; every field has a u32 big endian length prefix"
   }
 }
 ''';

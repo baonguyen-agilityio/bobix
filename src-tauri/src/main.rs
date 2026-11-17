@@ -24,6 +24,7 @@ mod petstore;
 mod presence;
 mod phone_view;
 mod phones;
+mod plan_files;
 mod procs;
 mod process;
 mod project;

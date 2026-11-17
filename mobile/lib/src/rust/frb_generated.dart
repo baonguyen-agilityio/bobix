@@ -324,6 +324,7 @@ abstract class RustLibApi extends BaseApi {
     required String text,
     required bool cut,
     required List<ShownQuestion> questions,
+    required List<ShownFile> files,
   });
 
   Future<Uint8List> crateApiCoreSignWithAuth({
@@ -2176,6 +2177,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String text,
     required bool cut,
     required List<ShownQuestion> questions,
+    required List<ShownFile> files,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -2184,6 +2186,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(text, serializer);
           sse_encode_bool(cut, serializer);
           sse_encode_list_shown_question(questions, serializer);
+          sse_encode_list_shown_file(files, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2196,7 +2199,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: null,
         ),
         constMeta: kCrateApiCoreShownHashConstMeta,
-        argValues: [text, cut, questions],
+        argValues: [text, cut, questions, files],
         apiImpl: this,
       ),
     );
@@ -2204,7 +2207,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCoreShownHashConstMeta => const TaskConstMeta(
     debugName: "shown_hash",
-    argNames: ["text", "cut", "questions"],
+    argNames: ["text", "cut", "questions", "files"],
   );
 
   @override
@@ -2654,6 +2657,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ShownFile> dco_decode_list_shown_file(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_shown_file).toList();
+  }
+
+  @protected
   List<ShownQuestion> dco_decode_list_shown_question(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_shown_question).toList();
@@ -2887,6 +2896,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return SealedPacket(
       packet: dco_decode_list_prim_u_8_strict(arr[0]),
       reserve: dco_decode_opt_box_autoadd_u_64(arr[1]),
+    );
+  }
+
+  @protected
+  ShownFile dco_decode_shown_file(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return ShownFile(
+      name: dco_decode_String(arr[0]),
+      path: dco_decode_String(arr[1]),
+      bytes: dco_decode_u_64(arr[2]),
+      text: dco_decode_String(arr[3]),
+      cut: dco_decode_bool(arr[4]),
+      sent: dco_decode_bool(arr[5]),
     );
   }
 
@@ -3240,6 +3265,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ShownFile> sse_decode_list_shown_file(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ShownFile>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_shown_file(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ShownQuestion> sse_decode_list_shown_question(
     SseDeserializer deserializer,
   ) {
@@ -3516,6 +3553,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_packet = sse_decode_list_prim_u_8_strict(deserializer);
     var var_reserve = sse_decode_opt_box_autoadd_u_64(deserializer);
     return SealedPacket(packet: var_packet, reserve: var_reserve);
+  }
+
+  @protected
+  ShownFile sse_decode_shown_file(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_path = sse_decode_String(deserializer);
+    var var_bytes = sse_decode_u_64(deserializer);
+    var var_text = sse_decode_String(deserializer);
+    var var_cut = sse_decode_bool(deserializer);
+    var var_sent = sse_decode_bool(deserializer);
+    return ShownFile(
+      name: var_name,
+      path: var_path,
+      bytes: var_bytes,
+      text: var_text,
+      cut: var_cut,
+      sent: var_sent,
+    );
   }
 
   @protected
@@ -3871,6 +3927,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_shown_file(
+    List<ShownFile> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_shown_file(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_shown_question(
     List<ShownQuestion> self,
     SseSerializer serializer,
@@ -4111,6 +4179,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(self.packet, serializer);
     sse_encode_opt_box_autoadd_u_64(self.reserve, serializer);
+  }
+
+  @protected
+  void sse_encode_shown_file(ShownFile self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.path, serializer);
+    sse_encode_u_64(self.bytes, serializer);
+    sse_encode_String(self.text, serializer);
+    sse_encode_bool(self.cut, serializer);
+    sse_encode_bool(self.sent, serializer);
   }
 
   @protected

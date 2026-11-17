@@ -2,10 +2,17 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/features/actions/actions_models.dart';
+import 'package:phone/features/actions/plan_file_screen.dart';
 import 'package:phone/features/actions/plan_screen.dart';
 import 'package:phone/data/models.dart';
 
 import 'support.dart';
+
+/// A taller screen, so the whole list of files is built (a list builds only what is near the screen).
+Future<void> tall(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(390 * 3, 1500 * 3);
+  await tester.pump();
+}
 
 String allText(WidgetTester tester) => tester
     .widgetList<RichText>(find.byType(RichText))
@@ -89,6 +96,162 @@ void main() {
       expect(find.byType(Table), findsOneWidget);
       expect(text, contains('db/migrations/12.sql'));
     });
+  });
+
+  group('a plan with several files', () {
+    for (final lang in langs) {
+      testWidgets('lists each file and opens one read only ($lang)', (
+        tester,
+      ) async {
+        final src = await pumpScreen(
+          tester,
+          const PlanScreen(id: 'plan-files'),
+          lang: lang,
+        );
+        await tall(tester);
+        expect(find.text(tr(lang, 'pf.sec', {'n': 3})), findsOneWidget);
+        for (final n in [
+          'phase-01-link-messages.md',
+          'phase-02-desktop-issue-list.md',
+          'phase-03-phone-start-screen.md',
+        ]) {
+          expect(find.text(n), findsOneWidget);
+        }
+        expect(
+          find.text(tr(lang, 'pf.ok', {'n': 3})),
+          findsOneWidget,
+          reason: 'what Approve covers',
+        );
+        expect(off(tester, tr(lang, 'pl.approve')), isFalse);
+        expect(find.text(tr(lang, 'pf.cut')), findsNothing);
+        await tester.ensureVisible(find.text('phase-02-desktop-issue-list.md'));
+        await tester.tap(find.text('phase-02-desktop-issue-list.md'));
+        await tester.pumpAndSettle();
+        expect(find.byType(PlanFileScreen), findsOneWidget);
+        expect(
+          find.text('phase-02-desktop-issue-list.md'),
+          findsWidgets,
+          reason: 'the title and the card',
+        );
+        expect(
+          find.textContaining('plans/261117-start-repos/', findRichText: true),
+          findsOneWidget,
+        );
+        expect(
+          allText(tester),
+          contains('No repository ticked means an empty'),
+        );
+        expect(
+          find.text(
+            tr(lang, 'pf.ro', {'c': src.computerName}),
+            findRichText: true,
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text('2,7 KB'),
+          lang == 'vi' ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.text('2.7 KB'),
+          lang == 'en' ? findsOneWidget : findsNothing,
+        );
+        expect(find.byType(ActionChip), findsNothing);
+        expect(
+          button(tr(lang, 'pl.approve')),
+          findsNothing,
+          reason: 'no action bar',
+        );
+      });
+    }
+
+    testWidgets('a long file is clamped until the whole file is asked for', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const PlanScreen(id: 'plan-files'));
+      await tall(tester);
+      await tester.ensureVisible(find.text('phase-03-phone-start-screen.md'));
+      await tester.tap(find.text('phase-03-phone-start-screen.md'));
+      await tester.pumpAndSettle();
+      final lines = 16;
+      expect(find.text(tr('en', 'pf.all', {'n': lines})), findsOneWidget);
+      final whole = find.text(tr('en', 'pf.all', {'n': lines}));
+      final closedAt = tester.getTopLeft(whole).dy;
+      await tester.tap(whole);
+      await tester.pumpAndSettle();
+      final less = find.text(tr('en', 'pl.less'));
+      expect(less, findsOneWidget);
+      expect(
+        tester.getTopLeft(less).dy,
+        greaterThan(closedAt),
+        reason: 'the rest of the file is in the page now',
+      );
+    });
+
+    testWidgets(
+      'a file too large to send is listed, cannot be opened, and blocks Approve',
+      (tester) async {
+        final src = await pumpScreen(
+          tester,
+          const PlanScreen(id: 'plan-files-big'),
+        );
+        await tall(tester);
+        expect(find.text(tr('en', 'pf.bad.h')), findsOneWidget);
+        expect(find.text(tr('en', 'pf.unsent')), findsOneWidget);
+        expect(
+          find.text(tr('en', 'pf.big', {'c': src.computerName})),
+          findsOneWidget,
+        );
+        expect(find.text('51.2 KB'), findsOneWidget);
+        expect(find.text(tr('en', 'pf.bad.s')), findsOneWidget);
+        expect(find.text(tr('en', 'pf.ok', {'n': 3})), findsNothing);
+        expect(off(tester, tr('en', 'pl.approve')), isTrue);
+        expect(
+          off(tester, tr('en', 'pl.back')),
+          isFalse,
+          reason: 'sending back still works',
+        );
+        await tester.ensureVisible(find.text('phase-02-desktop-issue-list.md'));
+        await tester.tap(
+          find.text('phase-02-desktop-issue-list.md'),
+          warnIfMissed: false,
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(
+          find.byType(PlanFileScreen),
+          findsNothing,
+          reason: 'a file that was not sent has nothing to open',
+        );
+        await tester.tap(button(tr('en', 'pl.approve')), warnIfMissed: false);
+        await settle(tester);
+        expect(src.sent, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'a shortened file says so in the list and on its own screen, and blocks Approve',
+      (tester) async {
+        await pumpScreen(tester, const PlanScreen(id: 'plan-files-cut'));
+        await tall(tester);
+        expect(find.text(tr('en', 'pf.cut')), findsOneWidget);
+        expect(off(tester, tr('en', 'pl.approve')), isTrue);
+        await tester.ensureVisible(find.text('phase-03-phone-start-screen.md'));
+        await tester.tap(find.text('phase-03-phone-start-screen.md'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text(tr('en', 'pf.cut')),
+          findsNWidgets(2),
+          reason: 'the badge and the banner',
+        );
+        expect(
+          find.text(
+            tr('en', 'pf.cutn', {'c': 'Studio Mac'}),
+            findRichText: true,
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('plan commands', () {
