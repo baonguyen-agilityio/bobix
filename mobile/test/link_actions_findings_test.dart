@@ -663,6 +663,32 @@ void main() {
     expect((await late.checkStatus(command.id)).kind, OutcomeKind.stale);
   });
 
+  test('a request opened while the link is down is asked for once it is back up', () async {
+    home(waiting: [waitingItem('rd', 'request')], sessions: [session()]);
+    // the link drops; the next connection waits for its challenge
+    final next = ScriptedSocket();
+    final old = socket;
+    socket = next;
+    await old.close();
+    await _until(() => link.connected ? null : true);
+    final view = source.request('rd');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(next.ofType('send'), isEmpty, reason: 'nothing is asked while it is down');
+    next.push({'type': 'challenge', 'nonce': 'n2'});
+    await _until(() => next.ofType('send').isNotEmpty ? true : null);
+    await fromComputer({
+      'kind': 'detail',
+      'id': 'rd',
+      'what': 'toolInput',
+      'text': 'npm test',
+      'shown': '',
+      'cut': false,
+      'odd': false,
+    });
+    final open = await view as RequestOpen;
+    expect(open.request.input, 'npm test');
+  });
+
   /// The computer says it closed [ref]; resolves once the phone has taken it in.
   Future<void> closedNotice(String ref, Map<String, Object?>? by) async {
     final packet = await sealPacket(

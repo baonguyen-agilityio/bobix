@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models.dart';
 import '../../widgets/glass_backdrop.dart';
 
 import 'package:markdown/markdown.dart' as md;
@@ -18,9 +19,11 @@ import 'command_flow.dart';
 import 'plan_file_screen.dart';
 import '../../widgets/press_feedback.dart';
 
-final planProvider = FutureProvider.autoDispose.family<PlanDoc, String>(
-  (ref, id) => ref.watch(actionsSourceProvider).plan(id),
-);
+final planProvider = FutureProvider.autoDispose.family<PlanDoc, String>((ref, id) {
+  // asked again once the link is back up: a screen opened while it was down gets the item then
+  ref.watch(connProvider.select((c) => c == ConnState.ok));
+  return ref.watch(actionsSourceProvider).plan(id);
+});
 
 /// A link written as text: a plan can hold addresses written by text Claude read, so nothing here opens.
 class _LinkAsText extends MarkdownElementBuilder {

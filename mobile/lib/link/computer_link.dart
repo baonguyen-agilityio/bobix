@@ -606,6 +606,11 @@ class ComputerLink {
     if (cached != null && !fresh) return cached;
     final waiter = _details.putIfAbsent(id, Completer.new);
     try {
+      // A screen opened as the app comes back (a tap on a notification or the Live Activity) asks before the link is up
+      // again: the question waits for it instead of failing at once.
+      if (!connected) {
+        await statusChanges.firstWhere((_) => connected).timeout(within);
+      }
       await _sendSealed(await detailRequestMessage(id: id));
       return await waiter.future.timeout(within);
     } on Object {

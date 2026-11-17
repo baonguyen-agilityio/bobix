@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/glass.dart';
@@ -16,9 +17,11 @@ import '../../widgets/press_feedback.dart';
 /// The longest free-text answer, in UTF-8 bytes.
 const maxAnswerBytes = 2000;
 
-final questionProvider = FutureProvider.autoDispose.family<QuestionDoc, String>(
-  (ref, id) => ref.watch(actionsSourceProvider).question(id),
-);
+final questionProvider = FutureProvider.autoDispose.family<QuestionDoc, String>((ref, id) {
+  // asked again once the link is back up: a screen opened while it was down gets the item then
+  ref.watch(connProvider.select((c) => c == ConnState.ok));
+  return ref.watch(actionsSourceProvider).question(id);
+});
 
 /// Claude's question: pick an option (or several), or type your own answer, then Send.
 class QuestionScreen extends ConsumerStatefulWidget {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/status_banner.dart';
@@ -16,9 +17,11 @@ import 'hidden_chars.dart';
 /// An input longer than this (characters or lines) is collapsed, and Allow stays locked until it is opened.
 const collapseChars = 400, collapseLines = 8;
 
-final requestProvider = FutureProvider.autoDispose.family<RequestView, String>(
-  (ref, id) => ref.watch(actionsSourceProvider).request(id),
-);
+final requestProvider = FutureProvider.autoDispose.family<RequestView, String>((ref, id) {
+  // asked again once the link is back up: a screen opened while it was down gets the item then
+  ref.watch(connProvider.select((c) => c == ConnState.ok));
+  return ref.watch(actionsSourceProvider).request(id);
+});
 
 /// A permission request: the whole tool input, then Allow or Deny. An id the app does not know yet shows "loading";
 /// "closed" shows only when the computer says so.
