@@ -229,6 +229,7 @@ HomeData homeData(
         petDesign: pet['design'] as String,
         petColor: pet['color'] as int,
         activityLines: (x['lines'] as num?)?.toInt() ?? 0,
+        canStop: x['canStop'] == true,
       ),
     );
   }

@@ -27,6 +27,7 @@ class Session {
     this.petDesign = 'default',
     this.petColor = 0,
     this.activityLines = 0,
+    this.canStop = false,
   });
 
   final String id, name, project;
@@ -68,6 +69,9 @@ class Session {
 
   /// How many lines of activity the computer has for this session (0 without the right to read them).
   final int activityLines;
+
+  /// The computer lets this phone stop the session (a request is held, and it has both the Stop and the Answer right).
+  final bool canStop;
 
   /// `project #12`, or just the project when there is no ticket.
   String get ref => issue == null ? project : '$project #$issue';

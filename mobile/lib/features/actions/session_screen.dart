@@ -23,8 +23,11 @@ final sessionProvider = FutureProvider.autoDispose
 /// (only when `home` says it is possible: the session waits on a request held for this phone and the phone has both
 /// the Stop and the Answer right).
 class SessionScreen extends ConsumerWidget {
-  const SessionScreen({super.key, required this.id});
+  const SessionScreen({super.key, required this.id, this.fromItem = false});
   final String id;
+
+  /// Opened from the held request's own screen: "Open what it asks" goes back to it instead of opening it again.
+  final bool fromItem;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -145,9 +148,11 @@ class SessionScreen extends ConsumerWidget {
               ActionButton(
                 s('phone.sv.open'),
                 icon: Icons.chevron_right,
-                onPressed: () => Navigator.of(
-                  context,
-                ).push(pageRoute<void>(RequestScreen(id: d.waitingOnRequest!))),
+                onPressed: fromItem
+                    ? () => Navigator.of(context).pop()
+                    : () => Navigator.of(context).push(
+                        pageRoute<void>(RequestScreen(id: d.waitingOnRequest!)),
+                      ),
               ),
             ],
             SessionActivity(

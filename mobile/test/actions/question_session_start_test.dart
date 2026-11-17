@@ -8,6 +8,7 @@ import 'package:phone/features/actions/actions_models.dart';
 import '../support/actions/fixture_actions_source.dart';
 
 import 'package:phone/features/actions/question_screen.dart';
+import 'package:phone/features/actions/request_screen.dart';
 import 'package:phone/features/actions/session_screen.dart';
 import 'package:phone/features/actions/start_screen.dart';
 import 'package:phone/data/models.dart';
@@ -182,6 +183,53 @@ void main() {
       await pumpScreen(tester, const SessionScreen(id: 'ses-no-lines'));
       expect(find.text(tr('en', 'sv.act')), findsNothing);
       expect(find.text(tr('en', 'sv.lines.empty')), findsNothing);
+    });
+
+    HomeData heldFor({required bool canStop}) => HomeData(
+      computer: 'Studio Mac',
+      conn: ConnState.ok,
+      lastContact: '21:02',
+      sessions: [
+        Session(
+          id: 'ses-stoppable',
+          name: 'Add a dark mode switch',
+          project: 'shop',
+          stage: Stage.doing,
+          needsYou: true,
+          waitingId: 'req-bash',
+          waitingKind: WaitingKind.request,
+          canStop: canStop,
+        ),
+      ],
+    );
+
+    testWidgets('a held request opened from Home leads to Stop, and Stop sends one stop command', (tester) async {
+      final src = await pumpScreen(
+        tester,
+        const RequestScreen(id: 'req-bash'),
+        home: heldFor(canStop: true),
+      );
+      await settle(tester);
+      final entry = button(tr('en', 'rq.stop'));
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await settle(tester);
+      expect(find.byType(SessionScreen), findsOneWidget);
+      await tester.tap(button(tr('en', 'sv.stop')));
+      await settle(tester);
+      expect(src.sent.single.kind, CommandKind.stop);
+      expect(src.sent.single.target, 'ses-stoppable');
+      expect(src.sent.single.text, 'req-bash', reason: 'Stop names the request it denies');
+    });
+
+    testWidgets('no way to Stop from a request when the computer does not allow it', (tester) async {
+      await pumpScreen(
+        tester,
+        const RequestScreen(id: 'req-bash'),
+        home: heldFor(canStop: false),
+      );
+      await settle(tester);
+      expect(button(tr('en', 'rq.stop')), findsNothing);
     });
 
     testWidgets('Stop: confirm, then one stop command', (tester) async {
