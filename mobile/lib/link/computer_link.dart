@@ -93,6 +93,12 @@ enum Closer {
 
 /// A `closed` notice: the item, its session, and who closed it (`by` as the computer sent it: `kind` is `computer`, `phone`
 /// with a `phone` id, `expired` or `released`; null from an older computer).
+/// Whether [id] can be a relay's id: 1 to 253 printable ASCII characters (the crate's `valid_relay_id`).
+bool validRelayId(String id) =>
+    id.isNotEmpty &&
+    id.length <= 253 &&
+    id.codeUnits.every((c) => c >= 0x21 && c <= 0x7E);
+
 class ClosedNotice {
   const ClosedNotice(this.ref, this.session, this.by);
   final String ref, session;
@@ -327,8 +333,14 @@ class ComputerLink {
   /// A connection is up: the push tokens go to the relay over it, each with a fresh grant. A failure here never ends the
   /// connection: the next one, or the daily renewal, tries again.
   void _pushUp(RelaySession session) {
-    // The id the relay announced; an older relay announces none, and its address's host is the best guess.
-    final p = push, id = session.relayId ?? relayHost(computer.relay);
+    // The id the relay announced; an older relay announces none, and its address's host is the best guess. An id that is
+    // not one a relay can have (the rule the invite codes use) is not signed over: the grant would name a text the relay
+    // never chose, and the address's host stands in.
+    final announced = session.relayId;
+    final p = push,
+        id = announced != null && validRelayId(announced)
+            ? announced
+            : relayHost(computer.relay);
     if (p == null || id == null) return;
     _pushId = _pushUsed = id;
     unawaited(() async {

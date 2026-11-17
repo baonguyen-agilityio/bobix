@@ -152,6 +152,23 @@ void main() {
   );
 
   test(
+    'an announced id that cannot be a relay id is not signed over: the address\'s host stands in',
+    () async {
+      expect(validRelayId('opaque-relay-id'), isTrue);
+      expect(validRelayId('a' * 253), isTrue);
+      for (final bad in ['', 'a' * 254, 'has space', 'tab\t', 'é', 'line\n', '\u{7f}']) {
+        expect(validRelayId(bad), isFalse, reason: 'id of ${bad.length}: $bad');
+      }
+      final platform = FakePushPlatform()..currentToken = 'ab12cd';
+      final reg = PushRegistration(platform, platform: 'ios');
+      addTearDown(reg.dispose);
+      await build(push: reg, announce: 'not an id\n');
+      await until(() => sockets.first.ofType('pushToken').isNotEmpty);
+      expect(platform.grants.single['relayId'], '127.0.0.1');
+    },
+  );
+
+  test(
     'the grant names the id the relay announced, and a grant the relay refuses is said, once per connection',
     () async {
       final platform = FakePushPlatform()..currentToken = 'ab12cd';
