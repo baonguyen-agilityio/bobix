@@ -1112,6 +1112,25 @@ test('usage: one line, details and warnings from the numbers the app sends', () 
   for (const k of Object.keys(I18N.STR.en).filter(k => k.startsWith('use.') || k.startsWith('set.warn') || k.startsWith('set.usage') || k.startsWith('set.prices'))) assert.ok(I18N.STR.vi[k], `vi ${k}`);
 });
 
+test('work log: it is in Bobix\'s folder only, said so in both languages, and what the pages paste names the real path', () => {
+  const I18N = require('../src/ui/i18n');
+  const vars = x => (x.match(/\{\w+\}/g) || []).sort().join();
+  for (const k of ['tk.local', 'tk.log.gone']) {
+    assert.ok(I18N.STR.en[k] && I18N.STR.vi[k], `both languages have ${k}`);
+    assert.equal(vars(I18N.STR.vi[k]), vars(I18N.STR.en[k]), `vi ${k} keeps the same {names}`);
+  }
+  for (const l of ['en', 'vi']) {
+    assert.ok(!I18N.STR[l]['tk.local'].includes('.bobix-log') && /worklogs/.test(I18N.STR[l]['tk.local']), `${l} tk.local: Bobix's folder, no worktree folder`);
+    assert.ok(!I18N.STR[l]['tk.place.claude'].includes('.bobix-log'));
+  }
+  // the panel pastes the flow's own log path to its session; a flow from before keeps the relative one
+  const html = fs.readFileSync(path.join(__dirname, '../src/ui/panel.html'), 'utf8');
+  assert.ok(html.includes("const logOf = f => f?.logFile || '.bobix-log/work-log.md';"));
+  assert.equal(html.split('.bobix-log').length - 1, 3, 'only the old flow\'s fallback names the old folder (comment, helper, missing-log line)');
+  for (const fn of ['mrAsk', 'checksAsk', 'fixCiPrompt']) assert.ok(new RegExp(`const ${fn} = f =>`).test(html) && /\$\{logOf\(f\)\}/.test(html), fn);
+  assert.ok(html.includes('logGoneHTML(f)') && html.includes("T('tk.log.gone'"), 'Work and the session details say when the log file is gone');
+});
+
 test('skills audit: every string of the Skills screen in both languages, with the same {names}', () => {
   const I18N = require('../src/ui/i18n');
   const vars = s => (s.match(/\{\w+\}/g) || []).sort().join();

@@ -653,7 +653,7 @@ fn take_issue(settings: &Value, s: &mut state::Session, n: &Value) -> server::Re
 }
 
 // Where the session that took a flow runs, asked of git off the event's thread (Flows::placed). A worktree Claude made
-// first gets what the flow's own worktree got at Start: the work log (in its self-ignoring folder) and your Tests line.
+// first gets what the flow's own worktree got at Start: your Tests line (the work log is in Bobix's folder, wherever the session runs).
 fn place_flow(b: &Arc<Bobix>, key: String, sid: String, cwd: String) {
     let b = b.clone();
     thread::spawn(move || {
@@ -663,8 +663,6 @@ fn place_flow(b: &Arc<Bobix>, key: String, sid: String, cwd: String) {
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return };
         let place = tickets::place_of(&f, &top).filter(|_| f.place.is_empty() && f.session.as_deref() == Some(sid.as_str()));
         if place == Some("claude") {
-            let log = tickets::read_log(&f.dir).unwrap_or_else(|| tickets::template(f.iid, &f.title, &f.lang));
-            let _ = tickets::seed_log(std::path::Path::new(&top), &log);
             skill_audit::carry_tests(std::path::Path::new(&f.repo), std::path::Path::new(&top), &paths::data_dir());
         }
         let yours = match place { Some("main") => tickets::uncommitted(&top) as u64, Some("claude") => tickets::unpushed(&top, "HEAD"), _ => 0 };
@@ -1329,7 +1327,7 @@ async fn ticket_prep(path: String, iid: i64, code: Option<String>, b: B<'_>) -> 
         // where new work starts from: the branches the remote has right now, and the one remembered for this repository
         let remembered = b.core.lock().unwrap().settings["workBase"][&code].as_str().map(String::from);
         let from = match tickets::branches(&repo) { Ok(l) => json!({ "ok": true, "branches": l }), Err(e) => json!({ "ok": false, "kind": e.kind, "detail": e.detail }) };
-        json!({ "ok": true, "code": code, "from": from, "remembered": remembered, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
+        json!({ "ok": true, "code": code, "from": from, "remembered": remembered, "repo": repo, "dir": wt, "branch": branch, "rules": tickets::rules(&branch, &wt.to_string_lossy(), &tickets::log_path(&paths::data_dir(), &tickets::flow_key(&path, iid, &code)).to_string_lossy(), &lang(&b.core.lock().unwrap().settings)), "claude": skill_audit::claude_check(std::path::Path::new(&repo), &paths::data_dir()), "models": tickets::models_text(&json!({ "size": "small" })), "free": free, "room": tickets::room(free), "need": tickets::WORKTREE_BYTES, "exists": exists })
     }).await.map_err(|_| ())
 }
 
@@ -1357,18 +1355,20 @@ async fn ticket_start(path: String, iid: i64, code: Option<String>, prompt: Stri
         let pick = base.as_deref().map(str::trim).unwrap_or("").to_string();
         let prior = b.core.lock().unwrap().tickets.list.get(&key).map(|f| f.base_branch.clone()).filter(|x| !x.is_empty());
         // a worktree kept from before in the old place (a link there opens the main folder) is moved there first, once the start is allowed
-        let from = match tickets::prepare_start(&repo, &wt, &branch, &tickets::template(iid, &title, &flang), iid, &path, &code, base.as_deref(), prior.as_deref(), keep == Some(true)) { Ok(x) => x, Err(e) => return base_failed(e, &pick) };
+        let log_file = tickets::log_path(&paths::data_dir(), &key);
+        let from = match tickets::prepare_start(&repo, &wt, &branch, &tickets::template(iid, &title, &flang), &log_file, iid, &path, &code, base.as_deref(), prior.as_deref(), keep == Some(true)) { Ok(x) => x, Err(e) => return base_failed(e, &pick) };
         let fetch = json!({ "from": from.name });
         let tests = skill_audit::carry_tests(std::path::Path::new(&repo), &wt, &paths::data_dir()); // your uncommitted Tests line, there too
         let (base, base_branch, dir) = (from.commit, from.branch, wt.to_string_lossy().to_string());
         let models = if models.is_object() { models } else { json!({ "size": "small" }) };
-        let cmd = tickets::cli_command(&dir, &tickets::main_model(&models), &prompt);
+        let log_file = log_file.to_string_lossy().to_string();
+        let cmd = tickets::cli_command(&dir, &tickets::main_model(&models), &prompt, tickets::dir_of(&log_file).as_deref());
         {
             let mut c = b.core.lock().unwrap();
             c.tickets.list.shift_remove(&key);
             let forge = c.work.source_of(&c.settings, &path, iid).map(|x| x.0.key()).unwrap_or("gitlab").to_string();
             c.tickets.list.insert(key.clone(), tickets::Flow { key: key.clone(), path: path.clone(), iid, title: title.clone(), url: i["url"].as_str().unwrap_or("").into(), repo,
-                dir: dir.clone(), branch, base, base_branch, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
+                dir: dir.clone(), branch, base, base_branch, log_file, status: "starting".into(), models: models.clone(), forge, at: state::now(), code: if code == path { String::new() } else { code.clone() }, lang: flang.clone(), ..Default::default() });
             c.tickets.save();
             let main = c.tickets.list.get(&key).map(|f| f.repo.clone()).unwrap_or_default();
             c.work.wait_for(&dir, &main, &path, iid, &json!(title), &i["url"]);
@@ -1451,8 +1451,8 @@ async fn ticket_review(key: String, how: String, b: B<'_>) -> Result<Value, ()> 
     tauri::async_runtime::spawn_blocking(move || {
         let Some(f) = b.core.lock().unwrap().tickets.list.get(&key).cloned() else { return json!({ "ok": false, "error": "gone" }) };
         if f.cleaned || !matches!(f.status.as_str(), "done" | "blocked") { return json!({ "ok": false, "error": "running" }); }
-        let prompt = tickets::review_prompt(&f.branch, &f.base, &f.dir, &f.lang);
-        let cmd = tickets::cli_in_mode(&f.dir, &tickets::review_model(&f.models), "auto", &prompt);
+        let prompt = tickets::review_prompt(&f.branch, &f.base, &f.dir, &f.log_at(), &f.lang);
+        let cmd = tickets::cli_in_mode(&f.dir, &tickets::review_model(&f.models), "auto", &prompt, f.log_dir().as_deref());
         if how == "cli" { return json!({ "ok": true, "mode": "cli", "cmd": cmd, "prompt": prompt }); }
         match open_claude(&work::new_session_link(&f.dir, &prompt)) {
             Ok(_) => json!({ "ok": true, "mode": "new", "cmd": cmd, "prompt": prompt }),

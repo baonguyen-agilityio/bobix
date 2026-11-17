@@ -10,7 +10,8 @@ use std::{fs, path::{Path, PathBuf}};
 
 // A worktree with a build takes about this much (the product decision's measure); a new one needs it free.
 pub const WORKTREE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
-// The work log, inside the worktree, in a folder that ignores itself: git never commits or pushes it.
+// The work log of a flow started before the log moved out of the worktree: `.bobix-log/work-log.md` in its folder, in a
+// folder that ignores itself. Such a flow (empty `log_file`) is still read from there; nothing new is written there.
 pub const LOG_DIR: &str = ".bobix-log";
 pub const LOG_FILE: &str = "work-log.md";
 const LOG_MAX: usize = 64 * 1024;
@@ -26,6 +27,10 @@ pub struct Flow {
     pub repo: String, pub dir: String, pub branch: String, pub base: String,
     pub base_branch: String, // the remote branch `base` was cut from ("develop"): the merge / pull request targets it; empty on a flow from before it was asked
     pub status: String, pub session: Option<String>, pub plan: String, pub log: String,
+    // The work log the session writes and Bobix reads: one file per ticket in Bobix's folder (`log_path`), outside every
+    // repository and worktree. Empty on a flow from before: its log is `.bobix-log/work-log.md` in its folder.
+    pub log_file: String,
+    pub log_missing: bool, // the log file is gone (deleted by hand): `log` keeps the text last read
     pub seen: usize, // assumptions you have seen; more in the log put a mark on the pet
     pub summary: String, pub models: Value, pub at: u64, pub cleaned: bool,
     pub mr: String, // the merge request (GitLab) / pull request (GitHub) Bobix opened for it (its link), on your click
@@ -64,7 +69,9 @@ fn from_tag(path: &str, code: &str) -> String {
 impl Flow {
     // The log read again, and the status it sets (done / blocked; running once its plan was approved).
     fn reread(&mut self) {
-        if let Some(l) = read_log(&self.dir) { if l != self.log { self.log = l; } }
+        let read = read_log_of(self);
+        self.log_missing = read.is_none();
+        if let Some(l) = read { if l != self.log { self.log = l; } }
         let st = parse_log(&self.log)["status"].as_str().unwrap_or("").to_string();
         if matches!(st.as_str(), "done" | "blocked") && self.status != "approve" { self.status = st; }
         else if st == "running" && self.status == "planning" && !self.plan.is_empty() { self.status = "running".into(); }
@@ -99,7 +106,15 @@ impl Flow {
     pub fn git_dir(&self) -> &str { if Path::new(&self.dir).is_dir() { &self.dir } else { &self.repo } }
     pub fn github(&self) -> bool { self.forge == "github" }
     pub fn code_repo(&self) -> &str { if self.code.is_empty() { &self.path } else { &self.code } }
+    // Where the session is told to keep the log: its file in Bobix's folder, or for a flow from before, the old place in its folder.
+    pub fn log_at(&self) -> String {
+        if self.log_file.is_empty() { Path::new(&self.dir).join(LOG_DIR).join(LOG_FILE).to_string_lossy().into_owned() } else { self.log_file.clone() }
+    }
+    // The folder a terminal start adds to Claude (`--add-dir`) so it can write the log: the log file's folder, none for an old flow.
+    pub fn log_dir(&self) -> Option<String> { dir_of(&self.log_file) }
 }
+// The folder of a file path, cut at either separator so a Windows path is cut the same on any system; None for a bare name.
+pub fn dir_of(file: &str) -> Option<String> { file.rsplit_once(['/', '\\']).map(|(d, _)| d.to_string()).filter(|d| !d.is_empty()) }
 // The merge request's (pull request's) link in what glab (gh) printed.
 pub fn mr_url(out: &str) -> Option<String> {
     static U: std::sync::LazyLock<fancy_regex::Regex> = std::sync::LazyLock::new(|| fancy_regex::Regex::new(r"https?://\S+(?:/-/merge_requests|/pull)/\d+").unwrap());
@@ -280,14 +295,14 @@ pub fn lang_name(lang: &str) -> Option<&'static str> { match lang { "vi" => Some
 // How the session works, appended to the issue in the Start prompt (Claude reads English here whatever the panel's
 // language). `lang`: Bobix's language: the work log is written in it; what the team reads stays English.
 // `dir`: the flow's worktree. Claude may open the session somewhere else (rule 2 says what then): Bobix follows it.
-pub fn rules(branch: &str, dir: &str, lang: &str) -> String {
-    let base = rules_en(branch, dir);
+pub fn rules(branch: &str, dir: &str, log: &str, lang: &str) -> String {
+    let base = rules_en(branch, dir, log);
     let Some(name) = lang_name(lang) else { return base };
     format!("{base}\n\
 6. Language: restate the ticket and ask every question in {name}: the question, its choices and the \"Out of scope for this ticket\" choice (translate that one), keeping the tags `[scope]`, `[approach]`, `[edge case]`, `[done criteria]` in English. Then write the work log in {name}: the ticket summary, your questions and the choices offered, the plan and its mapping, the assumptions, the steps, your notes under Checks, what blocks you and the result. Keep code, file names, commands, command output and identifiers exactly as they are. Keep the template's headings, `Status:` with its English values (planning, running, done, blocked) and the `- Review: ` / `- None: ` prefixes in English, as written.\n\
 7. What the team reads stays English: write commit messages in English, and fill `## MR (English)` in the work log with the merge request's description for the team, in English: what changed and why, the assumptions, the checks you ran. Write it for that reader; do not translate the log line by line.")
 }
-fn rules_en(branch: &str, dir: &str) -> String {
+fn rules_en(branch: &str, dir: &str, log: &str) -> String {
     format!("How to work on this ticket (Bobix ticket flow):\n\
 1. Call the EnterPlanMode tool now, before changing anything. Read the ticket and the code first, then interview me before you plan. Facts are your job: never ask what the ticket or the code already answers. Decisions are mine.\n\
    a. Restate the ticket in one screen: the goal, what to do, what not to do, what \"done\" means. Show it, then ask me to confirm it with the AskUserQuestion tool (choices: Confirm, or Correct it; no tag, source or \"Out of scope\" choice, and it does not count toward the ~8 questions) and wait for my answer. Ask nothing else before I confirm. Every later question must serve this summary. (Plan mode lets you edit only the plan file: once the plan is approved, write `## Ticket`, `## Questions`, `## Later` and `## Mapping` into the work log in one go.)\n\
@@ -296,7 +311,7 @@ fn rules_en(branch: &str, dir: &str) -> String {
    d. Stop when nothing is left silently assumed, or after about 8 questions in all. Keep each question for `## Questions`, one `- ` line: `[tag] the question (source) -> my answer`.\n\
    e. Then write the plan. It must end with a section \"Mapping\" (a table: each requirement of the ticket -> the plan step that does it; each answer of mine -> the step that uses it; a requirement with no step, or a step with no source, must show) and a section \"Assumptions\": what you assume without asking. Put the summary under `## Ticket` and the Mapping under `## Mapping` in the work log after approval. Then call ExitPlanMode. Approving that plan is the only approval.\n\
 2. This ticket has its own git worktree: `{dir}`, on branch `{branch}`. Work there to the end. If this session did not start in that folder: when it started in a worktree Claude made for it (a folder under `.claude/worktrees`), stay in that worktree and on its branch; when it started anywhere else (the repository's main folder), run `cd` into `{dir}` before anything else and read, change and commit only there. Files that were already changed before you started are not this ticket's: leave them as they are. After approval, do not stop to ask, except for these: pushing to the main branch, deleting data, calling hosts this project does not already use, and touching secrets. Commit on the branch of the folder you work in; do not push to the main branch.\n\
-3. Keep the work log in `{dir}/{LOG_DIR}/{LOG_FILE}`, or in `{LOG_DIR}/{LOG_FILE}` of the worktree Claude made for you when you stay there (Bobix puts it there; git ignores it; it is for me only, never commit or share it). Never start a work log in the repository's main folder. Fill in its template: `Status:` (planning, running, done or blocked), `## Ticket`, `## Questions` and `## Later` (rule 1), `## Plan` (the approved plan in short), `## Mapping` (rule 1), `## Steps` (one line per step as you go), `## Assumptions` (one `- ` line for each assumption you make along the way, also after approval), `## Checks` (steps 4 and 5), `## Result` (what you did, or what blocks you). Update it as you work.\n\
+3. Keep the work log in `{log}` (the full path; Bobix made it from the template; it is outside every repository and worktree on purpose, it is for me only: never copy it into the repository, never commit or share it). It is the only place for the work log: do not start another one in the repository or a worktree. Fill in its template: `Status:` (planning, running, done or blocked), `## Ticket`, `## Questions` and `## Later` (rule 1), `## Plan` (the approved plan in short), `## Mapping` (rule 1), `## Steps` (one line per step as you go), `## Assumptions` (one `- ` line for each assumption you make along the way, also after approval), `## Checks` (steps 4 and 5), `## Result` (what you did, or what blocks you). Update it as you work.\n\
 4. Before you set `Status: done`, run the project's tests, build and lint: the commands in CLAUDE.md, else the ones the project clearly uses. Under `## Checks`, add one `- ` line per command with the command in backticks, then the last lines of its output in a code block. If the project has none, write `- None: ` and why.\n\
 5. Then review your change against the approved plan and the Assumptions: run `/code-review`, or ask a read-only reviewer subagent. Fix what affects correctness, run the checks again, and add a `- Review: ` line under `## Checks` with what it found and what you fixed. Then set the status.")
 }
@@ -325,11 +340,14 @@ pub fn main_model(models: &Value) -> String {
         .filter(|m| ["haiku", "sonnet", "opus"].contains(m)).unwrap_or("sonnet").to_string()
 }
 // The same start in a terminal, where the model and plan mode can be preset (the desktop link can't): one line to paste.
-pub fn cli_command(dir: &str, model: &str, prompt: &str) -> String { cli_in_mode(dir, model, "plan", prompt) }
-pub fn cli_in_mode(dir: &str, model: &str, mode: &str, prompt: &str) -> String {
+// `add`: a folder Claude may write in besides `dir` (the work log's), as `--add-dir=<folder>`: written with `=` so the
+// prompt after it is not taken for one more folder (the option takes any number of values).
+pub fn cli_command(dir: &str, model: &str, prompt: &str, add: Option<&str>) -> String { cli_in_mode(dir, model, "plan", prompt, add) }
+pub fn cli_in_mode(dir: &str, model: &str, mode: &str, prompt: &str, add: Option<&str>) -> String {
     let q = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
     let p = if prompt.is_empty() { String::new() } else { format!(" {}", q(prompt)) };
-    format!("cd {} && claude --model {} --permission-mode {mode}{p}", q(dir), q(model))
+    let a = add.map(|d| format!(" --add-dir={}", q(d))).unwrap_or_default();
+    format!("cd {} && claude --model {} --permission-mode {mode}{a}{p}", q(dir), q(model))
 }
 
 // The text of a list line: `- x`, `* x` or `1. x` / `1) x`; None for a line that is not a list item.
@@ -388,9 +406,9 @@ pub fn parse_log(text: &str) -> Value {
 // The prompt of a second session that reviews a done ticket, against its plan and assumptions; it changes no code and
 // notes what it found under ## Checks. The branch and the ticket's folder (`dir`) are named, not "this folder":
 // Claude desktop may open the review somewhere else in the repository (the main folder).
-pub fn review_prompt(branch: &str, base: &str, dir: &str, lang: &str) -> String {
+pub fn review_prompt(branch: &str, base: &str, dir: &str, log: &str, lang: &str) -> String {
     let say = lang_name(lang).map(|n| format!(" Write what you found in {n}; keep the `- Review (second session): ` prefix as it is.")).unwrap_or_default();
-    format!("Review the change on branch `{branch}` (`git diff {base}...{branch}`; its folder is `{dir}`) against the approved plan and the Assumptions in `{dir}/{LOG_DIR}/{LOG_FILE}`. \
+    format!("Review the change on branch `{branch}` (`git diff {base}...{branch}`; its folder is `{dir}`) against the approved plan and the Assumptions in the work log `{log}` (the full path; it is outside the repository on purpose). \
 Run `/code-review`, or read the diff yourself. Do not change any code or commit. Look for what breaks the plan, a wrong assumption, a missing check, or a bug. \
 When you are done, add one line under `## Checks` in that work log: `- Review (second session): ` and what you found, or `no issues`.{say}")
 }
@@ -458,7 +476,7 @@ fn verify_cut(repo: &str, dir: &Path, branch: &str, want: &str) -> Result<(), Ba
 // really has: `base` for a new cut; for a branch kept as it is, the branch it was cut from (`prior`; when unknown, the
 // one you picked, which is then where its merge request goes) with the commit they share, so the count of its own
 // commits and the merge request's target are right.
-pub fn create_worktree(repo: &str, dir: &Path, branch: &str, log: &str, base: &Base, prior: Option<&str>, keep: bool) -> Result<Base, BaseErr> {
+pub fn create_worktree(repo: &str, dir: &Path, branch: &str, log: &str, log_file: &Path, base: &Base, prior: Option<&str>, keep: bool) -> Result<Base, BaseErr> {
     let d = dir.to_string_lossy();
     let kept = dir.exists() && git(&d, &["rev-parse", "--abbrev-ref", "HEAD"]).out.trim() == branch;
     if dir.exists() && !kept { return Err(berr("git", format!("{} is already there", dir.display()))); }
@@ -472,7 +490,7 @@ pub fn create_worktree(repo: &str, dir: &Path, branch: &str, log: &str, base: &B
         if !r.ok { return Err(berr("git", one_line(&r))); }
         if !has { verify_cut(repo, dir, branch, &base.commit)?; }
     }
-    seed_log(dir, log).map_err(|e| berr("git", e.to_string()))?;
+    seed_log(log_file, log, kept, dir).map_err(|e| berr("git", format!("{}: {e}", log_file.display())))?;
     Ok(if reuse { reused_base(repo, branch, base, prior) } else { base.clone() })
 }
 // The base of a branch kept as it is: `prior` (else the picked branch) and the commit the branch shares with it.
@@ -490,17 +508,26 @@ fn reused_base(repo: &str, branch: &str, picked: &Base, prior: Option<&str>) -> 
 // guessed), it is on the remote now and fetched, only then a kept worktree is moved and the worktree made.
 // `pick`: what the page sent. → the base the ticket has.
 #[allow(clippy::too_many_arguments)]
-pub fn prepare_start(repo: &str, wt: &Path, branch: &str, log: &str, iid: i64, path: &str, code: &str, pick: Option<&str>, prior: Option<&str>, keep: bool) -> Result<Base, BaseErr> {
+pub fn prepare_start(repo: &str, wt: &Path, branch: &str, log: &str, log_file: &Path, iid: i64, path: &str, code: &str, pick: Option<&str>, prior: Option<&str>, keep: bool) -> Result<Base, BaseErr> {
     let Some(pick) = pick.map(str::trim).filter(|p| crate::settings::branch_name(p)) else { return Err(berr("nobase", "")) };
     let from = base_of(repo, pick)?;
     move_kept(repo, iid, path, code, branch, wt).map_err(|e| berr("git", e))?;
-    create_worktree(repo, wt, branch, log, &from, prior, keep)
+    create_worktree(repo, wt, branch, log, log_file, &from, prior, keep)
 }
-// The work log's self-ignoring folder in `dir`, with `log` as the file when there is none yet.
-pub fn seed_log(dir: &Path, log: &str) -> std::io::Result<()> {
-    let l = dir.join(LOG_DIR);
-    let write_log = !l.join(LOG_FILE).exists();
-    fs::create_dir_all(&l).and_then(|_| fs::write(l.join(".gitignore"), "*\n")).and_then(|_| if write_log { fs::write(l.join(LOG_FILE), log) } else { Ok(()) })
+// The ticket's work log: `log` (the template) written to `file` in Bobix's folder, with its folder made. A worktree kept
+// from an earlier flow (`kept`: the folder was still there) keeps its log: the file when there is one, else the one inside
+// the worktree (`old`: `.bobix-log/work-log.md`, from before the log moved out) copied, the old one left where it is.
+// Any other start is a new flow whose log begins from the template: what an earlier flow of the same ticket left in
+// `file` (its log, kept after Clean up) is moved aside to `<name>.<seconds it was last written>.md`, never overwritten.
+pub fn seed_log(file: &Path, log: &str, kept: bool, old: &Path) -> std::io::Result<()> {
+    if kept && file.exists() { return Ok(()); }
+    if let Some(d) = file.parent() { fs::create_dir_all(d)?; }
+    if file.exists() {
+        let at = fs::metadata(file).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
+        fs::rename(file, file.with_extension(format!("{at}.md")))?;
+    }
+    let text = if kept { fs::read_to_string(old.join(LOG_DIR).join(LOG_FILE)).ok().map(|t| head16(&t, LOG_MAX).to_string()).unwrap_or_else(|| log.to_string()) } else { log.to_string() };
+    fs::write(file, text)
 }
 // What would be lost with a flow's worktree: files changed and not committed, and commits no remote has (they stay on
 // the branch either way). None when the folder is gone.
@@ -526,15 +553,28 @@ pub fn remove_worktree(repo: &str, dir: &str, force: bool) -> Result<(), String>
     let r = if force { git(repo, &["worktree", "remove", "--force", dir]) } else { git(repo, &["worktree", "remove", dir]) };
     if r.ok { Ok(()) } else { Err(one_line(&r)) }
 }
-pub fn read_log(dir: &str) -> Option<String> {
-    let t = fs::read_to_string(Path::new(dir).join(LOG_DIR).join(LOG_FILE)).ok()?;
+// The log's text, up to LOG_MAX: from the flow's file in Bobix's folder, or for a flow from before (no `log_file`) from
+// its folder's `.bobix-log`. None when the file is not there (deleted by hand, or its worktree is gone).
+pub fn read_log_of(f: &Flow) -> Option<String> {
+    let old = |d: &str| fs::read_to_string(Path::new(d).join(LOG_DIR).join(LOG_FILE));
+    // a flow from before: the folder it works in, else the worktree Bobix made when its session came up in Claude's own
+    let t = if f.log_file.is_empty() { old(&f.dir).or_else(|_| old(&f.own)) } else { fs::read_to_string(&f.log_file) }.ok()?;
     Some(head16(&t, LOG_MAX).to_string())
 }
-// A copy of every log in Bobix's own folder, so it outlives the worktree.
+// Every ticket's log lives in this folder of Bobix's own, so it outlives the worktree and the repository.
 pub fn logs_dir(data: &Path) -> PathBuf { data.join("worklogs") }
-fn log_name(key: &str) -> String { key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect::<String>() + ".md" }
+// A flow's file name: its key made safe for a file name, and a short digest of the whole key, so two keys that differ
+// only in the characters replaced ("a/b_c#1", "a_b/c#1") never get the same file; cut so a long group path still fits.
+pub fn log_name(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let stem: String = key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).take(100).collect();
+    let d = Sha256::digest(key.as_bytes());
+    format!("{stem}-{}.md", d[..4].iter().map(|b| format!("{b:02x}")).collect::<String>())
+}
+pub fn log_path(data: &Path, key: &str) -> PathBuf { logs_dir(data).join(log_name(key)) }
+// A copy of a log kept for a flow from before, whose log was in its worktree (the new ones are in `worklogs/` already).
 pub fn keep_log(data: &Path, f: &Flow) {
-    if f.log.is_empty() { return; }
+    if f.log.is_empty() || !f.log_file.is_empty() { return; }
     let d = logs_dir(data);
     if fs::create_dir_all(&d).is_ok() { let _ = fs::write(d.join(log_name(&f.key)), &f.log); }
 }
@@ -694,7 +734,7 @@ impl Flows {
             let log = parse_log(&f.log);
             v["new"] = json!(log["assumptions"].as_array().map_or(0, |a| a.len()).saturating_sub(f.seen));
             v["parsed"] = json!({ "status": log["status"], "ran": log["ran"], "reviewed": log["reviewed"] });
-            v["cmd"] = json!(if f.cleaned || f.session.is_some() { String::new() } else { cli_command(&f.dir, &main_model(&f.models), "") });
+            v["cmd"] = json!(if f.cleaned || f.session.is_some() { String::new() } else { cli_command(&f.dir, &main_model(&f.models), "", f.log_dir().as_deref()) });
             v
         }).collect();
         json!({ "list": list, "free": free, "room": room(free), "need": WORKTREE_BYTES })
@@ -703,9 +743,9 @@ impl Flows {
     // review Claude opened in the main folder) writes to it without an event the flow sees. True when it changed.
     pub fn refresh(&mut self, key: &str, now: u64) -> bool {
         let Some(f) = self.list.get_mut(key).filter(|f| !f.cleaned) else { return false };
-        let before = (f.log.clone(), f.status.clone());
+        let before = (f.log.clone(), f.status.clone(), f.log_missing);
         f.reread();
-        let changed = before != (f.log.clone(), f.status.clone());
+        let changed = before != (f.log.clone(), f.status.clone(), f.log_missing);
         if changed { f.at = now; }
         changed
     }
@@ -817,29 +857,29 @@ mod tests {
 
     #[test]
     fn the_full_start_interviews_before_the_plan() {
-        let r = rules("7-add-subtract", "/d", "en");
+        let r = rules("7-add-subtract", "/d", "/data/worklogs/l.md", "en");
         for must in ["Restate the ticket", "wait for my answer", "AskUserQuestion", "[scope], [approach], [edge case] or [done criteria]", "Out of scope for this ticket", "No source, no question", "about 8 questions", "\"No questions, because ...\"", "up to you", "`## Questions`", "`## Later`", "\"Mapping\"", "`## Mapping`"] {
             assert!(r.contains(must), "{must}");
         }
-        assert!(!r.contains("because nobody can answer now"));
+        assert!(!r.contains("because nobody can answer now") && !r.contains(".bobix-log"), "the log is not in the worktree");
         // order: restate, then confirm, then the questions, then the plan with its mapping
         let at = |k: &str| r.find(k).unwrap_or_else(|| panic!("{k}"));
         assert!(at("Restate the ticket") < at("confirm it with the AskUserQuestion") && at("confirm it with the AskUserQuestion") < at("ask with the AskUserQuestion tool, in rounds") && at("ask with the AskUserQuestion tool, in rounds") < at("\"Mapping\"") && at("\"Mapping\"") < at("Approving that plan"));
         assert!(r.contains("`## Ticket`, `## Questions`, `## Later` and `## Mapping` into the work log in one go"));
         // Bobix's language: the interview is in it too, the tags stay English
-        let vi = rules("7-add-subtract", "/d", "vi");
+        let vi = rules("7-add-subtract", "/d", "/data/worklogs/l.md", "vi");
         assert!(vi.contains("restate the ticket and ask every question in Vietnamese") && vi.contains("translate that one") && vi.contains("tags `[scope]`"));
         assert!(!r.contains("ask every question in"), "English has no language rule");
     }
 
     #[test]
     fn prompt_parts() {
-        let r = rules("7-add-subtract", "/src/shop/.bobix/worktrees/shop-7", "en");
+        let r = rules("7-add-subtract", "/src/shop/.bobix/worktrees/shop-7", "/data/Application Support/Bobix/worklogs/g_shop_7-1a2b3c4d.md", "en");
         // the ticket's worktree is named, and what to do when Claude opened the session somewhere else
-        for must in ["`/src/shop/.bobix/worktrees/shop-7`, on branch `7-add-subtract`", "a folder under `.claude/worktrees`), stay in that worktree", "run `cd` into `/src/shop/.bobix/worktrees/shop-7` before anything else", "already changed before you started are not this ticket's", "`/src/shop/.bobix/worktrees/shop-7/.bobix-log/work-log.md`", "Never start a work log in the repository's main folder"] {
+        for must in ["`/src/shop/.bobix/worktrees/shop-7`, on branch `7-add-subtract`", "a folder under `.claude/worktrees`), stay in that worktree", "run `cd` into `/src/shop/.bobix/worktrees/shop-7` before anything else", "already changed before you started are not this ticket's", "`/data/Application Support/Bobix/worklogs/g_shop_7-1a2b3c4d.md` (the full path", "do not start another one in the repository or a worktree"] {
             assert!(r.contains(must), "{must}");
         }
-        for must in ["EnterPlanMode", "ExitPlanMode", "Assumptions", "pushing to the main branch", "deleting data", "calling hosts", "touching secrets", ".bobix-log/work-log.md", "`7-add-subtract`", "## Checks", "tests, build and lint", "`- None: `", "/code-review", "`- Review: `"] {
+        for must in ["EnterPlanMode", "ExitPlanMode", "Assumptions", "pushing to the main branch", "deleting data", "calling hosts", "touching secrets", "worklogs/g_shop_7-1a2b3c4d.md", "`7-add-subtract`", "## Checks", "tests, build and lint", "`- None: `", "/code-review", "`- Review: `"] {
             assert!(r.contains(must), "{must}");
         }
         assert!(models_text(&json!({ "size": "small" })).contains("one session"));
@@ -847,11 +887,14 @@ mod tests {
         let t = models_text(&big);
         assert!(t.contains("built-in Explore subagent") && t.contains("`sonnet` suits") && t.contains("model `opus`") && !t.contains("gpt"), "{t}");
         assert!(models_text(&json!({ "size": "large", "steps": [{ "step": "explore", "model": "sonnet" }] })).contains("read-only subagent on model `sonnet`"));
-        let rp = review_prompt("7-add-subtract", "origin/HEAD", "/src/shop/.bobix/worktrees/shop-7", "");
-        assert!(rp.contains("`git diff origin/HEAD...7-add-subtract`") && rp.contains("in `/src/shop/.bobix/worktrees/shop-7/.bobix-log/work-log.md`") && rp.contains("/code-review") && rp.contains("Do not change any code") && rp.contains("- Review (second session): "), "{rp}");
-        assert_eq!(cli_in_mode("/w", "opus", "auto", "r"), "cd '/w' && claude --model 'opus' --permission-mode auto 'r'");
+        let rp = review_prompt("7-add-subtract", "origin/HEAD", "/src/shop/.bobix/worktrees/shop-7", "/data/Application Support/Bobix/worklogs/g_shop_7-1a2b3c4d.md", "");
+        assert!(rp.contains("`git diff origin/HEAD...7-add-subtract`") && rp.contains("work log `/data/Application Support/Bobix/worklogs/g_shop_7-1a2b3c4d.md`") && !rp.contains(".bobix-log") && rp.contains("/code-review") && rp.contains("Do not change any code") && rp.contains("- Review (second session): "), "{rp}");
+        assert_eq!(cli_in_mode("/w", "opus", "auto", "r", None), "cd '/w' && claude --model 'opus' --permission-mode auto 'r'");
+        // the log's folder is added with `=`, so the prompt after it is not read as one more folder; spaces and quotes survive
+        assert_eq!(cli_in_mode("/w", "opus", "auto", "r", Some("/d/Application Support/Bobix/worklogs")), "cd '/w' && claude --model 'opus' --permission-mode auto --add-dir='/d/Application Support/Bobix/worklogs' 'r'");
+        assert_eq!(cli_in_mode("/w", "opus", "plan", "", Some("C:\\Users\\An's PC\\AppData\\Roaming\\Bobix\\worklogs")), r#"cd '/w' && claude --model 'opus' --permission-mode plan --add-dir='C:\Users\An'\''s PC\AppData\Roaming\Bobix\worklogs'"#);
         assert_eq!((main_model(&big), main_model(&json!({}))), ("sonnet".to_string(), "sonnet".to_string()));
-        assert_eq!(cli_command("/src/it's", "opus", "do 'x'"), r#"cd '/src/it'\''s' && claude --model 'opus' --permission-mode plan 'do '\''x'\'''"#);
+        assert_eq!(cli_command("/src/it's", "opus", "do 'x'", None), r#"cd '/src/it'\''s' && claude --model 'opus' --permission-mode plan 'do '\''x'\'''"#);
     }
 
     #[test]
@@ -960,10 +1003,16 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    // A work log's file for a test worktree: in a `logs` folder next to the test's own folders, outside every worktree.
+    fn lf(dir: &Path) -> PathBuf {
+        let mut top = dir;
+        while let Some(p) = top.parent().filter(|p| *p != std::env::temp_dir()) { top = p; }
+        top.join("logs").join(format!("{}.md", dir.file_name().unwrap().to_string_lossy()))
+    }
     // Cut `branch`'s worktree from the remote branch `from` the way Start does.
     fn cut_from(repo: &str, dir: &Path, branch: &str, from: &str) -> Result<Base, BaseErr> {
         let b = base_of(repo, from)?;
-        create_worktree(repo, dir, branch, "log", &b, Some(from), false).map(|_| b)
+        create_worktree(repo, dir, branch, "log", &lf(dir), &b, Some(from), false).map(|_| b)
     }
 
     // Full start from a picked branch: the list comes from the remote now, the branch is fetched now and the worktree
@@ -1001,15 +1050,17 @@ mod tests {
         // a local branch that is called like the remote one must not win over the remote-tracking branch
         g(&me, &["branch", "origin/develop", &old]);
         assert_eq!(base_of(&r(&me), "develop").unwrap().commit, new, "the remote-tracking ref, not a local branch named origin/develop");
-        fs::write(wt.join(LOG_DIR).join(LOG_FILE), "my notes").unwrap();
+        assert_eq!(fs::read_to_string(lf(&wt)).unwrap(), "log", "the log is made outside the worktree");
+        assert!(!wt.join(LOG_DIR).exists(), "and no .bobix-log folder in it");
+        fs::write(lf(&wt), "my notes").unwrap();
         assert!(cut_from(&r(&me), &wt, "7-x", "develop").is_ok(), "kept from a removed flow, cut from the same branch: used again");
-        assert_eq!(fs::read_to_string(wt.join(LOG_DIR).join(LOG_FILE)).unwrap(), "my notes", "its log kept");
+        assert_eq!(fs::read_to_string(lf(&wt)).unwrap(), "my notes", "its log kept");
         // cut from another branch: not silently reused; said which, and the person can keep it
         let t = base_of(&r(&me), "trunk").unwrap();
-        let e = create_worktree(&r(&me), &wt, "7-x", "log", &t, Some("develop"), false).unwrap_err();
+        let e = create_worktree(&r(&me), &wt, "7-x", "log", &lf(&wt), &t, Some("develop"), false).unwrap_err();
         assert_eq!((e.kind, e.detail.as_str()), ("otherbase", "develop"));
-        assert!(create_worktree(&r(&me), &wt, "7-x", "log", &t, Some("develop"), true).is_ok(), "use it anyway");
-        assert_eq!(create_worktree(&r(&me), &wt, "7-x", "log", &t, None, false).unwrap_err().kind, "otherbase", "a branch whose origin is not known is asked about too");
+        assert!(create_worktree(&r(&me), &wt, "7-x", "log", &lf(&wt), &t, Some("develop"), true).is_ok(), "use it anyway");
+        assert_eq!(create_worktree(&r(&me), &wt, "7-x", "log", &lf(&wt), &t, None, false).unwrap_err().kind, "otherbase", "a branch whose origin is not known is asked about too");
         assert!(cut_from(&r(&me), &wt, "8-other", "develop").is_err(), "a folder there for another branch: refused");
         // a branch that is not on the remote (any more)
         assert_eq!(base_of(&r(&me), "nope").unwrap_err().kind, "gone");
@@ -1051,18 +1102,18 @@ mod tests {
         commit(&wt, "own work");
         let develop = base_of(&r(&me), "develop").unwrap();
         // the flow recorded main: keeping it gives main, and the commit shared with main
-        let k = create_worktree(&r(&me), &wt, "7-x", "log", &develop, Some("main"), true).unwrap();
+        let k = create_worktree(&r(&me), &wt, "7-x", "log", &lf(&wt), &develop, Some("main"), true).unwrap();
         assert_eq!((k.branch.as_str(), k.name.as_str(), k.commit.as_str()), ("main", "origin/main", main_tip.as_str()), "the merge request goes where it was cut from, not into the pick");
         assert_eq!(git(&r(&me), &["rev-list", "--count", &format!("{}..7-x", k.commit)]).out.trim(), "1", "its own commits are counted from there");
         // nothing recorded (a flow from before): the picked branch, said in the page as the merge request's target
-        let k = create_worktree(&r(&me), &wt, "7-x", "log", &develop, None, true).unwrap();
+        let k = create_worktree(&r(&me), &wt, "7-x", "log", &lf(&wt), &develop, None, true).unwrap();
         assert_eq!((k.branch.as_str(), k.commit.as_str()), ("develop", main_tip.as_str()), "the commit it shares with develop, which is where main was");
         assert_ne!(k.commit, develop_tip);
         // cut from the picked branch already: the picked base as it is
-        let same = create_worktree(&r(&me), &wt, "7-x", "log", &develop, Some("develop"), false).unwrap();
+        let same = create_worktree(&r(&me), &wt, "7-x", "log", &lf(&wt), &develop, Some("develop"), false).unwrap();
         assert_eq!(same, develop);
         // a recorded branch that has no remote-tracking copy: still named, no commit to count from
-        let gone = create_worktree(&r(&me), &wt, "7-x", "log", &develop, Some("retired"), true).unwrap();
+        let gone = create_worktree(&r(&me), &wt, "7-x", "log", &lf(&wt), &develop, Some("retired"), true).unwrap();
         assert_eq!((gone.branch.as_str(), gone.commit.as_str()), ("retired", ""));
         let _ = fs::remove_dir_all(&root);
     }
@@ -1086,14 +1137,14 @@ mod tests {
         g(&me, &["worktree", "add", "-q", "-b", "7-x", &r(&old)]);
         let wt = worktree_dir(&r(&me), 7, "g/r", "");
         for pick in [None, Some(""), Some("   "), Some("-x"), Some("a..b")] {
-            let e = prepare_start(&r(&me), &wt, "7-x", "log", 7, "g/r", "", pick, None, false).unwrap_err();
+            let e = prepare_start(&r(&me), &wt, "7-x", "log", &lf(&wt), 7, "g/r", "", pick, None, false).unwrap_err();
             assert_eq!(e.kind, "nobase", "{pick:?}: no branch picked, nothing started");
         }
-        let e = prepare_start(&r(&me), &wt, "7-x", "log", 7, "g/r", "", Some("gone"), None, false).unwrap_err();
+        let e = prepare_start(&r(&me), &wt, "7-x", "log", &lf(&wt), 7, "g/r", "", Some("gone"), None, false).unwrap_err();
         assert_eq!(e.kind, "gone");
         assert!(old.is_dir() && !wt.exists(), "the kept worktree was not moved by a refused start");
         // allowed: the kept worktree moves, and is used again for the same branch
-        let b = prepare_start(&r(&me), &wt, "7-x", "log", 7, "g/r", "", Some("develop"), Some("develop"), false).unwrap();
+        let b = prepare_start(&r(&me), &wt, "7-x", "log", &lf(&wt), 7, "g/r", "", Some("develop"), Some("develop"), false).unwrap();
         assert_eq!(b.branch, "develop");
         assert!(wt.is_dir() && !old.exists());
         let _ = fs::remove_dir_all(&root);
@@ -1136,13 +1187,13 @@ mod tests {
     #[test]
     fn a_vietnamese_log_reads_back_and_the_mr_stays_english() {
         // English: nothing changes
-        assert_eq!(rules("7-x", "/w", "en"), rules("7-x", "/w", ""));
-        assert!(!rules("7-x", "/w", "en").contains("Language") && !template(7, "x", "en").contains("MR (English)"));
-        assert!(!review_prompt("7-x", "b", "/w", "en").contains("Vietnamese"));
+        assert_eq!(rules("7-x", "/w", "/l.md", "en"), rules("7-x", "/w", "/l.md", ""));
+        assert!(!rules("7-x", "/w", "/l.md", "en").contains("Language") && !template(7, "x", "en").contains("MR (English)"));
+        assert!(!review_prompt("7-x", "b", "/w", "/l.md", "en").contains("Vietnamese"));
         // Vietnamese: the log in Vietnamese, the markers and what the team reads in English
-        let r = rules("7-x", "/w", "vi");
-        assert!(r.starts_with(&rules("7-x", "/w", "en")) && r.contains("write the work log in Vietnamese") && r.contains("commit messages in English") && r.contains("## MR (English)"));
-        assert!(review_prompt("7-x", "b", "/w", "vi").contains("Write what you found in Vietnamese"));
+        let r = rules("7-x", "/w", "/l.md", "vi");
+        assert!(r.starts_with(&rules("7-x", "/w", "/l.md", "en")) && r.contains("write the work log in Vietnamese") && r.contains("commit messages in English") && r.contains("## MR (English)"));
+        assert!(review_prompt("7-x", "b", "/w", "/l.md", "vi").contains("Write what you found in Vietnamese"));
         let t = template(7, "Sửa tổng giỏ hàng", "vi");
         assert!(t.ends_with("## Result\n\n## MR (English)\n"), "{t}");
         let log = t.replace("Status: planning", "Status: done")
@@ -1236,7 +1287,8 @@ mod tests {
         let s = |p: &Path| p.to_string_lossy().into_owned();
         let repo = root.join("shop");
         let (own, theirs) = (worktree_dir(&s(&repo), 7, "g/shop", ""), repo.join(".claude").join("worktrees").join("brave-otter"));
-        for d in [&own, &theirs] { seed_log(d, &template(7, "Add subtract", "en")).unwrap(); }
+        // flows from before the log moved out of the worktree: theirs is in the folder where the session works
+        for d in [&own, &theirs] { fs::create_dir_all(d.join(LOG_DIR)).unwrap(); fs::write(d.join(LOG_DIR).join(LOG_FILE), template(7, "Add subtract", "en")).unwrap(); }
         let flow = |iid: i64, dir: &Path| Flow { key: key_of("g/shop", iid), path: "g/shop".into(), iid, repo: s(&repo), dir: s(dir), branch: format!("{iid}-add-subtract"), status: "starting".into(), ..Default::default() };
         let mut fl = Flows::default();
         for f in [flow(7, &own), flow(8, &worktree_dir(&s(&repo), 8, "g/shop", ""))] { fl.list.insert(f.key.clone(), f); }
@@ -1289,6 +1341,160 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    // The work log is one file per ticket in Bobix's folder, never inside a repository or a worktree: another ticket of
+    // the same repository, and the same issue number in another repository, each get a file of their own, also when the
+    // names differ only in characters a file name cannot hold; Bobix's folder may hold spaces ("Application Support").
+    #[test]
+    fn each_ticket_has_its_own_log_file_in_bobixs_folder() {
+        let data = Path::new("/Users/demo/Library/Application Support/Bobix");
+        let names: Vec<PathBuf> = ["acme/web#42", "acme/web#43", "acme/api#42", "acme_web/x#42", "acme/web_x#42", "acme/web.x#42", "acme/web#42>acme/api"].iter().map(|k| log_path(data, k)).collect();
+        for (i, a) in names.iter().enumerate() { for b in &names[i + 1..] { assert_ne!(a, b); } }
+        assert!(names.iter().all(|n| n.parent() == Some(&logs_dir(data)) && n.extension().is_some_and(|e| e == "md")));
+        assert!(names[0].to_string_lossy().contains("Application Support/Bobix/worklogs/acme_web_42-"), "{:?}", names[0]);
+        assert_eq!(log_path(data, "acme/web#42"), log_path(data, "acme/web#42"), "the same ticket, the same file, after a restart");
+        assert!(log_path(data, &format!("{}/p#1", "g/".repeat(300))).file_name().unwrap().len() < 130, "a long group path still fits a file name");
+    }
+
+    // Start makes the log from the template in Bobix's folder, with a folder name that has spaces; a flow reads it back
+    // on every event; deleted by hand it is said (not an error) and the text last read stays; made again it reads again.
+    #[test]
+    fn a_new_flow_reads_the_log_in_bobixs_folder_and_says_when_it_is_gone() {
+        let root = std::env::temp_dir().join(format!("bobix-newlog-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let data = root.join("Application Support").join("Bobix");
+        let wt = root.join("repo").join(".bobix").join("worktrees").join("web-42");
+        fs::create_dir_all(&wt).unwrap();
+        let key = "acme/web#42";
+        let file = log_path(&data, key);
+        let tpl = template(42, "Add subtract", "en");
+        seed_log(&file, &tpl, false, &wt).unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), tpl, "seeded from the template");
+        assert_eq!(fs::read_dir(logs_dir(&data)).unwrap().count(), 1, "exactly one file");
+        assert!(!wt.join(LOG_DIR).exists() && !root.join("repo").join(LOG_DIR).exists(), "no .bobix-log folder in the worktree or the repository");
+        let d = wt.to_string_lossy().to_string();
+        let mut fl = Flows::default();
+        fl.list.insert(key.into(), Flow { key: key.into(), path: "acme/web".into(), iid: 42, dir: d.clone(), log_file: file.to_string_lossy().into(), status: "starting".into(), ..Default::default() });
+        assert!(fl.on_event("s1", &d, "SessionStart", "", None, None, 1));
+        assert!(!fl.list[0].log_missing && fl.list[0].log == tpl);
+        // the session writes the file in the folder with spaces; the flow follows it
+        fs::write(&file, tpl.replace("Status: planning", "Status: done").replace("## Assumptions\n", "## Assumptions\n- Integers only\n")).unwrap();
+        assert!(fl.on_event("s1", &d, "Stop", "", None, None, 2));
+        assert_eq!((fl.list[0].status.as_str(), assumptions(&fl.list[0].log)), ("done", 1));
+        // an old log in the worktree is not this flow's: the file in Bobix's folder wins
+        fs::create_dir_all(wt.join(LOG_DIR)).unwrap();
+        fs::write(wt.join(LOG_DIR).join(LOG_FILE), "Status: blocked\n").unwrap();
+        fl.on_event("s1", &d, "Stop", "", None, None, 3);
+        assert_eq!(fl.list[0].status, "done");
+        // deleted by hand: said, nothing crashes, the last text read is kept
+        let before = fl.list[0].log.clone();
+        fs::remove_file(&file).unwrap();
+        fl.on_event("s1", &d, "PostToolUse", "Edit", None, None, 4);
+        assert!(fl.list[0].log_missing && fl.list[0].log == before && fl.list[0].status == "done", "the flow keeps its last read text");
+        assert!(!fl.refresh(key, 5) && fl.list[0].log_missing, "nothing new to tell");
+        fs::write(&file, &before).unwrap();
+        assert!(fl.refresh(key, 5) && !fl.list[0].log_missing, "the file is back: the pages are told");
+        fs::remove_file(&file).unwrap();
+        assert!(fl.refresh(key, 5) && fl.list[0].log_missing, "gone again: the pages are told");
+        let v = fl.view(None);
+        assert_eq!(v["list"][0]["logMissing"], json!(true), "the pages are told");
+        assert!(v["list"][0].get("log").is_none());
+        fs::write(&file, &before).unwrap();
+        fl.on_event("s1", &d, "PostToolUse", "Edit", None, None, 6);
+        assert!(!fl.list[0].log_missing, "made again: read again");
+        // cleaning up (a copy for flows from before) never overwrites the live file with the text last read
+        fs::write(&file, "newer text").unwrap();
+        keep_log(&data, &fl.list[0]);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "newer text");
+        // the worktree and then the whole repository folder go: the log stays
+        fs::remove_dir_all(&wt).unwrap();
+        fs::remove_dir_all(root.join("repo")).unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "newer text");
+        // started again for the same ticket: with its worktree kept, its log is kept; with none (a branch left after Clean
+        // up counts for nothing), the log begins again and the earlier one is moved aside, not overwritten
+        seed_log(&file, &tpl, true, &wt).unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "newer text");
+        let done = tpl.replace("Status: planning", "Status: done");
+        fs::write(&file, &done).unwrap();
+        seed_log(&file, &tpl, false, &wt).unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), tpl, "a new flow starts from the template, not from the old done log");
+        let aside: Vec<_> = fs::read_dir(logs_dir(&data)).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p != &file).collect();
+        assert_eq!(aside.len(), 1, "the earlier log is moved aside");
+        assert!(fs::read_to_string(&aside[0]).unwrap() == done && aside[0].to_string_lossy().contains("acme_web_42-"), "{aside:?}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // A flow started before the log moved (no `log_file`) keeps being read from its folder, which is never moved or
+    // deleted; its kept copy goes to Bobix's folder on clean up as before; a worktree kept from such a flow gives the
+    // log of a new start its text, the old file left where it is.
+    #[test]
+    fn a_flow_from_before_is_still_read_from_its_worktree() {
+        let root = std::env::temp_dir().join(format!("bobix-oldlog-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (data, wt) = (root.join("data"), root.join("repo").join(".bobix").join("worktrees").join("web-7"));
+        fs::create_dir_all(wt.join(LOG_DIR)).unwrap();
+        let old = wt.join(LOG_DIR).join(LOG_FILE);
+        fs::write(&old, template(7, "x", "en").replace("Status: planning", "Status: running")).unwrap();
+        let old_flow: Flow = serde_json::from_str(&format!(r#"{{"key":"g/web#7","dir":{},"status":"planning","plan":"p","session":"s1"}}"#, serde_json::to_string(&wt.to_string_lossy()).unwrap())).unwrap();
+        assert!(old_flow.log_file.is_empty() && !old_flow.log_missing, "an old tickets.json reads back as an old flow");
+        assert_eq!(old_flow.log_at(), old.to_string_lossy());
+        assert_eq!(old_flow.log_dir(), None, "a terminal start adds no folder for it");
+        let mut fl = Flows::default();
+        fl.list.insert("g/web#7".into(), old_flow);
+        let d = wt.to_string_lossy().to_string();
+        assert!(fl.on_event("s1", &d, "PostToolUse", "Edit", None, None, 1));
+        assert_eq!((fl.list[0].status.as_str(), fl.list[0].log_missing), ("running", false));
+        keep_log(&data, &fl.list[0]);
+        assert!(fs::read_to_string(log_path(&data, "g/web#7")).unwrap().contains("Status: running"), "the copy is kept as before");
+        assert!(old.is_file(), "the old log is not moved or deleted");
+        // a new start on the worktree kept from it: the new file begins with the old text; the old file stays
+        let file = log_path(&data, "g/web#7");
+        let _ = fs::remove_file(&file);
+        seed_log(&file, &template(7, "x", "en"), true, &wt).unwrap();
+        assert!(fs::read_to_string(&file).unwrap().contains("Status: running") && old.is_file());
+        // its session came up in a worktree Claude made (`dir` moves, the one Bobix made is `own`): the log is still read
+        let theirs = root.join("claude-wt");
+        fs::create_dir_all(&theirs).unwrap();
+        fl.list[0].own = d.clone();
+        fl.list[0].dir = theirs.to_string_lossy().into();
+        fl.on_event("s1", &theirs.to_string_lossy(), "Stop", "", None, None, 3);
+        assert!(!fl.list[0].log_missing && fl.list[0].log.contains("Status: running"), "read from the worktree Bobix made");
+        fs::create_dir_all(theirs.join(LOG_DIR)).unwrap();
+        fs::write(theirs.join(LOG_DIR).join(LOG_FILE), "Status: done\n").unwrap();
+        fl.on_event("s1", &theirs.to_string_lossy(), "Stop", "", None, None, 4);
+        assert_eq!(fl.list[0].status, "done", "and where the session works, once it writes one there");
+        fl.list[0].dir = d.clone();
+        fl.list[0].own = String::new();
+        // its worktree gone: Work says the log is missing
+        fs::remove_dir_all(&wt).unwrap();
+        fl.on_event("s1", &d, "Stop", "", None, None, 2);
+        assert!(fl.list[0].log_missing && fl.list[0].log.contains("Status: done"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // A Windows path (drive letter, backslashes, a space) goes into the prompt text, the terminal command and the
+    // folder Claude is given exactly as it is, and a file at a path of this system's own kind reads back.
+    #[test]
+    fn windows_paths_reach_the_prompt_and_are_cut_at_either_separator() {
+        let log = r"C:\Users\An Nguyen\AppData\Roaming\Bobix\worklogs\acme_web_42-1a2b3c4d.md";
+        let r = rules("42-add", r"C:\src\web\.bobix\worktrees\web-42", log, "en");
+        assert!(r.contains(&format!("`{log}` (the full path")), "{r}");
+        assert!(review_prompt("42-add", "origin/HEAD", r"C:\src\web", log, "en").contains(&format!("`{log}`")));
+        let f = Flow { log_file: log.into(), dir: r"C:\src\web".into(), ..Default::default() };
+        assert_eq!(f.log_dir().as_deref(), Some(r"C:\Users\An Nguyen\AppData\Roaming\Bobix\worklogs"));
+        assert_eq!(f.log_at(), log);
+        // quoted for a POSIX shell, like the rest of the command
+        assert!(cli_command(&f.dir, "sonnet", "go", f.log_dir().as_deref()).contains(r"--add-dir='C:\Users\An Nguyen\AppData\Roaming\Bobix\worklogs'"));
+        assert_eq!((dir_of("/a/b/c.md").as_deref(), dir_of("c.md"), dir_of("/c.md")), (Some("/a/b"), None, None));
+        // read back at a path of this system's kind (a drive letter and backslashes on Windows)
+        let root = std::env::temp_dir().join(format!("bobix-winlog-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let file = log_path(&root.join("An Nguyen"), "acme/web#42");
+        seed_log(&file, "Status: done\n", false, &root).unwrap();
+        let f = Flow { log_file: file.to_string_lossy().into(), ..Default::default() };
+        assert_eq!(read_log_of(&f).as_deref(), Some("Status: done\n"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
     // Folders are compared as folders: git prints "C:/x/shop", Claude sends "C:\x\shop", a worktree path mixes both.
     #[test]
     fn where_a_session_came_up_is_read_from_folders_not_text() {
@@ -1321,8 +1527,8 @@ mod tests {
         let r = repo.to_string_lossy().to_string();
         let dir = worktree_dir(&r, 7, "g/r", "");
         assert_eq!(cut_from(&r, &dir, "7-add-subtract", "main").unwrap().name, "origin/main");
-        assert_eq!(read_log(&dir.to_string_lossy()).as_deref(), Some("log"));
-        assert!(git(&dir.to_string_lossy(), &["status", "--porcelain"]).out.trim().is_empty(), "the log folder ignores itself");
+        assert_eq!(fs::read_to_string(lf(&dir)).unwrap(), "log");
+        assert!(git(&dir.to_string_lossy(), &["status", "--porcelain"]).out.trim().is_empty() && !dir.join(LOG_DIR).exists(), "no log folder in the worktree: git has nothing to ignore");
         assert!(dir.starts_with(repo.join(".bobix").join("worktrees")) && git(&r, &["status", "--porcelain"]).out.trim().is_empty(), "the worktrees' folder ignores itself: the main folder's status stays clean");
         assert!(cut_from(&r, &dir, "8-other", "main").is_err(), "already there, for another branch");
         assert_eq!(at_risk(&dir.to_string_lossy(), "7-add-subtract"), Some((0, 0)));
