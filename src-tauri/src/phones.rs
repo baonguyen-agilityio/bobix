@@ -284,11 +284,15 @@ impl State {
     // The notices of the requests that ended: every paired phone learns who closed it (one that never had the push still has the
     // item in its last `home`); the push that clears a shown notification goes only where it was announced. A phone's answer
     // names the phone only to that phone (so it can say "this phone"); the others are told it was a phone, not which.
+    // With no link to the relay they are dropped (a phone learns the item is gone from its next `home`), so an outage never
+    // piles up a sealed frame for every item and phone.
     fn closed_frames(&mut self) -> Vec<Frame> {
         let mut out = vec![];
+        let linked = self.cfg.on && self.status == "online";
         for (id, sid, _, end) in std::mem::take(&mut self.closed_events) {
             let notified = self.notified.remove(&id);
             let answerer = self.answerers.remove(&id);
+            if !linked { continue; }
             let push = notified.then(|| Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, event: None, replaces: Some(id.clone()) });
             let ids: Vec<String> = self.store.phones.iter().map(|p| p.id.clone()).collect();
             for p in ids {
@@ -1529,6 +1533,11 @@ mod tests {
             let by: Value = serde_json::from_slice::<Value>(&opened.plaintext).unwrap()["by"].clone();
             assert_eq!(by, if *id == "p2" { json!({ "kind": "phone", "phone": "p2" }) } else { json!({ "kind": "phone", "phone": "" }) }, "{id}");
         }
+        // with no link, nothing is sealed for later and nothing is kept for the item
+        st.status = "connecting".into();
+        st.answerers.insert("r2".into(), "p".into());
+        st.closed_events.push(("r2".into(), "s1".into(), false, crate::answers::End::Answered(By::Phone, true)));
+        assert!(st.closed_frames().is_empty() && st.closed_events.is_empty() && !st.answerers.contains_key("r2"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
