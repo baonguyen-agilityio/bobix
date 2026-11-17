@@ -82,6 +82,118 @@ void main() {
     },
   );
 
+  group('the tab bar lens', () {
+    Future<List<int>> pumpBar(
+      WidgetTester tester, {
+      required TargetPlatform platform,
+      bool reduceMotion = false,
+    }) async {
+      final selected = <int>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: bobixTheme(Brightness.light).copyWith(platform: platform),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(disableAnimations: reduceMotion),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Center(
+              child: GlassTabBar(
+                tabs: const [
+                  TabSpec(Icons.home, 'Home'),
+                  TabSpec(Icons.pets, 'Pets'),
+                  TabSpec(Icons.settings, 'Settings'),
+                ],
+                start: const TabSpec(Icons.add, 'Start'),
+                index: 0,
+                startIndex: 3,
+                onSelect: selected.add,
+              ),
+            ),
+          ),
+        ),
+      );
+      return selected;
+    }
+
+    Offset slotCentre(WidgetTester tester, int slot) =>
+        tester.getCenter(find.byKey(ValueKey('tab-pill-$slot')));
+
+    double lensScale(WidgetTester tester) => tester
+        .widget<AnimatedScale>(find.byKey(const ValueKey('tab-lens')))
+        .scale;
+
+    testWidgets(
+      'on iOS, dragging from Home to Settings selects Settings on release',
+      (tester) async {
+        final selected = await pumpBar(tester, platform: TargetPlatform.iOS);
+        final gesture = await tester.startGesture(slotCentre(tester, 0));
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(lensScale(tester), 1.15, reason: 'held: the lens lifts');
+        await gesture.moveTo(slotCentre(tester, 1));
+        await gesture.moveTo(slotCentre(tester, 2));
+        await tester.pump();
+        expect(selected, isEmpty, reason: 'nothing is chosen until release');
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(selected, [2]);
+        expect(lensScale(tester), 1, reason: 'released: the lens settles');
+      },
+    );
+
+    testWidgets('on iOS, a release far below the capsule cancels', (
+      tester,
+    ) async {
+      final selected = await pumpBar(tester, platform: TargetPlatform.iOS);
+      final gesture = await tester.startGesture(slotCentre(tester, 0));
+      await gesture.moveTo(slotCentre(tester, 2));
+      await gesture.moveTo(slotCentre(tester, 2) + const Offset(0, 80));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(selected, isEmpty);
+    });
+
+    testWidgets('on iOS, a plain tap selects the tab', (tester) async {
+      final selected = await pumpBar(tester, platform: TargetPlatform.iOS);
+      await tester.tapAt(slotCentre(tester, 1));
+      await tester.pumpAndSettle();
+      expect(selected, [1]);
+    });
+
+    testWidgets(
+      'with reduced motion the lens does not lift, and a drag still selects',
+      (tester) async {
+        final selected = await pumpBar(
+          tester,
+          platform: TargetPlatform.iOS,
+          reduceMotion: true,
+        );
+        final gesture = await tester.startGesture(slotCentre(tester, 0));
+        await tester.pump(const Duration(milliseconds: 150));
+        await gesture.moveTo(slotCentre(tester, 1));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(lensScale(tester), 1);
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(selected, [1]);
+      },
+    );
+
+    testWidgets('on Android a tap selects and a drag does not', (tester) async {
+      final selected = await pumpBar(tester, platform: TargetPlatform.android);
+      await tester.tapAt(slotCentre(tester, 1));
+      expect(selected, [1]);
+      selected.clear();
+      final gesture = await tester.startGesture(slotCentre(tester, 0));
+      await gesture.moveTo(slotCentre(tester, 2));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(selected, isEmpty);
+      expect(lensScale(tester), 1);
+    });
+  });
+
   testWidgets(
     'the tab bar sits above the system inset, and keeps its own gap without one',
     (tester) async {
