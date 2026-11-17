@@ -617,3 +617,16 @@ async fn a_relay_listening_on_every_address_checks_signatures_against_the_lan_ad
 fn s_url(addr: &str) -> String {
     format!("ws://{addr}")
 }
+
+#[tokio::test]
+async fn a_relay_without_dev_takes_devices_on_the_address_they_were_given() {
+    let mut c = cfg();
+    c.dev = false;
+    let s = start(c).await;
+    for path in ["", "/", "/v1/ws"] {
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}{path}", s.addr)).await.unwrap();
+        use futures_util::StreamExt;
+        let first = tokio::time::timeout(std::time::Duration::from_secs(2), ws.next()).await.expect("no frame").expect("closed").unwrap();
+        assert!(first.to_text().unwrap().contains("challenge"), "{path:?}: {first:?}");
+    }
+}
