@@ -280,7 +280,9 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
         "kind": if is_question { "question" } else if plan { "plan" } else { "request" },
         "questions": questions.iter().map(|q| json!({ "question": escaped(&q.text), "options": q.options.iter().map(|o| escaped(o)).collect::<Vec<_>>(), "multi": q.multi_select })).collect::<Vec<_>>() }));
     let plan_text = e["tool_input"]["plan"].as_str().unwrap_or("");
-    let files = if !plan { Default::default() } else { match read_files { Some((cwd, f)) if cwd == s.cwd => f, _ => crate::plan_files::read(plan_text, &s.cwd) } };
+    // A plan's files are read only for a phone that may approve it, and normally before the core was locked (`on_event`); only
+    // when the session's folder is not the one they were read from are they read here.
+    let files = match read_files { Some((cwd, f)) if plan && cwd == s.cwd => f, _ if plan && phones.has_phone_for(Kind::Plan) => crate::plan_files::read(plan_text, &s.cwd), _ => Default::default() };
     pending.insert(id.clone(), Pending { sid: s.id.clone(), tool: e["tool_name"].as_str().unwrap_or("").into(), tool_input: e["tool_input"].clone(), plan, input: is_question.then(|| e["tool_input"].clone()), raw: if is_question { question_text(&questions) } else { raw_text(e) }, questions, tx, cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now, child_base: None,
         files: files.files, files_omitted: files.omitted, cwd: s.cwd.clone() });
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
@@ -588,17 +590,21 @@ mod tests {
         std::fs::write(dir.join("plans/a.md"), "from disk").unwrap();
         let event = json!({ "tool_name": "ExitPlanMode", "tool_input": { "plan": "see plans/a.md" } });
         let early = PlanFiles { files: vec![], omitted: 7 };
-        let held = |cwd: &str, read_files: Option<(String, PlanFiles)>| {
-            let (mut pending, mut closed, mut phones) = (HashMap::new(), HashMap::new(), crate::phones::State::default());
+        let plans = bobix_link::pairing::Rights { plan: true, ..Default::default() };
+        let held_with = |phones: crate::phones::State, cwd: &str, read_files: Option<(String, PlanFiles)>| {
+            let (mut pending, mut closed, mut phones) = (HashMap::new(), HashMap::new(), phones);
             let mut s = crate::state::Session::default();
             s.id = "s1".into(); s.cwd = dir.to_string_lossy().into_owned();
             assert!(wait(&b, &mut pending, &mut closed, &mut phones, &json!({}), &mut s, &event, true, read_files.map(|(_, f)| (cwd.to_string(), f))).is_some());
             let p = pending.into_values().next().unwrap();
             (p.files.iter().map(|f| f.text.clone()).collect::<Vec<_>>(), p.files_omitted, p.cwd == s.cwd)
         };
+        let held = |cwd: &str, read_files: Option<(String, PlanFiles)>| held_with(crate::phones::State::with_phone(plans), cwd, read_files);
         assert_eq!(held(&dir.to_string_lossy(), Some((String::new(), early.clone()))), (vec![], 7, true), "read in this folder: used as it is");
         assert_eq!(held("/somewhere/else", Some((String::new(), early))), (vec!["from disk".to_string()], 0, true), "read in another folder: read again");
         assert_eq!(held("", None), (vec!["from disk".to_string()], 0, true), "not read before: read now");
+        let answers_only = crate::phones::State::with_phone(bobix_link::pairing::Rights { answer: true, ..Default::default() });
+        assert_eq!(held_with(answers_only, "", None), (vec![], 0, true), "no phone may approve plans: nothing is read");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

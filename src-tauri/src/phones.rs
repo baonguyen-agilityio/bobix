@@ -599,6 +599,13 @@ impl State {
     pub fn was_sent(&self, id: &str) -> bool { self.notified.contains(id) }
     #[cfg(test)]
     pub fn mark_sent(&mut self, id: &str) { self.notified.insert(id.into()); }
+    #[cfg(test)]
+    pub fn with_phone(rights: Rights) -> State {
+        let mut st = State::default();
+        st.cfg.on = true;
+        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights, since: 0, needs_pairing: false, no_push: false });
+        st
+    }
     // Phone access is on and a paired phone holds the right to answer an item of this kind: it may be answered there, so it
     // never runs out. A phone without the right cannot answer it, and holding it for that phone would only leave it unanswered.
     pub fn has_phone_for(&self, kind: crate::answers::Kind) -> bool { self.cfg.on && self.store.phones.iter().any(|p| !p.needs_pairing && kind.answerable_with(p.rights)) }
@@ -820,11 +827,20 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, version: u8, coun
             let r = if !phone.rights.allows(&body) { refuse("right") } else if !plain { refuse("text") } else { match &body {
                 CommandBody::Answer { id, choice, shown } => {
                     let allow = *choice == Choice::Allow;
-                    apply(c, &cmd.cid, id, shown, if allow { "allow" } else { "deny" }, "", false, By::Phone, changed, &phone.rights)
+                    apply(c, &cmd.cid, id, shown, if allow { "allow" } else { "deny" }, "", false, By::Phone, changed, None)
                 }
                 CommandBody::Plan { id, decision, note, shown } => {
                     let approve = *decision == Decision::Approve;
-                    apply(c, &cmd.cid, id, shown, if approve { "allow" } else { "deny" }, note.as_deref().unwrap_or(""), true, By::Phone, changed, &phone.rights)
+                    // an approve of a held plan reads its files again, off the core's lock: the result comes when that is done
+                    let held = c.pending.get(id).filter(|p| approve && p.kind() == crate::answers::Kind::Plan).map(|p| (p.tool_input["plan"].as_str().unwrap_or("").to_string(), p.cwd.clone()));
+                    match held {
+                        Some(plan) => {
+                            begin_approve(b, c, Approve { from: from.into(), name: phone.name.clone(), cid: cmd.cid.clone(), id: id.clone(), shown: shown.clone(), note: note.clone().unwrap_or_default(), what: what.clone(), t }, plan);
+                            later = true;
+                            CmdResult::new(&cmd.cid, Outcome::Unknown)
+                        }
+                        None => apply(c, &cmd.cid, id, shown, if approve { "allow" } else { "deny" }, note.as_deref().unwrap_or(""), true, By::Phone, changed, None),
+                    }
                 }
                 CommandBody::Question { id, answers, shown } => apply_question(c, &cmd.cid, id, shown, answers, changed),
                 CommandBody::Stop { session, request } => {
@@ -841,14 +857,40 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, version: u8, coun
             (r, what)
         }
     };
-    if later { return None; } // the start thread logs and stores it when it is done
-    if let (Some(id), Outcome::Ok) = (item, result.outcome) { c.phones.answerers.insert(id, from.to_string()); } // for the closed notice
+    if later { return None; } // the start or approve thread logs and stores it when it is done
+    record(c, from, &phone.name, &what, item, &result, t);
+    Some(result)
+}
+
+// A command's result, kept: who answered (for the closed notice), the log line, and the result by `cid` for 24 hours.
+fn record(c: &mut crate::Core, from: &str, name: &str, what: &str, item: Option<String>, result: &CmdResult, t: u64) {
+    if let (Some(id), Outcome::Ok) = (item, result.outcome) { c.phones.answerers.insert(id, from.to_string()); }
     let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
     let shown = if let Some(w) = &result.why { format!("{word} ({w})") } else { word };
-    c.phones.push_log(&phone.name, &what, &shown);
-    c.phones.results.insert(key, (result.clone(), t));
+    c.phones.push_log(name, what, &shown);
+    c.phones.results.insert(format!("{from}:{}", result.cid), (result.clone(), t));
     c.phones.save_results(&c.closed);
-    Some(result)
+}
+
+// A phone's approve of a held plan, after the signature and the right.
+struct Approve { from: String, name: String, cid: String, id: String, shown: String, note: String, what: String, t: u64 }
+
+// The plan's files are read again in a thread, so a slow or hung disk never holds the core's lock; then the approve is
+// checked and applied as any answer (the plan may have closed meanwhile), and its result goes to the phone.
+fn begin_approve(b: &Arc<Bobix>, c: &mut crate::Core, a: Approve, (plan, cwd): (String, String)) {
+    c.phones.inflight.insert(format!("{}:{}", a.from, a.cid));
+    let b2 = b.clone();
+    std::thread::spawn(move || {
+        let files = crate::plan_files::read(&plan, &cwd);
+        let mut changed = false;
+        let mut c = b2.core.lock().unwrap();
+        c.phones.inflight.remove(&format!("{}:{}", a.from, a.cid));
+        let result = apply(&mut c, &a.cid, &a.id, &a.shown, "allow", &a.note, true, crate::answers::By::Phone, &mut changed, Some(files));
+        record(&mut c, &a.from, &a.name, &a.what, Some(a.id.clone()), &result, a.t);
+        if let Some((_, f)) = c.phones.tell(&a.from, &DesktopMsg::Result(result), None, None) { c.phones.send(f); }
+        drop(c);
+        if changed { b2.broadcast(); }
+    });
 }
 
 // The prompt as the phone shows it: hidden characters (tag characters, bidirectional overrides, invisible letters) written as
@@ -974,7 +1016,7 @@ fn apply_question(c: &mut crate::Core, cid: &str, id: &str, shown: &str, answers
 
 // An `answer` (plan: false) or `plan` (plan: true) command that passed the signature and the right.
 #[allow(clippy::too_many_arguments)]
-fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, note: &str, plan: bool, by: crate::answers::By, changed: &mut bool, _rights: &Rights) -> CmdResult {
+fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, note: &str, plan: bool, by: crate::answers::By, changed: &mut bool, read: Option<crate::plan_files::PlanFiles>) -> CmdResult {
     use crate::answers::{respond_core, Answered};
     // what is held, as the phone saw it: the kind first (an answer for a plan id is refused, and the reverse)
     let mut fresh = None;
@@ -988,9 +1030,10 @@ fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, no
                 _ => return CmdResult::new(cid, Outcome::Stale),
             }
             // An approve covers the files as they are on disk now, not as they were when the plan was held (what the hash
-            // covers is the copy in memory): read again, and when they differ the phone is told and shown the new ones.
+            // covers is the copy in memory): read again, and when they differ the phone is told and shown the new ones. The
+            // phone's approve reads them before the core is locked (`begin_approve`); only a test reads them here.
             if plan && choice == "allow" {
-                let now = p.files_now();
+                let now = read.unwrap_or_else(|| p.files_now());
                 if now.files != p.files || now.omitted != p.files_omitted { fresh = Some(now); }
             }
         }
@@ -1534,7 +1577,7 @@ mod tests {
         held(&mut c, "cutreq", false, "echo hi", true);
         held(&mut c, "cutplan", true, "1. a plan that was cut", true);
         held(&mut c, "escplan", true, &"\u{200b}".repeat(12_000), false); // not cut by the hook; its escaped form crosses the cap
-        let a = |c: &mut crate::Core, id: &str, sh: &str, choice: &str, plan: bool, ch: &mut bool| apply(c, "cid", id, sh, choice, "", plan, By::Phone, ch, &Rights::default());
+        let a = |c: &mut crate::Core, id: &str, sh: &str, choice: &str, plan: bool, ch: &mut bool| apply(c, "cid", id, sh, choice, "", plan, By::Phone, ch, None);
         let (sh, shp, shc) = (shown(&c, "req"), shown(&c, "plan"), shown(&c, "cutreq"));
         assert_eq!(a(&mut c, "plan", &shp, "allow", false, &mut changed).why.as_deref(), Some("kind"), "an answer for a plan id");
         assert_eq!(a(&mut c, "req", &sh, "allow", true, &mut changed).why.as_deref(), Some("kind"), "a plan decision for a request id");
@@ -1672,7 +1715,7 @@ mod tests {
         held(&mut c, "req", false, "ls", false);
         assert_eq!(apply_question(&mut c, "c3", "req", "x", &ans(&["a"]), &mut changed).why.as_deref(), Some("kind"), "a question command on a request id");
         let _rx2 = held_question(&mut c, "q2", "s1");
-        let a = |c: &mut crate::Core, id: &str, ch: &mut bool| apply(c, "c4", id, "x", "allow", "", false, By::Phone, ch, &Rights::default());
+        let a = |c: &mut crate::Core, id: &str, ch: &mut bool| apply(c, "c4", id, "x", "allow", "", false, By::Phone, ch, None);
         assert_eq!(a(&mut c, "q2", &mut changed).why.as_deref(), Some("kind"), "an answer on a question id");
         assert!(crate::answers::respond_core(&mut c, "q2", "allow", "", By::Pc, None, 1) == crate::answers::Answered::WrongKind, "a bare Allow never skips a question");
     }
