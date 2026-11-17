@@ -282,6 +282,10 @@ void main() {
       );
       await tester.tap(button('Allow'));
       await settle(tester);
+      // The sheet stays with the reason; Cancel leaves it.
+      expect(src.sent, isEmpty);
+      await tester.tap(button('Cancel'));
+      await settle(tester);
       expect(src.sent, isEmpty);
       expect(find.text(tr('en', 'un.cancelled')), findsOneWidget);
       expect(find.text('npm test -- checkout'), findsOneWidget);

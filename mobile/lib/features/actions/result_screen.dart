@@ -22,9 +22,17 @@ const heldMinutes = 10;
 /// The result of one command: what happened, said in words. A command is never sent again from here: a result that
 /// did not come is asked for ("Check status"), and a held command can be withdrawn.
 class ResultScreen extends ConsumerStatefulWidget {
-  const ResultScreen({super.key, required this.command, required this.first});
+  const ResultScreen({
+    super.key,
+    required this.command,
+    required this.first,
+    this.iconFrom,
+  });
 
   final Command command;
+
+  /// Where the confirm sheet's circle was, when the screen comes after it: the icon grows from there.
+  final Offset? iconFrom;
 
   /// The command's result as it arrives; the screen says "sending" until then.
   final Future<CommandOutcome> first;
@@ -157,14 +165,17 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
           padding: const EdgeInsets.fromLTRB(4, 22, 4, 14),
           child: Column(
             children: [
-              Container(
-                width: 76,
-                height: 76,
-                decoration: BoxDecoration(
-                  color: v.tone.bg(t),
-                  shape: BoxShape.circle,
+              _GrowFrom(
+                from: widget.iconFrom,
+                child: Container(
+                  width: 76,
+                  height: 76,
+                  decoration: BoxDecoration(
+                    color: v.tone.bg(t),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(v.icon, size: 38, color: v.tone.fg(t)),
                 ),
-                child: Icon(v.icon, size: 38, color: v.tone.fg(t)),
               ),
               const SizedBox(height: 12),
               Semantics(
@@ -418,4 +429,67 @@ class _View {
   final _Tone tone;
   final String title, body;
   final String? note;
+}
+
+/// The result icon coming in: it grows from [from] (the middle of the confirm sheet's circle, in screen coordinates)
+/// to its place in 350 ms, as one motion with the sheet leaving. With reduced motion it only fades in, in 150 ms.
+class _GrowFrom extends StatefulWidget {
+  const _GrowFrom({required this.from, required this.child});
+  final Offset? from;
+  final Widget child;
+
+  @override
+  State<_GrowFrom> createState() => _GrowFromState();
+}
+
+class _GrowFromState extends State<_GrowFrom>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this);
+  Offset _shift = Offset.zero;
+  bool _placed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.from == null) return;
+    // Its place is known once it has been laid out.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = context.findRenderObject() as RenderBox;
+      final here = box.localToGlobal(box.size.center(Offset.zero));
+      final reduced = MediaQuery.disableAnimationsOf(context);
+      setState(() {
+        _placed = true;
+        _shift = widget.from! - here;
+      });
+      _c.duration = Duration(milliseconds: reduced ? 150 : 350);
+      unawaited(_c.forward());
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.from == null) return widget.child;
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    return AnimatedBuilder(
+      animation: _c,
+      child: widget.child,
+      builder: (context, child) {
+        // Not shown before it is placed: one frame at the wrong spot would flash.
+        if (!_placed) return Opacity(opacity: 0, child: child);
+        final v = const Cubic(.2, .8, .2, 1).transform(_c.value);
+        if (reduced) return Opacity(opacity: _c.value, child: child);
+        return Transform.translate(
+          offset: _shift * (1 - v),
+          child: Transform.scale(scale: .7 + .3 * v, child: child),
+        );
+      },
+    );
+  }
 }

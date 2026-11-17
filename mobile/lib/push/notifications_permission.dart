@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/l10n.dart';
+import '../lock/own_prompt.dart';
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
 import '../widgets/floating_sheet.dart';
@@ -33,7 +34,9 @@ Future<void> offerNotifications(BuildContext context, WidgetRef ref) async {
       backgroundColor: Colors.transparent,
       builder: (_) => const _ReasonSheet(),
     );
-    if (allow == true) await reg.requestPermissionAndRegister();
+    if (allow == true) {
+      await duringOwnPrompt(reg.requestPermissionAndRegister);
+    }
   } on Object {
     // Push is not available here (no platform channel): the pairing goes on without it.
   }
@@ -113,7 +116,9 @@ class _NotificationsPermissionNoticeState
 
   Future<void> _ask() async {
     try {
-      await ref.read(pushRegistrationProvider).requestPermissionAndRegister();
+      await duringOwnPrompt(
+        ref.read(pushRegistrationProvider).requestPermissionAndRegister,
+      );
     } on Object {
       // No platform: nothing to ask.
     }

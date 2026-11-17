@@ -49,6 +49,7 @@ Future<FixtureActionsSource> pumpScreen(
   ConnState conn = ConnState.ok,
   bool approve = true,
   HomeData? home,
+  BiometricGate? gate,
 }) async {
   tester.view
     ..physicalSize = const Size(390 * 3, 844 * 3)
@@ -66,7 +67,7 @@ Future<FixtureActionsSource> pumpScreen(
         if (home != null)
           homeProvider.overrideWith((ref) => Stream.value(home)),
         biometricGateProvider.overrideWithValue(
-          FixtureBiometricGate(approve: approve, after: Duration.zero),
+          gate ?? FixtureBiometricGate(approve: approve, after: Duration.zero),
         ),
       ],
       child: MaterialApp(theme: bobixTheme(brightness), home: screen),
@@ -85,9 +86,9 @@ Finder button(String label) => find.widgetWithText(InkWell, label);
 bool off(WidgetTester tester, String label) =>
     tester.widget<InkWell>(button(label).first).onTap == null;
 
-/// Lets the confirm step and the send finish.
+/// Lets the confirm step (the sheet rises, the read pause, the check, the hold, the sheet leaves) and the send finish.
 Future<void> settle(WidgetTester tester) async {
-  for (var i = 0; i < 8; i++) {
+  for (var i = 0; i < 14; i++) {
     await tester.pump(const Duration(milliseconds: 200));
   }
 }

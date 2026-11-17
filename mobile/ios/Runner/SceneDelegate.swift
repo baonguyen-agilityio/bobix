@@ -4,12 +4,18 @@ import UIKit
 /// The app switcher keeps a picture of the app when it goes away. While the scene is not active an opaque cover (the
 /// pet, or the app tile before there is one, on the page colour) hides the content, so nothing of a request, a plan or a session is in that picture.
 /// (Dart covers the screen too, but only native code can do it before the system takes the picture.)
+/// Set by Dart (the `setOwnPrompt` call on `dev.bobix.phone/window`) around a system prompt the app asked for itself
+/// (Face ID, the notification dialog): the person is looking at the screen that asked, so no cover goes over it.
+enum OwnPrompt {
+  static var active = false
+}
+
 class SceneDelegate: FlutterSceneDelegate {
   private var cover: UIView?
 
   override func sceneWillResignActive(_ scene: UIScene) {
     super.sceneWillResignActive(scene)
-    guard cover == nil, let window = (scene as? UIWindowScene)?.windows.first else { return }
+    guard !OwnPrompt.active, cover == nil, let window = (scene as? UIWindowScene)?.windows.first else { return }
     let view = UIView(frame: window.bounds)
     view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     // The page's own colour (the app's `bg` token) with a working pet (or, before there is one, the app tile) on it.

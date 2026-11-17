@@ -27,6 +27,19 @@ import UserNotifications
     secureKeys = SecureKeysChannel(messenger: engineBridge.applicationRegistrar.messenger())
     push.attach(messenger: engineBridge.applicationRegistrar.messenger())
     surfaces.attach(messenger: engineBridge.applicationRegistrar.messenger())
+    // Only the own-prompt flag: iOS has no secure window flag, so `setSecure` is accepted and does nothing.
+    FlutterMethodChannel(name: "dev.bobix.phone/window", binaryMessenger: engineBridge.applicationRegistrar.messenger())
+      .setMethodCallHandler { call, result in
+        switch call.method {
+        case "setOwnPrompt":
+          OwnPrompt.active = (call.arguments as? [String: Any])?["active"] as? Bool ?? false
+          result(nil)
+        case "setSecure":
+          result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
   }
 
   override func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
