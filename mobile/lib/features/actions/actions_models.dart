@@ -150,9 +150,63 @@ class SessionDetail {
 }
 
 class StartIssue {
-  const StartIssue(this.id, this.number, this.title, this.project);
+  const StartIssue(
+    this.id,
+    this.number,
+    this.title,
+    this.project, {
+    this.hasSession = false,
+  });
   final String id, title, project;
   final int number;
+
+  /// A session on the computer already works on it: the computer refuses a second start.
+  final bool hasSession;
+}
+
+/// A repository ticked on the computer (Work → Repos), with its open issues. [cloned]: a clone is on the computer,
+/// so an issue of it can start; the phone cannot change which repositories are listed.
+class StartRepo {
+  const StartRepo(
+    this.path,
+    this.host, {
+    this.cloned = true,
+    this.issues = const [],
+  });
+  final String path, host;
+  final bool cloned;
+  final List<StartIssue> issues;
+
+  /// Names the repository across hosts; what the phone remembers as its choice.
+  String get key => '$host/$path';
+}
+
+/// Why the list may be short or empty.
+enum StartListError {
+  /// The computer could not read the issues (gh / glab missing, signed out or offline).
+  read,
+
+  /// The computer has not finished its first read.
+  reading,
+
+  /// This phone does not hold the Start right.
+  noRight,
+}
+
+/// What the Start screen lists: the repositories ticked on the computer, each with its issues.
+class StartList {
+  const StartList(this.repos, {this.error});
+  final List<StartRepo> repos;
+  final StartListError? error;
+
+  static const empty = StartList([]);
+
+  /// Issues that can be picked from Home's "To do": the ones nothing works on yet.
+  List<StartIssue> get todo => [
+    for (final r in repos)
+      for (final i in r.issues)
+        if (!i.hasSession) i,
+  ];
 }
 
 enum StartMode { full, quick }

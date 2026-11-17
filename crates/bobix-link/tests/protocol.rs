@@ -250,6 +250,37 @@ fn desktop_messages_round_trip_with_documented_names() {
 }
 
 #[test]
+fn the_issue_list_names_repos_with_no_issues_and_why_it_may_be_short() {
+    let issue = |iid, has_session| IssueInfo { iid, title: "Fix login".into(), updated: None, has_session };
+    let list = DesktopMsg::Issues(IssueList {
+        repos: vec![
+            IssueRepo { path: "acme/web".into(), host: "github.com".into(), cloned: true, issues: vec![issue(7, true)] },
+            IssueRepo { path: "acme/docs".into(), host: "github.com".into(), cloned: false, issues: vec![] },
+        ],
+        error: Some(IssuesError::Read),
+    });
+    let v = round_trip(&list);
+    assert_eq!((v["kind"].as_str(), v["error"].as_str()), (Some("issues"), Some("read")));
+    assert_eq!(v["repos"][0]["issues"][0], json!({"iid":7,"title":"Fix login","hasSession":true}));
+    assert_eq!(v["repos"][1], json!({"path":"acme/docs","host":"github.com","cloned":false,"issues":[]}));
+    // a whole list has no `error`, and an issue nobody works on has no `hasSession`
+    let whole = br#"{"kind":"issues","repos":[{"path":"a/b","host":"h","cloned":true,"issues":[{"iid":1,"title":"t"}]}]}"#;
+    assert_eq!(DesktopMsg::from_json(whole).unwrap(), DesktopMsg::Issues(IssueList {
+        repos: vec![IssueRepo { path: "a/b".into(), host: "h".into(), cloned: true, issues: vec![IssueInfo { iid: 1, title: "t".into(), updated: None, has_session: false }] }],
+        error: None,
+    }));
+    // caps: repositories, issues over all of them, a title (bytes)
+    let repo = |n: usize| IssueRepo { path: "a/b".into(), host: "h".into(), cloned: true, issues: (0..n as u64).map(|i| issue(i, false)).collect() };
+    let of = |repos| DesktopMsg::Issues(IssueList { repos, error: None });
+    assert!(of(vec![repo(MAX_ISSUES)]).validate().is_ok());
+    assert_eq!(of(vec![repo(MAX_ISSUES), repo(1)]).validate(), Err(LimitError::TooLong("issues", MAX_ISSUES)));
+    assert_eq!(of((0..=MAX_ISSUE_REPOS).map(|_| repo(0)).collect()).validate(), Err(LimitError::TooLong("repos", MAX_ISSUE_REPOS)));
+    let long = |t: String| of(vec![IssueRepo { issues: vec![IssueInfo { title: t, ..issue(1, false) }], ..repo(0) }]);
+    assert!(long("a".repeat(MAX_ISSUE_TITLE)).validate().is_ok());
+    assert!(long("é".repeat(MAX_ISSUE_TITLE / 2 + 1)).validate().is_err());
+}
+
+#[test]
 fn phone_messages_round_trip_with_documented_names() {
     let w = world();
     let versions = VersionRange::current();
@@ -259,6 +290,7 @@ fn phone_messages_round_trip_with_documented_names() {
     assert_eq!(round_trip(&PhoneMsg::Detail { id: "r1".into() })["kind"], "detail");
     let v = round_trip(&PhoneMsg::StartPreview { project: "demo".into(), iid: "3".into(), mode: Mode::Full });
     assert_eq!((v["kind"].as_str(), v["mode"].as_str()), (Some("startPreview"), Some("full")));
+    assert_eq!(round_trip(&PhoneMsg::Issues)["kind"], "issues");
     assert_eq!(round_trip(&PhoneMsg::Bye { sig: "x".into() })["kind"], "bye");
 
     let bodies = [

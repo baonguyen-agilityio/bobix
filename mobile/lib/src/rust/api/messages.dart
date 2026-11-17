@@ -95,6 +95,10 @@ Future<Uint8List> startPreviewMessage({
   mode: mode,
 );
 
+/// Asks the computer for the issues this phone could start, grouped by the repositories ticked on it.
+Future<Uint8List> issuesRequestMessage() =>
+    RustLib.instance.api.crateApiMessagesIssuesRequestMessage();
+
 /// Goodbye to one computer: `signature` is the `auth` key's signature over `bye_bytes`.
 Future<Uint8List> byeMessage({required List<int> signature}) =>
     RustLib.instance.api.crateApiMessagesByeMessage(signature: signature);

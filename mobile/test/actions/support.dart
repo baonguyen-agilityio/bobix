@@ -9,6 +9,7 @@ import 'package:phone/data/models.dart';
 import 'package:phone/data/phone_data.dart';
 
 import 'package:phone/l10n/l10n.dart';
+import 'package:phone/settings/app_settings.dart';
 import 'package:phone/theme/theme.dart';
 
 class _Conn extends Conn {
@@ -16,6 +17,12 @@ class _Conn extends Conn {
   final ConnState value;
   @override
   ConnState build() => value;
+}
+
+/// Settings kept in memory: no support folder to read or write, so a choice shows at once and is not saved.
+class _MemorySettings extends SettingsController {
+  @override
+  Future<AppSettings> build() async => const AppSettings();
 }
 
 class _Lang extends Lang {
@@ -53,6 +60,7 @@ Future<FixtureActionsSource> pumpScreen(
       key: UniqueKey(),
       overrides: [
         langProvider.overrideWith(() => _Lang(lang)),
+        settingsProvider.overrideWith(_MemorySettings.new),
         connProvider.overrideWith(() => _Conn(conn)),
         actionsSourceProvider.overrideWithValue(src),
         if (home != null)

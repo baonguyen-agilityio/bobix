@@ -125,7 +125,8 @@ class HomeScreen extends ConsumerWidget {
 
     final closed = data.sessions.where((x) => x.answeredAtComputer).toList();
 
-    final issues = ref.watch(startIssuesProvider).value ?? const [];
+    final issues =
+        ref.watch(startIssuesProvider).value?.todo ?? const <StartIssue>[];
 
     List<Widget> stage(Stage g) {
       final items = data.sessions

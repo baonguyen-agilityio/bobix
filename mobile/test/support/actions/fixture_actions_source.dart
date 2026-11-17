@@ -214,7 +214,7 @@ class FixtureActionsSource implements ActionsSource {
   });
 
   @override
-  Future<List<StartIssue>> issues() => _after(_issues);
+  Future<StartList> issues() => _after(const StartList(_repos));
 
   @override
   Future<StartPreview> startPreview(String issueId, StartMode mode) {
@@ -286,12 +286,32 @@ const _lines = [
   'startup',
 ];
 
-const _issues = [
-  StartIssue('i-cart', 38, 'Fix the cart total rounding', 'shop'),
-  StartIssue('i-search', 12, 'Speed up the search page', 'blog'),
-  StartIssue('i-docs', 9, 'Move the docs to a new folder', 'wiki'),
-  StartIssue('i-mail', 35, 'Update the sign-up email', 'shop'),
+/// The repositories the made-up computer lists: two with issues, one that has no clone on the computer, one with no
+/// open issue.
+const _repos = [
+  StartRepo(
+    'shop',
+    'github.com',
+    issues: [
+      StartIssue('i-cart', 38, 'Fix the cart total rounding', 'shop'),
+      StartIssue('i-mail', 35, 'Update the sign-up email', 'shop'),
+    ],
+  ),
+  StartRepo(
+    'blog',
+    'github.com',
+    issues: [StartIssue('i-search', 12, 'Speed up the search page', 'blog')],
+  ),
+  StartRepo(
+    'wiki',
+    'gitlab.com',
+    cloned: false,
+    issues: [StartIssue('i-docs', 9, 'Move the docs to a new folder', 'wiki')],
+  ),
+  StartRepo('infra', 'gitlab.com'),
 ];
+
+final _issues = [for (final r in _repos) ...r.issues];
 
 String _prompt(StartIssue i) =>
     'You are working on issue #${i.number} of ${i.project}: ${i.title}.\n\n'

@@ -368,6 +368,12 @@ impl Desktop {
                     self.tell(from, &DesktopMsg::Detail(d)).await;
                 }
             }
+            PhoneMsg::Issues => {
+                // the example computer ticks one repository, with one issue
+                let issue = IssueInfo { iid: 3, title: "Fix the login form".into(), updated: None, has_session: false };
+                let repo = IssueRepo { path: "demo/app".into(), host: "github.com".into(), cloned: true, issues: vec![issue] };
+                self.tell(from, &DesktopMsg::Issues(IssueList { repos: vec![repo], error: None })).await;
+            }
             PhoneMsg::StartPreview { project, iid, mode } => {
                 let prompt = format!("Implement ticket {iid} of {project} in {mode:?} mode.\nKeep the change small and add a test.");
                 let (known, disk) = (self.scenario != Scenario::FolderMissing, if self.scenario == Scenario::LowDisk { 40_000_000 } else { 80_000_000_000 });

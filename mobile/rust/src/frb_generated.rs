@@ -41,7 +41,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 288276297;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1725036933;
 
 // Section: executor
 
@@ -1039,6 +1039,38 @@ fn wire__crate__api__messages__is_plain_text_impl(
                 transform_result_sse::<_, ()>((move || {
                     let output_ok =
                         Ok::<_, ()>(crate::api::messages::is_plain_text(api_text, api_max))?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__messages__issues_request_message_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "issues_request_message",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>(crate::api::messages::issues_request_message())?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -2891,52 +2923,58 @@ fn pde_ffi_dispatcher_primary_impl(
         22 => wire__crate__api__messages__hello_mac_input_impl(port, ptr, rust_vec_len, data_len),
         23 => wire__crate__api__core__identity_from_secrets_impl(port, ptr, rust_vec_len, data_len),
         24 => wire__crate__api__messages__is_plain_text_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__core__normalize_relay_url_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__core__open_packet_impl(port, ptr, rust_vec_len, data_len),
-        28 => {
+        25 => wire__crate__api__messages__issues_request_message_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        27 => wire__crate__api__core__normalize_relay_url_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__core__open_packet_impl(port, ptr, rust_vec_len, data_len),
+        29 => {
             wire__crate__api__messages__paired_ack_message_impl(port, ptr, rust_vec_len, data_len)
         }
-        29 => wire__crate__api__relay__pairing_answer_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__messages__parse_desktop_message_impl(
+        30 => wire__crate__api__relay__pairing_answer_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__messages__parse_desktop_message_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        31 => wire__crate__api__core__parse_pairing_code_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__relay__parse_relay_frame_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__core__peek_packet_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__messages__prepare_command_impl(port, ptr, rust_vec_len, data_len),
-        35 => {
+        32 => wire__crate__api__core__parse_pairing_code_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__relay__parse_relay_frame_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__core__peek_packet_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__messages__prepare_command_impl(port, ptr, rust_vec_len, data_len),
+        36 => {
             wire__crate__api__messages__prepare_command_for_impl(port, ptr, rust_vec_len, data_len)
         }
-        36 => wire__crate__api__messages__prompt_hash_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__core__protocol_versions_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__core__recv_check_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__core__recv_commit_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__core__recv_state_new_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__relay__relay_ack_frame_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__relay__relay_auth_frame_impl(port, ptr, rust_vec_len, data_len),
-        43 => {
+        37 => wire__crate__api__messages__prompt_hash_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__core__protocol_versions_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__core__recv_check_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__core__recv_commit_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__core__recv_state_new_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__relay__relay_ack_frame_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__relay__relay_auth_frame_impl(port, ptr, rust_vec_len, data_len),
+        44 => {
             wire__crate__api__relay__relay_pair_send_frame_impl(port, ptr, rust_vec_len, data_len)
         }
-        44 => wire__crate__api__relay__relay_peers_frame_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__relay__relay_send_frame_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__core__relay_url_ok_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__relay__relay_withdraw_frame_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__messages__rights_allow_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__core__seal_packet_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__core__shown_hash_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__api__core__sign_with_auth_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__messages__start_preview_message_impl(
+        45 => wire__crate__api__relay__relay_peers_frame_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__relay__relay_send_frame_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__core__relay_url_ok_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__relay__relay_withdraw_frame_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__messages__rights_allow_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__core__seal_packet_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__core__shown_hash_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__api__core__sign_with_auth_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__messages__start_preview_message_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        53 => wire__crate__api__messages__sync_message_impl(port, ptr, rust_vec_len, data_len),
-        54 => wire__crate__api__core__verify_auth_signature_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__core__verify_p256_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__messages__sync_message_impl(port, ptr, rust_vec_len, data_len),
+        55 => wire__crate__api__core__verify_auth_signature_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__api__core__verify_p256_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2958,7 +2996,7 @@ fn pde_ffi_dispatcher_sync_impl(
         7 => wire__crate__api__relay__PhoneLink_take_counter_impl(ptr, rust_vec_len, data_len),
         8 => wire__crate__api__core__SendCounter_resume_impl(ptr, rust_vec_len, data_len),
         9 => wire__crate__api__core__SendCounter_take_impl(ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__core__new_command_id_impl(ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__core__new_command_id_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

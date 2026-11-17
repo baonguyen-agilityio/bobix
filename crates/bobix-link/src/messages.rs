@@ -18,6 +18,13 @@ pub const MAX_PUSH_BODY: usize = 3_500;
 pub const MAX_NAME: usize = 64;
 /// A note on a plan and each answer to a question.
 pub const MAX_NOTE: usize = 2_000;
+/// The issue list (`issues`): repositories, issues over all of them, and the longest title, repository path and host.
+/// Far below `MAX_FRAME`: 100 issues of 120 bytes and 40 repositories of 300 bytes are about 30 KB.
+pub const MAX_ISSUE_REPOS: usize = 40;
+pub const MAX_ISSUES: usize = 100;
+pub const MAX_ISSUE_TITLE: usize = 120;
+pub const MAX_ISSUE_PATH: usize = 200;
+pub const MAX_ISSUE_HOST: usize = 100;
 
 /// A command is accepted from this long before to this long after the receiver's clock.
 pub const COMMAND_MAX_AGE_MS: u64 = 10 * 60 * 1000;
@@ -136,7 +143,55 @@ pub enum DesktopMsg {
     /// Sent through the old relay before the desktop switches to another one.
     RelayMoved { url: String },
     Notice(Notice),
+    /// The reply to `issues`: the repositories ticked on the computer with their open issues.
+    Issues(IssueList),
     Error { code: String, who: Option<Who> },
+}
+
+/// The issues a phone with the Start right could start, grouped by the repositories ticked on the computer (a repository
+/// with no open issue is listed too). Titles are redacted and cut by the computer.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueList {
+    pub repos: Vec<IssueRepo>,
+    /// Why the list may be incomplete: the computer could not read the issues (`gh` / `glab` missing, signed out or
+    /// offline), or has not finished its first read. Absent when the list is whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<IssuesError>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IssuesError {
+    /// The last read failed.
+    Read,
+    /// The first read has not finished.
+    Reading,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueRepo {
+    /// The repository's path on its host (`owner/name`), the `project` of a `startPreview` and a `start`.
+    pub path: String,
+    pub host: String,
+    /// A clone of it is on the computer; without one an issue cannot be started.
+    pub cloned: bool,
+    #[serde(default)]
+    pub issues: Vec<IssueInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueInfo {
+    pub iid: u64,
+    pub title: String,
+    /// When the tracker says it was last changed (as the tracker writes it, ISO 8601).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated: Option<String>,
+    /// A session on the computer already works on it: the computer refuses a start (`exists`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub has_session: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -443,6 +498,16 @@ impl DesktopMsg {
             ),
             DesktopMsg::StartPrompt(p) => within("prompt", &p.prompt, MAX_PLAN),
             DesktopMsg::Notice(n) => within("notice", &n.body, MAX_PUSH_BODY),
+            DesktopMsg::Issues(l) => {
+                if l.repos.len() > MAX_ISSUE_REPOS { return Err(LimitError::TooLong("repos", MAX_ISSUE_REPOS)); }
+                if l.repos.iter().map(|r| r.issues.len()).sum::<usize>() > MAX_ISSUES { return Err(LimitError::TooLong("issues", MAX_ISSUES)); }
+                for r in &l.repos {
+                    within("path", &r.path, MAX_ISSUE_PATH)?;
+                    within("host", &r.host, MAX_ISSUE_HOST)?;
+                    for i in &r.issues { within("title", &i.title, MAX_ISSUE_TITLE)?; }
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -468,6 +533,8 @@ pub enum PhoneMsg {
     Sync { waiting: Vec<String>, versions: VersionRange },
     Detail { id: String },
     StartPreview { project: String, iid: String, mode: Mode },
+    /// Asks for the issues the phone could start; the desktop answers with `issues` (or `error` `right`).
+    Issues,
     /// A signed command: answer, plan, question, start or stop.
     Cmd(crate::command::Command),
     /// Signed with the `auth` key (see `command::bye_bytes`).

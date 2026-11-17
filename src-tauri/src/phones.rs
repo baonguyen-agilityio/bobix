@@ -682,6 +682,11 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
             };
             if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
         }
+        PhoneMsg::Issues => {
+            let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
+            let m = crate::phone_view::issues_reply(&view, &c.settings, rights);
+            if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
+        }
         PhoneMsg::StartPreview { project, iid, mode } => {
             let m = if !rights.start { Some(DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }) }
                 else if iid.parse::<i64>().is_err() || project.len() > MAX_PROJECT { Some(DesktopMsg::Error { code: "encoding".into(), who: Some(Who::Desktop) }) } else { None };

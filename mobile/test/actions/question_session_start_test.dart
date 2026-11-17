@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phone/settings/app_settings.dart';
+import 'package:phone/widgets/floating_sheet.dart';
 import 'package:phone/features/actions/actions_models.dart';
 
 import '../support/actions/fixture_actions_source.dart';
@@ -284,17 +287,200 @@ void main() {
       expect(find.text(tr('en', 'sp.go.full')), findsOneWidget);
     });
 
+    Finder inSheet(String text) => find.descendant(
+      of: find.byType(FloatingSheet),
+      matching: find.text(text),
+    );
+
+    Future<FixtureActionsSource> pumpList(
+      WidgetTester tester,
+      StartList list, {
+      String lang = 'en',
+    }) => pumpScreen(
+      tester,
+      const Scaffold(body: SafeArea(child: StartScreen())),
+      lang: lang,
+      source: _Listed(list),
+    );
+
+    for (final lang in langs) {
+      testWidgets(
+        'nothing ticked, a failed read, a first read, no right: only the reason, no mode, no steps, no button ($lang)',
+        (tester) async {
+          final states = <(StartList, String)>[
+            (StartList.empty, tr(lang, 'rp.none.h', {'c': fixtureComputer})),
+            (
+              const StartList([], error: StartListError.read),
+              tr(lang, 'rp.err.h', {'c': fixtureComputer}),
+            ),
+            (
+              const StartList([], error: StartListError.reading),
+              tr(lang, 'rp.reading.h', {'c': fixtureComputer}),
+            ),
+            (
+              const StartList([], error: StartListError.noRight),
+              tr(lang, 'rp.right.h'),
+            ),
+          ];
+          for (final (list, title) in states) {
+            await pumpList(tester, list, lang: lang);
+            expect(find.text(title), findsOneWidget, reason: title);
+            expect(find.text(tr(lang, 'rp.sec')), findsNothing);
+            expect(find.text(tr(lang, 'sp.how')), findsNothing);
+            expect(find.text(tr(lang, 'sp.go.full')), findsNothing);
+          }
+        },
+      );
+    }
+
+    testWidgets('a failed read hides a list it still holds', (tester) async {
+      await pumpList(
+        tester,
+        const StartList([
+          StartRepo(
+            'shop',
+            'github.com',
+            issues: [StartIssue('a#1', 1, 'Fix it', 'shop')],
+          ),
+        ], error: StartListError.read),
+      );
+      expect(find.text('Fix it'), findsNothing);
+      expect(
+        find.text(tr('en', 'rp.err.h', {'c': fixtureComputer})),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
-      'with no issue to start there is no mode, no steps and no button',
+      'All repositories groups the issues under their repository; the sheet filters and the choice is remembered',
       (tester) async {
         await pumpScreen(
           tester,
           const Scaffold(body: SafeArea(child: StartScreen())),
-          source: _NoIssues(),
         );
-        expect(find.text(tr('en', 'sp.noissues')), findsOneWidget);
-        expect(find.text(tr('en', 'sp.how')), findsNothing);
-        expect(find.text(tr('en', 'sp.go.full')), findsNothing);
+        String tr_(String k, [Map<String, Object> v = const {}]) =>
+            tr('en', k, v);
+        expect(
+          find.text('${tr_('rp.all')} · ${tr_('rp.n', {'n': 4})}'),
+          findsOneWidget,
+        );
+        // a header for each repository that has issues, none for the one with no issue
+        for (final r in ['shop', 'blog', 'wiki']) {
+          expect(find.text(r), findsOneWidget, reason: r);
+        }
+        expect(find.text('infra'), findsNothing);
+        await tester.tap(
+          find.text('${tr_('rp.all')} · ${tr_('rp.n', {'n': 4})}'),
+        );
+        await tester.pumpAndSettle();
+        // All first, then each repository with its host and open issues; the one with no clone says so
+        expect(find.text(tr_('rp.pick')), findsOneWidget);
+        expect(find.text(tr_('rp.open', {'n': 4})), findsOneWidget);
+        expect(
+          find.text('github.com · ${tr_('rp.open', {'n': 2})}'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('gitlab.com · ${tr_('rp.open0')}'),
+          findsOneWidget,
+          reason: 'infra',
+        );
+        expect(find.textContaining(tr_('rp.noclone')), findsOneWidget);
+        expect(
+          find.text(tr_('rp.note', {'c': fixtureComputer})),
+          findsOneWidget,
+        );
+        await tester.tap(inSheet('blog'));
+        await tester.pumpAndSettle();
+        // one repository: just its issues, no header, and its host under the row
+        expect(find.text('Speed up the search page'), findsOneWidget);
+        expect(find.text('Fix the cart total rounding'), findsNothing);
+        expect(find.text('github.com'), findsWidgets);
+        expect(find.text('${tr_('rp.all')} · ${tr_('rp.n1')}'), findsNothing);
+        expect(find.text('blog · ${tr_('rp.n1')}'), findsOneWidget);
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(StartScreen)),
+        );
+        expect(
+          container.read(settingsProvider).value?.startRepo,
+          'github.com/blog',
+        );
+        // "Fix it in" names the repository, and says it is chosen on the computer
+        await reveal(tester, find.text(tr_('rp.fix')));
+        expect(
+          find.text(tr_('rp.fix.n', {'c': fixtureComputer})),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('a repository with no open issue says so and offers no start', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        const Scaffold(body: SafeArea(child: StartScreen())),
+      );
+      await tester.tap(find.textContaining(tr('en', 'rp.all')).first);
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet('infra'));
+      await tester.pumpAndSettle();
+      expect(find.text(tr('en', 'rp.empty.h', {'r': 'infra'})), findsOneWidget);
+      expect(find.text(tr('en', 'sp.go.full')), findsNothing);
+    });
+
+    testWidgets(
+      'an issue in a repository with no clone, or one that has a session, is shown but cannot start',
+      (tester) async {
+        await pumpList(
+          tester,
+          const StartList([
+            StartRepo(
+              'shop',
+              'github.com',
+              issues: [
+                StartIssue(
+                  'shop#1',
+                  1,
+                  'Has a session',
+                  'shop',
+                  hasSession: true,
+                ),
+                StartIssue('shop#2', 2, 'Free to start', 'shop'),
+              ],
+            ),
+            StartRepo(
+              'wiki',
+              'gitlab.com',
+              cloned: false,
+              issues: [StartIssue('wiki#9', 9, 'Move the docs', 'wiki')],
+            ),
+          ]),
+        );
+        // the first is picked: it has a session
+        expect(off(tester, tr('en', 'sp.go.full')), isTrue);
+        expect(
+          find.text(
+            tr('en', 'rp.session.h', {
+              'r': 'shop',
+              'n': 1,
+              'c': fixtureComputer,
+            }),
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining(tr('en', 'rp.session')), findsWidgets);
+        await tester.tap(find.text('Free to start'));
+        await tester.pump();
+        expect(off(tester, tr('en', 'sp.go.full')), isFalse);
+        await tester.tap(find.text('Move the docs'));
+        await tester.pump();
+        expect(off(tester, tr('en', 'sp.go.full')), isTrue);
+        expect(find.text(tr('en', 'sw.miss', {'p': 'wiki'})), findsOneWidget);
+        expect(
+          find.textContaining('· ${tr('en', 'rp.nofolder')}'),
+          findsOneWidget,
+        );
       },
     );
 
@@ -425,7 +611,9 @@ void main() {
   });
 }
 
-class _NoIssues extends FixtureActionsSource {
+class _Listed extends FixtureActionsSource {
+  _Listed(this.list);
+  final StartList list;
   @override
-  Future<List<StartIssue>> issues() async => const [];
+  Future<StartList> issues() async => list;
 }

@@ -188,6 +188,50 @@ pub fn waiting_notice(p: &Pending, id: &str, title: &str) -> Notice {
     Notice { what: NoticeKind::Waiting, reference: id.into(), session: p.sid.clone(), title: preview(title, 80), body: preview(&p.raw, 200), by: None }
 }
 
+// The reply to `issues`: the repositories ticked in Settings → Work (on the hosts the work view read), each with the open
+// issues that view holds. Nothing is read from a tracker for it: what the Work list shows is what a phone gets, and the
+// error says when the last read failed (`read`) or the first has not finished (`reading`). A phone without the Start right
+// is refused. Titles are redacted and cut, a repository whose path or host is not plain text is left out (it could not be
+// started either), and the repositories and issues are capped to what fits a frame.
+pub fn issues_reply(view: &serde_json::Value, settings: &serde_json::Value, rights: Rights) -> DesktopMsg {
+    if !rights.start { return DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }; }
+    DesktopMsg::Issues(issue_list(view, settings))
+}
+
+fn issue_list(view: &serde_json::Value, settings: &serde_json::Value) -> IssueList {
+    let strs = |v: &serde_json::Value| -> Vec<String> { v.as_array().into_iter().flatten().filter_map(|x| x.as_str().map(String::from)).collect() };
+    let plain = |t: &str, max: usize| !t.is_empty() && t.len() <= max && preview(t, max) == t;
+    let host_of = |url: &str| tauri::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_lowercase));
+    let mut repos: Vec<IssueRepo> = vec![];
+    for host in strs(&view["hosts"]) {
+        for path in strs(&settings["workRepos"][host.as_str()]) {
+            if !plain(&path, MAX_ISSUE_PATH) || !plain(&host, MAX_ISSUE_HOST) || repos.iter().any(|r| r.path == path && r.host == host) { continue; }
+            let here = view["local"].as_array().into_iter().flatten().any(|g| g["path"] == path.as_str());
+            repos.push(IssueRepo { cloned: here || view["dirs"].get(&path).is_some_and(|d| d.is_string()), path, host: host.clone(), issues: vec![] });
+        }
+    }
+    repos.sort_by(|a, b| (&a.path, &a.host).cmp(&(&b.path, &b.host)));
+    repos.truncate(MAX_ISSUE_REPOS);
+    let mut total = 0;
+    for group in ["local", "away"].iter().flat_map(|k| view[*k].as_array().into_iter().flatten()) {
+        let path = group["path"].as_str().unwrap_or("");
+        for i in group["issues"].as_array().into_iter().flatten() {
+            let (Some(iid), Some(title)) = (i["iid"].as_u64(), i["title"].as_str()) else { continue };
+            let url_host = i["url"].as_str().and_then(host_of);
+            // the repository the issue's own link names; one path ticked on two hosts is told apart by it
+            let Some(repo) = repos.iter_mut().find(|r| r.path == path && url_host.as_deref().is_none_or(|h| r.host.split(':').next() == Some(h))) else { continue };
+            if total >= MAX_ISSUES { break; }
+            total += 1;
+            repo.issues.push(IssueInfo {
+                iid, title: preview(title, MAX_ISSUE_TITLE), updated: i["updated"].as_str().filter(|u| !u.is_empty()).map(|u| cut_bytes(u, 40)),
+                has_session: i["sessions"].as_array().is_some_and(|s| !s.is_empty()),
+            });
+        }
+    }
+    let error = match view["status"].as_str() { Some("error") => Some(IssuesError::Read), Some("loading") => Some(IssuesError::Reading), _ => None };
+    IssueList { repos, error }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,5 +400,48 @@ mod tests {
         for r in [Rights { stop: true, ..Default::default() }, Rights { answer: true, ..Default::default() }, Rights::default()] {
             assert!(!stop(&for_phone(h.clone(), r), "r"), "{r:?}: the desktop would refuse it");
         }
+    }
+
+    #[test]
+    fn the_issue_list_is_the_work_views_ticked_repos_redacted_and_capped() {
+        use serde_json::json;
+        let tok = format!("ghp_{}", "a1B2c3D4e5F6g7H8i9J0k1L2m3N4");
+        let issue = |n: i64, title: &str, sessions: serde_json::Value| json!({ "iid": n, "project": "acme/web", "title": title, "url": format!("https://github.com/acme/web/issues/{n}"), "updated": "2026-11-16T09:00:00Z", "sessions": sessions });
+        let view = json!({
+            "status": "ok", "hosts": ["github.com", "gitlab.example.test"],
+            "local": [{ "path": "acme/web", "dir": "/x", "issues": [issue(7, &format!("Fix login with {tok}\u{202e}"), json!(["s1"])), issue(8, "Second", json!([]))] }],
+            "away": [{ "path": "acme/docs", "issues": [json!({ "iid": 3, "project": "acme/docs", "title": "Typo", "url": "https://github.com/acme/docs/issues/3", "sessions": [] })] },
+                     { "path": "other/not-ticked", "issues": [json!({ "iid": 1, "project": "other/not-ticked", "title": "x", "url": "https://github.com/other/not-ticked/issues/1", "sessions": [] })] }],
+            "dirs": { "acme/web": "/x", "acme/empty": "/y" },
+        });
+        let settings = json!({ "workRepos": { "github.com": ["acme/web", "acme/docs", "acme/empty"], "gitlab.example.test": ["g/api"], "unread.example.test": ["z/z"] } });
+        let all = Rights { start: true, ..Default::default() };
+        let DesktopMsg::Issues(l) = issues_reply(&view, &settings, all) else { panic!("a phone with the right gets the list") };
+        let names: Vec<(&str, &str, bool, usize)> = l.repos.iter().map(|r| (r.path.as_str(), r.host.as_str(), r.cloned, r.issues.len())).collect();
+        assert_eq!(names, [("acme/docs", "github.com", false, 1), ("acme/empty", "github.com", true, 0), ("acme/web", "github.com", true, 2), ("g/api", "gitlab.example.test", false, 0)],
+            "ticked repos on the hosts read, with no issues too; one that is not ticked, or on a host not read, is left out");
+        let first = &l.repos[2].issues[0];
+        assert!(!first.title.contains(&tok) && !first.title.contains('\u{202e}') && first.has_session && !l.repos[2].issues[1].has_session, "{first:?}");
+        assert_eq!((first.iid, first.updated.as_deref()), (7, Some("2026-11-16T09:00:00Z")));
+        assert_eq!(l.error, None);
+        assert!(DesktopMsg::Issues(l).validate().is_ok());
+        // a failed read says so and keeps what it has; the first read says it is not done
+        for (status, want) in [("error", IssuesError::Read), ("loading", IssuesError::Reading)] {
+            let DesktopMsg::Issues(l) = issues_reply(&json!({ "status": status, "hosts": ["github.com"], "local": [], "away": [] }), &settings, all) else { panic!() };
+            assert_eq!((l.error, l.repos.len()), (Some(want), 3));
+        }
+        // Work off: nothing is listed, and it is not an error
+        assert_eq!(issues_reply(&json!({ "status": "off" }), &settings, all), DesktopMsg::Issues(IssueList::default()));
+        // a phone without the Start right is refused
+        assert_eq!(issues_reply(&view, &settings, Rights { answer: true, ..Default::default() }), DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) });
+        // caps: the issues over all repos, the repos
+        let many: Vec<serde_json::Value> = (1..=150).map(|n| issue(n, &"t".repeat(300), json!([]))).collect();
+        let big = json!({ "status": "ok", "hosts": ["github.com"], "local": [{ "path": "acme/web", "issues": many }], "away": [] });
+        let DesktopMsg::Issues(l) = issues_reply(&big, &settings, all) else { panic!() };
+        assert_eq!(l.repos.iter().map(|r| r.issues.len()).sum::<usize>(), MAX_ISSUES);
+        assert!(l.repos.iter().flat_map(|r| &r.issues).all(|i| i.title.len() <= MAX_ISSUE_TITLE));
+        let paths: Vec<String> = (0..60).map(|n| format!("o/r{n:02}")).collect();
+        let DesktopMsg::Issues(l) = issues_reply(&json!({ "status": "ok", "hosts": ["github.com"], "local": [], "away": [] }), &json!({ "workRepos": { "github.com": paths } }), all) else { panic!() };
+        assert_eq!(l.repos.len(), MAX_ISSUE_REPOS);
     }
 }

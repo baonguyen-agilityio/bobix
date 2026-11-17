@@ -313,9 +313,67 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
 
   // ---- start ----
 
-  /// The computer sends no list of issues a phone could start (`home` has none): the picker is empty until it does.
+  /// The titles of the issues the computer listed last, by issue id: a start preview carries no title of its own.
+  final _titles = <String, String>{};
+
+  /// Asks the computer for the repositories ticked on it and their issues. A computer that does not answer in time
+  /// is an error (the screen says so); one that refuses says this phone has no Start right.
   @override
-  Future<List<StartIssue>> issues() async => const [];
+  Future<StartList> issues() async {
+    final answer = Completer<Map<String, dynamic>>();
+    final sub = link.messages.listen((m) {
+      if ((m.kind != 'issues' && m.kind != 'error') || answer.isCompleted) {
+        return;
+      }
+      final j = jsonDecode(m.json) as Map<String, dynamic>;
+      if (m.kind == 'issues' || j['code'] == 'right') answer.complete(j);
+    });
+    try {
+      await link.send(await msg.issuesRequestMessage());
+      final j = await answer.future.timeout(answerWithin);
+      if (j['kind'] == 'error') {
+        return const StartList([], error: StartListError.noRight);
+      }
+      final list = _issueList(j);
+      for (final r in list.repos) {
+        for (final i in r.issues) {
+          _titles[i.id] = i.title;
+        }
+      }
+      return list;
+    } finally {
+      await sub.cancel();
+    }
+  }
+
+  StartList _issueList(Map<String, dynamic> j) => StartList(
+    [
+      for (final r
+          in (j['repos'] as List? ?? const []).cast<Map<String, dynamic>>())
+        StartRepo(
+          r['path'] as String,
+          r['host'] as String,
+          cloned: r['cloned'] == true,
+          issues: [
+            for (final i
+                in (r['issues'] as List? ?? const [])
+                    .cast<Map<String, dynamic>>())
+              StartIssue(
+                '${r['path']}#${i['iid']}',
+                (i['iid'] as num).toInt(),
+                i['title'] as String,
+                r['path'] as String,
+                hasSession: i['hasSession'] == true,
+              ),
+          ],
+        ),
+    ],
+    error: switch (j['error']) {
+      'read' => StartListError.read,
+      'reading' => StartListError.reading,
+      _ => null,
+    },
+  );
 
   @override
   Future<StartPreview> startPreview(String issueId, StartMode mode) async {
@@ -346,7 +404,12 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       final j = await answer.future.timeout(answerWithin);
       final free = (j['freeDisk'] as num).toInt();
       return StartPreview(
-        issue: StartIssue(issueId, int.tryParse(iid) ?? 0, '', project),
+        issue: StartIssue(
+          issueId,
+          int.tryParse(iid) ?? 0,
+          _titles[issueId] ?? '',
+          project,
+        ),
         mode: mode,
         prompt: j['prompt'] as String,
         promptHash: j['promptHash'] as String,

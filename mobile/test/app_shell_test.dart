@@ -303,10 +303,10 @@ void main() {
       expect(find.text('To do'), findsOneWidget);
       final tickets = find.byIcon(Icons.confirmation_number_outlined);
       expect(tickets, findsNWidgets(4));
-      await tester.tap(tickets.at(3));
+      await tester.tap(tickets.at(1));
       await tester.pump();
       expect(find.text('Start Full'), findsOneWidget);
-      expect(checkedOf(tester, 'Update the sign-up email, shop #35'), isTrue);
+      expect(checkedOf(tester, 'Update the sign-up email, #35'), isTrue);
       semantics.dispose();
     },
   );
@@ -370,7 +370,7 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Start'));
       await tester.pump();
       bool checked(String label) => checkedOf(tester, label);
-      expect(checked('Fix the cart total rounding, shop #38'), isTrue);
+      expect(checked('Fix the cart total rounding, #38'), isTrue);
       expect(checked('Full, '), isTrue);
       expect(checked('Quick, '), isFalse);
       expect(find.text('Start Full'), findsOneWidget);

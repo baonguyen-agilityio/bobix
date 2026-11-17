@@ -340,6 +340,77 @@ void main() {
     );
   });
 
+  /// `source.issues()` while the computer answers with [reply].
+  Future<StartList> issuesAnswered(Map<String, Object?> reply) async {
+    final sentBefore = socket.sent.where((f) => f['type'] == 'send').length;
+    final list = source.issues();
+    await _until(
+      () => socket.sent.where((f) => f['type'] == 'send').length > sentBefore
+          ? true
+          : null,
+    );
+    final packet = await sealPacket(
+      version: versions.current,
+      direction: LinkDirection.toPhone,
+      stream: LinkStream.event,
+      counter: BigInt.from(++counter),
+      senderBoxSecret: desktop.boxSecret,
+      recipientBoxPublic: phone.boxPublic,
+      plaintext: Uint8List.fromList(utf8.encode(jsonEncode(reply))),
+    );
+    socket.push({
+      'type': 'msg',
+      'pid': 'p$counter',
+      'from': desktop.deviceId,
+      'body': b64(packet),
+    });
+    return list;
+  }
+
+  test('the issue list: repositories with their issues, a repo with none, and why it may be short', () async {
+    final list = await issuesAnswered({
+      'kind': 'issues',
+      'repos': [
+        {
+          'path': 'acme/web',
+          'host': 'github.com',
+          'cloned': true,
+          'issues': [
+            {'iid': 7, 'title': 'Fix login', 'hasSession': true},
+            {'iid': 8, 'title': 'Second'},
+          ],
+        },
+        {'path': 'acme/docs', 'host': 'gitlab.com', 'cloned': false},
+      ],
+      'error': 'read',
+    });
+    expect(list.error, StartListError.read);
+    expect(
+      [for (final r in list.repos) (r.path, r.host, r.cloned)],
+      [('acme/web', 'github.com', true), ('acme/docs', 'gitlab.com', false)],
+    );
+    expect(list.repos[1].issues, isEmpty);
+    final first = list.repos[0].issues.first;
+    expect(
+      (first.id, first.number, first.title, first.hasSession),
+      ('acme/web#7', 7, 'Fix login', true),
+    );
+    expect(list.repos[0].issues.last.hasSession, isFalse);
+  });
+
+  test(
+    'a computer that refuses the issue list says this phone has no Start right',
+    () async {
+      final list = await issuesAnswered({
+        'kind': 'error',
+        'code': 'right',
+        'who': 'desktop',
+      });
+      expect(list.error, StartListError.noRight);
+      expect(list.repos, isEmpty);
+    },
+  );
+
   /// The computer says it closed [ref]; resolves once the phone has taken it in.
   Future<void> closedNotice(String ref, Map<String, Object?>? by) async {
     final packet = await sealPacket(
