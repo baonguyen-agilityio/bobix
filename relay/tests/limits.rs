@@ -180,7 +180,7 @@ async fn pushes_through_the_relays_own_credentials_are_rate_limited() {
     p.send(&Frame::PushToken { platform: Platform::Ios, env: ApnsEnv::Sandbox, kind: TokenKind::Device, r#ref: None, token: "limited".into(), grant: g }).await;
     p.sync().await;
     for i in 0..6 {
-        let f = Frame::Send { pid: format!("n{i}"), to: p.id(), ttl: 600, collapse: None, push: Some(Push { kind: PushKind::Alert, priority: 10, replaces: None }), body: "X".into() };
+        let f = Frame::Send { pid: format!("n{i}"), to: p.id(), ttl: 600, collapse: None, push: Some(Push { kind: PushKind::Alert, priority: 10, event: None, replaces: None }), body: "X".into() };
         d.send(&f).await;
         p.expect(|f| matches!(f, Frame::Msg { .. }), 1000).await; // the packets all arrive over the socket
     }

@@ -11,7 +11,7 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::Json;
 use bobix_link::messages::MAX_PUSH_BODY;
-use bobix_link::relay_frames::{ApnsEnv, Platform, PushKind};
+use bobix_link::relay_frames::{ActivityEvent, ApnsEnv, Platform, PushKind};
 use bobix_link::{hex, sha256};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -34,6 +34,12 @@ impl Limits {
 pub struct Req {
     platform: Platform,
     kind: PushKind,
+    /// A Live Activity push: what it does (start, update, end). Absent reads as update.
+    #[serde(default)]
+    event: Option<ActivityEvent>,
+    /// The computer that sent the push (a started activity names it).
+    #[serde(default)]
+    computer: String,
     #[serde(default = "production")]
     env: ApnsEnv,
     token: String,
@@ -111,7 +117,7 @@ pub async fn push(
     if !app.gateway_limits.lock().unwrap().per_token.allow(&hex(&sha256(&[req.token.as_bytes()])[..8])) {
         return answer(StatusCode::TOO_MANY_REQUESTS, "token");
     }
-    let r = PushRequest { platform: req.platform, env: req.env, kind: req.kind, token: req.token, priority: req.priority, replaces: req.replaces, body: req.body, grant: req.grant };
+    let r = PushRequest { platform: req.platform, env: req.env, kind: req.kind, event: req.event, computer: req.computer, token: req.token, priority: req.priority, replaces: req.replaces, body: req.body, grant: req.grant };
     match app.sender.send(r).await {
         Outcome::Sent => {
             app.log.line("gateway push sent");

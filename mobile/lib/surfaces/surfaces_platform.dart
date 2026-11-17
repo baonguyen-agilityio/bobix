@@ -29,6 +29,9 @@ abstract interface class SurfacesPlatform {
 
   /// An activity ended (by the app, by the system or by the person): its token is not registered again.
   Stream<String> get activityEnded;
+
+  /// Asks for the tokens the system already handed over (they come as soon as the app starts, before anything listens).
+  Future<void> replayTokens();
 }
 
 class ChannelSurfacesPlatform implements SurfacesPlatform {
@@ -83,6 +86,9 @@ class ChannelSurfacesPlatform implements SurfacesPlatform {
 
   @override
   Future<void> clear() => _channel.invokeMethod<void>('clearSurfaces');
+
+  @override
+  Future<void> replayTokens() => _channel.invokeMethod<void>('replayTokens');
 
   @override
   Future<({bool active, String? id})> syncActivity(

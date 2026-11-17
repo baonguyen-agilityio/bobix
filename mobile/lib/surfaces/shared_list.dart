@@ -57,7 +57,9 @@ class SharedListJson {
     ],
   };
 
-  /// The sessions that wait for this phone.
-  static int waiting(HomeData h) =>
-      h.sessions.where((s) => s.needsYou && !s.answerAtComputer && !s.answeredAtComputer).length;
+  /// The sessions that wait for this phone: something is held for it and the person has not taken it to the computer. The
+  /// computer counts them the same way when it pushes the Live Activity.
+  static int waiting(HomeData h) => h.sessions
+      .where((s) => s.needsYou && !s.answerAtComputer && !s.answeredAtComputer && !s.handledAtComputer)
+      .length;
 }

@@ -222,7 +222,7 @@ impl Desktop {
     }
 
     async fn send_packet(&mut self, phone: &str, packet: &[u8], push: bool) {
-        let push = push.then_some(Push { kind: PushKind::Alert, priority: 10, replaces: None });
+        let push = push.then_some(Push { kind: PushKind::Alert, priority: 10, event: None, replaces: None });
         let _ = self.conn.send(&Frame::Send { pid: pid(), to: phone.into(), ttl: 600, collapse: None, push, body: b64(packet) }).await;
     }
 

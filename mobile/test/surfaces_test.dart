@@ -55,6 +55,8 @@ class FakeSurfaces implements SurfacesPlatform {
   int clears = 0;
   @override
   Future<void> clear() async => clears++;
+  @override
+  Future<void> replayTokens() async => calls.add('replayTokens');
 
   final ended = StreamController<String>.broadcast();
   @override
@@ -65,9 +67,10 @@ class FakeSurfaces implements SurfacesPlatform {
   Stream<String> get pushToStartTokens => starts.stream;
 }
 
-HomeData home({int waiting = 1, ConnState conn = ConnState.ok}) => HomeData(
+HomeData home({int waiting = 1, ConnState conn = ConnState.ok, bool live = true}) => HomeData(
   computer: 'Studio Mac',
   conn: conn,
+  live: live,
   lastContact: '10:00',
   sessions: [
     for (var i = 0; i < waiting; i++)
@@ -124,6 +127,17 @@ void main() {
       final row = (SharedListJson.toMap(h, computerId: 'c', canStart: false, now: now)['rows']! as List).single as Map;
       expect(row['ref'], '');
       expect(SharedListJson.waiting(h), 0);
+      // One the person took to the computer (the computer's `home` says so) does not wait for the phone either: the count
+      // the computer pushes to the Live Activity is the same.
+      final taken = HomeData(
+        computer: 'M',
+        conn: ConnState.ok,
+        lastContact: '',
+        sessions: const [
+          Session(id: 'a', name: 'n', project: 'p', stage: Stage.doing, needsYou: true, handledAtComputer: true, waitingId: 'r'),
+        ],
+      );
+      expect(SharedListJson.waiting(taken), 0);
     });
 
     test('how long a request counts as current is what the computer still holds it for, at most 15 minutes', () {
@@ -176,6 +190,18 @@ void main() {
       expect(p.calls, ['sync 1', 'sync 2', 'sync 0']);
       expect(p.states.first.keys.toSet(), {'waiting', 'written', 'computerId'}, reason: 'counts and a time: the activity draws the shared list');
       expect(p.states.first['written'], now.millisecondsSinceEpoch);
+    });
+
+    test('a zero that cannot be trusted never ends the activity; only a live home from a reachable computer does', () async {
+      await sync.sync(home(waiting: 1), computerId: 'c1', canStart: true);
+      await sync.sync(home(waiting: 0, live: false), computerId: 'c1', canStart: true); // the home kept from the last run
+      await sync.sync(home(waiting: 0, conn: ConnState.relayDown), computerId: 'c1', canStart: true);
+      await sync.sync(home(waiting: 0, conn: ConnState.offline), computerId: 'c1', canStart: true);
+      expect(p.calls, ['sync 1'], reason: 'nothing ended it');
+      await sync.sync(home(waiting: 2, live: false), computerId: 'c1', canStart: true);
+      expect(p.calls, ['sync 1', 'sync 2'], reason: 'a count above zero is still shown');
+      await sync.sync(home(waiting: 0), computerId: 'c1', canStart: true);
+      expect(p.calls.last, 'sync 0');
     });
 
     test('with Live Activities off, only the list is written', () async {

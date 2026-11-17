@@ -631,9 +631,9 @@ fn every_frame_round_trips_with_documented_names() {
         (
             Frame::Send {
                 pid: "p".into(), to: "t".into(), ttl: 600, collapse: Some("c".into()),
-                push: Some(Push { kind: PushKind::LiveActivity, priority: 10, replaces: Some("r".into()) }), body: "b".into(),
+                push: Some(Push { kind: PushKind::LiveActivity, priority: 10, event: Some(ActivityEvent::Start), replaces: Some("r".into()) }), body: "b".into(),
             },
-            json!({"type":"send","pid":"p","to":"t","ttl":600,"collapse":"c","push":{"kind":"liveActivity","priority":10,"replaces":"r"},"body":"b"}),
+            json!({"type":"send","pid":"p","to":"t","ttl":600,"collapse":"c","push":{"kind":"liveActivity","priority":10,"event":"start","replaces":"r"},"body":"b"}),
         ),
         (Frame::Send { pid: "p".into(), to: "t".into(), ttl: 1, collapse: None, push: None, body: "b".into() }, json!({"type":"send","pid":"p","to":"t","ttl":1,"body":"b"})),
         (Frame::Msg { pid: "p".into(), from: "f".into(), body: "b".into() }, json!({"type":"msg","pid":"p","from":"f","body":"b"})),

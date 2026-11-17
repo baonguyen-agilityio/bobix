@@ -107,6 +107,14 @@ pub fn groups(work: &crate::work::Work, settings: &serde_json::Value, sessions: 
         .into_iter().filter(|(_, ids)| !ids.is_empty()).map(|(group, ids)| Group { group, ids }).collect()
 }
 
+// How many sessions wait for a phone: those with a request, plan or question held for the phones and not yet released (the
+// first input at the computer releases it). This is the phone's own count (`needsYou` with an item held for it, not handled at
+// the computer), so the Live Activity pushed from here and the one the app keeps agree.
+pub fn waiting_for_phones(sessions: &Sessions, pending: &HashMap<String, Pending>) -> u32 {
+    let held: std::collections::HashSet<&str> = pending.values().filter(|p| !p.released && sessions.contains_key(&p.sid)).map(|p| p.sid.as_str()).collect();
+    held.len() as u32
+}
+
 // The home as one phone gets it: it carries that phone's rights, so a change made on the computer reaches it, and Stop is
 // offered only where the phone holds both the Stop and the Answer right (the desktop refuses it otherwise).
 pub fn for_phone(mut h: Home, rights: Rights) -> Home {
@@ -280,6 +288,22 @@ mod tests {
         let mut m = HashMap::new();
         m.insert("r1".into(), Pending::for_test("s1", plan, tx, raw, cut));
         m
+    }
+
+    #[test]
+    fn the_count_for_phones_is_the_sessions_with_something_held_and_not_released() {
+        let mut sessions = Sessions::default();
+        for id in ["s1", "s2", "s3"] { let mut s = crate::state::Session::default(); s.id = id.into(); sessions.insert(id.into(), s); }
+        let mut pending = HashMap::new();
+        for (id, sid) in [("a", "s1"), ("b", "s1"), ("c", "s2"), ("d", "s3"), ("e", "gone")] {
+            let (tx, _rx) = tokio::sync::oneshot::channel();
+            pending.insert(id.to_string(), Pending::for_test(sid, false, tx, "ls", false));
+        }
+        assert_eq!(waiting_for_phones(&sessions, &pending), 3, "two items of one session count once; a session that is gone does not count");
+        pending.get_mut("c").unwrap().released = true;
+        assert_eq!(waiting_for_phones(&sessions, &pending), 2, "a released item is handled at the computer");
+        pending.get_mut("a").unwrap().released = true;
+        assert_eq!(waiting_for_phones(&sessions, &pending), 2, "a session still has one that is not released");
     }
 
     #[test]

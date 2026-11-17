@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use bobix_link::messages::Who;
 use bobix_link::relay_frames::*;
 use bobix_relay::config::{ApnsConfig, Config};
-use bobix_relay::push::{Outcome, PushRequest, PushSender};
+use bobix_relay::push::{apns_payload, Outcome, PushRequest, PushSender};
 use bobix_relay::senders::{Apns, Fcm, GatewayClient};
 use bobix_relay::App;
 use common::*;
@@ -35,7 +35,18 @@ fn with_push(to: &str, pid: &str, kind: PushKind, replaces: Option<&str>, body: 
         to: to.into(),
         ttl: 600,
         collapse: None,
-        push: Some(Push { kind, priority: 10, replaces: replaces.map(Into::into) }),
+        push: Some(Push { kind, priority: 10, event: None, replaces: replaces.map(Into::into) }),
+        body: body.into(),
+    }
+}
+
+fn with_event(to: &str, pid: &str, event: ActivityEvent, body: &str) -> Frame {
+    Frame::Send {
+        pid: pid.into(),
+        to: to.into(),
+        ttl: 600,
+        collapse: None,
+        push: Some(Push { kind: PushKind::LiveActivity, priority: 10, event: Some(event), replaces: None }),
         body: body.into(),
     }
 }
@@ -145,6 +156,71 @@ async fn a_live_activity_push_needs_an_activity_token_and_a_big_body_is_not_push
 }
 
 #[tokio::test]
+async fn a_live_activity_is_started_by_its_token_updated_by_its_own_and_forgotten_when_it_ends() {
+    let s = start(cfg()).await;
+    let (mut d, mut p) = with_registered_phone(&s, "dev-tok").await;
+    let ident = p.ident.clone();
+    let g = move |t: &str| grant(&ident, t, RELAY, now_ms() + DAY);
+    p.send(&push_token(TokenKind::PushToStart, "start-tok", g("start-tok"))).await;
+    p.sync().await;
+    let event = |i: usize| sent(&s)[i].event;
+
+    // No activity yet: an update has nowhere to go (it would start another activity each time), a start uses the start token.
+    d.send(&with_event(&p.id(), "u0", ActivityEvent::Update, "S")).await;
+    d.send(&with_event(&p.id(), "e0", ActivityEvent::End, "S")).await;
+    d.send(&with_event(&p.id(), "s1", ActivityEvent::Start, "S1")).await;
+    wait_sent(&s, 1).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(sent(&s).len(), 1, "an update and an end with no running activity push nothing");
+    assert_eq!((sent(&s)[0].token.as_str(), event(0), sent(&s)[0].computer.as_str()), ("start-tok", Some(ActivityEvent::Start), d.id().as_str()));
+
+    // The started activity's own token arrives: updates go to it, and a start no longer begins a second activity.
+    p.send(&push_token(TokenKind::Activity, "act-tok", g("act-tok"))).await;
+    p.sync().await;
+    d.send(&with_event(&p.id(), "u1", ActivityEvent::Update, "S2")).await;
+    wait_sent(&s, 2).await;
+    d.send(&with_event(&p.id(), "s2", ActivityEvent::Start, "S3")).await;
+    wait_sent(&s, 3).await;
+    assert_eq!([(sent(&s)[1].token.as_str(), event(1)), (sent(&s)[2].token.as_str(), event(2))], [("act-tok", Some(ActivityEvent::Update)); 2]);
+
+    // The end goes to the activity's token and forgets it: the next start begins a new activity, and an update goes nowhere.
+    d.send(&with_event(&p.id(), "e1", ActivityEvent::End, "S4")).await;
+    wait_sent(&s, 4).await;
+    assert_eq!((sent(&s)[3].token.as_str(), event(3)), ("act-tok", Some(ActivityEvent::End)));
+    d.send(&with_event(&p.id(), "u2", ActivityEvent::Update, "S5")).await;
+    d.send(&with_event(&p.id(), "s3", ActivityEvent::Start, "S6")).await;
+    wait_sent(&s, 5).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(sent(&s).len(), 5);
+    assert_eq!((sent(&s)[4].token.as_str(), event(4)), ("start-tok", Some(ActivityEvent::Start)));
+}
+
+#[test]
+fn a_live_activity_payload_has_the_sealed_content_only_and_the_fields_each_event_needs() {
+    let mut r = pr(PushKind::LiveActivity, ApnsEnv::Production, "t", None, 10);
+    let now = 1_000;
+    let mut payload = |e: Option<ActivityEvent>| {
+        r.event = e;
+        apns_payload(&r, now)
+    };
+    assert_eq!(
+        payload(Some(ActivityEvent::Start)),
+        json!({"aps": {
+            "timestamp": 1000, "event": "start", "content-state": {"sealed": "SEALED"}, "stale-date": 1900,
+            "attributes-type": "BobixActivityAttributes", "attributes": {"computerId": "desk"}, "input-push-token": 1,
+            "alert": {"title-loc-key": "bobix.push.title", "loc-key": "bobix.push.body"},
+        }})
+    );
+    let update = json!({"aps": {"timestamp": 1000, "event": "update", "content-state": {"sealed": "SEALED"}, "stale-date": 1900}});
+    assert_eq!(payload(Some(ActivityEvent::Update)), update);
+    assert_eq!(payload(None), update, "no event reads as an update");
+    assert_eq!(
+        payload(Some(ActivityEvent::End)),
+        json!({"aps": {"timestamp": 1000, "event": "end", "content-state": {"sealed": "SEALED"}, "dismissal-date": 1000}})
+    );
+}
+
+#[tokio::test]
 async fn a_token_the_push_service_rejects_is_forgotten() {
     let s = start(cfg()).await;
     let (mut d, mut p) = with_registered_phone(&s, "dead-tok").await;
@@ -215,6 +291,14 @@ async fn the_gateway_serves_only_relays_with_a_key_from_the_file_when_one_is_set
     assert_eq!(post(&s, Some("guess"), ok.clone()).await.0, 401, "a key that is not in the file");
     assert_eq!(post(&s, Some("good-key"), ok.clone()).await.0, 200);
     assert_eq!(sent(&s).len(), 1);
+    // A Live Activity push keeps what it does and the computer it names when it goes through a gateway.
+    let mut live = ok.clone();
+    live["kind"] = json!("liveActivity");
+    live["event"] = json!("start");
+    live["computer"] = json!("desk");
+    assert_eq!(post(&s, Some("good-key"), live).await.0, 200);
+    assert_eq!((sent(&s)[1].event, sent(&s)[1].computer.as_str()), (Some(ActivityEvent::Start), "desk"));
+    let sent_before = sent(&s).len();
     // The relay the key names is the relay the grant must name.
     assert_eq!(post(&s, Some("other-key"), ok).await.0, 403, "a grant for another relay");
     let now = now_ms();
@@ -226,7 +310,7 @@ async fn the_gateway_serves_only_relays_with_a_key_from_the_file_when_one_is_set
     let mut big = req(&phone, "gw-tok", "relay-a", now + DAY);
     big["body"] = json!("A".repeat(3_501));
     assert_eq!(post(&s, Some("good-key"), big).await.0, 413);
-    assert_eq!(sent(&s).len(), 1);
+    assert_eq!(sent(&s).len(), sent_before);
     std::fs::remove_file(file.unwrap()).unwrap();
 }
 
@@ -317,7 +401,7 @@ async fn stand_in(path: &'static str, status: u16) -> (String, Seen) {
 }
 
 fn pr(kind: PushKind, env: ApnsEnv, token: &str, replaces: Option<&str>, priority: u8) -> PushRequest {
-    PushRequest { platform: Platform::Ios, env, kind, token: token.into(), priority, replaces: replaces.map(Into::into), body: "SEALED".into(), grant: String::new() }
+    PushRequest { platform: Platform::Ios, env, kind, event: None, computer: "desk".into(), token: token.into(), priority, replaces: replaces.map(Into::into), body: "SEALED".into(), grant: String::new() }
 }
 
 fn header(h: &HeaderMap, n: &str) -> String {

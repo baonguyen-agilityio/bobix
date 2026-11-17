@@ -13,7 +13,7 @@ use bobix_link::{
     messages::*,
     pairing::*,
     invite::{InviteCode, DAY_MS},
-    relay_frames::{ErrorCode, Frame, InviteReason, Invitee, Push},
+    relay_frames::{ActivityEvent, ErrorCode, Frame, InviteReason, Invitee, Push, PushKind},
 };
 use chacha20poly1305::{aead::{Aead, KeyInit}, XChaCha20Poly1305};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,8 @@ const SEAL_KEY: &str = "phones-seal";
 const MOVE_WAIT_MS: u64 = 10 * 60 * 1000;
 const LOG_KEEP: usize = 300;
 const RESULT_KEEP_MS: u64 = 24 * 3600 * 1000;
+/// A phone's Live Activity is pushed at most this often: a burst of changes becomes one push with the last count.
+const ACTIVITY_GAP_MS: u64 = 5_000;
 pub const MAX_PHONE_NAME: usize = 40;
 /// The longest project name (a path such as `group/sub/repo`) a phone may name in a `start`.
 pub const MAX_PROJECT: usize = 200;
@@ -139,6 +141,7 @@ pub struct State {
     inflight: HashSet<String>,                  // `from:cid` of starts still running: a repeat of one gets no answer yet
     starting: HashSet<String>,                  // issues a start from a phone is running for: one at a time
     last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
+    activity_sent: HashMap<String, (u32, u64)>, // per phone: the waiting count its Live Activity was last pushed, and when
     invites: Invites,
     /// Cuts the link's wait before it reconnects (an invite code was entered while the relay was out of reach).
     pub wake: Arc<tokio::sync::Notify>,
@@ -267,11 +270,41 @@ impl State {
     // Seals a message to a phone and returns the frame. The counter reservation is stored before the frame leaves.
     pub fn tell(&mut self, id: &str, m: &DesktopMsg, push: Option<Push>, collapse: Option<String>) -> Option<(String, Frame)> {
         let stream = if matches!(m, DesktopMsg::Home(_)) { bobix_link::envelope::Stream::State } else { bobix_link::envelope::Stream::Event };
+        self.seal_to(id, stream, &m.to_json(), push, collapse)
+    }
+
+    fn seal_to(&mut self, id: &str, stream: bobix_link::envelope::Stream, plaintext: &[u8], push: Option<Push>, collapse: Option<String>) -> Option<(String, Frame)> {
         if push.is_some() { self.last_push = Some((id.to_string(), now())); }
-        let sealed = self.link_of(id)?.seal(stream, &m.to_json()).ok()?; // a low-order peer key: nothing is sent
+        let sealed = self.link_of(id)?.seal(stream, plaintext).ok()?; // a low-order peer key: nothing is sent
         if let Some((s, v)) = sealed.reserve { self.saved.entry(id.into()).or_default().res[s as usize] = v; self.save_counters(); }
         let pid = command::new_cid()[..16].to_string();
         Some((pid.clone(), Frame::Send { pid, to: id.into(), ttl: 600, collapse, push, body: b64(&sealed.packet) }))
+    }
+
+    // The Live Activity pushes due now, one for each phone whose activity is out of date (see `activity_step`). Each is a
+    // sealed `activity` packet with the count only (no names, no session), sent with a `liveActivity` push: the widget
+    // opens the packet with the phone's key, so the relay and Apple carry nothing readable. Only a start is held back while
+    // notifications are quiet (Do Not Disturb, or "notify when waiting" off): an update or an end is never, or an activity
+    // that began earlier would stay up after the last request was answered.
+    fn activity_frames(&mut self, waiting: u32, quiet: bool, t: u64) -> Vec<Frame> {
+        if !self.cfg.on || self.status != "online" { return vec![]; }
+        let name = self.computer_name();
+        let state = if self.asleep { "asleep" } else { "online" };
+        let ids: Vec<String> = self.store.phones.iter().map(|p| p.id.clone()).collect();
+        let mut out = vec![];
+        for id in ids {
+            let Some(event) = activity_step(self.activity_sent.get(&id).copied(), waiting, t) else { continue };
+            if quiet && event == ActivityEvent::Start { continue; }
+            let body = ActivityBody { waiting, names: vec![], written: t, computer_name: crate::phone_view::preview(&name, 64), computer_state: state.into() };
+            // Apple budgets the pushes that wake the island at once: the two that matter (it appears, it goes) are immediate.
+            let push = Push { kind: PushKind::LiveActivity, priority: if event == ActivityEvent::Update { 5 } else { 10 }, event: Some(event), replaces: None };
+            let json = serde_json::to_vec(&body).unwrap_or_default();
+            if let Some((_, f)) = self.seal_to(&id, bobix_link::envelope::Stream::Activity, &json, Some(push), Some("activity".into())) {
+                out.push(f);
+                self.activity_sent.insert(id, (waiting, t));
+            }
+        }
+        out
     }
 
     pub fn send(&self, f: Frame) { if let Some(tx) = &self.tx { let _ = tx.send(Out::Frame(Box::new(f))); } }
@@ -290,6 +323,7 @@ impl State {
     fn forget(&mut self, id: &str) -> Option<Phone> {
         self.links.remove(id);
         self.saved.remove(id);
+        self.activity_sent.remove(id);
         let i = self.store.phones.iter().position(|p| p.id == id)?;
         let p = self.store.phones.remove(i);
         self.store.revoked.push(Revoked { id: p.id.clone(), name: p.name.clone(), at: now() });
@@ -492,7 +526,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
         let notified = st.notified.remove(&id);
         let by = closed_by(end, st.answerers.remove(&id));
         let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid, title: String::new(), body: String::new(), by };
-        let push = notified.then(|| Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, replaces: Some(id.clone()) });
+        let push = notified.then(|| Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, event: None, replaces: Some(id.clone()) });
         let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
         for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), push.clone(), None) { out.push(f); } }
     }
@@ -517,8 +551,26 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
             if minute { st.last_home_at = t; }
             st.home_now.clear();
         }
+        let quiet = settings["dndUntil"].as_f64().unwrap_or(0.0) > t as f64 || settings["notifyWaiting"] != true;
+        out.extend(st.activity_frames(crate::phone_view::waiting_for_phones(sessions, pending), quiet, t));
     }
     out
+}
+
+/// What the sealed `activity` packet holds (`ios/WidgetsShared/BobixActivityAttributes.swift` decodes exactly this): the
+/// count and the computer, with no session name.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActivityBody { waiting: u32, names: Vec<String>, written: u64, computer_name: String, computer_state: String }
+
+/// What a phone's Live Activity needs now. `last` is the count it was last pushed with and when (none: never, since this
+/// computer started). Nothing is sent while it already shows the count, nor within [ACTIVITY_GAP_MS] of the last push (the
+/// next tick compares again, so a burst ends with one push of its last count, and 0, 2, 0 or 2, 0, 2 inside the gap sends
+/// nothing). A count that rises from nothing starts the activity, one that falls to nothing ends it, any other change updates.
+fn activity_step(last: Option<(u32, u64)>, waiting: u32, now: u64) -> Option<ActivityEvent> {
+    let Some((was, at)) = last else { return (waiting > 0).then_some(ActivityEvent::Start) };
+    if was == waiting || now < at + ACTIVITY_GAP_MS { return None; }
+    Some(if waiting == 0 { ActivityEvent::End } else if was == 0 { ActivityEvent::Start } else { ActivityEvent::Update })
 }
 impl State {
     // The relay refused a push for an ended grant. It names the phone (`peer`); an older relay names none, and then it is
@@ -1235,7 +1287,7 @@ pub fn on_notify(b: &Arc<Bobix>, kind: &str, sid: &str) {
         "done" => (Notice { what: NoticeKind::Done, reference: sid.into(), session: sid.into(), title: crate::phone_view::preview(title, 80), body: crate::phone_view::preview(&s.summary, 200), by: None }, sid.to_string()),
         _ => return,
     };
-    let push = Push { kind: bobix_link::relay_frames::PushKind::Alert, priority: 10, replaces: Some(id) };
+    let push = Push { kind: bobix_link::relay_frames::PushKind::Alert, priority: 10, event: None, replaces: Some(id) };
     let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
     for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), Some(push.clone()), None) { st.send(f); } }
 }
@@ -1295,6 +1347,69 @@ mod tests {
         st.cfg.on = true; st.cfg.hold = "phone".into();
         st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights::default(), since: 0, needs_pairing: false, no_push: false });
         st
+    }
+
+    #[test]
+    fn the_live_activity_follows_the_count_one_push_at_a_time() {
+        use ActivityEvent::*;
+        let gap = ACTIVITY_GAP_MS;
+        // Never pushed since this computer started: only something waiting starts it.
+        assert_eq!(activity_step(None, 0, 10), None);
+        assert_eq!(activity_step(None, 2, 10), Some(Start));
+        // The count it already shows is not pushed again, and a change inside the gap waits for the next tick.
+        assert_eq!(activity_step(Some((2, 100)), 2, 100 + gap), None);
+        assert_eq!(activity_step(Some((2, 100)), 3, 100 + gap - 1), None);
+        assert_eq!(activity_step(Some((2, 100)), 0, 100 + gap - 1), None);
+        // After the gap: rises from nothing start, falls to nothing end, anything else updates.
+        assert_eq!(activity_step(Some((0, 100)), 1, 100 + gap), Some(Start));
+        assert_eq!(activity_step(Some((2, 100)), 3, 100 + gap), Some(Update));
+        assert_eq!(activity_step(Some((3, 100)), 1, 100 + gap), Some(Update));
+        assert_eq!(activity_step(Some((2, 100)), 0, 100 + gap), Some(End));
+        // 0, 2, 0 and 2, 0, 2 inside the gap come back to the count that was pushed: nothing goes out.
+        assert_eq!(activity_step(Some((0, 100)), 0, 100 + gap), None);
+        assert_eq!(activity_step(Some((2, 100)), 2, 100 + gap), None);
+    }
+
+    #[test]
+    fn a_live_activity_push_is_a_sealed_count_with_no_name_and_goes_once_per_phone() {
+        let dir = std::env::temp_dir().join(format!("bobix-activity-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (desktop, phone) = (Identity::generate(), Identity::generate());
+        let mut st = on_state();
+        st.dir = dir.clone();
+        st.status = "online".into();
+        st.computer = "Studio Mac".into();
+        st.store.phones[0].boxk = b64(&phone.public().boxk);
+        st.identity = Some(desktop);
+        let desk_boxk = st.identity.as_ref().unwrap().public().boxk;
+        let mut phone_link = Link::new(Direction::ToDesktop, *phone.box_secret(), desk_boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], now(), RecvState::default());
+        let push_of = |f: &Frame| match f { Frame::Send { push, collapse, body, .. } => (push.clone().unwrap(), collapse.clone(), b64_decode(body).unwrap()), _ => panic!("not a send") };
+
+        let t = 1_000_000;
+        let out = st.activity_frames(2, false, t);
+        assert_eq!(out.len(), 1);
+        let (push, collapse, packet) = push_of(&out[0]);
+        assert_eq!((push.kind, push.event, push.priority, collapse.as_deref()), (PushKind::LiveActivity, Some(ActivityEvent::Start), 10, Some("activity")));
+        let opened = phone_link.open(&packet).expect("the phone opens it");
+        assert_eq!(opened.stream, bobix_link::envelope::Stream::Activity);
+        let body: Value = serde_json::from_slice(&opened.plaintext).unwrap();
+        assert_eq!(body, json!({ "waiting": 2, "names": [], "written": t, "computerName": "Studio Mac", "computerState": "online" }), "exactly what the widget decodes, no session name");
+
+        assert!(st.activity_frames(2, false, t + ACTIVITY_GAP_MS).is_empty(), "the same count is not pushed again");
+        assert!(st.activity_frames(3, false, t + 1).is_empty(), "a change inside the gap waits");
+        let later = st.activity_frames(3, false, t + ACTIVITY_GAP_MS);
+        let (push, _, _) = push_of(&later[0]);
+        assert_eq!((push.event, push.priority), (Some(ActivityEvent::Update), 5), "the busy-time updates stay under Apple's budget");
+        let end = st.activity_frames(0, true, t + 2 * ACTIVITY_GAP_MS);
+        assert_eq!(push_of(&end[0]).0.event, Some(ActivityEvent::End), "quiet notifications never keep an activity from ending");
+        assert!(st.activity_frames(1, true, t + 3 * ACTIVITY_GAP_MS).is_empty(), "quiet notifications keep a new activity from starting");
+        assert_eq!(st.activity_frames(1, false, t + 3 * ACTIVITY_GAP_MS).len(), 1);
+
+        st.status = "connecting".into();
+        assert!(st.activity_frames(0, false, t + 9 * ACTIVITY_GAP_MS).is_empty(), "nothing while the relay is down");
+        st.forget("p");
+        assert!(st.activity_sent.is_empty(), "a forgotten phone's state goes with it");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

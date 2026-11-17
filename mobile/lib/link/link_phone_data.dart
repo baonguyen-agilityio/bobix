@@ -73,6 +73,7 @@ class LinkPhoneData implements PhoneData {
       },
       answeredKind: _answeredKind,
       nowMs: _nowMs,
+      live: link.homeLive,
     );
   }
 
@@ -166,6 +167,7 @@ HomeData homeData(
   required Map<String, String> answeredAtComputer,
   Map<String, String> answeredKind = const {},
   required int nowMs,
+  bool live = true,
 }) {
   final h = snap.home;
   final waiting = <String, Map<String, dynamic>>{
@@ -236,6 +238,7 @@ HomeData homeData(
     conn: conn,
     lastContact: _clock(snap.receivedAtMs),
     sessions: sessions,
+    live: live,
   );
 }
 

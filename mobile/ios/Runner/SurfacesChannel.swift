@@ -12,6 +12,10 @@ final class SurfacesBridge {
   /// The activities whose token and state this process already watches.
   private var observed = Set<String>()
   private var startTokenTask: Task<Void, Never>?
+  /// The last tokens sent to Dart. The system hands them over as soon as the app starts, often before Dart listens, so Dart
+  /// asks for them again (`replayTokens`) once it does.
+  private var lastStartToken: String?
+  private var activityTokens: [String: String] = [:]
 
   func attach(messenger: FlutterBinaryMessenger) {
     let c = FlutterMethodChannel(name: "dev.bobix.phone/surfaces", binaryMessenger: messenger)
@@ -20,6 +24,20 @@ final class SurfacesBridge {
     watchPushToStartToken()
     // An activity from an earlier run of the app is still alive: watch it again instead of starting another.
     for a in Activity<BobixActivityAttributes>.activities { observe(a) }
+    watchStartedActivities()
+  }
+
+  /// An activity that a push started (the app is woken in the background to learn of it): its own push token must reach the
+  /// relay too, or later updates for it have nowhere to go.
+  private func watchStartedActivities() {
+    Task { [weak self] in
+      for await a in Activity<BobixActivityAttributes>.activityUpdates { self?.observe(a) }
+    }
+  }
+
+  private func replayTokens() {
+    if let t = lastStartToken { channel?.invokeMethod("pushToStartToken", arguments: t) }
+    for (id, token) in activityTokens { channel?.invokeMethod("activityToken", arguments: ["id": id, "token": token]) }
   }
 
   /// A new push-to-start token (iOS 17.2 and later) goes to Dart, which registers it with the relay as `pushToStart`.
@@ -28,7 +46,10 @@ final class SurfacesBridge {
     startTokenTask = Task { [weak self] in
       for await t in Activity<BobixActivityAttributes>.pushToStartTokenUpdates {
         let hex = t.map { String(format: "%02x", $0) }.joined()
-        await MainActor.run { self?.channel?.invokeMethod("pushToStartToken", arguments: hex) }
+        await MainActor.run {
+          self?.lastStartToken = hex
+          self?.channel?.invokeMethod("pushToStartToken", arguments: hex)
+        }
       }
     }
   }
@@ -40,12 +61,18 @@ final class SurfacesBridge {
     Task { [weak self] in
       for await t in a.pushTokenUpdates {
         let hex = t.map { String(format: "%02x", $0) }.joined()
-        await MainActor.run { self?.channel?.invokeMethod("activityToken", arguments: ["id": a.id, "token": hex]) }
+        await MainActor.run {
+          self?.activityTokens[a.id] = hex
+          self?.channel?.invokeMethod("activityToken", arguments: ["id": a.id, "token": hex])
+        }
       }
     }
     Task { [weak self] in
       for await st in a.activityStateUpdates where st == .ended || st == .dismissed {
-        await MainActor.run { self?.channel?.invokeMethod("activityEnded", arguments: a.id) }
+        await MainActor.run {
+          self?.activityTokens[a.id] = nil
+          self?.channel?.invokeMethod("activityEnded", arguments: a.id)
+        }
         self?.observed.remove(a.id)
         break
       }
@@ -144,6 +171,7 @@ final class SurfacesBridge {
         result(nil)
       } catch { fail("\(error)") }
     case "syncActivity": syncActivity(args, result)
+    case "replayTokens": replayTokens(); result(nil)
     case "clearSurfaces": SurfacesBridge.clear(); result(nil)
     default: result(FlutterMethodNotImplemented)
     }

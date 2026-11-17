@@ -89,10 +89,15 @@ class HomeData {
     required this.conn,
     required this.lastContact,
     required this.sessions,
+    this.live = true,
   });
 
   final String computer;
   final ConnState conn;
+
+  /// Whether this `home` came over the connection that is up now. The one kept from an earlier run (shown at once, while
+  /// the link connects) is not: its zero may be old.
+  final bool live;
 
   /// When the computer last sent anything, as the clock time to show ("21:02").
   final String lastContact;

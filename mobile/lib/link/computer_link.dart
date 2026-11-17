@@ -151,6 +151,10 @@ class ComputerLink {
 
   LinkStatus status = const LinkStatus();
   HomeSnapshot? home;
+
+  /// A `home` arrived over the connection that is up. False from the moment a connection opens until its first `home`, and
+  /// while the one kept from an earlier run is all there is.
+  bool homeLive = false;
   final _statusChanges = StreamController<LinkStatus>.broadcast();
   final _homeChanges = StreamController<HomeSnapshot>.broadcast();
   final _messages = StreamController<DesktopMessage>.broadcast();
@@ -267,6 +271,7 @@ class ComputerLink {
           await session.close();
           break;
         }
+        homeLive = false;
         _set(status.copyWith(conn: ConnState.ok));
         _pushUp(session);
         session.send(await relayPeersFrame(allow: [computer.id]));
@@ -479,6 +484,7 @@ class ComputerLink {
       case 'home':
         final snap = HomeSnapshot(j, _now().millisecondsSinceEpoch);
         home = snap;
+        homeLive = true;
         // A `home` without `rights` (an older computer) keeps the rights the phone has.
         final granted = j['rights'];
         if (granted is Map<String, dynamic>) {
