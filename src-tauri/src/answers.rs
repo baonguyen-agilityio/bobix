@@ -259,7 +259,7 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
     if let Some((oid, old)) = s.answer.as_ref().and_then(|a| a["id"].as_str()).and_then(|id| pending.remove(id).map(|p| (id.to_string(), p))) {
         let okind = old.kind();
         let _ = old.tx.send(None);
-        phones.closed_events.push((oid.clone(), old.sid.clone(), old.plan, End::Expired)); // the phones told of it are told it is gone
+        phones.closed_event((oid.clone(), old.sid.clone(), old.plan, End::Expired)); // the phones told of it are told it is gone
         closed.insert(oid, Closed { kind: okind, plan: old.plan, end: End::Expired, at: now }); // Claude asked again: the old one is moot
     }
     // Claude's question: held only whole and answerable (else Claude asks in its own prompt)
@@ -312,7 +312,7 @@ fn close(c: &mut crate::Core, id: &str, decision: Option<Value>, end: End, now: 
     let _ = p.tx.send(decision.map(output));
     c.closed.retain(|_, k| now.saturating_sub(k.at) < CLOSED_KEEP_MS);
     c.closed.insert(id.to_string(), Closed { kind, plan: p.plan, end, at: now });
-    c.phones.closed_events.push((id.to_string(), p.sid.clone(), p.plan, end)); // the phones told of it are told it is gone
+    c.phones.closed_event((id.to_string(), p.sid.clone(), p.plan, end)); // the phones told of it are told it is gone
     true
 }
 

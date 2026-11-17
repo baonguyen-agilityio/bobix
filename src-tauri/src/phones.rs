@@ -284,15 +284,11 @@ impl State {
     // The notices of the requests that ended: every paired phone learns who closed it (one that never had the push still has the
     // item in its last `home`); the push that clears a shown notification goes only where it was announced. A phone's answer
     // names the phone only to that phone (so it can say "this phone"); the others are told it was a phone, not which.
-    // With no link to the relay they are dropped (a phone learns the item is gone from its next `home`), so an outage never
-    // piles up a sealed frame for every item and phone.
     fn closed_frames(&mut self) -> Vec<Frame> {
         let mut out = vec![];
-        let linked = self.cfg.on && self.status == "online";
         for (id, sid, _, end) in std::mem::take(&mut self.closed_events) {
             let notified = self.notified.remove(&id);
             let answerer = self.answerers.remove(&id);
-            if !linked { continue; }
             let push = notified.then(|| Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, event: None, replaces: Some(id.clone()) });
             let ids: Vec<String> = self.store.phones.iter().map(|p| p.id.clone()).collect();
             for p in ids {
@@ -482,6 +478,7 @@ pub fn link_ended(b: &Arc<Bobix>) {
     let mut c = b.core.lock().unwrap();
     c.phones.tx = None;
     if !c.phones.cfg.on { c.phones.status = "off".into(); }
+    c.phones.forget_closed();
 }
 // The address the link connects to: Settings' address, held to the same rule as when it was typed (a `ws://` address on a
 // private network only in a build with phone access), the same rule as when it was typed.
@@ -509,6 +506,7 @@ pub fn link_lost(b: &Arc<Bobix>) {
     let mut c = b.core.lock().unwrap();
     if c.phones.cfg.on { c.phones.status = "connecting".into(); }
     if let Some(p) = c.phones.pairing.as_mut() { p.opened = false; }
+    c.phones.forget_closed();
 }
 
 // Called once a second by the link: timers (a pairing that ran out, a relay move or a revocation that waited long enough),
@@ -601,6 +599,16 @@ impl State {
     }
     // The request was announced to the phones (so a settings change does not hand it back).
     pub fn was_sent(&self, id: &str) -> bool { self.notified.contains(id) }
+    // An item that ended, for the closed notices of the next tick. With no link to the relay it is not kept: a phone learns the
+    // item is gone from its next `home`, and an outage never piles up a sealed frame for every item and phone.
+    pub fn closed_event(&mut self, e: (String, String, bool, crate::answers::End)) {
+        if self.cfg.on && self.status == "online" { self.closed_events.push(e); } else { self.forget_item(&e.0); }
+    }
+    fn forget_item(&mut self, id: &str) { self.notified.remove(id); self.answerers.remove(id); }
+    // The link to the relay ended: the notices not sent yet are dropped with what was kept for them.
+    fn forget_closed(&mut self) {
+        for (id, ..) in std::mem::take(&mut self.closed_events) { self.forget_item(&id); }
+    }
     #[cfg(test)]
     pub fn mark_sent(&mut self, id: &str) { self.notified.insert(id.into()); }
     #[cfg(test)]
@@ -888,13 +896,25 @@ fn begin_approve(b: &Arc<Bobix>, c: &mut crate::Core, a: Approve, (plan, cwd): (
         let files = crate::plan_files::read(&plan, &cwd);
         let mut changed = false;
         let mut c = b2.core.lock().unwrap();
-        c.phones.inflight.remove(&format!("{}:{}", a.from, a.cid));
-        let result = apply(&mut c, &a.cid, &a.id, &a.shown, "allow", &a.note, true, crate::answers::By::Phone, &mut changed, Some(files));
-        record(&mut c, &a.from, &a.name, &a.what, Some(a.id.clone()), &result, a.t);
+        let result = finish_approve(&mut c, &a, files, &mut changed);
         if let Some((_, f)) = c.phones.tell(&a.from, &DesktopMsg::Result(result), None, None) { c.phones.send(f); }
         drop(c);
         if changed { b2.broadcast(); }
     });
+}
+
+// The approve after its files were read. The phone may have been disconnected, lost the right or been asked to pair again,
+// or phone access turned off, while the files were read: all of it is checked again before the plan is answered.
+fn finish_approve(c: &mut crate::Core, a: &Approve, files: crate::plan_files::PlanFiles, changed: &mut bool) -> CmdResult {
+    c.phones.inflight.remove(&format!("{}:{}", a.from, a.cid));
+    let phone = c.phones.store.phones.iter().find(|p| p.id == a.from);
+    let result = match phone {
+        None => CmdResult::refused(&a.cid, "unknown"),
+        Some(p) if !c.phones.cfg.on || p.needs_pairing || !p.rights.plan => CmdResult::refused(&a.cid, "right"),
+        Some(_) => apply(c, &a.cid, &a.id, &a.shown, "allow", &a.note, true, crate::answers::By::Phone, changed, Some(files)),
+    };
+    record(c, &a.from, &a.name, &a.what, Some(a.id.clone()), &result, a.t);
+    result
 }
 
 // The prompt as the phone shows it: hidden characters (tag characters, bidirectional overrides, invisible letters) written as
@@ -1533,11 +1553,66 @@ mod tests {
             let by: Value = serde_json::from_slice::<Value>(&opened.plaintext).unwrap()["by"].clone();
             assert_eq!(by, if *id == "p2" { json!({ "kind": "phone", "phone": "p2" }) } else { json!({ "kind": "phone", "phone": "" }) }, "{id}");
         }
-        // with no link, nothing is sealed for later and nothing is kept for the item
-        st.status = "connecting".into();
-        st.answerers.insert("r2".into(), "p".into());
-        st.closed_events.push(("r2".into(), "s1".into(), false, crate::answers::End::Answered(By::Phone, true)));
-        assert!(st.closed_frames().is_empty() && st.closed_events.is_empty() && !st.answerers.contains_key("r2"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn test_bobix(c: crate::Core) -> Arc<Bobix> {
+        let (tx, _) = tokio::sync::broadcast::channel(4);
+        Arc::new(Bobix { core: std::sync::Mutex::new(c), tx, token: "t".into(), port: 0, app: Default::default(),
+            usage: std::sync::Mutex::new(crate::usage::Store::new(std::env::temp_dir().join("bobix-phones-test"))), dirty: Default::default(), phones_dirty: Default::default() })
+    }
+
+    #[test]
+    fn closed_notices_are_not_kept_across_a_lost_link() {
+        use crate::answers::End;
+        let mut c = crate::Core::default();
+        c.phones = on_state();
+        c.phones.status = "online".into();
+        let ended = |id: &str| (id.to_string(), "s1".to_string(), false, End::Answered(By::Phone, true));
+        c.phones.answerers.insert("r1".into(), "p".into());
+        c.phones.closed_event(ended("r1"));
+        assert_eq!(c.phones.closed_events.len(), 1, "online: told at the next tick");
+        let b = test_bobix(c);
+        link_lost(&b);
+        {
+            let mut c = b.core.lock().unwrap();
+            assert!(c.phones.closed_events.is_empty() && !c.phones.answerers.contains_key("r1"), "the link was lost: dropped");
+            c.phones.answerers.insert("r2".into(), "p".into());
+            c.phones.closed_event(ended("r2"));
+            assert!(c.phones.closed_events.is_empty() && !c.phones.answerers.contains_key("r2"), "while it is down: never kept");
+            c.phones.status = "online".into();
+            c.phones.closed_event(ended("r3"));
+        }
+        link_ended(&b);
+        assert!(b.core.lock().unwrap().phones.closed_events.is_empty(), "the link ended: dropped");
+    }
+
+    #[test]
+    fn an_approve_checks_the_phone_again_after_its_files_were_read() {
+        let mut c = crate::Core::default();
+        c.phones = State::with_phone(Rights { plan: true, ..Default::default() });
+        let dir = std::env::temp_dir().join(format!("bobix-approve-again-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        c.phones.dir = dir.clone(); // the log and results it keeps
+        held(&mut c, "plan", true, "1. do it", false);
+        let a = Approve { from: "p".into(), name: "n".into(), cid: "c1".into(), id: "plan".into(), shown: shown(&c, "plan"), note: String::new(), what: "plan".into(), t: 0 };
+        let mut changed = false;
+        let phone = c.phones.store.phones[0].clone();
+        let mut run = |c: &mut crate::Core| finish_approve(c, &a, Default::default(), &mut changed);
+        // while the files were read: the phone was disconnected, lost the right, must pair again, or phone access went off
+        c.phones.store.phones.clear();
+        assert_eq!(run(&mut c).why.as_deref(), Some("unknown"));
+        c.phones.store.phones.push(Phone { rights: Rights { answer: true, ..Default::default() }, ..phone.clone() });
+        assert_eq!(run(&mut c).why.as_deref(), Some("right"));
+        c.phones.store.phones[0] = Phone { needs_pairing: true, ..phone.clone() };
+        assert_eq!(run(&mut c).why.as_deref(), Some("right"));
+        c.phones.store.phones[0] = phone.clone();
+        c.phones.cfg.on = false;
+        assert_eq!(run(&mut c).why.as_deref(), Some("right"));
+        assert!(c.pending.contains_key("plan") && c.phones.answerers.is_empty(), "nothing was answered");
+        c.phones.cfg.on = true;
+        assert_eq!(run(&mut c).outcome, Outcome::Ok);
+        assert!(!c.pending.contains_key("plan") && c.phones.answerers.get("plan").map(String::as_str) == Some("p"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
