@@ -27,6 +27,7 @@ class LinkStatus {
     this.revokedByComputer = false,
     this.revokedAtMs,
     this.movedHost,
+    this.pushRefusedFor,
   });
 
   final ConnState conn;
@@ -44,6 +45,10 @@ class LinkStatus {
   /// The host of the relay the computer moved to, once the phone follows it (shown so the move is not silent).
   final String? movedHost;
 
+  /// The relay refused this phone's push grant, which named this relay id: notifications will not arrive. Cleared when the
+  /// next connection opens (the grant is made again, and refused again if it is still wrong).
+  final String? pushRefusedFor;
+
   LinkStatus copyWith({
     ConnState? conn,
     LinkProblem? problem,
@@ -51,6 +56,8 @@ class LinkStatus {
     bool? revokedByComputer,
     int? revokedAtMs,
     String? movedHost,
+    String? pushRefusedFor,
+    bool clearPushRefused = false,
   }) => LinkStatus(
     conn: conn ?? this.conn,
     problem: problem ?? this.problem,
@@ -58,6 +65,9 @@ class LinkStatus {
     revokedByComputer: revokedByComputer ?? this.revokedByComputer,
     revokedAtMs: revokedAtMs ?? this.revokedAtMs,
     movedHost: movedHost ?? this.movedHost,
+    pushRefusedFor: clearPushRefused
+        ? null
+        : (pushRefusedFor ?? this.pushRefusedFor),
   );
 }
 
@@ -272,7 +282,7 @@ class ComputerLink {
           break;
         }
         homeLive = false;
-        _set(status.copyWith(conn: ConnState.ok));
+        _set(status.copyWith(conn: ConnState.ok, clearPushRefused: true));
         _pushUp(session);
         session.send(await relayPeersFrame(allow: [computer.id]));
         await _sendSealed(
@@ -311,18 +321,16 @@ class ComputerLink {
     _running = false;
   }
 
-  /// The id push grants name: the host of the relay's address, which is the relay's own `RELAY_ID` by rule.
-  String? get _relayId => relayHost(computer.relay);
-
-  /// The relay id [push] has this link registered under, while a connection is up.
-  String? _pushId;
+  /// The relay id [push] has this link registered under while a connection is up, and the last one it used (to forget).
+  String? _pushId, _pushUsed;
 
   /// A connection is up: the push tokens go to the relay over it, each with a fresh grant. A failure here never ends the
   /// connection: the next one, or the daily renewal, tries again.
   void _pushUp(RelaySession session) {
-    final p = push, id = _relayId;
+    // The id the relay announced; an older relay announces none, and its address's host is the best guess.
+    final p = push, id = session.relayId ?? relayHost(computer.relay);
     if (p == null || id == null) return;
-    _pushId = id;
+    _pushId = _pushUsed = id;
     unawaited(() async {
       try {
         await p.connected(id, (frame) async => session.send(jsonEncode(frame)));
@@ -341,8 +349,9 @@ class ComputerLink {
 
   /// This link no longer belongs to the relay (it moved, or the pairing ended): its grants are not renewed.
   void _pushForget() {
-    final id = _relayId;
+    final id = _pushUsed;
     if (id != null) push?.forget(id);
+    _pushUsed = null;
   }
 
   ConnState _unreachable(Object e) => whyUnreachable(e) == Unreachable.noNetwork
@@ -455,6 +464,10 @@ class ComputerLink {
         );
       case RelayError.invite:
         _set(status.copyWith(problem: LinkProblem.invite));
+      case RelayError.grant:
+        // Only a refusal of this phone's own token reaches a phone. It is said, not guessed at: nothing will be pushed.
+        final id = _pushId;
+        if (id != null) _set(status.copyWith(pushRefusedFor: id));
       default:
         break;
     }

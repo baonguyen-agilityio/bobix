@@ -192,7 +192,8 @@ enum RelayError {
 sealed class RelayFrame with _$RelayFrame {
   const RelayFrame._();
 
-  const factory RelayFrame.challenge({required String nonce}) =
+  /// `relay_id`: the id the relay says its push grants must name (none from an older relay).
+  const factory RelayFrame.challenge({required String nonce, String? relayId}) =
       RelayFrame_Challenge;
 
   /// A sealed packet from `from`, its body already decoded.

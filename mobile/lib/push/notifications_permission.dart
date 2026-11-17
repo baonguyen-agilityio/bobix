@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/l10n.dart';
+import '../link/link_providers.dart';
 import '../lock/own_prompt.dart';
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
@@ -86,7 +87,8 @@ class _ReasonSheet extends ConsumerWidget {
   }
 }
 
-/// In Settings: nothing while notifications are on. Refused: says so and opens iOS Settings (the only place to turn them
+/// In Settings: what keeps notifications from arriving. The relay refusing this phone's grant comes first (nothing will be
+/// pushed, whatever the permission says). Otherwise: nothing while notifications are on. Refused by the person: says so and opens iOS Settings (the only place to turn them
 /// on again). Not asked yet (a person who chose "Not now", or who paired before this existed): offers to turn them on.
 class NotificationsPermissionNotice extends ConsumerStatefulWidget {
   const NotificationsPermissionNotice({super.key});
@@ -128,6 +130,14 @@ class _NotificationsPermissionNoticeState
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(stringsProvider);
+    if (ref.watch(linkStatusProvider).value?.pushRefusedFor != null) {
+      return StatusBanner(
+        kind: BannerKind.warn,
+        icon: Icons.notifications_off_outlined,
+        title: s('phone.push.refused'),
+        body: s('phone.push.refused.d'),
+      );
+    }
     return switch (ref.watch(pushPermissionProvider).value) {
       PushPermission.denied => StatusBanner(
         kind: BannerKind.info,

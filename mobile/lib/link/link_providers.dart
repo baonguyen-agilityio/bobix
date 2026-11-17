@@ -75,6 +75,9 @@ class LinkController extends AsyncNotifier<AppPhase> {
   /// The paired computer's id, also while the phone shows "pair again" (the extension still holds its key then).
   String? _computerId;
 
+  /// The relay id whose refused grant the log already says.
+  String? _refusedLogged;
+
   @override
   Future<AppPhase> build() async {
     ref.onDispose(() {
@@ -201,6 +204,20 @@ class LinkController extends AsyncNotifier<AppPhase> {
       now: ref.read(clockProvider),
     );
     _status = link.statusChanges.listen((s) {
+      // The relay refused the push grant: one line in the log for each relay id, not one for each reconnection.
+      final refused = s.pushRefusedFor;
+      if (refused != null && refused != _refusedLogged) {
+        _refusedLogged = refused;
+        ref
+            .read(activityLogProvider.notifier)
+            .record(
+              LogEntry(
+                at: ref.read(clockProvider)(),
+                kind: LogKind.pushRefused,
+                detail: refused,
+              ),
+            );
+      }
       if (s.maybeRevoked || s.revokedByComputer) {
         if (s.revokedByComputer) {
           _logDisconnected(computer.name);
@@ -280,6 +297,7 @@ class LinkController extends AsyncNotifier<AppPhase> {
     final current = state.value;
     final id = _computerId;
     _computerId = null;
+    _refusedLogged = null;
     final name = switch (current) {
       Paired p => p.link.computer.name,
       PairAgain a => a.computer,

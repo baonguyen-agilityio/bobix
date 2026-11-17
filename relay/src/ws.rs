@@ -73,7 +73,7 @@ fn error(tx: &Tx, code: ErrorCode) {
 
 async fn session(app: &Arc<App>, stream: &mut SplitStream<WebSocket>, tx: &Tx, slot: &mut Option<String>, ip: &str) {
     let nonce = b64(&random::<32>());
-    reply(tx, Frame::Challenge { nonce: nonce.clone() });
+    reply(tx, Frame::Challenge { nonce: nonce.clone(), relay_id: Some(app.cfg.relay_id.clone()) });
 
     // Ten seconds to prove the key, in one small frame.
     let first = match timeout(app.cfg.auth_within, stream.next()).await {

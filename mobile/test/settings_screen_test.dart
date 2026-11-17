@@ -107,6 +107,7 @@ void main() {
     Brightness brightness = Brightness.light,
     List<Override> extra = const [],
     FakePushPlatform? push,
+    String? refused,
   }) async {
     tester.view.physicalSize = const Size(400, 2600);
     tester.view.devicePixelRatio = 1;
@@ -117,7 +118,7 @@ void main() {
       supportDirectoryProvider.overrideWith((ref) async => tmp),
       pairedComputerProvider.overrideWithValue(paired),
       linkStatusProvider.overrideWith(
-        (ref) => Stream.value(LinkStatus(conn: conn)),
+        (ref) => Stream.value(LinkStatus(conn: conn, pushRefusedFor: refused)),
       ),
       linkControllerProvider.overrideWith(() => link),
       secureKeysProvider.overrideWithValue(keys),
@@ -428,6 +429,15 @@ void main() {
     await tester.tap(find.text('Open iOS Settings'));
     await tester.pump();
     expect(push.calls, ['openSettings']);
+
+    // The relay refusing the grant is said first: nothing is pushed, whatever the permission is.
+    await pump(
+      tester,
+      paired: computer(),
+      push: FakePushPlatform()..permission = PushPermission.authorized,
+      refused: 'opaque-id',
+    );
+    expect(find.text('The relay refused this phone’s notifications.'), findsOneWidget);
 
     final asked = FakePushPlatform();
     await pump(tester, paired: computer(), push: asked);

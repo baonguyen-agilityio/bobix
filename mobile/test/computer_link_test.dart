@@ -48,7 +48,8 @@ void main() {
 
   setUpAll(initCoreLibrary);
 
-  Future<void> build({Flavor flavor = Flavor.dev, PushRegistration? push}) async {
+  /// [announce] is the relay id the scripted relay says in its challenge; none is an older relay.
+  Future<void> build({Flavor flavor = Flavor.dev, PushRegistration? push, String? announce}) async {
     tmp = Directory.systemTemp.createTempSync('bobix-link-unit-');
     keys = MemorySecureKeys();
     store = LinkStateStore(tmp);
@@ -84,7 +85,7 @@ void main() {
       connect: (url) async {
         urls.add(url);
         final s = ScriptedSocket()
-          ..push({'type': 'challenge', 'nonce': 'n${urls.length}'});
+          ..push({'type': 'challenge', 'nonce': 'n${urls.length}', 'relayId': ?announce});
         sockets.add(s);
         return s;
       },
@@ -138,7 +139,7 @@ void main() {
       await until(() => sockets.first.ofType('pushToken').isNotEmpty);
       final f = sockets.first.ofType('pushToken').single;
       expect((f['kind'], f['token'], f['platform']), ('device', 'ab12cd', 'ios'));
-      expect(platform.grants.single['relayId'], '127.0.0.1', reason: 'the grant names the host of the relay address');
+      expect(platform.grants.single['relayId'], '127.0.0.1', reason: 'an older relay announces no id: the host of its address');
       // A token that comes with the activity rides the same link.
       await reg.registerExtra(kind: 'activity', ref: 'act1', token: 'aa');
       await until(() => sockets.first.ofType('pushToken').length == 2);
@@ -147,6 +148,28 @@ void main() {
       await sockets.first.close();
       await until(() => sockets.length >= 2 && sockets[1].ofType('pushToken').length == 2);
       expect(sockets[1].ofType('pushToken').map((x) => x['kind']).toSet(), {'device', 'activity'});
+    },
+  );
+
+  test(
+    'the grant names the id the relay announced, and a grant the relay refuses is said, once per connection',
+    () async {
+      final platform = FakePushPlatform()..currentToken = 'ab12cd';
+      final reg = PushRegistration(platform, platform: 'ios');
+      addTearDown(reg.dispose);
+      await build(push: reg, announce: 'opaque-relay-id');
+      await until(() => sockets.first.ofType('pushToken').isNotEmpty);
+      expect(platform.grants.single['relayId'], 'opaque-relay-id', reason: 'not the host of the address (127.0.0.1)');
+      expect(link.status.pushRefusedFor, isNull);
+
+      sockets.first.push({'type': 'error', 'code': 'grant', 'who': 'phone', 'peer': phone.deviceId});
+      await until(() => link.status.pushRefusedFor != null);
+      expect(link.status.pushRefusedFor, 'opaque-relay-id');
+
+      // The next connection makes the grant again; the refusal is said again only if the relay refuses again.
+      await sockets.first.close();
+      await until(() => sockets.length >= 2 && sockets[1].ofType('pushToken').isNotEmpty);
+      expect(link.status.pushRefusedFor, isNull);
     },
   );
 

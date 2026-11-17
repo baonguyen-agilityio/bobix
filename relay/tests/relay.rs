@@ -48,20 +48,21 @@ async fn healthz_answers_and_a_replayed_auth_signature_is_refused() {
 
     let a = ident();
     let mut first = Dev::raw(&s).await;
-    let Frame::Challenge { nonce } = first.next(1000).await else { panic!("no challenge") };
+    let Frame::Challenge { nonce, relay_id } = first.next(1000).await else { panic!("no challenge") };
+    assert_eq!(relay_id.as_deref(), Some(cfg().relay_id.as_str()), "the relay says which id its push grants must name");
     let auth = auth_frame(&a, &first.url, &nonce);
     first.send(&auth).await;
     drop(first);
 
     // The same signature on a new connection answers an older challenge: refused.
     let mut second = Dev::raw(&s).await;
-    let Frame::Challenge { nonce: n2 } = second.next(1000).await else { panic!("no challenge") };
+    let Frame::Challenge { nonce: n2, .. } = second.next(1000).await else { panic!("no challenge") };
     assert_ne!(nonce, n2);
     second.send(&auth).await;
     second.expect(is_err(ErrorCode::Auth), 1000).await;
     // A signature by another key, or for another id, is refused as well.
     let mut third = Dev::raw(&s).await;
-    let Frame::Challenge { nonce: n3 } = third.next(1000).await else { panic!() };
+    let Frame::Challenge { nonce: n3, .. } = third.next(1000).await else { panic!() };
     let Frame::Auth { key, relay, sig, versions, .. } = auth_frame(&ident(), &third.url, &n3) else { panic!() };
     third.send(&Frame::Auth { id: a.device_id(), key, relay, sig, versions }).await;
     third.expect(is_err(ErrorCode::Auth), 1000).await;
@@ -567,21 +568,21 @@ async fn a_signature_made_for_another_relay_address_is_refused_with_its_own_erro
 
     // Valid signature, but for another relay: the hostile-relay case, and the misconfigured-URL case.
     let mut d = Dev::raw(&s).await;
-    let Frame::Challenge { nonce } = d.next(2000).await else { panic!() };
+    let Frame::Challenge { nonce, .. } = d.next(2000).await else { panic!() };
     d.send(&auth_frame(&id, "wss://some-other-relay.example", &nonce)).await;
     d.expect(is_err(ErrorCode::RelayUrl), 1000).await;
     d.closed(2000).await;
 
     // A frame that claims this relay but is signed for another is simply invalid.
     let mut liar = Dev::raw(&s).await;
-    let Frame::Challenge { nonce } = liar.next(2000).await else { panic!() };
+    let Frame::Challenge { nonce, .. } = liar.next(2000).await else { panic!() };
     let Frame::Auth { id: i, key, sig, versions, .. } = auth_frame(&id, "wss://some-other-relay.example", &nonce) else { panic!() };
     liar.send(&Frame::Auth { id: i, key, relay: s_url(&log_path), sig, versions }).await;
     liar.expect(is_err(ErrorCode::Auth), 1000).await;
 
     // The same relay written another way (`localhost` for 127.0.0.1) is the same address.
     let mut ok = Dev::raw(&s).await;
-    let Frame::Challenge { nonce } = ok.next(2000).await else { panic!() };
+    let Frame::Challenge { nonce, .. } = ok.next(2000).await else { panic!() };
     let port = s.addr.port();
     ok.send(&auth_frame(&id, &format!("ws://localhost:{port}/"), &nonce)).await;
     ok.sync().await;
@@ -602,14 +603,14 @@ async fn a_relay_listening_on_every_address_checks_signatures_against_the_lan_ad
     let id = ident();
 
     let mut ok = Dev::raw(&s).await;
-    let Frame::Challenge { nonce } = ok.next(2000).await else { panic!() };
+    let Frame::Challenge { nonce, .. } = ok.next(2000).await else { panic!() };
     ok.send(&auth_frame(&id, "ws://192.168.1.20:8787", &nonce)).await;
     ok.sync().await;
     ok.none(|f| matches!(f, Frame::Error { code: ErrorCode::RelayUrl | ErrorCode::Auth, .. }), 300).await;
 
     // A device that signs the address it happens to reach the relay at (loopback here) is told it is the wrong relay address.
     let mut other = Dev::raw(&s).await;
-    let Frame::Challenge { nonce } = other.next(2000).await else { panic!() };
+    let Frame::Challenge { nonce, .. } = other.next(2000).await else { panic!() };
     other.send(&auth_frame(&id, &format!("ws://{addr}"), &nonce)).await;
     other.expect(is_err(ErrorCode::RelayUrl), 1000).await;
 }

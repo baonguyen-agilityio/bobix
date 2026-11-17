@@ -2748,7 +2748,11 @@ impl SseDecode for crate::api::relay::RelayFrame {
         match tag_ {
             0 => {
                 let mut var_nonce = <String>::sse_decode(deserializer);
-                return crate::api::relay::RelayFrame::Challenge { nonce: var_nonce };
+                let mut var_relayId = <Option<String>>::sse_decode(deserializer);
+                return crate::api::relay::RelayFrame::Challenge {
+                    nonce: var_nonce,
+                    relay_id: var_relayId,
+                };
             }
             1 => {
                 let mut var_pid = <String>::sse_decode(deserializer);
@@ -3531,9 +3535,12 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::relay::RelayError>
 impl flutter_rust_bridge::IntoDart for crate::api::relay::RelayFrame {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
-            crate::api::relay::RelayFrame::Challenge { nonce } => {
-                [0.into_dart(), nonce.into_into_dart().into_dart()].into_dart()
-            }
+            crate::api::relay::RelayFrame::Challenge { nonce, relay_id } => [
+                0.into_dart(),
+                nonce.into_into_dart().into_dart(),
+                relay_id.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
             crate::api::relay::RelayFrame::Msg { pid, from, packet } => [
                 1.into_dart(),
                 pid.into_into_dart().into_dart(),
@@ -4170,9 +4177,10 @@ impl SseEncode for crate::api::relay::RelayFrame {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         match self {
-            crate::api::relay::RelayFrame::Challenge { nonce } => {
+            crate::api::relay::RelayFrame::Challenge { nonce, relay_id } => {
                 <i32>::sse_encode(0, serializer);
                 <String>::sse_encode(nonce, serializer);
+                <Option<String>>::sse_encode(relay_id, serializer);
             }
             crate::api::relay::RelayFrame::Msg { pid, from, packet } => {
                 <i32>::sse_encode(1, serializer);

@@ -56,7 +56,7 @@ async fn session(b: &Arc<Bobix>, rx: &mut UnboundedReceiver<Out>) -> Ended {
         Err(_) => { eprintln!("[bobix] phones: the relay did not answer in time"); return Ended::Lost; }
     };
     // the relay speaks first: a challenge, answered with a signature for the address this connection was opened to
-    let Some(nonce) = next_frame(&mut ws, Duration::from_secs(10)).await.and_then(|f| if let Frame::Challenge { nonce } = f { Some(nonce) } else { None }) else { eprintln!("[bobix] phones: the relay sent no challenge"); return Ended::Lost };
+    let Some(nonce) = next_frame(&mut ws, Duration::from_secs(10)).await.and_then(|f| if let Frame::Challenge { nonce, .. } = f { Some(nonce) } else { None }) else { eprintln!("[bobix] phones: the relay sent no challenge"); return Ended::Lost };
     let mut pace = Pace::new();
     let Some(auth) = phones::auth_frame(b, &url, &nonce) else { eprintln!("[bobix] phones: no identity or an unusable relay address"); return Ended::Lost };
     if send(&mut ws, &mut pace, &auth).await.is_err() { return Ended::Lost; }

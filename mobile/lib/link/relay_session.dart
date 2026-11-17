@@ -64,9 +64,12 @@ Unreachable whyUnreachable(Object error) {
 /// the address the phone connected to (the relay refuses a signature made for another address). Frames are built and read
 /// by the crate (through the bridge); this moves their text.
 class RelaySession {
-  RelaySession._(this._socket, this.frames);
+  RelaySession._(this._socket, this.frames, this.relayId);
 
   final RelaySocket _socket;
+
+  /// The id the relay says its push grants must name (`RELAY_ID`), from its challenge. Null from an older relay.
+  final String? relayId;
 
   /// Frames after the login. Ends when the connection does. A text that is not a frame is skipped.
   final Stream<RelayFrame> frames;
@@ -91,11 +94,13 @@ class RelaySession {
         .where((f) => f != null)
         .cast<RelayFrame>();
     final it = StreamIterator<RelayFrame>(parsed);
+    String? relayId;
     try {
       if (!await it.moveNext().timeout(challengeWithin) ||
           it.current is! RelayFrame_Challenge) {
         throw const SocketException('the relay sent no challenge');
       }
+      relayId = (it.current as RelayFrame_Challenge).relayId;
       socket.send(
         await relayAuthFrame(
           authSeed: identity.authSeed,
@@ -123,7 +128,7 @@ class RelaySession {
       }
       await rest.close();
     }());
-    return RelaySession._(socket, rest.stream);
+    return RelaySession._(socket, rest.stream, relayId);
   }
 
   /// Sends a frame the crate built.

@@ -2841,7 +2841,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     switch (raw[0]) {
       case 0:
-        return RelayFrame_Challenge(nonce: dco_decode_String(raw[1]));
+        return RelayFrame_Challenge(
+          nonce: dco_decode_String(raw[1]),
+          relayId: dco_decode_opt_String(raw[2]),
+        );
       case 1:
         return RelayFrame_Msg(
           pid: dco_decode_String(raw[1]),
@@ -3497,7 +3500,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     switch (tag_) {
       case 0:
         var var_nonce = sse_decode_String(deserializer);
-        return RelayFrame_Challenge(nonce: var_nonce);
+        var var_relayId = sse_decode_opt_String(deserializer);
+        return RelayFrame_Challenge(nonce: var_nonce, relayId: var_relayId);
       case 1:
         var var_pid = sse_decode_String(deserializer);
         var var_from = sse_decode_String(deserializer);
@@ -4122,9 +4126,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_relay_frame(RelayFrame self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     switch (self) {
-      case RelayFrame_Challenge(nonce: final nonce):
+      case RelayFrame_Challenge(nonce: final nonce, relayId: final relayId):
         sse_encode_i_32(0, serializer);
         sse_encode_String(nonce, serializer);
+        sse_encode_opt_String(relayId, serializer);
       case RelayFrame_Msg(
         pid: final pid,
         from: final from,

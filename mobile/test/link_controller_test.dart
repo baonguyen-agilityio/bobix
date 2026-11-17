@@ -17,6 +17,7 @@ import 'package:phone/src/rust/api/messages.dart';
 import 'support/core_library.dart';
 import 'support/fake_push_platform.dart';
 import 'support/memory_secure_keys.dart';
+import 'support/scripted_socket.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -165,6 +166,30 @@ void main() {
     expect(push.calls.where((x) => x.startsWith('setComputer')), ['setComputer c 32 1-1']);
     final phase = c.read(linkControllerProvider).value;
     if (phase is Paired) await phase.link.dispose();
+  });
+
+  test('a grant the relay refuses puts one line in the log, with the id the grant named', () async {
+    await storePairing();
+    final c = ProviderContainer(
+      overrides: [
+        pushPlatformProvider.overrideWithValue(push),
+        supportDirectoryProvider.overrideWith((ref) async => tmp),
+        secureKeysProvider.overrideWithValue(keys),
+        relayConnectorProvider.overrideWithValue(
+          (url) async => ScriptedSocket()
+            ..push({'type': 'challenge', 'nonce': 'n', 'relayId': 'opaque-id'})
+            ..push({'type': 'error', 'code': 'grant', 'who': 'phone', 'peer': 'me'}),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+    final phase = await phaseOf(c);
+    for (var i = 0; i < 100 && c.read(activityLogProvider).isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    final log = c.read(activityLogProvider);
+    expect(log.map((e) => (e.kind, e.detail)), [(LogKind.pushRefused, 'opaque-id')]);
+    await (phase as Paired).link.dispose();
   });
 
   test('erase and pair again erases, then opens the scanner', () async {

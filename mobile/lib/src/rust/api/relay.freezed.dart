@@ -818,10 +818,10 @@ return other(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String nonce)?  challenge,TResult Function( String pid,  String from,  Uint8List packet)?  msg,TResult Function( String peer,  PeerState state)?  presence,TResult Function( RelayError code,  RelaySide? who)?  error,TResult Function( String pid)?  queued,TResult Function( String pid)?  delivered,TResult Function( String pid)?  dropped,TResult Function( String pid)?  withdrawn,TResult Function( String pid)?  tooLate,TResult Function()?  other,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String nonce,  String? relayId)?  challenge,TResult Function( String pid,  String from,  Uint8List packet)?  msg,TResult Function( String peer,  PeerState state)?  presence,TResult Function( RelayError code,  RelaySide? who)?  error,TResult Function( String pid)?  queued,TResult Function( String pid)?  delivered,TResult Function( String pid)?  dropped,TResult Function( String pid)?  withdrawn,TResult Function( String pid)?  tooLate,TResult Function()?  other,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case RelayFrame_Challenge() when challenge != null:
-return challenge(_that.nonce);case RelayFrame_Msg() when msg != null:
+return challenge(_that.nonce,_that.relayId);case RelayFrame_Msg() when msg != null:
 return msg(_that.pid,_that.from,_that.packet);case RelayFrame_Presence() when presence != null:
 return presence(_that.peer,_that.state);case RelayFrame_Error() when error != null:
 return error(_that.code,_that.who);case RelayFrame_Queued() when queued != null:
@@ -848,10 +848,10 @@ return other();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String nonce)  challenge,required TResult Function( String pid,  String from,  Uint8List packet)  msg,required TResult Function( String peer,  PeerState state)  presence,required TResult Function( RelayError code,  RelaySide? who)  error,required TResult Function( String pid)  queued,required TResult Function( String pid)  delivered,required TResult Function( String pid)  dropped,required TResult Function( String pid)  withdrawn,required TResult Function( String pid)  tooLate,required TResult Function()  other,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String nonce,  String? relayId)  challenge,required TResult Function( String pid,  String from,  Uint8List packet)  msg,required TResult Function( String peer,  PeerState state)  presence,required TResult Function( RelayError code,  RelaySide? who)  error,required TResult Function( String pid)  queued,required TResult Function( String pid)  delivered,required TResult Function( String pid)  dropped,required TResult Function( String pid)  withdrawn,required TResult Function( String pid)  tooLate,required TResult Function()  other,}) {final _that = this;
 switch (_that) {
 case RelayFrame_Challenge():
-return challenge(_that.nonce);case RelayFrame_Msg():
+return challenge(_that.nonce,_that.relayId);case RelayFrame_Msg():
 return msg(_that.pid,_that.from,_that.packet);case RelayFrame_Presence():
 return presence(_that.peer,_that.state);case RelayFrame_Error():
 return error(_that.code,_that.who);case RelayFrame_Queued():
@@ -874,10 +874,10 @@ return other();}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String nonce)?  challenge,TResult? Function( String pid,  String from,  Uint8List packet)?  msg,TResult? Function( String peer,  PeerState state)?  presence,TResult? Function( RelayError code,  RelaySide? who)?  error,TResult? Function( String pid)?  queued,TResult? Function( String pid)?  delivered,TResult? Function( String pid)?  dropped,TResult? Function( String pid)?  withdrawn,TResult? Function( String pid)?  tooLate,TResult? Function()?  other,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String nonce,  String? relayId)?  challenge,TResult? Function( String pid,  String from,  Uint8List packet)?  msg,TResult? Function( String peer,  PeerState state)?  presence,TResult? Function( RelayError code,  RelaySide? who)?  error,TResult? Function( String pid)?  queued,TResult? Function( String pid)?  delivered,TResult? Function( String pid)?  dropped,TResult? Function( String pid)?  withdrawn,TResult? Function( String pid)?  tooLate,TResult? Function()?  other,}) {final _that = this;
 switch (_that) {
 case RelayFrame_Challenge() when challenge != null:
-return challenge(_that.nonce);case RelayFrame_Msg() when msg != null:
+return challenge(_that.nonce,_that.relayId);case RelayFrame_Msg() when msg != null:
 return msg(_that.pid,_that.from,_that.packet);case RelayFrame_Presence() when presence != null:
 return presence(_that.peer,_that.state);case RelayFrame_Error() when error != null:
 return error(_that.code,_that.who);case RelayFrame_Queued() when queued != null:
@@ -898,10 +898,11 @@ return other();case _:
 
 
 class RelayFrame_Challenge extends RelayFrame {
-  const RelayFrame_Challenge({required this.nonce}): super._();
+  const RelayFrame_Challenge({required this.nonce, this.relayId}): super._();
   
 
  final  String nonce;
+ final  String? relayId;
 
 /// Create a copy of RelayFrame
 /// with the given fields replaced by the non-null parameter values.
@@ -913,18 +914,18 @@ $RelayFrame_ChallengeCopyWith<RelayFrame_Challenge> get copyWith => _$RelayFrame
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is RelayFrame_Challenge&&(identical(other.nonce, nonce) || other.nonce == nonce));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is RelayFrame_Challenge&&(identical(other.nonce, nonce) || other.nonce == nonce)&&(identical(other.relayId, relayId) || other.relayId == relayId));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,nonce);
+    return Object.hash(runtimeType,nonce,relayId);
 }
 
 @override
 String toString() {
-    return 'RelayFrame.challenge(nonce: $nonce)';
+    return 'RelayFrame.challenge(nonce: $nonce, relayId: $relayId)';
 }
 
 
@@ -935,7 +936,7 @@ abstract mixin class $RelayFrame_ChallengeCopyWith<$Res> implements $RelayFrameC
   factory $RelayFrame_ChallengeCopyWith(RelayFrame_Challenge value, $Res Function(RelayFrame_Challenge) _then) = _$RelayFrame_ChallengeCopyWithImpl;
 @useResult
 $Res call({
- String nonce
+ String nonce, String? relayId
 });
 
 
@@ -952,10 +953,11 @@ class _$RelayFrame_ChallengeCopyWithImpl<$Res>
 
 /// Create a copy of RelayFrame
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? nonce = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? nonce = null,Object? relayId = freezed,}) {
   return _then(RelayFrame_Challenge(
 nonce: null == nonce ? _self.nonce : nonce // ignore: cast_nullable_to_non_nullable
-as String,
+as String,relayId: freezed == relayId ? _self.relayId : relayId // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

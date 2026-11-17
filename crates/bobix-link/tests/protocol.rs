@@ -624,7 +624,8 @@ fn the_code_lives_two_minutes_and_an_unacknowledged_pairing_ten() {
 fn every_frame_round_trips_with_documented_names() {
     let versions = VersionRange::current();
     let frames: Vec<(Frame, Value)> = vec![
-        (Frame::Challenge { nonce: "n".into() }, json!({"type":"challenge","nonce":"n"})),
+        (Frame::Challenge { nonce: "n".into(), relay_id: None }, json!({"type":"challenge","nonce":"n"})),
+        (Frame::Challenge { nonce: "n".into(), relay_id: Some("r".into()) }, json!({"type":"challenge","nonce":"n","relayId":"r"})),
         (Frame::Auth { id: "i".into(), key: "k".into(), relay: "wss://r.example".into(), sig: "s".into(), versions }, json!({"type":"auth","id":"i","key":"k","relay":"wss://r.example","sig":"s","versions":{"min":1,"max":1}})),
         (Frame::Peers { allow: vec!["a".into()] }, json!({"type":"peers","allow":["a"]})),
         (Frame::Revoke { id: "a".into() }, json!({"type":"revoke","id":"a"})),

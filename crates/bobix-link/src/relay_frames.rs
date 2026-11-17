@@ -133,8 +133,13 @@ pub enum InviteReason {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Frame {
-    /// relay → device, first frame of a connection.
-    Challenge { nonce: String },
+    /// relay → device, first frame of a connection. `relay_id` is the id the relay's push grants must name (its
+    /// `RELAY_ID`); a phone signs its grants with it. An older relay sends none.
+    Challenge {
+        nonce: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay_id: Option<String>,
+    },
     /// device → relay. `relay` is the address the device is connected to; `sig` is Ed25519 over
     /// `command::auth_bytes(relay, nonce)`. The relay calls `command::verify_auth_frame`.
     Auth { id: String, key: String, relay: String, sig: String, versions: VersionRange },

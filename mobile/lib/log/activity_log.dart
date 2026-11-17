@@ -12,6 +12,9 @@ enum LogKind {
   startQuick,
   pair,
   disconnect,
+
+  /// The relay refused this phone's push grant; the detail is the relay id the grant named.
+  pushRefused,
 }
 
 /// One line of the log: a command sent from this phone (with the session it was for) or a pairing event. Kept in memory
