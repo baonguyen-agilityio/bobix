@@ -253,17 +253,29 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
         .firstOrNull;
     final rights = link.computer.rights;
     List<String>? lines;
+    var lineTimes = const <int>[];
     var linesAt = '';
     if (rights.activity && link.connected) {
       final d = await link.detail(id, fresh: true, within: answerWithin);
       if (d != null) {
-        // The computer sends them oldest first; the screen lists the newest first.
-        lines = (d['text'] as String)
-            .split('\n')
-            .where((l) => l.isNotEmpty)
-            .toList()
-            .reversed
-            .toList();
+        // The computer sends them oldest first; the screen lists the newest first. `times` (absent from an older
+        // computer) has one entry per line; unless it counts the lines it is not used.
+        final all = (d['text'] as String).split('\n');
+        final raw = d['times'];
+        final times = raw is List && raw.length == all.length
+            ? [
+                for (final x in raw)
+                  if (x is num) x.toInt(),
+              ]
+            : const <int>[];
+        final keep = [
+          for (var i = 0; i < all.length; i++)
+            if (all[i].isNotEmpty) i,
+        ].reversed.toList();
+        lines = [for (final i in keep) all[i]];
+        if (times.length == all.length) {
+          lineTimes = [for (final i in keep) times[i]];
+        }
         linesAt = _clock(_nowMs);
       }
     }
@@ -280,6 +292,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       },
       tool: '',
       lines: lines,
+      lineTimes: lineTimes,
       linesAt: linesAt,
       stopAllowed: stop,
       waitingOnRequest: held?['id'] as String?,

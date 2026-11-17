@@ -201,9 +201,15 @@ fn desktop_messages_round_trip_with_documented_names() {
     assert!(round_trip(&DesktopMsg::Home(h)).get("rights").is_none());
 
     let detail = DesktopMsg::Detail(Detail {
-        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![],
+        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![], times: vec![],
     });
     assert_eq!(round_trip(&detail)["what"], "toolInput");
+    assert!(round_trip(&detail).get("times").is_none(), "no times, nothing on the wire");
+    let old = br#"{"kind":"detail","id":"l","what":"lastLines","text":"a\nb","shown":"","odd":false,"cut":false}"#;
+    let Ok(DesktopMsg::Detail(d)) = DesktopMsg::from_json(old) else { panic!("an older detail must still parse") };
+    assert!(d.times.is_empty());
+    let timed = DesktopMsg::Detail(Detail { times: vec![5, 9], ..d });
+    assert_eq!(round_trip(&timed)["times"], serde_json::json!([5, 9]));
 
     let prompt = DesktopMsg::StartPrompt(StartPrompt {
         project: "demo".into(), iid: "12".into(), mode: Mode::Quick, prompt: "Do it".into(),
@@ -261,7 +267,7 @@ fn phone_messages_round_trip_with_documented_names() {
 
 #[test]
 fn limits_are_measured_in_bytes() {
-    let detail = |what, text: String| DesktopMsg::Detail(Detail { id: "r".into(), what, text, shown: String::new(), odd: false, cut: false, questions: vec![] });
+    let detail = |what, text: String| DesktopMsg::Detail(Detail { id: "r".into(), what, text, shown: String::new(), odd: false, cut: false, questions: vec![], times: vec![] });
     assert!(detail(DetailKind::ToolInput, "a".repeat(MAX_TOOL_INPUT)).validate().is_ok());
     assert_eq!(detail(DetailKind::ToolInput, "a".repeat(MAX_TOOL_INPUT + 1)).validate(), Err(LimitError::TooLong("detail", MAX_TOOL_INPUT)));
     // 3-byte characters: 6667 of them are 20 001 bytes, though only 6667 characters

@@ -142,6 +142,7 @@ class SessionScreen extends ConsumerWidget {
             ],
             SessionActivity(
               lines: d.lines,
+              times: d.lineTimes,
               at: d.linesAt,
               empty: s('phone.sv.lines.empty'),
               limit: 3,

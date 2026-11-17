@@ -123,6 +123,7 @@ class SessionDetail {
     required this.phase,
     required this.tool,
     this.lines,
+    this.lineTimes = const [],
     this.linesAt = '',
     this.stopAllowed = false,
     this.waitingOnRequest,
@@ -135,6 +136,9 @@ class SessionDetail {
 
   /// The session's last lines; null when the computer did not grant this phone the right to see them.
   final List<String>? lines;
+
+  /// When each of [lines] happened (Unix ms), in the same order; empty when the computer sent no times.
+  final List<int> lineTimes;
 
   /// `home` says Stop is possible: the session waits on a request held for this phone and the phone has both the
   /// Stop and the Answer right.

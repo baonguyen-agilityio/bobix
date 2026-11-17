@@ -48,6 +48,7 @@ class TaskLogScreen extends ConsumerWidget {
           if (isSession)
             SessionActivity(
               lines: detail?.lines,
+              times: detail?.lineTimes ?? const [],
               at: detail?.linesAt ?? '',
               empty: s('phone.tl.act.empty'),
             ),

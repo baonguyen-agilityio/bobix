@@ -277,6 +277,10 @@ pub struct Detail {
     /// For a question: the questions with their options, in the order `question { answers }` answers them.
     #[serde(default)]
     pub questions: Vec<Question>,
+    /// For `lastLines`: when each line of `text` happened (Unix ms), one per line in order. Absent from an older desktop,
+    /// and empty when unknown; a phone uses it only when it counts the lines. Not in `shown_hash`: nothing is approved on it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub times: Vec<u64>,
 }
 
 impl Detail {
@@ -284,7 +288,7 @@ impl Detail {
     /// the text as displayed, `cut` and `questions`.
     pub fn build(id: &str, what: DetailKind, raw_text: &str, cut: bool, questions: Vec<Question>) -> Detail {
         let (text, odd) = visible_escapes(raw_text);
-        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions }
+        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions, times: vec![] }
     }
 
     /// Recomputes `shown` from the content (not from the stored field).

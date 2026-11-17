@@ -151,28 +151,34 @@ fn built(id: &str, p: &Pending) -> Detail {
     }
 }
 
-// The lines of a session a phone may read, since the person's last prompt: what it did, then what Claude said (its last
-// reply, kept apart from the log the panel shows), never what the person typed.
-fn activity_lines(s: &crate::state::Session) -> Vec<String> {
+// The lines of a session a phone may read, since the person's last prompt, each with its time (Unix ms): what it did, then
+// what Claude said (its last reply, kept apart from the log the panel shows; it has no time of its own, so the session's
+// last update stands for it), never what the person typed.
+fn activity_lines(s: &crate::state::Session) -> Vec<(u64, String)> {
     let from = s.log.iter().rposition(|l| l.kind == "prompt").map_or(0, |i| i + 1);
-    let mut lines: Vec<String> = s.log[from..].iter().filter(|l| l.kind != "system" && !(l.text.is_empty() && l.tool.is_empty()))
-        .map(|l| if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) }).collect();
-    if !s.summary.is_empty() { lines.push(s.summary.clone()); }
+    let mut lines: Vec<(u64, String)> = s.log[from..].iter().filter(|l| l.kind != "system" && !(l.text.is_empty() && l.tool.is_empty()))
+        .map(|l| (l.t, if l.tool.is_empty() { l.text.clone() } else { format!("{} {}", l.tool, l.text) })).collect();
+    if !s.summary.is_empty() { lines.push((s.updated, s.summary.clone())); }
     lines
 }
 
-// A session's last lines (at most 40, the prompt lines left out), redacted, for a phone with "See session activity".
+// A session's last lines (at most 40, the prompt lines left out), redacted, for a phone with "See session activity". `times`
+// has one entry per line of the text, kept equal to it by every cut.
 pub fn session_detail(sessions: &Sessions, id: &str, rights: Rights) -> Result<Detail, &'static str> {
     let s = sessions.get(id).ok_or("unknown")?;
     if !rights.activity { return Err("right"); }
     let all = activity_lines(s);
-    let mut text = all[all.len().saturating_sub(40)..].iter().map(|line| {
+    let last = &all[all.len().saturating_sub(40)..];
+    let mut text = last.iter().map(|(_, line)| {
         room::redact(&line.chars().zip(odd_flags(&line)).filter(|(c, odd)| !odd || *c == '\n' || *c == '\t').map(|(c, _)| c).collect::<String>()).0.replace('\n', " ")
     }).collect::<Vec<_>>().join("\n");
+    let mut times: Vec<u64> = last.iter().map(|(t, _)| *t).collect();
     let cut = text.len() > MAX_TOOL_INPUT;
     if cut { text = cut_bytes(&text, MAX_TOOL_INPUT / 2); } // escapes of hidden characters may grow it; half is safe for what remains
+    times.truncate(text.split('\n').count());
     let mut d = Detail::build(id, DetailKind::LastLines, &text, cut, vec![]);
-    while d.text.len() > MAX_TOOL_INPUT { text = cut_bytes(&text, text.len() * 3 / 4); d = Detail::build(id, DetailKind::LastLines, &text, true, vec![]); }
+    while d.text.len() > MAX_TOOL_INPUT { text = cut_bytes(&text, text.len() * 3 / 4); times.truncate(text.split('\n').count()); d = Detail::build(id, DetailKind::LastLines, &text, true, vec![]); }
+    d.times = times;
     Ok(d)
 }
 
@@ -264,6 +270,33 @@ mod tests {
         sessions.get_mut("s1").unwrap().state = "waiting".into();
         let h = home(&sessions, &p, "Studio", 1, ComputerState::Online, vec![]);
         assert!(DesktopMsg::Home(h.clone()).to_json().len() <= MAX_FRAME / 4 * 3 - 2048 && h.waiting.iter().all(|w| w.preview.is_empty()));
+    }
+
+    #[test]
+    fn each_last_line_keeps_its_time_through_every_cut() {
+        let rights = Rights { activity: true, ..Default::default() };
+        let session = |n: u64, width: usize| {
+            let mut s = crate::state::Session::default();
+            s.id = "s1".into(); s.updated = 9999; s.summary = "done".into();
+            s.log = (0..n).map(|i| crate::state::LogLine { t: 100 + i, kind: "tool".into(), text: "x".repeat(width), tool: "Bash".into() }).collect();
+            let mut m = Sessions::new();
+            m.insert("s1".into(), s);
+            m
+        };
+        let aligned = |d: &Detail| assert_eq!(d.times.len(), d.text.split('\n').count(), "one time per line");
+        // 40 lines at most: the newest, the reply last with the session's update time
+        let d = session_detail(&session(50, 5), "s1", rights).unwrap();
+        aligned(&d);
+        assert_eq!((d.times[0], d.times[38], d.times[39]), (111, 149, 9999));
+        // the byte cut drops the newest lines, and their times with them
+        let d = session_detail(&session(40, 900), "s1", rights).unwrap();
+        assert!(d.cut && d.times.len() < 40);
+        aligned(&d);
+        assert_eq!(d.times[0], 100 + 1, "the oldest kept line of the last 40 is the 2nd of 40 lines + reply");
+        // no lines, no times (and a desktop that sends none leaves the field out)
+        let mut empty = session(0, 1);
+        empty.get_mut("s1").unwrap().summary.clear();
+        assert!(session_detail(&empty, "s1", rights).unwrap().times.is_empty());
     }
 
     #[test]
