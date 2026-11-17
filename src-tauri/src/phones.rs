@@ -601,7 +601,7 @@ impl State {
     pub fn mark_sent(&mut self, id: &str) { self.notified.insert(id.into()); }
     // Phone access is on and a paired phone holds the right to answer an item of this kind: it may be answered there, so it
     // never runs out. A phone without the right cannot answer it, and holding it for that phone would only leave it unanswered.
-    pub fn has_phone_for(&self, kind: crate::answers::Kind) -> bool { self.cfg.on && self.store.phones.iter().any(|p| kind.answerable_with(p.rights)) }
+    pub fn has_phone_for(&self, kind: crate::answers::Kind) -> bool { self.cfg.on && self.store.phones.iter().any(|p| !p.needs_pairing && kind.answerable_with(p.rights)) }
     // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone that can
     // answer it is paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the
     // input time cannot be read, the choice in Settings decides.
@@ -1368,6 +1368,18 @@ mod tests {
         st.cfg.on = true; st.cfg.hold = "phone".into();
         st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights { answer: true, ..Default::default() }, since: 0, needs_pairing: false, no_push: false });
         st
+    }
+
+    #[test]
+    fn a_phone_that_must_pair_again_holds_nothing() {
+        let mut st = on_state();
+        let s = json!({ "approveWait": -1 });
+        let away = Fixed(Some(30_000));
+        assert!(st.has_phone_for(Kind::Request) && st.holds_for_phones(&s, Kind::Request, &away));
+        // it did not follow a relay move: it cannot be reached, so nothing is kept waiting for it
+        st.store.phones[0].needs_pairing = true;
+        assert!(!st.has_phone_for(Kind::Request));
+        assert!(!st.holds_for_phones(&s, Kind::Request, &away));
     }
 
     #[test]
