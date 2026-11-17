@@ -689,6 +689,25 @@ void main() {
     expect(open.request.input, 'npm test');
   });
 
+  test('a session whose state changes keeps its place; a new one comes on top', () async {
+    final data = LinkPhoneData(link);
+    Map<String, Object?> s(String id, String state) => {
+      ...session(),
+      'id': id,
+      'title': id,
+      'state': state,
+    };
+    Future<List<String>> ids() async =>
+        [for (final x in (await data.watchHome().first).sessions) x.id];
+    home(sessions: [s('a', 'working'), s('b', 'working'), s('c', 'idle')]);
+    expect(await ids(), ['a', 'b', 'c']);
+    // the computer sends the session that just changed first
+    home(sessions: [s('c', 'waiting'), s('a', 'working'), s('b', 'idle')]);
+    expect(await ids(), ['a', 'b', 'c'], reason: 'nothing moves under the finger');
+    home(sessions: [s('d', 'working'), s('c', 'waiting'), s('a', 'working')]);
+    expect(await ids(), ['d', 'a', 'c'], reason: 'a new session on top, a gone one leaves');
+  });
+
   /// The computer says it closed [ref]; resolves once the phone has taken it in.
   Future<void> closedNotice(String ref, Map<String, Object?>? by) async {
     final packet = await sealPacket(

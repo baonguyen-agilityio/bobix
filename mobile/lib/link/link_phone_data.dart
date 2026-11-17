@@ -30,6 +30,11 @@ class LinkPhoneData implements PhoneData {
   /// When this phone first saw a waiting item, to say how long it has been waiting.
   final _firstSeen = <String, int>{};
 
+  /// Where each session stands in the lists. The computer sends them by last activity, so a session that changes would jump
+  /// under the finger: here a session keeps its place, and one that appears later comes above those already shown.
+  final _order = <String, int>{};
+  int _top = 0;
+
   /// A request that was in the previous `home` and is not in this one while time was left: it was answered at the
   /// computer (first answer wins), so the session shows it. Cleared when the session waits again.
   final _answeredAtComputer = <String, String>{};
@@ -65,6 +70,7 @@ class LinkPhoneData implements PhoneData {
       conn: conn,
       computerName: link.computer.name,
       firstSeen: _firstSeen,
+      order: _order,
       // Where the computer's notice (which may come after the `home`) says it was not the computer, it is not listed.
       answeredAtComputer: {
         for (final e in _answeredAtComputer.entries)
@@ -92,11 +98,16 @@ class LinkPhoneData implements PhoneData {
       _answeredAtComputer.remove(w['session']);
       _answeredKind.remove(w['session']);
     }
-    final sessions = {
+    final listed = [
       for (final x
           in (snap.home['sessions'] as List).cast<Map<String, dynamic>>())
         x['id'] as String,
-    };
+    ];
+    final sessions = listed.toSet();
+    for (final id in listed.reversed) {
+      _order.putIfAbsent(id, () => --_top);
+    }
+    _order.removeWhere((id, _) => !sessions.contains(id));
     for (final e in _previousWaiting.entries) {
       if (waiting.containsKey(e.key) ||
           waiting.containsValue(e.value) ||
@@ -164,6 +175,7 @@ HomeData homeData(
   required ConnState conn,
   required String computerName,
   required Map<String, int> firstSeen,
+  Map<String, int> order = const {},
   required Map<String, String> answeredAtComputer,
   Map<String, String> answeredKind = const {},
   required int nowMs,
@@ -232,6 +244,12 @@ HomeData homeData(
         canStop: x['canStop'] == true,
       ),
     );
+  }
+  // A stable order (see `LinkPhoneData._order`); sessions it does not know keep the computer's order, after the others.
+  if (order.isNotEmpty) {
+    final at = {for (var i = 0; i < sessions.length; i++) sessions[i].id: i};
+    int key(Session x) => order[x.id] ?? (1 << 30) + at[x.id]!;
+    sessions.sort((a, b) => key(a).compareTo(key(b)));
   }
   final computer = h['computer'] as Map<String, dynamic>;
   return HomeData(
