@@ -10,9 +10,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/config/flavor.dart';
 import 'package:phone/features/actions/actions_models.dart';
 import 'package:phone/features/actions/actions_source.dart';
+import 'package:phone/data/models.dart';
 import 'package:phone/keys/secure_keys.dart';
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_actions_source.dart';
+import 'package:phone/link/link_phone_data.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/src/rust/api/core.dart';
 import 'package:phone/src/rust/api/messages.dart';
@@ -335,6 +337,139 @@ void main() {
       (await source.session('s1')).stopAllowed,
       isFalse,
       reason: 'nothing is held: no request to deny',
+    );
+  });
+
+  /// The computer says it closed [ref]; resolves once the phone has taken it in.
+  Future<void> closedNotice(String ref, Map<String, Object?>? by) async {
+    final packet = await sealPacket(
+      version: versions.current,
+      direction: LinkDirection.toPhone,
+      stream: LinkStream.event,
+      counter: BigInt.from(++counter),
+      senderBoxSecret: desktop.boxSecret,
+      recipientBoxPublic: phone.boxPublic,
+      plaintext: Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'kind': 'notice',
+            'what': 'closed',
+            'ref': ref,
+            'session': 's1',
+            'title': '',
+            'body': '',
+            'by': ?by,
+          }),
+        ),
+      ),
+    );
+    final notice = link.closedNotices.firstWhere((n) => n.ref == ref);
+    socket.push({
+      'type': 'msg',
+      'pid': 'p$counter',
+      'from': desktop.deviceId,
+      'body': b64(packet),
+    });
+    await notice.timeout(const Duration(seconds: 5));
+  }
+
+  /// This phone confirms and sends an Allow for [id]; the computer's result is not waited for.
+  Future<void> allowFromThisPhone(String id) async {
+    final command = Command(
+      id: source.newCommandId(),
+      kind: CommandKind.allow,
+      target: id,
+      shown: 'h',
+    );
+    expect(await source.confirm('Confirm', command), GateResult.confirmed);
+    unawaited(source.send(command));
+    await _until(() => link.answeredHere.contains(id) ? true : null);
+  }
+
+  test(
+    'an item this phone answered is never shown as closed by the computer',
+    () async {
+      home(waiting: [waitingItem('r1', 'request')], sessions: [session()]);
+      await allowFromThisPhone('r1');
+      home(sessions: [session()]);
+      final view = await source.request('r1') as RequestClosed;
+      expect(view.by, ClosedBy.thisPhone);
+    },
+  );
+
+  test('the computer says who closed an item: itself, another phone, this phone, or time', () async {
+    home(sessions: [session()]);
+    await closedNotice('c1', {'kind': 'computer'});
+    await closedNotice('c2', {'kind': 'phone', 'phone': 'another-phone-id'});
+    await closedNotice('c3', {'kind': 'phone', 'phone': phone.deviceId});
+    await closedNotice('c4', {'kind': 'expired'});
+    await closedNotice('c5', null);
+    Future<ClosedBy> by(String id) async =>
+        (await source.request(id) as RequestClosed).by;
+    expect(await by('c1'), ClosedBy.computer);
+    expect(await by('c2'), ClosedBy.otherPhone);
+    expect(await by('c3'), ClosedBy.thisPhone);
+    expect(await by('c4'), ClosedBy.expired);
+    expect(
+      await by('c5'),
+      ClosedBy.computer,
+      reason: 'an older computer: the old guess',
+    );
+  });
+
+  test('Home: a closed question keeps its kind, and this phone\'s own answer is not at the computer', () async {
+    final data = LinkPhoneData(link);
+    Future<Session> row() async =>
+        (await data.watchHome().first).sessions.single;
+    home(waiting: [waitingItem('q1', 'question')], sessions: [session()]);
+    expect((await row()).needsYou, isTrue);
+    await closedNotice('q1', {'kind': 'computer'});
+    home(sessions: [session()]);
+    var s = await row();
+    expect(s.answeredAtComputer, isTrue);
+    expect(
+      s.waitingKind,
+      WaitingKind.question,
+      reason: 'not hard-coded to a request',
+    );
+
+    home(waiting: [waitingItem('r2', 'request')], sessions: [session()]);
+    await row();
+    await allowFromThisPhone('r2');
+    home(sessions: [session()]);
+    s = await row();
+    expect(
+      s.answeredAtComputer,
+      isFalse,
+      reason: 'this phone sent that answer',
+    );
+
+    home(waiting: [waitingItem('r3', 'request')], sessions: [session()]);
+    await row();
+    home(sessions: [session()]);
+    expect(
+      (await row()).answeredAtComputer,
+      isTrue,
+      reason: 'an older computer: the old guess',
+    );
+    await closedNotice('r3', {'kind': 'phone', 'phone': 'another-phone-id'});
+    expect(
+      (await row()).answeredAtComputer,
+      isFalse,
+      reason: 'the notice corrects the guess',
+    );
+  });
+
+  test('a session waiting at the computer carries why, and is not one that needs this phone', () async {
+    home(
+      sessions: [
+        {...session(), 'state': 'atComputer', 'atComputerWhy': 'tooLarge'},
+      ],
+    );
+    final s = (await LinkPhoneData(link).watchHome().first).sessions.single;
+    expect(
+      (s.needsYou, s.answerAtComputer, s.answersHere, s.atComputerWhy),
+      (true, true, false, 'tooLarge'),
     );
   });
 }

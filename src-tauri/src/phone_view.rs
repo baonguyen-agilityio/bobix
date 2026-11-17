@@ -75,7 +75,8 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
         let held = s.state == "waiting" && pending.values().any(|p| p.sid == s.id);
         let held_request = pending.values().any(|p| p.sid == s.id && p.kind() == Kind::Request); // Stop is only for a plain request
         let state = if s.state == "waiting" && !held { "atComputer".to_string() } else { s.state.clone() };
-        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&pet_in(s), &pets), can_stop: held_request, lines: activity_lines(s).len().min(40) as u8 }
+        let at_computer_why = if state == "atComputer" { s.at_computer_why } else { None };
+        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&pet_in(s), &pets), can_stop: held_request, lines: activity_lines(s).len().min(40) as u8, at_computer_why }
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
         id: id.clone(), session: p.sid.clone(), what: match p.kind() { Kind::Plan => WaitingKind::Plan, Kind::Question => WaitingKind::Question, Kind::Request => WaitingKind::Request },
@@ -184,7 +185,7 @@ pub fn session_detail(sessions: &Sessions, id: &str, rights: Rights) -> Result<D
 
 // The notice of a held request: the session and what it asks, redacted and without hidden characters.
 pub fn waiting_notice(p: &Pending, id: &str, title: &str) -> Notice {
-    Notice { what: NoticeKind::Waiting, reference: id.into(), session: p.sid.clone(), title: preview(title, 80), body: preview(&p.raw, 200) }
+    Notice { what: NoticeKind::Waiting, reference: id.into(), session: p.sid.clone(), title: preview(title, 80), body: preview(&p.raw, 200), by: None }
 }
 
 #[cfg(test)]

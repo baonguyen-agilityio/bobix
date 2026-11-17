@@ -146,7 +146,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             .watch(homeProvider)
             .value
             ?.sessions
-            .where((x) => x.needsYou)
+            .where((x) => x.answersHere)
             .length ??
         0;
     return Scaffold(

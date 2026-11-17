@@ -202,6 +202,24 @@ pub struct SessionInfo {
     /// phone that may see activity, so the phone can show the count without asking; absent reads as 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub lines: u8,
+    /// For a session that waits with nothing held for phones (`state` is `atComputer`): why, when the desktop knows.
+    /// Absent from an older desktop and whenever the reason is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_computer_why: Option<AtComputerWhy>,
+}
+
+/// Why a waiting session is not held for phones: Claude asks in its own prompt, so it is answered at the computer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AtComputerWhy {
+    /// Someone is using the computer.
+    Present,
+    /// The question could not be held whole (too many questions or options, text too long, or cut by the hook).
+    TooLarge,
+    /// A kind of prompt Bobix does not hold.
+    Unsupported,
+    /// Bobix is set to show or hold nothing on this computer for now.
+    NotShown,
 }
 
 fn is_zero(n: &u8) -> bool { *n == 0 }
@@ -390,6 +408,23 @@ pub struct Notice {
     pub session: String,
     pub title: String,
     pub body: String,
+    /// For `closed`: who closed the item. Absent from an older desktop and when the desktop does not know.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<ClosedBy>,
+}
+
+/// Who closed a held item.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ClosedBy {
+    /// Answered at the computer (a page, a pet, or Claude's own prompt).
+    Computer,
+    /// Answered from the phone with this id.
+    Phone { phone: String },
+    /// Nobody answered in time, or Claude moved on.
+    Expired,
+    /// Handed back to Claude's own prompt.
+    Released,
 }
 
 impl DesktopMsg {

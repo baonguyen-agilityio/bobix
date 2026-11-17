@@ -41,7 +41,7 @@ class ToolRequest {
   final bool released;
 }
 
-enum ClosedBy { computer, otherPhone, expired }
+enum ClosedBy { computer, thisPhone, otherPhone, expired }
 
 /// What opening a request id gives: still loading (the id is not known yet), closed, or the request itself.
 sealed class RequestView {

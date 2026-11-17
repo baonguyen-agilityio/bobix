@@ -36,6 +36,7 @@ pub struct Session {
     #[serde(skip)] pub pid_is_claude: Option<u32>,
     #[serde(skip)] pub branches: Vec<String>,
     #[serde(skip)] pub waited: Vec<(u64, u64)>, // waits for your answer that ended, not yet in the day's log (keep_waits)
+    #[serde(skip)] pub at_computer_why: Option<bobix_link::messages::AtComputerWhy>, // why its wait was not held for phones; None when held or unknown
 }
 
 pub type Sessions = indexmap::IndexMap<String, Session>;

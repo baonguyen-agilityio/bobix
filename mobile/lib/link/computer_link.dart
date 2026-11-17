@@ -67,6 +67,27 @@ class HomeSnapshot {
   final int receivedAtMs;
 }
 
+/// Who closed an item, as far as this phone can tell.
+enum Closer {
+  /// This phone sent the answer.
+  me,
+  computer,
+  otherPhone,
+  expired,
+  released,
+
+  /// Nothing says (an older computer, and not this phone's own answer): the phone may only guess.
+  unknown,
+}
+
+/// A `closed` notice: the item, its session, and who closed it (`by` as the computer sent it: `kind` is `computer`, `phone`
+/// with a `phone` id, `expired` or `released`; null from an older computer).
+class ClosedNotice {
+  const ClosedNotice(this.ref, this.session, this.by);
+  final String ref, session;
+  final Map<String, dynamic>? by;
+}
+
 /// How long to wait before the next try: 1 s, 2 s, 4 s ... up to 60 s, each with up to a quarter more at random so phones
 /// do not all come back together.
 Duration reconnectDelay(int attempt, double random) {
@@ -130,6 +151,7 @@ class ComputerLink {
   final _messages = StreamController<DesktopMessage>.broadcast();
   final _relayEvents = StreamController<RelayFrame>.broadcast();
   final _results = StreamController<CommandResultInfo>.broadcast();
+  final _closedNotices = StreamController<ClosedNotice>.broadcast();
   final _details = <String, Completer<Map<String, dynamic>>>{};
 
   Stream<LinkStatus> get statusChanges => _statusChanges.stream;
@@ -141,11 +163,42 @@ class ComputerLink {
   /// The relay's own answers to packets this phone sent: `queued`, `delivered`, `dropped`, `withdrawn`, `tooLate`.
   Stream<RelayFrame> get relayEvents => _relayEvents.stream;
 
+  /// Every `closed` notice of the computer.
+  Stream<ClosedNotice> get closedNotices => _closedNotices.stream;
+
   /// Every `result` of the computer, whatever it answers.
   Stream<CommandResultInfo> get results => _results.stream;
 
   /// When this phone first saw each waiting item (Unix ms), to say how long it has been waiting.
   final Map<String, int> waitingSince = {};
+
+  /// Items this phone sent an answer for (the newest 64), and who the computer said closed an item. Memory only. They
+  /// tell this phone's own answer from the computer's, so it never calls its own answer "answered at the computer".
+  final Set<String> answeredHere = {};
+  final Map<String, Map<String, dynamic>?> _closedBy = {};
+
+  void answeredItem(String id) {
+    answeredHere
+      ..remove(id)
+      ..add(id);
+    if (answeredHere.length > 64) answeredHere.remove(answeredHere.first);
+  }
+
+  /// Who closed [id]: the computer's notice first, then this phone's own answer, else [Closer.unknown].
+  Closer closerOf(String id) {
+    final by = _closedBy[id];
+    if (by != null) {
+      return switch (by['kind']) {
+        'computer' => Closer.computer,
+        'phone' =>
+          by['phone'] == identity.deviceId ? Closer.me : Closer.otherPhone,
+        'expired' => Closer.expired,
+        'released' => Closer.released,
+        _ => Closer.unknown,
+      };
+    }
+    return answeredHere.contains(id) ? Closer.me : Closer.unknown;
+  }
 
   /// Whole inputs, plans and questions: in memory only, never written to the stored state.
   final Map<String, Map<String, dynamic>> detailCache = {};
@@ -189,6 +242,7 @@ class ComputerLink {
     await _messages.close();
     await _relayEvents.close();
     await _results.close();
+    await _closedNotices.close();
   }
 
   Future<void> _loop() async {
@@ -405,6 +459,23 @@ class ComputerLink {
           _set(status.copyWith(conn: ConnState.asleep));
         } else if (state == 'online' && status.conn == ConnState.asleep) {
           _set(status.copyWith(conn: ConnState.ok));
+        }
+      case 'notice' when j['what'] == 'closed':
+        final by = j['by'];
+        final ref = j['ref'] as String;
+        if (by is Map<String, dynamic>) {
+          _closedBy.remove(ref);
+          _closedBy[ref] = by;
+          if (_closedBy.length > 64) _closedBy.remove(_closedBy.keys.first);
+        }
+        if (!_closedNotices.isClosed) {
+          _closedNotices.add(
+            ClosedNotice(
+              ref,
+              j['session'] as String? ?? '',
+              by is Map<String, dynamic> ? by : null,
+            ),
+          );
         }
       case 'result':
         final r = await commandResult(messageJson: m.json);

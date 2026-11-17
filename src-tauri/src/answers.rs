@@ -1,6 +1,7 @@
 // Permission requests held in Bobix until someone answers them on a pet, the panel or a notification. Port of
 // waitForAnswer / answer / releaseUnseen in the 0.1 (Electron) app's main.js.
 use crate::{server::Reply, settings, state::Session, Bobix};
+use bobix_link::messages::AtComputerWhy;
 use fancy_regex::Regex;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::{Arc, LazyLock}, time::Duration};
@@ -233,20 +234,22 @@ fn hold_for(phones: &crate::phones::State, settings: &Value, pet: &str, plan: bo
 // Holds session `s`'s request when the person can see it (settings::hold_secs). Called with the core locked.
 // plan: a ticket flow's plan, held until you answer whatever the pets show (it is the flow's one gate).
 pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut HashMap<String, Closed>, phones: &mut crate::phones::State, settings: &Value, s: &mut Session, e: &Value, plan: bool) -> Option<Reply> {
-    let (secs, for_phones) = hold_for(phones, settings, &s.pet, plan, &*crate::presence::source());
-    if secs == 0.0 { return None; }
+    let src = crate::presence::source();
+    let (secs, for_phones) = hold_for(phones, settings, &s.pet, plan, &*src);
+    s.at_computer_why = None;
+    if secs == 0.0 { s.at_computer_why = Some(phones.why_not_held(settings, &*src)); return None; }
     // one open request per session
     let now = crate::state::now();
     if let Some((oid, old)) = s.answer.as_ref().and_then(|a| a["id"].as_str()).and_then(|id| pending.remove(id).map(|p| (id.to_string(), p))) {
         let okind = old.kind();
         let _ = old.tx.send(None);
-        phones.closed_events.push((oid.clone(), old.sid.clone(), old.plan)); // the phones told of it are told it is gone
+        phones.closed_events.push((oid.clone(), old.sid.clone(), old.plan, End::Expired)); // the phones told of it are told it is gone
         closed.insert(oid, Closed { kind: okind, plan: old.plan, end: End::Expired, at: now }); // Claude asked again: the old one is moot
     }
     // Claude's question: held only whole and answerable (else Claude asks in its own prompt)
     let is_question = e["tool_name"] == "AskUserQuestion" && !plan;
     let questions = if is_question { questions_of(&e["tool_input"]).filter(|_| e["bobix_cut"] != true) } else { vec![].into() };
-    if is_question && questions.is_none() { return None; }
+    if is_question && questions.is_none() { s.at_computer_why = Some(AtComputerWhy::TooLarge); return None; }
     let questions = questions.unwrap_or_default();
     let id = new_id();
     let cut = e["bobix_cut"] == true; // the hook dropped part of the input
@@ -288,7 +291,7 @@ fn close(c: &mut crate::Core, id: &str, decision: Option<Value>, end: End, now: 
     let _ = p.tx.send(decision.map(output));
     c.closed.retain(|_, k| now.saturating_sub(k.at) < CLOSED_KEEP_MS);
     c.closed.insert(id.to_string(), Closed { kind, plan: p.plan, end, at: now });
-    c.phones.closed_events.push((id.to_string(), p.sid.clone(), p.plan)); // the phones told of it are told it is gone
+    c.phones.closed_events.push((id.to_string(), p.sid.clone(), p.plan, end)); // the phones told of it are told it is gone
     true
 }
 
@@ -542,6 +545,31 @@ mod tests {
         assert_eq!(held(true), ("forever".into(), None, None), "a paired phone: no end, none shown");
         let (secs, until, left) = held(false);
         assert!(secs == "60" && until.is_some() && left.is_some_and(|l| l <= 60), "no phone: 60 seconds");
+    }
+
+    // A wait that is not held says why in `home`, only for the session that is answered at the computer.
+    #[test]
+    fn a_wait_that_is_not_held_tells_the_phone_why() {
+        let (tx, _) = tokio::sync::broadcast::channel(4);
+        let b = Arc::new(Bobix { core: std::sync::Mutex::new(crate::Core::default()), tx, token: "t".into(), port: 0, app: Default::default(),
+            usage: std::sync::Mutex::new(crate::usage::Store::new(std::env::temp_dir().join("bobix-answers-test"))), dirty: Default::default(), phones_dirty: Default::default() });
+        let settings = json!({ "approveWait": 60, "petsVisible": true, "paused": false });
+        let nine = json!({ "questions": [{ "question": "a", "options": (0..9).map(|i| json!({ "label": format!("o{i}") })).collect::<Vec<_>>() }] });
+        let why = |tool: &str, input: Value, settings: &Value| {
+            let mut phones = crate::phones::State::default();
+            let (mut pending, mut closed) = (HashMap::new(), HashMap::new());
+            let mut s = crate::state::Session::default();
+            s.id = "s1".into(); s.state = "waiting".into();
+            let event = json!({ "tool_name": tool, "tool_input": input });
+            let reply = wait(&b, &mut pending, &mut closed, &mut phones, settings, &mut s, &event, false);
+            let mut sessions = crate::state::Sessions::new();
+            sessions.insert("s1".into(), s);
+            let home = crate::phone_view::home(&sessions, &pending, "Studio", crate::state::now(), bobix_link::messages::ComputerState::Online, vec![]);
+            (reply.is_some(), home.sessions[0].state.clone(), home.sessions[0].at_computer_why)
+        };
+        assert_eq!(why("AskUserQuestion", nine, &settings), (false, "atComputer".into(), Some(AtComputerWhy::TooLarge)));
+        assert_eq!(why("Bash", json!({ "command": "ls" }), &json!({ "approveWait": 0 })), (false, "atComputer".into(), Some(AtComputerWhy::NotShown)));
+        assert_eq!(why("Bash", json!({ "command": "ls" }), &settings), (true, "waiting".into(), None), "held: no reason");
     }
 
     #[test]

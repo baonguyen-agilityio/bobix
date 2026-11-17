@@ -128,7 +128,17 @@ class SessionScreen extends ConsumerWidget {
                 d.waitingOnRequest == null &&
                 ref.watch(homeSessionProvider(d.id))?.waitingId == null) ...[
               const SizedBox(height: 12),
-              _AtComputerNote(s('phone.sv.atpc.d', {'c': c})),
+              _AtComputerNote(
+                [
+                  s('phone.sv.atpc.d', {'c': c}),
+                  switch (ref.watch(homeSessionProvider(d.id))?.atComputerWhy) {
+                    'present' => s('phone.sv.atpc.why.present'),
+                    'tooLarge' => s('phone.sv.atpc.why.toolarge'),
+                    'unsupported' => s('phone.sv.atpc.why.unsupported'),
+                    _ => '',
+                  },
+                ].where((l) => l.isNotEmpty).join('\n'),
+              ),
             ],
             if (d.waitingOnRequest != null) ...[
               const SizedBox(height: 12),

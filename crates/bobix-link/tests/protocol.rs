@@ -181,7 +181,7 @@ fn desktop_messages_round_trip_with_documented_names() {
     let home = DesktopMsg::Home(Home {
         sent_at: NOW,
         computer: Computer { name: "Studio".into(), state: ComputerState::Online, unfinished: 0 },
-        sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 }, can_stop: false, lines: 0 }],
+        sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 }, can_stop: false, lines: 0, at_computer_why: None }],
         waiting: vec![waiting],
         groups: vec![Group { group: GroupKind::NeedsYou, ids: vec!["r1".into()] }],
         rights: Some(Rights { answer: true, stop: true, ..Default::default() }),
@@ -231,9 +231,21 @@ fn desktop_messages_round_trip_with_documented_names() {
     assert_eq!(round_trip(&DesktopMsg::Paired { computer: "Studio".into(), rights: rights() })["kind"], "paired");
     assert_eq!(round_trip(&DesktopMsg::Revoked { why: "removed".into() })["why"], "removed");
     assert_eq!(round_trip(&DesktopMsg::RelayMoved { url: "wss://r.example".into() })["kind"], "relayMoved");
-    let n = DesktopMsg::Notice(Notice { what: NoticeKind::Waiting, reference: "r1".into(), session: "s1".into(), title: "t".into(), body: "b".into() });
+    let n = DesktopMsg::Notice(Notice { what: NoticeKind::Waiting, reference: "r1".into(), session: "s1".into(), title: "t".into(), body: "b".into(), by: None });
     let v = round_trip(&n);
     assert_eq!((v["kind"].as_str(), v["what"].as_str(), v["ref"].as_str()), (Some("notice"), Some("waiting"), Some("r1")));
+    assert!(v.get("by").is_none(), "an absent `by` is not sent");
+    // a closed notice names who closed it; one from an older desktop has no `by`
+    let closed = |by| DesktopMsg::Notice(Notice { what: NoticeKind::Closed, reference: "r1".into(), session: "s1".into(), title: String::new(), body: String::new(), by });
+    assert_eq!(round_trip(&closed(Some(ClosedBy::Computer)))["by"], json!({"kind":"computer"}));
+    assert_eq!(round_trip(&closed(Some(ClosedBy::Phone { phone: "p2".into() })))["by"], json!({"kind":"phone","phone":"p2"}));
+    let old = br#"{"kind":"notice","what":"closed","ref":"r1","session":"s1","title":"","body":""}"#;
+    assert_eq!(DesktopMsg::from_json(old).unwrap(), closed(None));
+    // a session that waits at the computer says why, and an older desktop says nothing
+    let info = br#"{"id":"s","title":"t","project":"p","state":"atComputer","pet":{"design":"cat","color":1},"atComputerWhy":"tooLarge"}"#;
+    assert_eq!(serde_json::from_slice::<SessionInfo>(info).unwrap().at_computer_why, Some(AtComputerWhy::TooLarge));
+    let older = br#"{"id":"s","title":"t","project":"p","state":"atComputer","pet":{"design":"cat","color":1}}"#;
+    assert_eq!(serde_json::from_slice::<SessionInfo>(older).unwrap().at_computer_why, None);
     assert_eq!(round_trip(&DesktopMsg::Error { code: "update".into(), who: Some(Who::Desktop) })["who"], "desktop");
 }
 
@@ -294,7 +306,7 @@ fn limits_are_measured_in_bytes() {
 
 #[test]
 fn session_info_says_whether_stop_is_possible() {
-    let info = |can_stop| SessionInfo { id: "s".into(), title: "t".into(), project: "p".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 1 }, can_stop, lines: 0 };
+    let info = |can_stop| SessionInfo { id: "s".into(), title: "t".into(), project: "p".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 1 }, can_stop, lines: 0, at_computer_why: None };
     assert_eq!(serde_json::to_value(info(true)).unwrap()["canStop"], true);
     assert_eq!(serde_json::to_value(info(false)).unwrap()["canStop"], false);
     // a desktop from before the flag omits it: that reads as "not possible"

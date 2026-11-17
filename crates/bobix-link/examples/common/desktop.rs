@@ -250,7 +250,7 @@ impl Desktop {
         DesktopMsg::Home(Home {
             sent_at: now_ms(),
             computer: Computer { name: self.name.clone(), state, unfinished: 2 },
-            sessions: vec![SessionInfo { id: "s1".into(), title: "Fix the login retry".into(), project: "demo-app".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 2 }, can_stop: true, lines: 0 }],
+            sessions: vec![SessionInfo { id: "s1".into(), title: "Fix the login retry".into(), project: "demo-app".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 2 }, can_stop: true, lines: 0, at_computer_why: None }],
             groups: vec![Group { group: GroupKind::NeedsYou, ids: waiting.iter().map(|w| w.id.clone()).collect() }],
             waiting,
             rights,
@@ -293,7 +293,7 @@ impl Desktop {
     /// Delivers packets out of order, replayed and far too old, then one more on time. The receiver handles each by
     /// the rule of its stream and the pairing stays alive.
     async fn late_push(&mut self, phone: &str) {
-        let notice = |t: &str| DesktopMsg::Notice(Notice { what: NoticeKind::Done, reference: t.into(), session: "s1".into(), title: t.into(), body: t.into() }).to_json();
+        let notice = |t: &str| DesktopMsg::Notice(Notice { what: NoticeKind::Done, reference: t.into(), session: "s1".into(), title: t.into(), body: t.into(), by: None }).to_json();
         let Some(k) = self.phones.get_mut(phone) else { return };
         let (base, _) = k.link.reserve_counter(Stream::Event);
         for _ in 0..101 {

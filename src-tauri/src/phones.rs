@@ -131,7 +131,8 @@ pub struct State {
     last_home_at: u64,
     home_now: HashSet<String>,                  // phones that get a home at the next tick (just paired, just online)
     results: HashMap<String, (CmdResult, u64)>, // by cid, kept 24 hours
-    pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
+    pub closed_events: Vec<(String, String, bool, crate::answers::End)>, // (request id, session id, plan, how it ended): requests that ended, to tell the phones
+    answerers: HashMap<String, String>,         // request id → the phone that answered it, until the phones are told it closed
     notified: HashSet<String>,
     awake: crate::awake::Awake,
     asleep: bool,                               // the computer is going to sleep (or sleeps): phones are told, with how much is unfinished
@@ -485,11 +486,15 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     }
     // requests that ended: the phones that were told of them are told they are gone
     let mut out = std::mem::take(&mut flushed);
-    for (id, sid, _) in std::mem::take(&mut st.closed_events) {
-        if !st.notified.remove(&id) { continue; }
-        let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid, title: String::new(), body: String::new() };
+    for (id, sid, _, end) in std::mem::take(&mut st.closed_events) {
+        // every paired phone learns who closed it (one that never had the push still has the item in its last `home`);
+        // the push that clears a shown notification goes only where it was announced
+        let notified = st.notified.remove(&id);
+        let by = closed_by(end, st.answerers.remove(&id));
+        let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid, title: String::new(), body: String::new(), by };
+        let push = notified.then(|| Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, replaces: Some(id.clone()) });
         let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
-        for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), Some(Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, replaces: Some(id.clone()) }), None) { out.push(f); } }
+        for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), push.clone(), None) { out.push(f); } }
     }
     // homes: to every paired phone when something changed (the relay keeps only the latest for an offline one), a forced
     // one each minute to a phone that is online, and one at once for a phone that just paired or came online
@@ -538,6 +543,10 @@ impl State {
     // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone is
     // paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the input time
     // cannot be read, the choice in Settings decides.
+    pub fn why_not_held(&self, settings: &Value, src: &dyn crate::presence::Source) -> bobix_link::messages::AtComputerWhy {
+        use bobix_link::messages::AtComputerWhy;
+        if self.has_phones() && settings["approveWait"].as_f64().unwrap_or(0.0) != 0.0 && src.idle_ms().is_some_and(|ms| ms < crate::presence::AT_COMPUTER_MS) { AtComputerWhy::Present } else { AtComputerWhy::NotShown }
+    }
     pub fn holds_for_phones(&self, settings: &Value, src: &dyn crate::presence::Source) -> bool {
         if !self.has_phones() || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
         match src.idle_ms() { Some(ms) => ms >= crate::presence::AT_COMPUTER_MS, None => self.cfg.hold != "computer" }
@@ -705,6 +714,17 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
     out
 }
 
+// Who a closed notice says closed the item. A phone's answer with the phone unknown says nothing (the phone then guesses).
+fn closed_by(end: crate::answers::End, phone: Option<String>) -> Option<ClosedBy> {
+    use crate::answers::{By, End};
+    match end {
+        End::Answered(By::Pc, _) | End::Computer => Some(ClosedBy::Computer),
+        End::Answered(By::Phone, _) => phone.map(|phone| ClosedBy::Phone { phone }),
+        End::Expired => Some(ClosedBy::Expired),
+        End::Released(_) => Some(ClosedBy::Released),
+    }
+}
+
 // A command from a phone, checked in this order: counter (already by the link), a `cid` seen before (the stored result: the
 // packet already authenticated the sender with its box key, and the store is per phone), the signature (with the packet's
 // version, phone id, computer id, age), the phone's right for the kind of thing held, `cut`, the `shown` hash against what is
@@ -719,11 +739,13 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, version: u8, coun
     let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return Some(CmdResult::refused(&cmd.cid, "encoding")) };
     let ctx = command::VerifyCtx { version, phone_id: from, computer_id: &cid, sign_key: &sign, counter, now_ms: t };
     let mut later = false;
+    let mut item = None; // the held item the command answers
     let (result, what) = match command::verify(&ctx, cmd) {
         Err(r) => (CmdResult::refused(&cmd.cid, r.why()), "command".to_string()),
         Ok(body) => {
             let target = match &body { CommandBody::Answer { id, .. } | CommandBody::Plan { id, .. } | CommandBody::Question { id, .. } => Some(id.clone()), _ => None };
             let shown_of = target.as_deref().and_then(|id| c.pending.get(id)).map(|p| crate::phone_view::preview(p.raw.lines().next().unwrap_or(""), 60)).unwrap_or_default();
+            item = target.clone().or_else(|| if let CommandBody::Stop { request, .. } = &body { Some(request.clone()) } else { None });
             let what = format!("{} {}", body.kind(), shown_of).trim().to_string();
             let refuse = |why: &str| CmdResult::refused(&cmd.cid, why);
             // a note or a free-text answer goes into Claude's reply: plain text, newlines allowed
@@ -753,6 +775,7 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, version: u8, coun
         }
     };
     if later { return None; } // the start thread logs and stores it when it is done
+    if let (Some(id), Outcome::Ok) = (item, result.outcome) { c.phones.answerers.insert(id, from.to_string()); } // for the closed notice
     let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
     let shown = if let Some(w) = &result.why { format!("{word} ({w})") } else { word };
     c.phones.push_log(&phone.name, &what, &shown);
@@ -1204,7 +1227,7 @@ pub fn on_notify(b: &Arc<Bobix>, kind: &str, sid: &str) {
             if !st.notified.insert(id.clone()) { return; }
             (crate::phone_view::waiting_notice(p, id, title), id.clone())
         }
-        "done" => (Notice { what: NoticeKind::Done, reference: sid.into(), session: sid.into(), title: crate::phone_view::preview(title, 80), body: crate::phone_view::preview(&s.summary, 200) }, sid.to_string()),
+        "done" => (Notice { what: NoticeKind::Done, reference: sid.into(), session: sid.into(), title: crate::phone_view::preview(title, 80), body: crate::phone_view::preview(&s.summary, 200), by: None }, sid.to_string()),
         _ => return,
     };
     let push = Push { kind: bobix_link::relay_frames::PushKind::Alert, priority: 10, replaces: Some(id) };
@@ -1270,11 +1293,24 @@ mod tests {
     }
 
     #[test]
+    fn a_closed_notice_says_who_closed_the_item() {
+        use crate::answers::End;
+        assert_eq!(closed_by(End::Answered(By::Pc, true), None), Some(ClosedBy::Computer));
+        assert_eq!(closed_by(End::Computer, None), Some(ClosedBy::Computer), "answered in Claude's own prompt");
+        assert_eq!(closed_by(End::Answered(By::Phone, false), Some("p2".into())), Some(ClosedBy::Phone { phone: "p2".into() }));
+        assert_eq!(closed_by(End::Answered(By::Phone, true), None), None, "a phone's answer with the phone unknown says nothing");
+        assert_eq!(closed_by(End::Expired, None), Some(ClosedBy::Expired));
+        assert_eq!(closed_by(End::Released("settings"), None), Some(ClosedBy::Released));
+    }
+
+    #[test]
     fn a_request_is_held_for_phones_only_when_nobody_is_at_the_computer() {
         let s = json!({ "approveWait": -1 });
         let st = on_state();
         assert!(!st.holds_for_phones(&s, &Fixed(Some(5_000))), "input 5 seconds ago: not held");
         assert!(st.holds_for_phones(&s, &Fixed(Some(30_000))), "input 30 seconds ago: held");
+        assert_eq!(st.why_not_held(&s, &Fixed(Some(5_000))), AtComputerWhy::Present, "not held because someone is using the computer");
+        assert_eq!(st.why_not_held(&json!({ "approveWait": 0 }), &Fixed(Some(5_000))), AtComputerWhy::NotShown, "never hold: nobody is the reason");
         assert!(!st.holds_for_phones(&json!({ "approveWait": 0 }), &Fixed(Some(30_000))), "never hold wins");
         assert!(st.holds_for_phones(&s, &Fixed(None)), "no reading: the choice decides, keep for the phone by default");
         let mut c = on_state();

@@ -183,6 +183,13 @@ class FixtureActionsSource implements ActionsSource {
       phase: SessionPhase.working,
       tool: 'Edit',
     ),
+    'ses-at-computer' => const SessionDetail(
+      id: 'ses-at-computer',
+      name: 'Rename the settings page',
+      project: 'shop',
+      phase: SessionPhase.waiting,
+      tool: 'Edit',
+    ),
     'ses-released' => const SessionDetail(
       id: 'ses-released',
       name: 'Add a dark mode switch',

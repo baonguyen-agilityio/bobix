@@ -37,6 +37,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       unawaited(link.forget(r.cid));
     });
     _homes = link.homeChanges.listen(_track);
+    _notices = link.closedNotices.listen(_onClosedNotice);
     if (link.home != null) _track(link.home!);
   }
 
@@ -53,7 +54,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
   /// How long an answer to a question of the phone (a `detail`, a start preview) is waited for.
   final Duration answerWithin;
 
-  late final StreamSubscription<Object> _results, _homes;
+  late final StreamSubscription<Object> _results, _homes, _notices;
   final _signed = <String, _Signed>{};
   final _pids = <String, String>{};
   final _outcomes = <String, CommandOutcome>{};
@@ -66,6 +67,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
   Future<void> dispose() async {
     await _results.cancel();
     await _homes.cancel();
+    await _notices.cancel();
     _lastOpen.clear();
     _closed.clear();
   }
@@ -104,13 +106,28 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     };
     for (final id in _held) {
       if (now.containsKey(id)) continue;
-      _closed[id] = RequestClosed(
-        ClosedBy.computer,
-        at: _clock(snap.receivedAtMs),
-        last: _lastOpen[id],
-      );
+      _closed[id] = _closedView(id, _clock(snap.receivedAtMs));
     }
     _held = now.keys.toSet();
+  }
+
+  /// How an item that left `home` closed: as the computer said, else this phone's own answer, else the old guess (the
+  /// computer; only an older computer says nothing).
+  RequestClosed _closedView(String id, String at) => RequestClosed(
+    switch (link.closerOf(id)) {
+      Closer.me => ClosedBy.thisPhone,
+      Closer.otherPhone => ClosedBy.otherPhone,
+      Closer.expired || Closer.released => ClosedBy.expired,
+      Closer.computer || Closer.unknown => ClosedBy.computer,
+    },
+    at: at,
+    last: _lastOpen[id],
+  );
+
+  /// The notice can come after the `home` that dropped the item: it corrects what was recorded from the guess.
+  void _onClosedNotice(ClosedNotice n) {
+    final old = _closed[n.ref];
+    if (old != null) _closed[n.ref] = _closedView(n.ref, old.at);
   }
 
   static String _clock(int ms) {
@@ -145,12 +162,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     if (closed != null) return closed;
     final w = await _until(() => _waiting(id), answerWithin);
     if (w == null) {
-      return _closed[id] ??
-          RequestClosed(
-            ClosedBy.computer,
-            at: _clock(_nowMs),
-            last: _lastOpen[id],
-          );
+      return _closed[id] ?? _closedView(id, _clock(_nowMs));
     }
     final d = await link.detail(id, within: answerWithin);
     if (d == null) return const RequestLoading();
@@ -452,6 +464,13 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     if (s == null) {
       return const CommandOutcome(OutcomeKind.refused, reason: 'not confirmed');
     }
+    // From here the item is this phone's answer: when it leaves `home`, the computer did not close it.
+    final answered = switch (command.kind) {
+      CommandKind.stop => command.text,
+      CommandKind.start => null,
+      _ => command.target,
+    };
+    if (answered != null && answered.isNotEmpty) link.answeredItem(answered);
     final message = await msg.finishCommand(
       input: s.input,
       cid: command.id,

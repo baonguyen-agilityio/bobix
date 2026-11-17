@@ -198,6 +198,9 @@ impl Bobix {
                     }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
                     // AskUserQuestion is held as a question (answered with its answers, never with a bare Allow), whole or not at all
+                    // a session that waits without a PermissionRequest that was held (a prompt Bobix does not hook) is answered at the computer
+                    if s.state != "waiting" { s.at_computer_why = None; }
+                    else if ev == "Notification" && s.at_computer_why.is_none() && !pending.values().any(|p| p.sid == s.id) { s.at_computer_why = Some(bobix_link::messages::AtComputerWhy::Unsupported); }
                     let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, closed, phones, settings, s, &e, plan) }
                         // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
                         // way /rename names it; one that has a name keeps it. One new where a start waits is named by its

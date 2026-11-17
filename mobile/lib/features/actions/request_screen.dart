@@ -115,6 +115,7 @@ class _ClosedBanner extends ConsumerWidget {
         title: s(
           switch (by) {
             ClosedBy.computer => 'phone.cl.pc',
+            ClosedBy.thisPhone => 'phone.cl.me',
             ClosedBy.otherPhone => 'phone.cl.ph',
             ClosedBy.expired => 'phone.cl.ex',
           },
@@ -123,6 +124,10 @@ class _ClosedBanner extends ConsumerWidget {
         body: s(
           switch (by) {
             ClosedBy.computer => 'phone.cl.pc.d',
+            ClosedBy.thisPhone => 'phone.cl.me.d',
+            // The computer names the other phone by id only: without a name the line does not use one.
+            ClosedBy.otherPhone when (closed.phone ?? '').isEmpty =>
+              'phone.cl.ph.d0',
             ClosedBy.otherPhone => 'phone.cl.ph.d',
             ClosedBy.expired => 'phone.cl.ex.d',
           },

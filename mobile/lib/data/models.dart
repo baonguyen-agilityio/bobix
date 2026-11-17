@@ -15,6 +15,7 @@ class Session {
     required this.stage,
     this.needsYou = false,
     this.answerAtComputer = false,
+    this.atComputerWhy,
     this.answeredAtComputer = false,
     this.handledAtComputer = false,
     this.waitingId,
@@ -39,6 +40,12 @@ class Session {
 
   /// It waits, but the computer does not hold the request for phones: it can only be answered at the computer.
   final bool answerAtComputer;
+
+  /// Why the computer does not hold it for phones (`present`, `tooLarge`, `unsupported`, `notShown`), when it says.
+  final String? atComputerWhy;
+
+  /// It needs the person and can be answered from this phone: what the "needs you" count and look are for.
+  bool get answersHere => needsYou && !answerAtComputer;
 
   /// The request was answered at the computer first (the first answer wins), so it is withdrawn here.
   final bool answeredAtComputer;
