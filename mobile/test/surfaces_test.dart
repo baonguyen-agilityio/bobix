@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:phone/app.dart';
 import 'package:phone/data/models.dart';
 import 'package:phone/data/phone_data.dart';
+import 'package:phone/features/actions/actions_source.dart';
+import 'package:phone/features/actions/session_screen.dart';
 import 'package:phone/push/push_platform.dart';
 import 'package:phone/push/push_providers.dart';
 import 'package:phone/push/push_registration.dart';
@@ -18,6 +20,7 @@ import 'package:phone/surfaces/surfaces_host.dart';
 import 'package:phone/surfaces/surfaces_sync.dart';
 import 'package:phone/link/link_providers.dart';
 
+import 'support/actions/fixture_actions_source.dart';
 import 'support/fake_push_platform.dart';
 import 'support/fixture_phone_data.dart';
 
@@ -298,6 +301,27 @@ void main() {
     push.tapController.add(const PushTap(computerId: '', ref: '', kind: 'home'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(tester.widget<IndexedStack>(find.byType(IndexedStack)).index, 0);
+  });
+
+  testWidgets('a link to a session opens that session, held request or not', (tester) async {
+    final push = FakePushPlatform();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          pushPlatformProvider.overrideWithValue(push),
+          phoneDataProvider.overrideWithValue(FixturePhoneData()),
+          actionsSourceProvider.overrideWithValue(FixtureActionsSource()),
+        ],
+        child: const BobixApp(home: AppShell()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(PushTap.tryParse({'computer': 'c', 'ref': 's1', 'kind': 'session'}), const PushTap(computerId: 'c', ref: 's1', kind: 'session'));
+    push.tapController.add(const PushTap(computerId: 'c', ref: 's1', kind: 'session'));
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    expect(find.byType(SessionScreen), findsOneWidget);
   });
 
   // flutter_test's rasteriser draws nothing, so that the PNG really shows the pet is checked in a running app:

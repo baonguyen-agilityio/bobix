@@ -14,6 +14,7 @@ import '../../lock/secure_scope.dart';
 import 'actions_source.dart';
 import '../../widgets/status_banner.dart';
 import 'hidden_chars.dart';
+import '../../widgets/press_feedback.dart';
 
 /// The destructive red of the prototype's `--err-solid`.
 final errSolid = oklch(50, .19, 22);
@@ -127,28 +128,30 @@ class HeaderPill extends StatelessWidget {
       button: true,
       label: label,
       excludeSemantics: true,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
-        onTap: onTap,
-        child: Glass(
-          radius: 22,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: SizedBox(
-            height: 38,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 20, color: t.accentInk),
-                const SizedBox(width: 2),
-                // The pills keep a readable size but do not grow without limit, or they would push the title out.
-                MediaQuery.withClampedTextScaling(
-                  maxScaleFactor: maxTextScale,
-                  child: Text(
-                    label,
-                    style: TextStyle(fontSize: 16, color: t.accentInk),
+      child: PressFeedback(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: onTap,
+          child: Glass(
+            radius: 22,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: SizedBox(
+              height: 38,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 20, color: t.accentInk),
+                  const SizedBox(width: 2),
+                  // The pills keep a readable size but do not grow without limit, or they would push the title out.
+                  MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: maxTextScale,
+                    child: Text(
+                      label,
+                      style: TextStyle(fontSize: 16, color: t.accentInk),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -192,32 +195,34 @@ class ActionButton extends StatelessWidget {
     final button = Material(
       color: primary ? Colors.transparent : bg,
       shape: shape,
-      child: InkWell(
-        customBorder: const StadiumBorder(),
-        onTap: onPressed,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 50),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, size: 18, color: fg),
-                  const SizedBox(width: 8),
-                ],
-                Flexible(
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: fg,
+      child: PressFeedback(
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onPressed,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 50),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 18, color: fg),
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: fg,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

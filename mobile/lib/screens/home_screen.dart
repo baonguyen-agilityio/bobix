@@ -19,6 +19,8 @@ import '../features/actions/action_screen_parts.dart' show taskLogOpener;
 import '../features/actions/actions_models.dart';
 import '../features/actions/session_screen.dart';
 import '../features/actions/start_screen.dart';
+import '../pets/random_pet.dart';
+import '../widgets/press_feedback.dart';
 
 /// What a tap opens: the held item (a request, a plan, a question) or, for a request answered elsewhere first, that
 /// request's closed view; otherwise the session.
@@ -47,7 +49,7 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(homeProvider).value;
-    if (data == null) return const Center(child: CircularProgressIndicator());
+    if (data == null) return const PetsSplash();
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     final conn = data.conn, clock = data.lastContact, computer = data.computer;
@@ -70,7 +72,8 @@ class HomeScreen extends ConsumerWidget {
         title: x.name,
         subtitle: subtitle,
         meta: meta ?? x.ref,
-        logCount: ref.watch(taskLogProvider(x.id)).length,
+        // What the Task log lists: Claude's activity and the commands sent from phones.
+        logCount: ref.watch(taskLogProvider(x.id)).length + x.activityLines,
         logLabel: s('phone.tl.open', {'n': x.name}),
         onLog: taskLogOpener(context, ref, x.id),
         needsYou: x.needsYou,
@@ -161,40 +164,44 @@ class HomeScreen extends ConsumerWidget {
               Semantics(
                 button: true,
                 label: computer,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(22),
-                  onTap: () => showComputersSheet(
-                    context,
-                    computer: computer,
-                    waiting: need.length,
-                  ),
-                  child: Glass(
-                    blur: true,
-                    radius: 22,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: SizedBox(
-                      height: 44,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: conn == ConnState.ok ? t.ok : t.warn,
-                              shape: BoxShape.circle,
+                child: PressFeedback(
+                  scale: .985,
+                  opacity: .75,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(22),
+                    onTap: () => showComputersSheet(
+                      context,
+                      computer: computer,
+                      waiting: need.length,
+                    ),
+                    child: Glass(
+                      blur: true,
+                      radius: 22,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: SizedBox(
+                        height: 44,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: conn == ConnState.ok ? t.ok : t.warn,
+                                shape: BoxShape.circle,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            computer,
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w600,
-                              color: t.ink,
+                            const SizedBox(width: 8),
+                            Text(
+                              computer,
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: t.ink,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -288,53 +295,57 @@ class _TodoRow extends StatelessWidget {
       label: '${issue.title}. ${issue.project} #${issue.number}',
       excludeSemantics: true,
       child: Glass(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: minTouch + 17),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: t.surface3,
-                      borderRadius: BorderRadius.circular(44 * 16 / 62),
+        child: PressFeedback(
+          scale: .985,
+          opacity: .75,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: minTouch + 17),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: t.surface3,
+                        borderRadius: BorderRadius.circular(44 * 16 / 62),
+                      ),
+                      child: Icon(
+                        Icons.confirmation_number_outlined,
+                        size: 22,
+                        color: t.ink2,
+                      ),
                     ),
-                    child: Icon(
-                      Icons.confirmation_number_outlined,
-                      size: 22,
-                      color: t.ink2,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          issue.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: t.ink,
-                            height: 1.3,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            issue.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: t.ink,
+                              height: 1.3,
+                            ),
                           ),
-                        ),
-                        Text(
-                          '${issue.project} #${issue.number}',
-                          style: TextStyle(fontSize: 12, color: t.ink3),
-                        ),
-                      ],
+                          Text(
+                            '${issue.project} #${issue.number}',
+                            style: TextStyle(fontSize: 12, color: t.ink3),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  Icon(Icons.chevron_right, size: 18, color: t.ink3),
-                ],
+                    Icon(Icons.chevron_right, size: 18, color: t.ink3),
+                  ],
+                ),
               ),
             ),
           ),

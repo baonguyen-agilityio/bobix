@@ -198,7 +198,13 @@ pub struct SessionInfo {
     /// request, and the phone shows its button from this flag. An older desktop omits it, which reads as `false`.
     #[serde(default)]
     pub can_stop: bool,
+    /// How many lines of activity `detail` would return for this session (at most 40). The desktop sets it only for a
+    /// phone that may see activity, so the phone can show the count without asking; absent reads as 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub lines: u8,
 }
+
+fn is_zero(n: &u8) -> bool { *n == 0 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -125,11 +125,11 @@ class _OuterShadow extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final box = shape.toRRect(Offset.zero & size);
-    final outside = Path.combine(
-      PathOperation.difference,
-      Path()..addRect((Offset.zero & size).inflate(blur * 3 + 8)),
-      Path()..addRRect(box),
-    );
+    // The shadow's area minus the box, as an even-odd fill: no boolean path operation on each paint.
+    final outside = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect((Offset.zero & size).inflate(blur * 3 + 8))
+      ..addRRect(box);
     canvas.save();
     canvas.clipPath(outside);
     canvas.drawRRect(

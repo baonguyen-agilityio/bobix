@@ -9,10 +9,9 @@ import '../features/actions/action_widgets.dart' show bioName;
 import '../keys/platform_secure_keys.dart';
 import '../keys/secure_keys.dart';
 import '../l10n/l10n.dart';
-import '../pets/pet_view.dart';
+import '../pets/random_pet.dart';
 import '../link/link_providers.dart';
 import '../settings/app_settings.dart';
-import '../theme/oklch.dart';
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
 import '../widgets/glass_backdrop.dart';
@@ -171,12 +170,7 @@ class LockScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const PetView(
-                  design: 'default',
-                  color: 0,
-                  state: 'idle',
-                  size: 96,
-                ),
+                const RandomPet(size: 96),
                 const SizedBox(height: 12),
                 ExcludeSemantics(
                   child: Text(
@@ -234,37 +228,13 @@ class CoverScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final t = context.tokens;
     return Semantics(
       container: true,
       explicitChildNodes: true,
       child: GlassBackdrop(
         child: SizedBox.expand(
           child: Center(
-            child: DecoratedBox(
-              key: const ValueKey('cover-icon'),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [oklch(75, .15, 40), oklch(58, .18, 28)],
-                ),
-                boxShadow: t.isDark
-                    ? null
-                    : const [
-                        BoxShadow(
-                          color: Color(0x2E141828),
-                          blurRadius: 14,
-                          offset: Offset(0, 6),
-                        ),
-                      ],
-              ),
-              child: const SizedBox.square(
-                dimension: 96,
-                child: Icon(Icons.pets_outlined, size: 44, color: Colors.white),
-              ),
-            ),
+            child: const RandomPet(key: ValueKey('cover-pet'), size: 96),
           ),
         ),
       ),

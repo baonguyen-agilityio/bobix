@@ -136,6 +136,19 @@ void main() {
     expect(find.text('Send feedback'), findsOneWidget);
   });
 
+  testWidgets('a tab that is not shown stops its animations', (tester) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app());
+    await tester.pump();
+    final onHome = tester.binding.transientCallbackCount;
+    expect(onHome, greaterThan(3), reason: 'the pets of Home are running');
+    await tester.tap(find.bySemanticsLabel('Settings'));
+    await tester.pump(const Duration(milliseconds: 400));
+    // Settings has no pet: nothing may keep ticking for the tabs behind it.
+    final onSettings = tester.binding.transientCallbackCount;
+    expect(onSettings, lessThan(onHome ~/ 2));
+  });
+
   testWidgets('Vietnamese strings are used when the language is vi', (
     tester,
   ) async {

@@ -4,6 +4,7 @@ import '../pets/pet_view.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import 'glass.dart';
+import 'press_feedback.dart';
 
 /// A task card of Home: pet, name, one line of status, and where it belongs.
 class SessionRow extends StatelessWidget {
@@ -54,58 +55,64 @@ class SessionRow extends StatelessWidget {
               button: onTap != null,
               label: '$title. $subtitle. $meta',
               excludeSemantics: true,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: onTap,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: minTouch + 17),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
-                    child: Row(
-                      children: [
-                        PetView(
-                          design: petDesign,
-                          color: petColor,
-                          state: petState,
-                          size: 44,
-                          halo: needsYou,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: t.ink,
-                                  height: 1.3,
-                                ),
-                              ),
-                              Text(
-                                subtitle,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: subtitleColor ?? t.ink2,
-                                  height: 1.35,
-                                ),
-                              ),
-                              Text(
-                                meta,
-                                style: TextStyle(fontSize: 12, color: t.ink3),
-                              ),
-                            ],
+              child: PressFeedback(
+                scale: .985,
+                opacity: .75,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: onTap,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: minTouch + 17),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+                      child: Row(
+                        children: [
+                          PetView(
+                            design: petDesign,
+                            color: petColor,
+                            state: petState,
+                            size: 44,
+                            halo: needsYou,
                           ),
-                        ),
-                        if (hasLog) const SizedBox(width: 50),
-                        Icon(Icons.chevron_right, size: 18, color: t.ink3),
-                      ],
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: t.ink,
+                                    height: 1.3,
+                                  ),
+                                ),
+                                Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: subtitleColor ?? t.ink2,
+                                    height: 1.35,
+                                  ),
+                                ),
+                                Text(
+                                  meta,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 12, color: t.ink3),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (hasLog) const SizedBox(width: 50),
+                          Icon(Icons.chevron_right, size: 18, color: t.ink3),
+                        ],
+                      ),
                     ),
                   ),
                 ),

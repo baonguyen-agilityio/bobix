@@ -150,12 +150,13 @@ void main() {
   );
 
   testWidgets(
-    'the lock screen shows the sleeping pet, what is the matter and the way in',
+    'the lock screen shows a random pet at work, what is the matter and the way in',
     (tester) async {
       keys.authAnswer = AppAuth.cancelled;
       await pump(tester);
       expect(find.byType(PetView), findsOneWidget);
-      expect(tester.widget<PetView>(find.byType(PetView)).state, 'idle');
+      // A pet picked at random, at work: nothing about a session, and a different one each time the lock shows.
+      expect(tester.widget<PetView>(find.byType(PetView)).state, 'working');
       expect(tester.widget<PetView>(find.byType(PetView)).size, 96);
       expect(find.text('Bobix'), findsOneWidget);
       expect(find.text('Bobix is locked'), findsOneWidget);

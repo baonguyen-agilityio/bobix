@@ -250,7 +250,7 @@ impl Desktop {
         DesktopMsg::Home(Home {
             sent_at: now_ms(),
             computer: Computer { name: self.name.clone(), state, unfinished: 2 },
-            sessions: vec![SessionInfo { id: "s1".into(), title: "Fix the login retry".into(), project: "demo-app".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 2 }, can_stop: true }],
+            sessions: vec![SessionInfo { id: "s1".into(), title: "Fix the login retry".into(), project: "demo-app".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 2 }, can_stop: true, lines: 0 }],
             groups: vec![Group { group: GroupKind::NeedsYou, ids: waiting.iter().map(|w| w.id.clone()).collect() }],
             waiting,
             rights,

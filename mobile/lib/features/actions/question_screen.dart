@@ -11,6 +11,7 @@ import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
 import 'command_flow.dart';
+import '../../widgets/press_feedback.dart';
 
 /// The longest free-text answer, in UTF-8 bytes.
 const maxAnswerBytes = 2000;
@@ -278,55 +279,59 @@ class _Option extends StatelessWidget {
       child: ExcludeSemantics(
         child: Material(
           color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            child: Glass(
-              tint: checked ? t.accentBg : null,
-              border: checked ? t.accent : null,
-              padding: const EdgeInsets.all(14),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 36),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      multi
-                          ? (checked
-                                ? Icons.check_box
-                                : Icons.check_box_outline_blank)
-                          : (checked
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_unchecked),
-                      size: 22,
-                      color: checked ? t.accentSolid : t.ink3,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            label,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: t.ink,
-                            ),
-                          ),
-                          if (detail != null)
+          child: PressFeedback(
+            scale: .985,
+            opacity: .75,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Glass(
+                tint: checked ? t.accentBg : null,
+                border: checked ? t.accent : null,
+                padding: const EdgeInsets.all(14),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 36),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        multi
+                            ? (checked
+                                  ? Icons.check_box
+                                  : Icons.check_box_outline_blank)
+                            : (checked
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_unchecked),
+                        size: 22,
+                        color: checked ? t.accentSolid : t.ink3,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              detail!,
+                              label,
                               style: TextStyle(
-                                fontSize: 13,
-                                height: 1.4,
-                                color: t.ink2,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: t.ink,
                               ),
                             ),
-                        ],
+                            if (detail != null)
+                              Text(
+                                detail!,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.4,
+                                  color: t.ink2,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

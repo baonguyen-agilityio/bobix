@@ -185,7 +185,7 @@ enum PushDelivered {
   }
 }
 
-/// The links the widgets, the Live Activity and the controls open: `bobix://request?computer=&ref=`, `bobix://home`,
+/// The links the widgets, the Live Activity and the controls open: `bobix://request?computer=&ref=`, `bobix://session?computer=&id=`, `bobix://home`,
 /// `bobix://start`. Any app can open one, so a link only ever picks a screen: it never answers anything.
 enum SurfaceLink {
   static func tap(_ url: URL) -> [String: String]? {
@@ -196,6 +196,10 @@ enum SurfaceLink {
     case "request":
       let c = v("computer"), r = v("ref")
       return c.isEmpty || r.isEmpty ? nil : ["computer": c, "ref": r, "kind": "waiting"]
+    case "session":
+      // One session, held request or not: the app opens whatever screen that session has.
+      let c = v("computer"), i = v("id")
+      return c.isEmpty || i.isEmpty ? nil : ["computer": c, "ref": i, "kind": "session"]
     case "home", "start":
       return ["computer": "", "ref": "", "kind": host]
     default:

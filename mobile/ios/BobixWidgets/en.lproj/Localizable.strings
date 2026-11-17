@@ -10,11 +10,16 @@
 "phone.wg.kind.lock" = "Bobix on the Lock Screen";
 "phone.wg.kind.lock.d" = "How many sessions need you.";
 "phone.wg.need.1" = "1 needs you";
+"phone.wg.need.label" = "need you";
 "phone.wg.need.n" = "{n} need you";
 "phone.wg.none" = "Nothing needs you";
 "phone.wg.nostart" = "Start is off for this phone";
 "phone.wg.offline" = "Computer offline";
 "phone.wg.open" = "Open to review";
+"phone.wg.sec.need" = "Needs you";
+"phone.wg.sec.pets" = "Pets";
+"phone.wg.sec.recent" = "Recent";
+"phone.wg.sec.todo" = "To do";
 "phone.wg.todo" = "{n} to do";
 "phone.wg.unpaired" = "Open Bobix to connect a computer";
 "phone.wg.updated" = "Updated {tm}";

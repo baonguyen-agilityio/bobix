@@ -9,6 +9,7 @@ import '../pets/pet_view.dart';
 import '../theme/tokens.dart';
 import '../widgets/glass.dart';
 import 'home_screen.dart';
+import '../widgets/press_feedback.dart';
 
 /// Every session as its pet; the ones that need the person wear the coral tint.
 class PetsScreen extends ConsumerWidget {
@@ -132,63 +133,67 @@ class _PetCard extends ConsumerWidget {
         tint: x.needsYou
             ? Color.alphaBlend(t.accent.withValues(alpha: .10), t.surface)
             : null,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => openSession(context, x),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 14, 8, 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                PetView(
-                  design: x.petDesign,
-                  color: x.petColor,
-                  state: x.petState,
-                  size: 96,
-                  halo: x.needsYou,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  x.project,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    height: 1.25,
-                    color: t.ink,
+        child: PressFeedback(
+          scale: .985,
+          opacity: .75,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => openSession(context, x),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 14, 8, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  PetView(
+                    design: x.petDesign,
+                    color: x.petColor,
+                    state: x.petState,
+                    size: 96,
+                    halo: x.needsYou,
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  x.name,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, height: 1.3, color: t.ink2),
-                ),
-                const SizedBox(height: 4),
-                Container(
-                  constraints: const BoxConstraints(minHeight: 22),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: bg,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    text,
+                  const SizedBox(height: 4),
+                  Text(
+                    x.project,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                      color: fg,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                      color: t.ink,
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    x.name,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, height: 1.3, color: t.ink2),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    constraints: const BoxConstraints(minHeight: 22),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: bg,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      text,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                        color: fg,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

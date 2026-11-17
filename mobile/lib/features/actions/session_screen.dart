@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../widgets/glass_backdrop.dart';
+import '../../data/models.dart' show Session, WaitingKind;
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
 import 'action_screen_parts.dart';
@@ -13,9 +14,10 @@ import 'activity_lines.dart';
 import 'request_screen.dart';
 
 final sessionProvider = FutureProvider.autoDispose
-    .family<SessionDetail, String>(
-      (ref, id) => ref.watch(actionsSourceProvider).session(id),
-    );
+    .family<SessionDetail, String>((ref, id) {
+      ref.watch(grantedRightsProvider);
+      return ref.watch(actionsSourceProvider).session(id);
+    });
 
 /// One session: what it does now, its last lines (read only, only when the computer granted that right), and Stop
 /// (only when `home` says it is possible: the session waits on a request held for this phone and the phone has both
@@ -30,7 +32,26 @@ class SessionScreen extends ConsumerWidget {
     final canSend = ref.watch(canSendProvider);
     final c = ref.watch(actionsSourceProvider).computerName;
     final session = ref.watch(sessionProvider(id));
+    // A change of state (loading, shown, the chip, the note) cross-fades instead of snapping.
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      child: KeyedSubtree(
+        key: ValueKey(session.hasValue),
+        child: _body(context, ref, s, canSend, c, session),
+      ),
+    );
+  }
+
+  Widget _body(
+    BuildContext context,
+    WidgetRef ref,
+    Strings s,
+    bool canSend,
+    String c,
+    AsyncValue<SessionDetail> session,
+  ) {
     return session.when(
+      skipLoadingOnReload: true,
       loading: () => ActionPage(
         title: s('phone.sv.title'),
         children: const [
@@ -48,7 +69,19 @@ class SessionScreen extends ConsumerWidget {
                 : s('phone.st.working', {'tool': d.tool}),
             ChipTone.info,
           ),
-          SessionPhase.waiting => (s('phone.status.waiting'), ChipTone.accent),
+          SessionPhase.waiting => (
+            // What it waits for: nothing held for this phone means Claude asks at the computer; a held plan or
+            // question names itself; a request is an approval.
+            switch (ref.watch(homeSessionProvider(id))) {
+              Session(answerAtComputer: true) => s('phone.status.atpc'),
+              Session(waitingKind: WaitingKind.question) => s(
+                'phone.status.question',
+              ),
+              Session(waitingKind: WaitingKind.plan) => s('phone.status.plan'),
+              _ => s('phone.status.waiting'),
+            },
+            ChipTone.accent,
+          ),
           SessionPhase.idle => (s('phone.status.idle'), ChipTone.plain),
         };
         return ActionPage(

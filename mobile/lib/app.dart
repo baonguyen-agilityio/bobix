@@ -22,6 +22,8 @@ import 'screens/settings_screen.dart';
 import 'theme/theme.dart';
 import 'widgets/glass_backdrop.dart';
 import 'widgets/glass_tab_bar.dart';
+import 'pets/random_pet.dart';
+import 'widgets/fade_on_change.dart';
 import 'widgets/status_banner.dart';
 
 class BobixApp extends ConsumerWidget {
@@ -40,8 +42,14 @@ class BobixApp extends ConsumerWidget {
       themeMode:
           ref.watch(settingsProvider).value?.themeMode ?? ThemeMode.system,
       // The lock and the cover sit over everything, the pairing flow included once a computer is paired.
-      builder: (context, child) =>
-          GlassBackdrop(child: AppLock(child: child ?? const SizedBox())),
+      themeAnimationDuration: const Duration(milliseconds: 300),
+      themeAnimationCurve: Curves.easeInOut,
+      builder: (context, child) => GlassBackdrop(
+        child: FadeOnChange(
+          value: ref.watch(langProvider),
+          child: AppLock(child: child ?? const SizedBox()),
+        ),
+      ),
       home: home,
     );
   }
@@ -57,7 +65,7 @@ class RootGate extends ConsumerWidget {
     ref.watch(surfacesClearProvider);
     return switch (phase.value) {
       null when phase.hasError => const UnavailableScreen(),
-      null => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      null => const PetsSplash(),
       Unpaired() => const PairingFlow(),
       Unavailable() => const UnavailableScreen(),
       final Paired p => SurfacesHost(link: p.link, child: const AppShell()),
@@ -116,7 +124,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       return;
     }
     setState(() => _index = _home);
-    final match = home.sessions.where((x) => x.waitingId == t.ref);
+    final match = home.sessions.where(
+      (x) => t.kind == 'session' ? x.id == t.ref : x.waitingId == t.ref,
+    );
     if (match.isNotEmpty) openSession(context, match.first);
   }
 
@@ -148,11 +158,16 @@ class _AppShellState extends ConsumerState<AppShell> {
             Positioned.fill(
               child: IndexedStack(
                 index: _index,
-                children: const [
-                  HomeScreen(),
-                  PetsScreen(),
-                  StartScreen(),
-                  SettingsScreen(),
+                // A tab that is not shown keeps its state but stops its animations: every pet on it would otherwise
+                // keep a ticker and a breathing halo going for a screen nobody sees.
+                children: [
+                  for (final (i, tab) in const [
+                    HomeScreen(),
+                    PetsScreen(),
+                    StartScreen(),
+                    SettingsScreen(),
+                  ].indexed)
+                    TickerMode(enabled: i == _index, child: tab),
                 ],
               ),
             ),
@@ -161,26 +176,20 @@ class _AppShellState extends ConsumerState<AppShell> {
               left: 0,
               right: 0,
               bottom: 0,
-              child: SafeArea(
-                top: false,
-                child: GlassTabBar(
-                  tabs: [
-                    TabSpec(
-                      Icons.home_outlined,
-                      s('phone.tab.home'),
-                      badge: need,
-                    ),
-                    TabSpec(Icons.pets_outlined, s('phone.tab.pets')),
-                    TabSpec(Icons.tune, s('phone.tab.settings')),
-                  ],
-                  start: TabSpec(
-                    Icons.play_arrow_outlined,
-                    s('phone.tab.start'),
+              child: GlassTabBar(
+                tabs: [
+                  TabSpec(
+                    Icons.home_outlined,
+                    s('phone.tab.home'),
+                    badge: need,
                   ),
-                  index: _index,
-                  startIndex: _start,
-                  onSelect: (i) => setState(() => _index = i),
-                ),
+                  TabSpec(Icons.pets_outlined, s('phone.tab.pets')),
+                  TabSpec(Icons.tune, s('phone.tab.settings')),
+                ],
+                start: TabSpec(Icons.play_arrow_outlined, s('phone.tab.start')),
+                index: _index,
+                startIndex: _start,
+                onSelect: (i) => setState(() => _index = i),
               ),
             ),
           ],

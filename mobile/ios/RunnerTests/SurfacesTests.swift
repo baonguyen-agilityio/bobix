@@ -225,7 +225,10 @@ final class SurfacesTests: XCTestCase {
       XCTAssertTrue(m.rows(5).isEmpty)
       XCTAssertFalse(m.headline.contains("shop") || m.headline.contains("blog"))
       XCTAssertEqual(m.count, 3)
+      XCTAssertFalse(m.inlineLine.contains("Studio Mac"), "\(lang): no computer name on the Lock Screen")
+      XCTAssertFalse(try model(list(waiting: 0), hide: true, lang: lang).inlineLine.contains("Studio Mac"))
     }
+    XCTAssertTrue(try model(list(waiting: 3)).inlineLine.contains("Studio Mac"), "with details on it names the computer")
   }
 
   func testTheCountAndTheLinks() throws {
@@ -234,7 +237,28 @@ final class SurfacesTests: XCTestCase {
     XCTAssertEqual(try model(list(waiting: 3), lang: "vi").headline, "3 phiên cần bạn")
     XCTAssertEqual(try model(list(waiting: 0)).headline, "Nothing needs you")
     XCTAssertEqual(try model(list(waiting: 0)).url.absoluteString, "bobix://home", "nothing waits: Home, not a missing request")
+    let two = try model(list(waiting: 2))
+    XCTAssertEqual(two.url(for: two.list.waiting[1]).absoluteString, "bobix://request?computer=c1&ref=r1", "a row opens its own request, not the first one")
+    XCTAssertEqual(try model(list(ageMinutes: 25)).url(for: two.list.waiting[1]).absoluteString, "bobix://home", "old data opens Home")
+    var working = two.list.rows.last!
+    working.computer = "c1"
+    XCTAssertEqual(two.url(for: working).absoluteString, "bobix://session?computer=c1&id=x", "a working session opens its own screen")
+    var atPc = list(waiting: 1)
+    atPc.rows[0].ref = ""  // waits, but the computer keeps the request: nothing to open from here
+    atPc.rows[0].computer = "c1"
+    XCTAssertEqual(try model(atPc).url(for: atPc.rows[0]).absoluteString, "bobix://session?computer=c1&id=w0", "answered at the computer: the session, not Home")
+    XCTAssertEqual(SurfaceLink.tap(URL(string: "bobix://session?computer=c1&id=w0")!), ["computer": "c1", "ref": "w0", "kind": "session"])
+    XCTAssertNil(SurfaceLink.tap(URL(string: "bobix://session?computer=c1")!))
     XCTAssertEqual(try model(list(waiting: 2)).url.absoluteString, "bobix://request?computer=c1&ref=r0")
+  }
+
+  func testWidgetsFillWithTheMostRecentSessionsAfterTheOnesThatNeedYou() throws {
+    let m = try model(list(waiting: 2))  // two waiting, one working
+    XCTAssertEqual(m.listed(3).map(\.id), ["w0", "w1", "x"], "needs you first, then the others in the list's order")
+    XCTAssertEqual(m.listed(1).map(\.id), ["w0"])
+    XCTAssertEqual(try model(list(waiting: 0)).listed(3).map(\.id), ["x"], "nothing waits: the recent ones fill in")
+    XCTAssertTrue(try model(list(waiting: 2), hide: true).listed(3).isEmpty, "Hide details: counts only")
+    XCTAssertTrue(try model(list(ageMinutes: 25)).listed(3).isEmpty, "old data lists nothing")
   }
 
   func testEveryKeyTheSurfacesUseIsTranslated() throws {
@@ -298,5 +322,38 @@ final class SurfacesTests: XCTestCase {
         }
       }
     }
+  }
+}
+
+/// The privacy cover shows a pet at work, never one in a session's real state.
+final class CoverPetTests: XCTestCase {
+  private func png(_ url: URL, red: Bool) throws {
+    let renderer = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4))
+    let image = renderer.image { c in
+      (red ? UIColor.red : UIColor.blue).setFill()
+      c.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+    }
+    try XCTUnwrap(image.pngData()).write(to: url)
+  }
+
+  func testOnlyPetsAtWorkAreEverPicked() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cover-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try png(dir.appendingPathComponent("tty-0-waiting.png"), red: true)
+    try png(dir.appendingPathComponent("tty-0-failed.png"), red: true)
+    XCTAssertNil(CoverPet.pick(from: [dir]), "pets in a session's own state are never used")
+    try png(dir.appendingPathComponent("ship-2-working.png"), red: false)
+    for _ in 0..<20 {
+      let image = try XCTUnwrap(CoverPet.pick(from: [dir]))
+      var rgba = [UInt8](repeating: 0, count: 4)
+      let ctx = CGContext(data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+      ctx.draw(image.cgImage!, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+      XCTAssertEqual(rgba[2], 255, "the blue one, the working pet")
+    }
+  }
+
+  func testNoFolderMeansNoPetSoTheTileShows() {
+    XCTAssertNil(CoverPet.pick(from: [URL(fileURLWithPath: "/nonexistent-cover-folder")]))
   }
 }

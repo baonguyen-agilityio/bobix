@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'tokens.dart';
@@ -9,7 +10,13 @@ ThemeData bobixTheme(Brightness brightness) {
   final t = brightness == Brightness.dark
       ? BobixTokens.dark
       : BobixTokens.light;
+  // iOS answers a press by dimming and shrinking the control (`PressFeedback`), not by a ripple.
+  final ios =
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS;
   return ThemeData(
+    splashFactory: ios ? NoSplash.splashFactory : null,
+    highlightColor: ios ? Colors.transparent : null,
     useMaterial3: true,
     brightness: brightness,
     scaffoldBackgroundColor: t.bg,

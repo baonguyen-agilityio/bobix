@@ -83,6 +83,17 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
         for (let t = 0; t < 8000 && !document.querySelector('[data-ph-name]'); t += 100) await new Promise(r => setTimeout(r, 100)); const st = await bridge.phonesState(); const n = document.querySelector('[data-ph-name]'); \
         return { section: !!document.querySelector('#sec-phones'), ipc: st.on === true && st.phones.length === 1, name: n ? n.textContent : null, noMarkup: n ? n.children.length === 0 : false }; })()", 12);
     r["panelOk"] = json!(r["panel"]["section"] == true && r["panel"]["ipc"] == true && r["panel"]["name"] == "Demo <b>phone</b>" && r["panel"]["noMarkup"] == true);
+    // A click on a right's checkbox in the real panel reaches the phone: the page's change handler, the IPC command and the
+    // sealed home, then back. (rightsInHome above goes around the page.)
+    let click = |on: bool| crate::smoke::ask_for(app, crate::panel::LABEL, &format!("(async () => {{ bsel.settings = 'set:phones'; showTab('settings'); \
+        for (let t = 0; t < 8000 && !document.querySelector('[data-pr^=\"row:\"][data-r=\"activity\"]'); t += 100) await new Promise(r => setTimeout(r, 100)); \
+        const c = document.querySelector('[data-pr^=\"row:\"][data-r=\"activity\"]'); if (!c) return false; if (c.checked !== {on}) c.click(); return true; }})()"), 12);
+    let no_activity = "\"rights\":{\"answer\":true,\"plan\":true,\"question\":true,\"start\":false,\"stop\":true,\"activity\":false}";
+    // the last check looks only at homes that arrived after the second click: the same line came at pairing
+    let rights_after = |from: usize, has: &'static str| until(10, || fake.lines.lock().unwrap().iter().skip(from).any(|l| l.contains("\"kind\":\"home\"") && l.contains(has)));
+    let first = click(false) == json!(true) && rights_line(no_activity);
+    let before = fake.lines.lock().unwrap().len();
+    r["rightsClick"] = json!(first && click(true) == json!(true) && rights_after(before, all_but_start));
     r["pairedSeen"] = json!(until(10, || fake.saw("paired with")));
     r["confirmWithoutPairing"] = json!(phones::pair_confirm(b, granted).is_err());
     // What a phone sees: a request held in the app reaches it as a redacted preview, a notice and, on asking, the whole thing.
@@ -217,6 +228,6 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     let busy = b.core.lock().unwrap().sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
     r["awakeHeld"] = json!(!busy || (until(10, || v()["awakeHeld"] == true) && (!cfg!(target_os = "macos") || until(5, caff))));
     r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
-    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "rightsInHome", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "watchBase", "startedNoticed", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
+    r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "rightsInHome", "rightsClick", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "watchBase", "startedNoticed", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }

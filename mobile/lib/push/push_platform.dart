@@ -21,14 +21,15 @@ class PushTap {
     if (k == 'start' || k == 'home') return PushTap(computerId: '', ref: '', kind: '$k');
     if (c is! String || r is! String || k is! String) return null;
     if (c.isEmpty || r.isEmpty || c.length > 128 || r.length > 256) return null;
-    if (k != 'waiting' && k != 'closed' && k != 'done') return null;
+    if (k != 'waiting' && k != 'closed' && k != 'done' && k != 'session') return null;
     return PushTap(computerId: c, ref: r, kind: k);
   }
 
   final String computerId;
   final String ref;
 
-  /// `waiting`, `closed` or `done` from a notification; `start` or `home` from a widget or a control.
+  /// `waiting`, `closed` or `done` from a notification; `session` (the ref is a session id), `start` or `home` from a
+  /// widget or a control.
   final String kind;
 
   @override

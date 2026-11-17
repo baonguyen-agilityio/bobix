@@ -12,6 +12,7 @@ import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
 import 'command_flow.dart';
+import '../../widgets/press_feedback.dart';
 
 /// A prompt longer than this (characters or lines) is collapsed; Start stays locked until it is opened.
 const promptCollapseChars = 500, promptCollapseLines = 10;
@@ -302,68 +303,72 @@ class _OptionCard extends StatelessWidget {
             ? Color.alphaBlend(t.accent.withValues(alpha: .09), t.surface)
             : null,
         border: selected ? t.accent.withValues(alpha: .55) : null,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 64),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 22,
-                    height: 22,
-                    margin: const EdgeInsets.only(top: 1),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        width: 2,
-                        color: selected ? t.accentSolid : t.lineStrong,
+        child: PressFeedback(
+          scale: .985,
+          opacity: .75,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 64),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 22,
+                      height: 22,
+                      margin: const EdgeInsets.only(top: 1),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          width: 2,
+                          color: selected ? t.accentSolid : t.lineStrong,
+                        ),
+                      ),
+                      child: selected
+                          ? Container(
+                              width: 9,
+                              height: 9,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: t.accentSolid,
+                              ),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: t.ink,
+                              height: 1.3,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              subtitle,
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.4,
+                                color: t.ink2,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    child: selected
-                        ? Container(
-                            width: 9,
-                            height: 9,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: t.accentSolid,
-                            ),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: t.ink,
-                            height: 1.3,
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            subtitle,
-                            style: TextStyle(
-                              fontSize: 13,
-                              height: 1.4,
-                              color: t.ink2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

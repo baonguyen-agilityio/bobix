@@ -13,14 +13,16 @@ class GlassBackdrop extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-    if (t.isDark) return ColoredBox(color: t.bg, child: child);
-    return CustomPaint(painter: _WashPainter(t.bg), child: child);
+    return CustomPaint(painter: _WashPainter(t.bg, t.wash), child: child);
   }
 }
 
 class _WashPainter extends CustomPainter {
-  const _WashPainter(this.base);
+  const _WashPainter(this.base, this.wash);
   final Color base;
+
+  /// 0 (dark: a flat page) to 1 (light: the three washes); in between while the theme changes.
+  final double wash;
 
   static final _washes = <(double, double, double, double, Color, double)>[
     // (centre x, centre y, radius x, radius y) as fractions of the page, colour, fade-out stop
@@ -32,6 +34,7 @@ class _WashPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = base);
+    if (wash <= 0) return;
     for (final (cx, cy, rx, ry, color, stop) in _washes) {
       final centre = Offset(cx * size.width, cy * size.height);
       final radiusX = rx * size.width, radiusY = ry * size.height;
@@ -39,7 +42,10 @@ class _WashPainter extends CustomPainter {
       canvas.translate(centre.dx, centre.dy);
       canvas.scale(1, radiusY / radiusX);
       final shader = RadialGradient(
-        colors: [color, color.withValues(alpha: 0)],
+        colors: [
+          color.withValues(alpha: color.a * wash),
+          color.withValues(alpha: 0),
+        ],
         stops: [0, stop],
       ).createShader(Rect.fromCircle(center: Offset.zero, radius: radiusX));
       canvas.drawRect(
@@ -55,7 +61,7 @@ class _WashPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_WashPainter old) => old.base != base;
+  bool shouldRepaint(_WashPainter old) => old.base != base || old.wash != wash;
 }
 
 /// A screen route that paints its own backdrop. The backdrop under the navigator is not enough: screens are

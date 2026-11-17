@@ -288,6 +288,15 @@ final linkActionsProvider = Provider<LinkActionsSource>((ref) {
 /// What `main` overrides: the screens read the link.
 final linkActionOverrides = [
   actionsSourceProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
+  grantedRightsProvider.overrideWith((ref) {
+    final computer = ref.watch(pairedComputerProvider);
+    if (computer == null) return null;
+    final rights = computer.rightsListenable;
+    void changed() => ref.invalidateSelf();
+    rights.addListener(changed);
+    ref.onDispose(() => rights.removeListener(changed));
+    return rights.value;
+  }),
   biometricGateProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
 ];
 
