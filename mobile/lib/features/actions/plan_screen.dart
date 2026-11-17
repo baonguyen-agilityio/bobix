@@ -145,8 +145,10 @@ class PlanScreen extends ConsumerWidget {
                     ),
             ),
             lock: !p.cut,
-            note: p.files.isEmpty
+            note: p.files.isEmpty && p.omitted == 0
                 ? null
+                : p.omitted > 0
+                ? s('phone.pf.more.s', {'n': p.omitted})
                 : p.filesPartial
                 ? s('phone.pf.bad.s')
                 : s('phone.pf.ok', {'n': p.files.length}),
@@ -156,12 +158,19 @@ class PlanScreen extends ConsumerWidget {
           ),
           children: [
             const SendOffBanner(),
-            if (p.filesPartial)
+            if (p.files.any((f) => f.partial))
               StatusBanner(
                 kind: BannerKind.err,
                 icon: Icons.error_outline,
                 title: s('phone.pf.bad.h'),
                 body: s('phone.pf.bad.d', {'c': c}),
+              ),
+            if (p.omitted > 0)
+              StatusBanner(
+                kind: BannerKind.err,
+                icon: Icons.error_outline,
+                title: s('phone.pf.more', {'n': p.omitted}),
+                body: s('phone.pf.more.d', {'c': c}),
               ),
             if (p.cut)
               StatusBanner(

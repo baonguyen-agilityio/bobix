@@ -95,8 +95,10 @@ class FixtureActionsSource implements ActionsSource {
           : _planLong,
       shownHash: 'h-plan-$id',
       cut: id == 'plan-cut',
+      // the plan names two more files than these, which are not shown at all
+      omitted: id == 'plan-files-more' ? 2 : 0,
       files: switch (id) {
-        'plan-files' => [..._planFiles],
+        'plan-files' || 'plan-files-more' => [..._planFiles],
         // one file too large to send, one shortened
         'plan-files-big' => [
           _planFiles[0],

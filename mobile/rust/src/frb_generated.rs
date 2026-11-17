@@ -1992,6 +1992,7 @@ fn wire__crate__api__core__shown_hash_impl(
             let api_questions =
                 <Vec<crate::api::core::ShownQuestion>>::sse_decode(&mut deserializer);
             let api_files = <Vec<crate::api::core::ShownFile>>::sse_decode(&mut deserializer);
+            let api_omitted = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
@@ -2000,6 +2001,7 @@ fn wire__crate__api__core__shown_hash_impl(
                         api_cut,
                         api_questions,
                         api_files,
+                        api_omitted,
                     ))?;
                     std::result::Result::Ok(output_ok)
                 })())

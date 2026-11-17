@@ -5,7 +5,7 @@
 
 use bobix_link::command;
 use bobix_link::envelope::{seal_with_tail, Direction, Lane, Stream, VersionRange};
-use bobix_link::messages::{prompt_hash, shown_hash, shown_hash_with_files, Choice, CommandBody, PlanFile, Question, MAX_NOTE};
+use bobix_link::messages::{prompt_hash, shown_hash, shown_hash_with_omitted, Choice, CommandBody, PlanFile, Question, MAX_NOTE};
 use bobix_link::pairing::{normalize_relay_url, hello_body, hello_mac_input, Hello, PairingCode, Rights};
 use bobix_link::messages::PhoneMsg;
 use bobix_link::keys::{soft::SoftSigner, Identity, SignPublic};
@@ -100,10 +100,12 @@ pub fn build() -> Value {
                   "shown": shown_hash("Which database?", false, &[question(&["SQLite", "Postgres"], true)]) },
                 { "what": "plan", "text": "# Plan\nstep \\u{202e}", "cut": false, "questions": [], "shown": shown_hash("# Plan\nstep \\u{202e}", false, &[]),
                   "note": "the text is the displayed form: hidden characters are already visible escapes" },
-                { "what": "plan", "text": "# Plan", "cut": false, "questions": [], "files": plan_files_json(), "shown": shown_hash_with_files("# Plan", false, &[], &plan_files()),
+                { "what": "plan", "text": "# Plan", "cut": false, "questions": [], "files": plan_files_json(), "shown": shown_hash_with_omitted("# Plan", false, &[], &plan_files(), 0),
                   "note": "a plan with files: each file's name, path, bytes, text, cut and sent follow the questions" },
+                { "what": "plan", "text": "# Plan", "cut": false, "questions": [], "files": plan_files_json(), "omitted": 3, "shown": shown_hash_with_omitted("# Plan", false, &[], &plan_files(), 3),
+                  "note": "a plan that names 3 more files than it comes with: \"omitted\" and the count follow the files" },
             ],
-            "shownNote": "shown = hex SHA-256 of Fields(\"bobix-shown-v1\", text, cut as u64, number of questions, then per question: text, multiSelect as u64, number of options, each option; then, only when the plan has files: \"files\", the number of files and per file: name, path, bytes as u64, text, cut as u64, sent as u64); numbers are u64 big endian as 8-byte fields; every field has a u32 big endian length prefix",
+            "shownNote": "shown = hex SHA-256 of Fields(\"bobix-shown-v1\", text, cut as u64, number of questions, then per question: text, multiSelect as u64, number of options, each option; then, only when the plan has files: \"files\", the number of files and per file: name, path, bytes as u64, text, cut as u64, sent as u64; then, only when the plan names files it could not show: \"omitted\" and their number as u64); numbers are u64 big endian as 8-byte fields; every field has a u32 big endian length prefix",
             "limits": { "maxNote": MAX_NOTE, "note": "the longest plan note and the longest answer to a question, in UTF-8 bytes" },
             "promptHash": { "prompt": "Implement ticket 12.", "hash": prompt_hash("Implement ticket 12.") },
             "authBytesRelayUrl": "wss://relay.example", "authChallenge": "challenge-1",
@@ -233,7 +235,8 @@ fn committed_negative_vectors_are_refused_or_accepted_as_stated() {
     for e in p["shown"].as_array().unwrap() {
         let qs: Vec<Question> = serde_json::from_value(e["questions"].clone()).unwrap();
         let files: Vec<PlanFile> = serde_json::from_value(e.get("files").cloned().unwrap_or(json!([]))).unwrap();
-        assert_eq!(shown_hash_with_files(e["text"].as_str().unwrap(), e["cut"].as_bool().unwrap(), &qs, &files), e["shown"].as_str().unwrap());
+        let omitted = e.get("omitted").and_then(|o| o.as_u64()).unwrap_or(0) as u32;
+        assert_eq!(shown_hash_with_omitted(e["text"].as_str().unwrap(), e["cut"].as_bool().unwrap(), &qs, &files, omitted), e["shown"].as_str().unwrap());
     }
     assert_eq!(p["limits"]["maxNote"], MAX_NOTE);
     assert_eq!(prompt_hash(p["promptHash"]["prompt"].as_str().unwrap()), p["promptHash"]["hash"].as_str().unwrap());

@@ -189,7 +189,18 @@ fn a_plan_without_files_hashes_as_before_and_with_files_covers_each_of_them() {
     let a_bc = plain.clone().with_files(vec![plan_file("a.md", "a"), plan_file("b.md", "bc")]);
     assert_ne!(ab.shown, a_bc.shown);
     let back: DesktopMsg = DesktopMsg::from_json(&DesktopMsg::Detail(base.clone()).to_json()).unwrap();
-    assert_eq!(back, DesktopMsg::Detail(base));
+    assert_eq!(back, DesktopMsg::Detail(base.clone()));
+
+    // files the plan names that could not be shown: the count is in the hash and on the wire, and 0 is neither
+    assert_eq!(base.clone().with_omitted(0).shown, base.shown);
+    let more = base.clone().with_omitted(2);
+    assert_ne!(more.shown, base.shown);
+    assert!(!command::shown_matches(&more, &base.shown), "a phone that was shown the files without the count cannot approve");
+    assert_ne!(base.clone().with_omitted(3).shown, more.shown);
+    let v: Value = serde_json::from_slice(&DesktopMsg::Detail(more.clone()).to_json()).unwrap();
+    assert_eq!(v["omitted"], 2);
+    assert!(serde_json::from_slice::<Value>(&DesktopMsg::Detail(base.clone()).to_json()).unwrap().get("omitted").is_none());
+    assert_eq!(DesktopMsg::from_json(&DesktopMsg::Detail(more.clone()).to_json()).unwrap(), DesktopMsg::Detail(more));
 }
 
 #[test]
@@ -262,7 +273,7 @@ fn desktop_messages_round_trip_with_documented_names() {
     assert!(round_trip(&DesktopMsg::Home(h)).get("rights").is_none());
 
     let detail = DesktopMsg::Detail(Detail {
-        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![], times: vec![], files: vec![],
+        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![], times: vec![], files: vec![], omitted: 0,
     });
     assert_eq!(round_trip(&detail)["what"], "toolInput");
     assert!(round_trip(&detail).get("times").is_none(), "no times, nothing on the wire");
@@ -372,7 +383,7 @@ fn phone_messages_round_trip_with_documented_names() {
 
 #[test]
 fn limits_are_measured_in_bytes() {
-    let detail = |what, text: String| DesktopMsg::Detail(Detail { id: "r".into(), what, text, shown: String::new(), odd: false, cut: false, questions: vec![], times: vec![], files: vec![] });
+    let detail = |what, text: String| DesktopMsg::Detail(Detail { id: "r".into(), what, text, shown: String::new(), odd: false, cut: false, questions: vec![], times: vec![], files: vec![], omitted: 0 });
     assert!(detail(DetailKind::ToolInput, "a".repeat(MAX_TOOL_INPUT)).validate().is_ok());
     assert_eq!(detail(DetailKind::ToolInput, "a".repeat(MAX_TOOL_INPUT + 1)).validate(), Err(LimitError::TooLong("detail", MAX_TOOL_INPUT)));
     // 3-byte characters: 6667 of them are 20 001 bytes, though only 6667 characters

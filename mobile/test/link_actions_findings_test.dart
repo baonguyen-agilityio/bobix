@@ -211,6 +211,7 @@ void main() {
         cut: false,
         questions: const [],
         files: both,
+        omitted: 0,
       ),
     );
     expect(
@@ -221,6 +222,7 @@ void main() {
           cut: false,
           questions: const [],
           files: both.take(1).toList(),
+          omitted: 0,
         ),
       ),
       reason: 'every file is in the hash',
@@ -233,9 +235,41 @@ void main() {
           cut: false,
           questions: const [],
           files: const [],
+          omitted: 0,
         ),
       ),
     );
+  });
+
+  test('a plan that names files the computer could not show: the count is read, blocks Approve and is in the hash', () async {
+    home(waiting: [waitingItem('po', 'plan')], sessions: [session()]);
+    Map<String, Object?> detail(int omitted) => {
+      'kind': 'detail',
+      'id': 'po',
+      'what': 'plan',
+      'text': '# Plan',
+      'cut': false,
+      'odd': false,
+      'files': const [],
+      if (omitted > 0) 'omitted': omitted,
+    };
+    link.detailCache['po'] = detail(0);
+    final whole = await source.plan('po');
+    expect((whole.omitted, whole.filesPartial), (0, false));
+    link.detailCache['po'] = detail(3);
+    final more = await source.plan('po');
+    expect((more.omitted, more.filesPartial), (3, true));
+    expect(
+      more.shownHash,
+      await shownHash(
+        text: '# Plan',
+        cut: false,
+        questions: const [],
+        files: const [],
+        omitted: 3,
+      ),
+    );
+    expect(more.shownHash, isNot(whole.shownHash));
   });
 
   test('several questions: every part is shown, the hash covers exactly those, and one answer per part is sent', () async {
@@ -263,6 +297,7 @@ void main() {
         ),
       ],
       files: const [],
+      omitted: 0,
     );
     expect(
       q.shownHash,
@@ -561,12 +596,15 @@ void main() {
     await closedNotice('c3', {'kind': 'phone', 'phone': phone.deviceId});
     await closedNotice('c4', {'kind': 'expired'});
     await closedNotice('c5', null);
+    // the computer names no id to a phone that did not answer: it was a phone, not this one
+    await closedNotice('c6', {'kind': 'phone', 'phone': ''});
     Future<ClosedBy> by(String id) async =>
         (await source.request(id) as RequestClosed).by;
     expect(await by('c1'), ClosedBy.computer);
     expect(await by('c2'), ClosedBy.otherPhone);
     expect(await by('c3'), ClosedBy.thisPhone);
     expect(await by('c4'), ClosedBy.expired);
+    expect(await by('c6'), ClosedBy.otherPhone);
     expect(
       await by('c5'),
       ClosedBy.computer,

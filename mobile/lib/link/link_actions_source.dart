@@ -208,6 +208,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
         ),
     ],
     files: shownFilesOf(planFilesOf(d)),
+    omitted: planFilesOmittedOf(d),
   );
 
   Future<Map<String, dynamic>> _item(String id) async {
@@ -233,6 +234,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       shownHash: await _shown(d),
       cut: d['cut'] == true,
       files: planFilesOf(d),
+      omitted: planFilesOmittedOf(d),
     );
   }
 

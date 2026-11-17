@@ -121,6 +121,12 @@ pub fn shown_hash(text: &str, cut: bool, questions: &[Question]) -> String {
 /// folder, size, text, `cut`, `sent`), are appended after the questions. With no files the bytes are exactly those of
 /// `shown_hash` before files existed, so an older desktop and an older phone still agree.
 pub fn shown_hash_with_files(text: &str, cut: bool, questions: &[Question], files: &[PlanFile]) -> String {
+    shown_hash_with_omitted(text, cut, questions, files, 0)
+}
+
+/// [`shown_hash_with_files`] for a plan that names more files than it comes with: `omitted` of them could not be shown. It is
+/// appended only when it is above 0, so a plan whose files are all shown hashes as before.
+pub fn shown_hash_with_omitted(text: &str, cut: bool, questions: &[Question], files: &[PlanFile], omitted: u32) -> String {
     let mut f = Fields::new("bobix-shown-v1").field(text.as_bytes()).num(cut as u64).num(questions.len() as u64);
     for q in questions {
         f = f.field(q.text.as_bytes()).num(q.multi_select as u64).num(q.options.len() as u64);
@@ -133,6 +139,9 @@ pub fn shown_hash_with_files(text: &str, cut: bool, questions: &[Question], file
         for p in files {
             f = f.field(p.name.as_bytes()).field(p.path.as_bytes()).num(p.bytes).field(p.text.as_bytes()).num(p.cut as u64).num(p.sent as u64);
         }
+    }
+    if omitted > 0 {
+        f = f.field(b"omitted").num(omitted as u64);
     }
     hex(&sha256(&[&f.done()]))
 }
@@ -378,6 +387,14 @@ pub struct Detail {
     /// an older desktop and when the plan names none. In `shown_hash`: approving a plan covers exactly these files as shown.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<PlanFile>,
+    /// For a plan: how many files it names that are in neither `files` nor listed (more than `MAX_PLAN_FILES`, or names the
+    /// computer could not show). Absent from an older desktop and when it is 0. In `shown_hash`; a remote Approve is refused.
+    #[serde(default, skip_serializing_if = "no_files_omitted")]
+    pub omitted: u32,
+}
+
+fn no_files_omitted(n: &u32) -> bool {
+    *n == 0
 }
 
 /// One file of a plan. `text` is what the computer chose to send: redacted, with hidden characters as visible escapes.
@@ -403,7 +420,7 @@ impl Detail {
     /// the text as displayed, `cut` and `questions`.
     pub fn build(id: &str, what: DetailKind, raw_text: &str, cut: bool, questions: Vec<Question>) -> Detail {
         let (text, odd) = visible_escapes(raw_text);
-        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions, times: vec![], files: vec![] }
+        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions, times: vec![], files: vec![], omitted: 0 }
     }
 
     /// The same reply for a plan that comes with `files`: `shown` now covers them.
@@ -413,9 +430,16 @@ impl Detail {
         self
     }
 
+    /// The same reply for a plan that names `omitted` files it could not show: `shown` covers the count.
+    pub fn with_omitted(mut self, omitted: u32) -> Detail {
+        self.omitted = omitted;
+        self.shown = self.shown_now();
+        self
+    }
+
     /// Recomputes `shown` from the content (not from the stored field).
     pub fn shown_now(&self) -> String {
-        shown_hash_with_files(&self.text, self.cut, &self.questions, &self.files)
+        shown_hash_with_omitted(&self.text, self.cut, &self.questions, &self.files, self.omitted)
     }
 }
 
@@ -523,7 +547,8 @@ pub struct Notice {
 pub enum ClosedBy {
     /// Answered at the computer (a page, a pet, or Claude's own prompt).
     Computer,
-    /// Answered from the phone with this id.
+    /// Answered from a phone: `phone` is its id in the notice sent to that phone itself, and empty in the one sent to any other
+    /// phone (which only learns that it was a phone).
     Phone { phone: String },
     /// Nobody answered in time, or Claude moved on.
     Expired,

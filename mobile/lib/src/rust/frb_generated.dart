@@ -325,6 +325,7 @@ abstract class RustLibApi extends BaseApi {
     required bool cut,
     required List<ShownQuestion> questions,
     required List<ShownFile> files,
+    required int omitted,
   });
 
   Future<Uint8List> crateApiCoreSignWithAuth({
@@ -2178,6 +2179,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required bool cut,
     required List<ShownQuestion> questions,
     required List<ShownFile> files,
+    required int omitted,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -2187,6 +2189,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_bool(cut, serializer);
           sse_encode_list_shown_question(questions, serializer);
           sse_encode_list_shown_file(files, serializer);
+          sse_encode_u_32(omitted, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2199,7 +2202,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: null,
         ),
         constMeta: kCrateApiCoreShownHashConstMeta,
-        argValues: [text, cut, questions, files],
+        argValues: [text, cut, questions, files, omitted],
         apiImpl: this,
       ),
     );
@@ -2207,7 +2210,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCoreShownHashConstMeta => const TaskConstMeta(
     debugName: "shown_hash",
-    argNames: ["text", "cut", "questions", "files"],
+    argNames: ["text", "cut", "questions", "files", "omitted"],
   );
 
   @override

@@ -332,6 +332,7 @@ Future<void> checkVectors(Map<String, dynamic> v) async {
         cut: c['cut'],
         questions: questions,
         files: files,
+        omitted: (c['omitted'] ?? 0) as int,
       ),
       c['shown'],
       reason: '${c['what']} ${c['text']}',
@@ -342,6 +343,7 @@ Future<void> checkVectors(Map<String, dynamic> v) async {
         cut: c['cut'],
         questions: questions,
         files: files,
+        omitted: 0,
       ),
       isNot(c['shown']),
     );
@@ -352,6 +354,7 @@ Future<void> checkVectors(Map<String, dynamic> v) async {
           cut: c['cut'],
           questions: questions,
           files: files.reversed.toList(),
+          omitted: 0,
         ),
         isNot(c['shown']),
         reason: 'the order of the files is in the hash',

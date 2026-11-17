@@ -229,6 +229,29 @@ void main() {
     );
 
     testWidgets(
+      'files the plan names that are not shown at all are counted, and block Approve',
+      (tester) async {
+        final src = await pumpScreen(
+          tester,
+          const PlanScreen(id: 'plan-files-more'),
+        );
+        await tall(tester);
+        expect(find.text(tr('en', 'pf.more', {'n': 2})), findsOneWidget);
+        expect(
+          find.text(tr('en', 'pf.more.d', {'c': src.computerName})),
+          findsOneWidget,
+        );
+        expect(find.text(tr('en', 'pf.more.s', {'n': 2})), findsOneWidget);
+        expect(find.text(tr('en', 'pf.ok', {'n': 3})), findsNothing);
+        expect(off(tester, tr('en', 'pl.approve')), isTrue);
+        expect(off(tester, tr('en', 'pl.back')), isFalse);
+        await tester.tap(button(tr('en', 'pl.approve')), warnIfMissed: false);
+        await settle(tester);
+        expect(src.sent, isEmpty);
+      },
+    );
+
+    testWidgets(
       'a shortened file says so in the list and on its own screen, and blocks Approve',
       (tester) async {
         await pumpScreen(tester, const PlanScreen(id: 'plan-files-cut'));

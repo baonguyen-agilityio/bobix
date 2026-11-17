@@ -15,6 +15,10 @@ List<PlanFileDoc> planFilesOf(Map<String, dynamic> detail) => [
     ),
 ];
 
+/// How many files the plan names that the computer could not show at all; 0 from an older computer.
+int planFilesOmittedOf(Map<String, dynamic> detail) =>
+    (detail['omitted'] as num?)?.toInt() ?? 0;
+
 /// The same files for the crate's `shown` hash: everything the phone shows of each.
 List<core.ShownFile> shownFilesOf(List<PlanFileDoc> files) => [
   for (final f in files)

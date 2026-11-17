@@ -106,14 +106,19 @@ class PlanDoc {
     required this.shownHash,
     this.cut = false,
     this.files = const [],
+    this.omitted = 0,
   });
   final String id, sessionName, markdown, shownHash;
 
   /// The files the plan comes with; the hash covers them, so an approval covers exactly these as shown.
   final List<PlanFileDoc> files;
 
-  /// A file is shortened or not sent: the plan cannot be approved from the phone (sending it back still works).
-  bool get filesPartial => files.any((f) => f.partial);
+  /// How many more files the plan names that are not shown at all (the hash covers the count).
+  final int omitted;
+
+  /// A file is shortened or not sent, or the plan names files that are not shown: the plan cannot be approved from the
+  /// phone (sending it back still works).
+  bool get filesPartial => omitted > 0 || files.any((f) => f.partial);
 
   /// The computer cut the plan (too long, or longer than the cap once hidden characters were escaped): what is shown is
   /// not all of it, so it cannot be approved from the phone. Sending it back stays possible.

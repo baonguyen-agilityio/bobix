@@ -370,8 +370,8 @@ pub struct ShownFile {
 
 /// The hash an `answer` carries as `shown`: of exactly what this phone displayed (the text, whether it was cut, the
 /// questions with their options, and for a plan its files). The computer compares it with what it holds now, and refuses
-/// a stale answer.
-pub fn shown_hash(text: String, cut: bool, questions: Vec<ShownQuestion>, files: Vec<ShownFile>) -> String {
+/// a stale answer. `omitted` is how many files the plan names that the computer could not show.
+pub fn shown_hash(text: String, cut: bool, questions: Vec<ShownQuestion>, files: Vec<ShownFile>, omitted: u32) -> String {
     let qs: Vec<bobix_link::messages::Question> = questions
         .into_iter()
         .map(|q| bobix_link::messages::Question { text: q.text, options: q.options, multi_select: q.multi_select })
@@ -380,5 +380,5 @@ pub fn shown_hash(text: String, cut: bool, questions: Vec<ShownQuestion>, files:
         .into_iter()
         .map(|f| bobix_link::messages::PlanFile { name: f.name, path: f.path, bytes: f.bytes, text: f.text, cut: f.cut, sent: f.sent })
         .collect();
-    bobix_link::messages::shown_hash_with_files(&text, cut, &qs, &files)
+    bobix_link::messages::shown_hash_with_omitted(&text, cut, &qs, &files, omitted)
 }

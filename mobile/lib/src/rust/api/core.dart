@@ -202,17 +202,19 @@ String newCommandId() => RustLib.instance.api.crateApiCoreNewCommandId();
 
 /// The hash an `answer` carries as `shown`: of exactly what this phone displayed (the text, whether it was cut, the
 /// questions with their options, and for a plan its files). The computer compares it with what it holds now, and refuses
-/// a stale answer.
+/// a stale answer. `omitted` is how many files the plan names that the computer could not show.
 Future<String> shownHash({
   required String text,
   required bool cut,
   required List<ShownQuestion> questions,
   required List<ShownFile> files,
+  required int omitted,
 }) => RustLib.instance.api.crateApiCoreShownHash(
   text: text,
   cut: cut,
   questions: questions,
   files: files,
+  omitted: omitted,
 );
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<SendCounter>>
