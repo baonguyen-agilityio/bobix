@@ -68,6 +68,16 @@ With every tracker off, the model has no projects, issues or reviews; sessions s
 
 The tests in `src-tauri/src/main.rs` (`snapshot_tests`) build one fixture with every rule above and check both the links with their reasons and that the pages get the same JSON as before the model (`test/fixtures/work-snapshot.json`).
 
+## The work log
+
+A ticket flow (Work → Start, Full) has one work log: a Markdown file the Claude session fills in and Bobix reads for the plan, assumptions, steps and checks. It is **not** in the repository or a worktree. Bobix keeps it in its own data folder, `worklogs/<repository>_<issue number>-<short id>.md`:
+
+- **One file per ticket.** Start makes it from the template, with the full path in the session's instructions (and in the review prompt). Two tickets of one repository, or the same issue number in two repositories, get two files; the short id comes from the whole flow key, so names that differ only in characters a file name cannot hold never meet.
+- **Outside every repository.** No `.bobix-log` folder is made in the repository or the worktree, and removing the worktree, or the whole repository folder, leaves the log where it is. Starting the same ticket again with no worktree kept begins a new log and moves the earlier one aside (`<name>.<seconds>.md`) instead of overwriting it.
+- **Permission prompts.** Claude asks before it reads or writes a file outside the folder it works in, unless that folder is one of its working folders. A terminal start (Copy terminal command, Copy review command) adds the `worklogs` folder with `--add-dir`, which makes it one: accept-edits mode then writes the log without asking (Claude's default ask mode still asks at every write). Claude desktop's start link takes only a folder and a prompt, so it cannot add one. After you approve a plan from Bobix the session is in Claude's auto mode, where Claude's classifier decides about a file outside the working folder; in the runs checked (the desktop app and the terminal, Haiku, a data folder with a space in its name) it read and wrote the log without asking, but Claude's own documentation does not promise that, so it may ask now and then. Bobix changes none of Claude's settings for this.
+- **Flows from before.** A flow without a log path of its own (started before the log moved) is read from `.bobix-log/work-log.md` in its worktree as it always was; it is never moved or deleted. Clean up and Remove still copy such a log into `worklogs/`.
+- **Deleted by hand.** The flow keeps the text it last read, Work says the log file is gone (with its path), and reads it again when the file is back.
+
 ## Stuck work
 
 The board's "Stuck work" (`stuck` in `src/ui/board.js`) reads the model and the sessions, with the limits in Settings → Stuck work (hours):

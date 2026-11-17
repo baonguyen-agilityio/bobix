@@ -806,12 +806,15 @@ function ciRed(cfg, now = Date.now()) {
     .map(f => ({ id: 'cired:' + f.key, kind: 'cired', project: f.path, iid: f.iid, title: f.title, ms: now - f.ci.since, limit: 0, at: f.ci.since, url: f.mr, review: f.forge === 'github' ? 'pr' : 'mr', key: f.key, old: false }))
     .filter(x => !(skipped[x.id] >= x.at));
 }
+// Where the flow's work log is, in what is pasted to its session: the file in Bobix's folder, or for a flow from before
+// the log moved out of the worktree, the folder's own `.bobix-log/work-log.md`.
+const logOf = f => f?.logFile || '.bobix-log/work-log.md';
 // What to paste to the ticket's session when its MR's pipeline is red.
 // A flow's words for its forge: GitLab merge request (glab) or GitHub pull request (gh).
 const fw = f => (f?.forge === 'github' ? { mr: 'PR', mrl: T('tk.fw.pr'), mrh: T('tk.fw.prH'), site: 'GitHub', tool: 'gh pr create' } : { mr: 'MR', mrl: T('tk.fw.mr'), mrh: T('tk.fw.mrH'), site: 'GitLab', tool: 'glab mr create' });
 const fixCiPrompt = f => f?.forge === 'github'
-  ? `CI failed on pull request ${mrRef(f.mr)} (${f.ci?.url || f.mr}). Read the failing check's log (gh pr checks ${mrRef(f.mr).slice(1)}, then gh run view <run> --log-failed), fix the cause on ${f.branch}, run the checks again and paste them under ## Checks in .bobix-log/work-log.md, then commit and push ${f.branch}.`
-  : `CI failed on merge request ${mrRef(f.mr)} (${f.ci?.url || f.mr}). Read the failing job's log (glab ci view, or glab ci trace <job>), fix the cause on ${f.branch}, run the checks again and paste them under ## Checks in .bobix-log/work-log.md, then commit and push ${f.branch}.`;
+  ? `CI failed on pull request ${mrRef(f.mr)} (${f.ci?.url || f.mr}). Read the failing check's log (gh pr checks ${mrRef(f.mr).slice(1)}, then gh run view <run> --log-failed), fix the cause on ${f.branch}, run the checks again and paste them under ## Checks in ${logOf(f)}, then commit and push ${f.branch}.`
+  : `CI failed on merge request ${mrRef(f.mr)} (${f.ci?.url || f.mr}). Read the failing job's log (glab ci view, or glab ci trace <job>), fix the cause on ${f.branch}, run the checks again and paste them under ## Checks in ${logOf(f)}, then commit and push ${f.branch}.`;
 const forgeOf = p => (model?.repos || []).find(r => r.path === p)?.forge;
 const prOf = x => ((x.review || (forgeOf(x.project) === 'gitlab' ? 'mr' : 'pr')) === 'mr' ? 'MR' : 'PR'); // GitLab says merge request
 const refOf = x => { const n = (String(x.url || '').match(/(\d+)\/?$/) || [])[1]; return n ? (x.review === 'mr' ? '!' : '#') + n : ''; };
@@ -1739,7 +1742,7 @@ function nocheckItem(f) {
   const go = `data-tab-go="work" data-set="f:${esc(f.key)}"`;
   return { id: 'nock:' + f.key, grp: 'warn', kind: 'board', lead: ico('alert', 'warn'), label: T('tk.nochecks.item', { n: f.iid }), sub: `${BOARD.short(f.path)} · ${f.title}`,
     detail: () => `${head(ico('alert', 'warn lg'), T('tk.nochecks.item', { n: f.iid }), `${BOARD.short(f.path)} · ${f.title}`)}<p>${esc(T('tk.nochecks.why'))}</p>
-      <div class="acts" style="margin:0"><button class="btn pri" type="button" ${go}>${esc(T('tk.openWork'))}</button>${bridge ? `<button class="btn" type="button" data-copy="${esc(CHECKS_ASK)}">${esc(T('tk.nochecks.copy'))}</button>` : ''}</div>`,
+      <div class="acts" style="margin:0"><button class="btn pri" type="button" ${go}>${esc(T('tk.openWork'))}</button>${bridge ? `<button class="btn" type="button" data-copy="${esc(checksAsk(f))}">${esc(T('tk.nochecks.copy'))}</button>` : ''}</div>`,
     acts: [[T('tk.openWork'), ['↵'], go]] };
 }
 function warnItem(s) {
@@ -2037,8 +2040,8 @@ function workItems() {
 // Done is the session's word; Checks are its evidence (commands with their output) and the review. Done without
 // checks warns (it is not blocked): the ask below is what you paste to the session.
 // A work log in another language than English: the merge request's text is the session's own English section (#185).
-const MR_ASK = 'Fill the "## MR (English)" section of .bobix-log/work-log.md: the merge request description for the team, in English (what changed and why, the assumptions, the checks you ran). Write it for that reader; do not translate the log line by line.';
-const CHECKS_ASK = 'Run the project\'s tests, build and lint (from CLAUDE.md). Under ## Checks in .bobix-log/work-log.md, add one line per command with its last lines of output, then review the change against the plan with /code-review and add a "- Review: " line. Then set the status again.';
+const mrAsk = f => `Fill the "## MR (English)" section of ${logOf(f)}: the merge request description for the team, in English (what changed and why, the assumptions, the checks you ran). Write it for that reader; do not translate the log line by line.`;
+const checksAsk = f => `Run the project's tests, build and lint (from CLAUDE.md). Under ## Checks in ${logOf(f)}, add one line per command with its last lines of output, then review the change against the plan with /code-review and add a "- Review: " line. Then set the status again.`;
 const unchecked = f => f.status === 'done' && !f.cleaned && !(f.parsed?.ran > 0);
 function checkBadges(f) {
   const p = f.parsed || {};
@@ -2076,7 +2079,7 @@ function mrHTML(f) {
   return `<section class="b-sec tk-mr"><h3>${esc(T('tk.mr.h', fw(f)))}${helpBtn('sec', 'mr', T('tk.mr.h', fw(f)))}</h3>
     ${unchecked(f) ? `<p class="risk">⚠ ${esc(T('tk.mr.nochecks', fw(f)))}</p>` : ''}
     ${f.carried ? `<p class="risk">⚠ ${esc(T(f.carried === 1 ? 'tk.place.carried.1' : 'tk.place.carried', { ...fw(f), n: f.carried, b: f.branch }))}</p>` : ''}
-    ${tkDet[f.key]?.mrReady === false ? `<div class="tk-warn tk-mr-en"><p><strong>${esc(T('tk.mr.noen.t', fw(f)))}</strong> ${esc(T('tk.mr.noen', fw(f)))}</p><div class="cmd"><code>${esc(MR_ASK)}</code><button class="btn sm" type="button" data-copy="${esc(MR_ASK)}">${esc(T('work.copy'))}</button></div></div>`
+    ${tkDet[f.key]?.mrReady === false ? `<div class="tk-warn tk-mr-en"><p><strong>${esc(T('tk.mr.noen.t', fw(f)))}</strong> ${esc(T('tk.mr.noen', fw(f)))}</p><div class="cmd"><code>${esc(mrAsk(f))}</code><button class="btn sm" type="button" data-copy="${esc(mrAsk(f))}">${esc(T('work.copy'))}</button></div></div>`
       : f.lang && f.lang !== 'en' ? `<p class="note">${esc(T('tk.mr.en', fw(f)))}</p>` : ''}
     <label class="tk-ch"><span>${esc(T('tk.mr.title'))}</span><input type="text" data-tk-mr-title="${k}" data-f="tkmt:${k}" value="${esc(m.title)}"></label>
     <label class="tk-ch"><span>${esc(T('tk.mr.body', fw(f)))}</span><textarea class="tk-prompt" rows="10" spellcheck="false" data-tk-mr-body="${k}" data-f="tkmb:${k}">${esc(m.body)}</textarea></label>
@@ -2090,6 +2093,8 @@ function placeHTML(f) {
   if (f.place === 'claude') return `<div class="tk-warn tk-place"><p><strong>${esc(T('tk.place.claude.t'))}</strong> ${esc(T('tk.place.claude', { ...fw(f), dir: home(f.dir), b: f.branch }))}${f.carried ? ' ' + esc(T(f.carried === 1 ? 'tk.place.carried.1' : 'tk.place.carried', { ...fw(f), n: f.carried, b: f.branch })) : ''}</p></div>`;
   return `<div class="tk-warn tk-place"><p><strong>${esc(T('tk.place.main.t'))}</strong> ${esc(T('tk.place.main', { dir: home(f.dir) }))}${f.mixed ? ' ' + esc(T(f.mixed === 1 ? 'tk.place.mixed.1' : 'tk.place.mixed', { n: f.mixed })) : ''}</p></div>`;
 }
+// The log file is gone (deleted by hand, or its worktree for a flow from before): said, with what the page still shows.
+const logGoneHTML = f => f.logMissing && !f.cleaned ? `<p class="risk" role="status">⚠ ${esc(T('tk.log.gone', { p: f.logFile ? home(f.logFile) : '.bobix-log/work-log.md' }))}</p>` : '';
 function flowHTML(f, s) {
   const det = tkDetail(f), p = det?.parsed || f.parsed || {}, at = BOARD.FLOW.indexOf(BOARD.flowStep(f.status)), k = esc(f.key), asks = f.status === 'approve', held = asks && !!s?.answer && bridge;
   const loading = !det && bridge ? `<p class="note" aria-busy="true">${esc(T('tk.det.loading'))}</p>` : tkReading(f) ? `<p class="note" aria-busy="true">${esc(T('tk.det.again'))}</p>` : '';
@@ -2099,7 +2104,7 @@ function flowHTML(f, s) {
   return `${head(s ? pet(s, 'lg') : projectPet(f.path, 'lg'), `#${f.iid} ${f.title}`, `${f.path}${f.code ? ' → ' + f.code : ''} · ${T('tk.st.' + f.status)}`)}
     <div class="stg">${steps}<p class="why">${esc(T('tk.why.' + f.status))}</p></div>
     ${flowsHTML(f.path, f.iid, f.key)}
-    ${rmHTML(f)}${placeHTML(f)}${loading}
+    ${rmHTML(f)}${placeHTML(f)}${loading}${logGoneHTML(f)}
     ${asks ? `<div class="ask"><strong>${esc(T('tk.gate'))}</strong> ${esc(T('tk.gate.note'))}</div>` : ''}
     ${plan ? `<section class="b-sec"><h3>${esc(T('tk.plan'))}</h3>${asks ? `<div class="report md">${markdown(plan)}</div>` : moreHTML('tkp:' + f.key, markdown(plan), 'report md')}</section>` : ''}
     ${asks ? (held ? `<label class="tk-ch"><span>${esc(T('tk.change.l'))}</span><textarea rows="2" data-tk-text="${k}" data-f="tkch:${k}" placeholder="${esc(T('tk.change.ph'))}">${esc(tkChange[f.key] || '')}</textarea></label>
@@ -2113,7 +2118,7 @@ function flowHTML(f, s) {
       ${as.length ? `<ul class="tk-as">${as.map((a, n) => `<li${n >= f.seen ? ' class="new"' : ''}>${esc(a)}</li>`).join('')}</ul>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}</section>
     <section class="b-sec"><h3>${esc(T('tk.steps'))}</h3>${p.steps?.length ? `<ol class="tk-steps">${p.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}</section>
     <section class="b-sec"><h3>${esc(T('tk.checks'))} ${checkBadges(f)}</h3>${p.checksText ? `<div class="report md tk-checks">${markdown(p.checksText)}</div>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}
-      ${unchecked(f) ? `<div class="tk-warn"><p><strong>${esc(T('tk.nochecks.t'))}</strong> ${esc(T('tk.nochecks.why'))}</p><div class="cmd"><code>${esc(CHECKS_ASK)}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(CHECKS_ASK)}">${esc(T('work.copy'))}</button>` : ''}</div></div>` : ''}</section>
+      ${unchecked(f) ? `<div class="tk-warn"><p><strong>${esc(T('tk.nochecks.t'))}</strong> ${esc(T('tk.nochecks.why'))}</p><div class="cmd"><code>${esc(checksAsk(f))}</code>${bridge ? `<button class="btn sm" type="button" data-copy="${esc(checksAsk(f))}">${esc(T('work.copy'))}</button>` : ''}</div></div>` : ''}</section>
     ${p.result ? `<section class="b-sec"><h3>${esc(T(f.status === 'blocked' ? 'tk.blocked' : 'tk.result'))}</h3><div class="report md${f.status === 'blocked' ? ' stop' : ''}">${markdown(p.result)}</div></section>` : ''}
     ${mrHTML(f)}
     ${tkUnpushed[f.key] ? `<div class="tk-warn tk-unpushed"><p><strong>${esc(T('tk.unpushed.t', { n: tkUnpushed[f.key], b: f.branch }))}</strong> ${esc(T('tk.unpushed.why'))}</p>
@@ -2365,7 +2370,7 @@ function flowPaneHTML(s) {
   const f = tickets.list.find(x => x.key === s.flow);
   if (!f) return '';
   const det = tkDetail(f), p = det?.parsed || f.parsed || {};
-  return `<section class="b-sec"><h3>${esc(T('tk.log'))} · ${esc(T('tk.st.' + f.status))} ${checkBadges(f)}</h3>${!det && bridge ? `<p class="note" aria-busy="true">${esc(T('tk.det.loading'))}</p>` : ''}
+  return `<section class="b-sec"><h3>${esc(T('tk.log'))} · ${esc(T('tk.st.' + f.status))} ${checkBadges(f)}</h3>${!det && bridge ? `<p class="note" aria-busy="true">${esc(T('tk.det.loading'))}</p>` : ''}${logGoneHTML(f)}
     ${p.assumptions?.length ? `<ul class="tk-as">${p.assumptions.map((a, n) => `<li${n >= f.seen ? ' class="new"' : ''}>${esc(a)}</li>`).join('')}</ul>` : ''}
     ${p.steps?.length ? `<ol class="tk-steps">${p.steps.slice(-5).map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : `<p class="note">${esc(T('tk.none.yet'))}</p>`}
     <button class="lnk" type="button" data-tab-go="work" data-set="f:${esc(f.key)}">${esc(T('tk.openWork'))}</button></section>`;

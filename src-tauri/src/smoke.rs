@@ -562,8 +562,8 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
         const fl = k => tickets.list.find(f => f.key === k); \
         const show = async k => {{ showTab('work'); bsel.work = 'f:' + k; render(); await w(400); }}; \
         const note = () => document.querySelector('#b-dyn .tk-place')?.textContent.trim() || ''; \
-        const full = async (n, code, how) => {{ const p = await bridge.ticketPrep(A, n, code); const pr = BOARD.flowPrompt(issue(n), 'Made-up description.', p.models, p.rules); \
-          const x = await bridge.ticketStart(A, n, pr, {{ size: 'small' }}, how, code, true, p.from?.branches?.[0]); return {{ ok: x?.ok === true, key: x?.key, dir: x?.dir, prompt: pr }}; }};",
+        const full = async (n, code, how, keep) => {{ const p = await bridge.ticketPrep(A, n, code); const pr = BOARD.flowPrompt(issue(n), 'Made-up description.', p.models, p.rules); \
+          const x = await bridge.ticketStart(A, n, pr, {{ size: 'small' }}, how, code, true, p.from?.branches?.[0], keep === true); return {{ ok: x?.ok === true, key: x?.key, dir: x?.dir, prompt: pr }}; }};",
         json!(a), json!(adir), json!(bp), json!(bdir));
     let js = |body: &str| format!("(async () => {{ {pre} {body} return r; }})()");
     let hook = hooks::hook_target(&paths::home());
@@ -583,11 +583,13 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
         Some(c)
     };
     // what the session does in the folder it works in: a commit on that folder's branch, and the work log says done
-    let work_done = |d: &str, file: &str| {
+    let work_done = |d: &str, file: &str, key: &str| {
         let _ = fs::write(std::path::Path::new(d).join(file), "export const subtract = (a, b) => a - b;\n");
         git(d, &["add", file]);
         git(d, &["commit", "-q", "-m", "Add the fix"]);
-        let log = std::path::Path::new(d).join(".bobix-log/work-log.md");
+        // a flow from before the log moved has none of its own: its log is in its folder
+        let lf = flow(key)["logFile"].as_str().unwrap_or("").to_string();
+        let log = if lf.is_empty() { std::path::Path::new(d).join(".bobix-log/work-log.md") } else { std::path::PathBuf::from(lf) };
         let t = fs::read_to_string(&log).unwrap_or_default().replace("Status: planning", "Status: done").replace("## Steps\n", "## Steps\n- Read the code\n- Added the fix\n")
             .replace("## Assumptions\n", "## Assumptions\n- Whole numbers only\n").replace("## Checks\n", "## Checks\n- `npm test`\n```\nok 3 tests passed\n```\n- Review: /code-review, no issues\n").replace("## Result\n", "## Result\nDone: the fix is in.\n");
         let _ = fs::write(&log, t);
@@ -616,10 +618,14 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
         let d501 = s(&p1["dirs"], "501");
         run_hook(&hook, port, &ev(501, &d501, json!({ "hook_event_name": "PostToolUse", "tool_name": "ExitPlanMode" })));
         check("restart: the flow is followed again and runs", wait(&k501, &|f| f["status"] == "running")["status"] == "running");
-        let head = work_done(&d501, "subtract.js");
+        let head = work_done(&d501, "subtract.js", &k501);
         run_hook(&hook, port, &ev(501, &d501, json!({ "hook_event_name": "Stop" })));
         let done = wait(&k501, &|f| f["status"] == "done");
         let x = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await show(k); const m = await bridge.ticketMr(k, '', 'Closes #501'); r.mr = m; r.branch = fl(k)?.branch;", json!(k501))), 60);
+        let old_log = std::path::Path::new(&d501).join(".bobix-log/work-log.md");
+        check("a flow from before: its log in the worktree is read and shown, not moved or deleted, and no file is made in Bobix's folder",
+            done["logFile"] == "" && done["logMissing"] == false && done["parsed"]["status"] == "done" && fs::read_to_string(&old_log).is_ok_and(|t| t.contains("Status: done"))
+            && !paths::data_dir().join("worklogs").join(crate::tickets::log_name(&k501)).exists());
         check("named folder: done, and Open MR pushes the ticket's branch", done["status"] == "done" && x["mr"]["ok"] == true && !head.is_empty() && remote(adir, x["branch"].as_str().unwrap_or("-")) == head);
         // the notes in Vietnamese, then English again (held for screenshots of the real window)
         let x = ask_for(app, panel::LABEL, &js(&format!("await save({{ language: 'vi' }}); await w(600); await show({}); r.viClaude = note(); r.viClaudeOk = note().startsWith(I18N.t('vi', 'tk.place.claude.t')); await w(hold); \
@@ -641,7 +647,7 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
     let _ = fs::write(std::path::Path::new(&old506).join("half-done.txt"), "not committed\n");
     let x = ask_for(app, panel::LABEL, &js("await bridge.refreshWork(); r.listed = await until(() => [501, 502, 503, 504, 505, 506, 507, 508, 509, 510].every(n => issue(n)) && !reading(), 40000); \
         r.linked = !!(await bridge.linkFolder(A, AD)).ok && !!(await bridge.linkFolder(B, BD, A)).ok; r.flows = {}; \
-        for (const n of [501, 502, 503, 504, 505, 506, 508, 510]) r.flows[n] = await full(n, A, 'desktop'); \
+        for (const n of [501, 502, 503, 504, 505, 506, 508, 510]) r.flows[n] = await full(n, A, 'desktop', n === 506); \
         r.flows['507'] = await full(507, A, 'desktop'); r.flows['507b'] = await full(507, B, 'desktop'); r.flows['509'] = await full(509, A, 'cli'); \
         r.waiting = await until(() => [501, 502, 503, 504, 505, 506, 507, 508, 510].every(n => waiting.some(x => x.iid === n)), 10000); showTab('work'); await w(hold);"), 180 + hold / 1000);
     let fx = |n: &str, k: &str| x["flows"][n][k].as_str().unwrap_or("").to_string();
@@ -676,7 +682,8 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
     let k502 = fx("502", "key");
     let f = wait(&k502, &|f| f["place"] == "claude");
     check("Claude's worktree: the flow works there", t.contains("-502]") && f["status"] == "planning" && f["session"] == sid(502).as_str() && f["dir"] == theirs.as_str() && f["branch"] == "claude/brave-otter" && f["own"] == fx("502", "dir").as_str());
-    check("Claude's worktree: the work log is there, and git ignores it", std::path::Path::new(&theirs).join(".bobix-log/work-log.md").is_file() && git(&theirs, &["status", "--porcelain"]).is_empty());
+    let log502 = std::path::PathBuf::from(f["logFile"].as_str().unwrap_or(""));
+    check("Claude's worktree: the work log stays in Bobix's folder, and nothing is added to that worktree", log502.is_file() && log502.starts_with(paths::data_dir().join("worklogs")) && !std::path::Path::new(&theirs).join(".bobix-log").exists() && git(&theirs, &["status", "--porcelain"]).is_empty());
     // its plan is approved from Bobix
     let held = ask_plan(502, &theirs, "1. Add subtract next to add\n\n## Assumptions\n- Whole numbers only");
     let asked = wait(&k502, &|f| f["status"] == "approve")["status"] == "approve";
@@ -686,7 +693,7 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
     check("Claude's worktree: Work says where it runs", x2["noteOk"] == true);
     check("Claude's worktree: the plan is approved from Bobix", asked && x2["button"] == true && x2["plan"] == true && answer.contains("\"behavior\":\"allow\"") && wait(&k502, &|f| f["status"] == "running")["status"] == "running");
     // it works to the end there: the log is read, Open MR pushes that folder's branch, Clean up leaves that folder
-    let head = work_done(&theirs, "subtract.js");
+    let head = work_done(&theirs, "subtract.js", &k502);
     run_hook(&hook, port, &ev(502, &theirs, json!({ "hook_event_name": "Stop" })));
     let done = wait(&k502, &|f| f["status"] == "done");
     let x3 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await show(k); const d = await bridge.ticketDetail(k); r.steps = d?.parsed?.steps; r.ran = d?.parsed?.ran; await w(hold); \
@@ -704,14 +711,14 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
     let f = wait(&k503, &|f| f["place"] == "main");
     check("main folder: the flow takes the session and keeps its worktree", t.contains("-503]") && f["status"] == "planning" && f["session"] == sid(503).as_str() && f["dir"] == fx("503", "dir").as_str() && f["own"] == "" && f["mixed"] == 2);
     // the session does what the prompt says: it works in the flow's worktree. Its events still come from the main folder
-    let log503 = std::path::Path::new(&fx("503", "dir")).join(".bobix-log/work-log.md");
+    let log503 = std::path::PathBuf::from(flow(&k503)["logFile"].as_str().unwrap_or(""));
     let _ = fs::write(&log503, fs::read_to_string(&log503).unwrap_or_default().replace("Status: planning", "Status: done"));
     run_hook(&hook, port, &ev(503, adir, json!({ "hook_event_name": "Stop" })));
     let none = wait(&k503, &|f| f["status"] == "done")["status"] == "done";
     let x4 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await show(k); r.note = note(); r.noteOk = note().startsWith(I18N.t('en', 'tk.place.main.t')) && note().includes('2 changed files'); await w(hold); r.empty = await bridge.ticketMr(k, '', 'Closes #503');", json!(k503))), 40 + hold / 1000);
     check("main folder: Work says so, and how many files of yours were not committed", x4["noteOk"] == true);
     check("main folder: a branch with nothing committed is not pushed", none && x4["empty"]["error"] == "nocommits" && remote(adir, &s(&f, "branch")).is_empty());
-    let head = work_done(&fx("503", "dir"), "subtract.js");
+    let head = work_done(&fx("503", "dir"), "subtract.js", &k503);
     run_hook(&hook, port, &ev(503, adir, json!({ "hook_event_name": "Stop" })));
     let x5 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; r.mr = await bridge.ticketMr(k, '', 'Closes #503');", json!(k503))), 40);
     let pushed = git(adir, &["ls-tree", "-r", "--name-only", &head]);
@@ -760,19 +767,27 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
     let k509 = fx("509", "key");
     let t9 = session(509, &fx("509", "dir"), &fx("509", "prompt"));
     let f9 = wait(&k509, &|f| f["status"] == "planning");
-    let head = work_done(&fx("509", "dir"), "subtract.js");
+    let head = work_done(&fx("509", "dir"), "subtract.js", &k509);
     run_hook(&hook, port, &ev(509, &fx("509", "dir"), json!({ "hook_event_name": "Stop" })));
     check("terminal command: the flow takes its session and reads its log", t9.contains("-509]") && f9["session"] == sid(509).as_str() && f9["place"] == "" && wait(&k509, &|f| f["status"] == "done")["status"] == "done");
     let _ = fs::remove_dir_all(fx("509", "dir"));
     let x9 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; r.first = await bridge.ticketClean(k); r.mr = await bridge.ticketMr(k, '', 'Closes #509'); r.second = await bridge.ticketClean(k); await w(500); r.cleaned = fl(k)?.cleaned;", json!(k509))), 60);
     check("worktree deleted by hand: Clean up still says what is not pushed", x9["first"]["error"] == "unpushed" && x9["first"]["n"] == 1);
     check("worktree deleted by hand: Open MR still pushes the branch, then Clean up", x9["mr"]["ok"] == true && remote(adir, &s(&f9, "branch")) == head && x9["second"]["ok"] == true && x9["cleaned"] == true);
+    // the worktree is gone and the flow cleaned up: the log is still where it was, with what the session wrote
+    check("worktree deleted by hand: the work log stays in Bobix's folder", fs::read_to_string(f9["logFile"].as_str().unwrap_or("")).is_ok_and(|t| t.contains("Status: done") && t.contains("Added the fix")));
 
     // 510: its worktree is deleted by hand while the start waits; Remove says so, and the issue starts again
     let k510 = fx("510", "key");
+    let lf10 = s(&flow(&k510), "logFile");
+    let _ = fs::write(&lf10, format!("{}\n- the first run\n", fs::read_to_string(&lf10).unwrap_or_default())); // what the session wrote before its worktree went
     let _ = fs::remove_dir_all(fx("510", "dir"));
-    let x10 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; r.check = await bridge.ticketRemove(k, 'check'); r.rm = await bridge.ticketRemove(k, 'keep'); await w(500); r.again = await full(510, A, 'cli'); await w(500); r.st = fl(k)?.status;", json!(k510))), 60);
-    check("worktree deleted by hand while waiting: said, removed, and started again", x10["check"]["exists"] == false && x10["rm"]["ok"] == true && x10["again"]["ok"] == true && x10["st"] == "starting" && std::path::Path::new(&fx("510", "dir")).join(".bobix-log/work-log.md").is_file());
+    let x10 = ask_for(app, panel::LABEL, &js(&format!("const k = {}; r.check = await bridge.ticketRemove(k, 'check'); r.rm = await bridge.ticketRemove(k, 'keep'); await w(500); r.again = await full(510, A, 'cli', true); await w(500); r.st = fl(k)?.status;", json!(k510))), 60);
+    check("worktree deleted by hand while waiting: said, removed, and started again", x10["check"]["exists"] == false && x10["rm"]["ok"] == true && x10["again"]["ok"] == true && x10["st"] == "starting" && fs::read_to_string(flow(&k510)["logFile"].as_str().unwrap_or("")).is_ok_and(|t| t.starts_with("# Work log: #510")) && !std::path::Path::new(&fx("510", "dir")).join(".bobix-log").exists());
+    // its branch is still there and its worktree is not: the new start begins a new log; what the first one wrote is moved aside, not lost
+    let aside10 = fs::read_dir(std::path::Path::new(&lf10).parent().unwrap_or(std::path::Path::new("."))).map(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.to_string_lossy() != lf10 && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("acme_web_510-"))).collect::<Vec<_>>()).unwrap_or_default();
+    check("started again with no worktree kept: a new log from the template, the earlier one moved aside",
+        fs::read_to_string(&lf10).is_ok_and(|t| t.starts_with("# Work log: #510") && !t.contains("the first run")) && aside10.len() == 1 && fs::read_to_string(&aside10[0]).is_ok_and(|t| t.contains("the first run")));
 
     // 510 again: its session starts in the flow's worktree and takes it there (named by the worktree's branch), with a
     // prompt you edited (it no longer names the issue). A later session elsewhere whose prompt names it takes nothing:
@@ -791,9 +806,40 @@ fn follow_step(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, spec: &st
     let t3 = session(5041, &named, "Look at the stock badge");
     check("while a start waits, a session on an issue's branch is still named", t3.contains("-504] "));
 
+    // The log file deleted by hand while the flow runs: Work says so (with the file's path), the flow keeps the text it
+    // last read and its status, nothing crashes; the file written again, the message goes.
+    let k504 = fx("504", "key");
+    let log504 = std::path::PathBuf::from(flow(&k504)["logFile"].as_str().unwrap_or(""));
+    let saved504 = fs::read_to_string(&log504).unwrap_or_default();
+    let st504 = flow(&k504)["status"].clone();
+    let _ = fs::remove_file(&log504);
+    let gone = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await show(k); await bridge.ticketDetail(k); await w(600 + hold); r.said = [...document.querySelectorAll('#b-dyn .risk')].map(e => e.textContent).find(t => t.includes('The work log file is gone')) || null; r.parsed = (await bridge.ticketDetail(k))?.parsed?.status;", json!(k504))), 30 + hold / 1000);
+    let f504 = flow(&k504);
+    let _ = fs::write(&log504, &saved504);
+    let back = ask_for(app, panel::LABEL, &js(&format!("const k = {}; await bridge.ticketDetail(k); await w(600); r.said = [...document.querySelectorAll('#b-dyn .risk')].some(e => e.textContent.includes('The work log file is gone'));", json!(k504))), 20);
+    r["logGone"] = json!({ "said": gone["said"], "parsed": gone["parsed"], "logMissing": f504["logMissing"], "status": f504["status"], "back": back["said"] });
+    check("the log deleted by hand: Work says it is gone with its path, the flow keeps its text and status",
+        gone["said"].as_str().is_some_and(|t| t.contains(&log504.file_name().unwrap().to_string_lossy().to_string())) && f504["logMissing"] == true && f504["status"] == st504 && !saved504.is_empty() && gone["parsed"] == "planning");
+    check("the log written again: Work reads it and the message goes", back["said"] == false && flow(&k504)["logMissing"] == false);
+
     // 501's plan waits when Bobix closes (phase 2 goes on from here); 508 still waits for its session
     let _left_waiting = ask_plan(501, &fx("501", "dir"), "1. Add subtract\n\n## Assumptions\n- Whole numbers only");
     check("before the restart: a plan waits, a start waits", wait(&fx("501", "key"), &|f| f["status"] == "approve")["status"] == "approve" && flow(&fx("508", "key"))["status"] == "starting");
+    // 501 becomes a flow from before the log moved, as an older Bobix made it: its log in its worktree, no file of its own
+    // in Bobix's folder. Phase 2 reads it from there after the restart.
+    {
+        let mut c = b.core.lock().unwrap();
+        if let Some(f) = c.tickets.list.get_mut(&fx("501", "key")) {
+            let old = std::path::Path::new(&f.dir).join(".bobix-log");
+            let _ = fs::create_dir_all(&old);
+            let _ = fs::write(old.join(".gitignore"), "*\n");
+            let _ = fs::write(old.join("work-log.md"), fs::read_to_string(&f.log_file).unwrap_or_default());
+            let _ = fs::remove_file(&f.log_file);
+            f.log_file.clear();
+        }
+        c.tickets.save();
+    }
+    check("501 is now a flow from before: its log is in its worktree", flow(&fx("501", "key"))["logFile"] == "" && std::path::Path::new(&fx("501", "dir")).join(".bobix-log/work-log.md").is_file());
     let _ = ask_for(app, panel::LABEL, &js("showTab('work'); await w(hold);"), 10 + hold / 1000);
     let ok = checks.values().all(|v| v == true);
     r["checks"] = Value::Object(checks);
@@ -898,7 +944,9 @@ fn ticket(app: &AppHandle, b: &Arc<Bobix>, dir: &std::path::Path, key: &str) -> 
         return {{ prompt: prompt.length, rules: prompt.includes('EnterPlanMode'), room: disk, selected: bsel.work, claudeWarn, claudeDir, land, code: tkCode(ik) }}; }})()"), 40 + 2 * hold / 1000);
     let f = flow();
     let fdir = f["dir"].as_str().unwrap_or("").to_string();
-    r["worktree"] = json!(std::path::Path::new(&fdir).join(".bobix-log/work-log.md").is_file());
+    // the log is one file in Bobix's folder made from the template; the worktree has no log folder
+    let lf = f["logFile"].as_str().unwrap_or("").to_string();
+    r["worktree"] = json!(std::path::Path::new(&lf).starts_with(paths::data_dir().join("worklogs")) && fs::read_to_string(&lf).is_ok_and(|t| t.starts_with("# Work log: #")) && !std::path::Path::new(&fdir).join(".bobix-log").exists());
     // the line to paste, with the prompt (the panel copied it; here it is written for the e2e driver)
     let p = ask(app, panel::LABEL, "window.__tkStart && window.__tkStart.cmd");
     let _ = fs::write(dir.join("ticket-start.json"), json!({ "dir": fdir, "cmd": p, "key": key, "start": r["start"] }).to_string());
