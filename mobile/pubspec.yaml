@@ -1,7 +1,7 @@
 name: phone
 description: "Bobix on your phone: answer a waiting Claude Code request from your pocket, end-to-end encrypted through your own relay."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.0+2
 
 environment:
   sdk: ^3.13.7
