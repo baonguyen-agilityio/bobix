@@ -10,6 +10,7 @@ import 'package:phone/features/actions/actions_models.dart';
 import 'package:phone/features/actions/actions_source.dart';
 import 'package:phone/features/actions/request_screen.dart';
 import 'package:phone/keys/platform_secure_keys.dart';
+import 'package:phone/l10n/l10n.dart';
 import 'package:phone/keys/secure_keys.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
@@ -17,6 +18,7 @@ import 'package:phone/link/pairing_controller.dart';
 import 'package:phone/log/activity_log.dart';
 import 'package:phone/push/push_providers.dart';
 import 'package:phone/screens/pair_again_screen.dart';
+import 'package:phone/screens/pairing_screens.dart';
 import 'package:phone/src/rust/api/core.dart';
 import 'package:phone/src/rust/api/messages.dart';
 import 'package:phone/widgets/glass_backdrop.dart';
@@ -130,6 +132,51 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     c.dispose();
     await tester.pump(const Duration(minutes: 5)); // the link's timers end with it
+  });
+
+  testWidgets('Disconnect from Settings ends on the welcome screen', (tester) async {
+    await tester.runAsync(storePairing);
+    File('${tmp.path}/app-settings.json').writeAsStringSync('{"requireUnlock": false}');
+    final c = ProviderContainer(
+      overrides: [
+        pushPlatformProvider.overrideWithValue(push),
+        supportDirectoryProvider.overrideWith((ref) async => tmp),
+        secureKeysProvider.overrideWithValue(keys),
+        relayConnectorProvider.overrideWithValue(
+          (url) async => throw const SocketException('refused'),
+        ),
+        langProvider.overrideWith(_English.new),
+        linkPhoneData,
+        ...linkActionOverrides,
+      ],
+    );
+    expect(await tester.runAsync(() => c.read(linkControllerProvider.future)), isA<Paired>());
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: c, child: const BobixApp(home: RootGate())),
+    );
+    Future<void> frames() async {
+      for (var i = 0; i < 6; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+    }
+
+    String en(String key) => translate('en', key);
+    await frames();
+    await tester.tap(find.bySemanticsLabel(en('phone.tab.settings')));
+    await frames();
+    await tester.tap(find.text(en('phone.settings.disc')));
+    await frames();
+    await tester.tap(find.text(en('phone.settings.disc.go')));
+    await frames();
+    await frames();
+    expect(tester.takeException(), isNull);
+    expect(c.read(linkControllerProvider).value, isA<Unpaired>());
+    expect(find.byType(PairingFlow), findsOneWidget, reason: 'the welcome screen, not an empty page');
+    expect(await tester.runAsync(() => LinkStateStore(tmp).exists()), isFalse);
+    await tester.pumpWidget(const SizedBox());
+    c.dispose();
+    await tester.pump(const Duration(minutes: 5));
   });
 
   test('nothing stored: not paired', () async {
@@ -320,4 +367,9 @@ void main() {
     final phase = c.read(linkControllerProvider).value;
     if (phase is Paired) await phase.link.dispose();
   });
+}
+
+class _English extends Lang {
+  @override
+  String build() => 'en';
 }

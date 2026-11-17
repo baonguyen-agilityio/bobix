@@ -684,7 +684,11 @@ class _DisconnectSheetState extends ConsumerState<_DisconnectSheet> {
     });
     try {
       await ref.read(linkControllerProvider.notifier).disconnect();
-      if (mounted) Navigator.of(context).pop();
+      // Leaving the pairing already closed this sheet (the app goes back to its first screen); popping again would close
+      // that screen too and leave nothing.
+      if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
+        Navigator.of(context).pop();
+      }
     } on Object {
       // The keys could not be erased (the Keychain refused): say so, and let the person try again.
       if (mounted) {
