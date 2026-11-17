@@ -55,7 +55,26 @@ final class KeyStore {
     return name?.isEmpty == false ? name : nil
   }
 
-  init(service: String = "dev.bobix.phone.keys", software: Bool = false, markerURL: URL? = nil, group: String? = KeyStore.bundleGroup(), appGroup: String? = KeyStore.bundleAppGroup()) throws {
+  /// Whether this app runs with the debug-only software key. The Dart side says so when it opens the store, and it is
+  /// remembered, so the stores native code opens on its own (at launch, for push) do not erase that key. Always false in a
+  /// release build, which never reads or writes the flag.
+  static var debugSoftware: Bool {
+    get {
+      #if DEBUG
+      return UserDefaults.standard.bool(forKey: debugSoftwareFlag)
+      #else
+      return false
+      #endif
+    }
+    set {
+      #if DEBUG
+      UserDefaults.standard.set(newValue, forKey: debugSoftwareFlag)
+      #endif
+    }
+  }
+  static let debugSoftwareFlag = "dev.bobix.phone.debugSoftwareKey"
+
+  init(service: String = "dev.bobix.phone.keys", software: Bool = KeyStore.debugSoftware, markerURL: URL? = nil, group: String? = KeyStore.bundleGroup(), appGroup: String? = KeyStore.bundleAppGroup()) throws {
     #if !DEBUG
     if software { throw KeyError(message: "the software key is not available in a release build") }
     #endif
@@ -367,7 +386,9 @@ final class SecureKeysChannel {
     let args = call.arguments as? [String: Any] ?? [:]
     if call.method == "open" {
       do {
-        store = try KeyStore(software: args["software"] as? Bool ?? false)
+        let software = args["software"] as? Bool ?? false
+        store = try KeyStore(software: software)
+        KeyStore.debugSoftware = software
         result(nil)
       } catch let e as KeyStore.KeyError {
         result(FlutterError(code: "open_failed", message: e.message, details: nil))
