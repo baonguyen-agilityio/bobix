@@ -12,6 +12,7 @@ import '../keys/platform_secure_keys.dart';
 import '../keys/secure_keys.dart';
 import '../log/activity_log.dart';
 import '../src/rust/api/core.dart';
+import '../features/actions/actions_models.dart';
 import '../features/actions/actions_source.dart';
 import 'computer_link.dart';
 import 'link_actions_source.dart';
@@ -336,9 +337,11 @@ final linkStatusProvider = StreamProvider<LinkStatus>((ref) async* {
 
 /// The action screens' source and biometric step, over the link: one object, since the signature made at the biometric step
 /// is what the send step sends.
-final linkActionsProvider = Provider<LinkActionsSource>((ref) {
+/// Null once the pairing is gone: an action screen still open at that moment (the signing key was lost under it) reads
+/// [unpairedActions] until the app leaves it for "pair again".
+final linkActionsProvider = Provider<LinkActionsSource?>((ref) {
   final phase = ref.watch(linkControllerProvider).value;
-  if (phase is! Paired) throw StateError('no computer is paired');
+  if (phase is! Paired) return null;
   final source = LinkActionsSource(
     link: phase.link,
     keys: ref.read(secureKeysProvider),
@@ -351,7 +354,9 @@ final linkActionsProvider = Provider<LinkActionsSource>((ref) {
 
 /// What `main` overrides: the screens read the link.
 final linkActionOverrides = [
-  actionsSourceProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
+  actionsSourceProvider.overrideWith(
+    (ref) => ref.watch(linkActionsProvider) ?? unpairedActions,
+  ),
   grantedRightsProvider.overrideWith((ref) {
     final computer = ref.watch(pairedComputerProvider);
     if (computer == null) return null;
@@ -361,7 +366,9 @@ final linkActionOverrides = [
     ref.onDispose(() => rights.removeListener(changed));
     return rights.value;
   }),
-  biometricGateProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
+  biometricGateProvider.overrideWith(
+    (ref) => ref.watch(linkActionsProvider) ?? unpairedActions,
+  ),
 ];
 
 /// The computer this phone is paired with, or null.
@@ -369,3 +376,44 @@ final pairedComputerProvider = Provider<PairedComputer?>((ref) {
   final phase = ref.watch(linkControllerProvider).value;
   return phase is Paired ? phase.link.computer : null;
 });
+
+/// The action screens' source with no computer paired: nothing loads, nothing is signed or sent.
+const unpairedActions = _UnpairedActions();
+
+class _UnpairedActions implements ActionsSource, BiometricGate {
+  const _UnpairedActions();
+
+  static const _gone = CommandOutcome(
+    OutcomeKind.refused,
+    reason: 'not paired',
+  );
+
+  Future<T> _never<T>() => Completer<T>().future;
+
+  @override
+  String get computerName => '';
+  @override
+  Future<RequestView> request(String id) => _never();
+  @override
+  Future<PlanDoc> plan(String id) => _never();
+  @override
+  Future<QuestionDoc> question(String id) => _never();
+  @override
+  Future<SessionDetail> session(String id) => _never();
+  @override
+  Future<StartList> issues() => _never();
+  @override
+  Future<StartPreview> startPreview(String issueId, StartMode mode) =>
+      _never();
+  @override
+  String newCommandId() => '';
+  @override
+  Future<CommandOutcome> send(Command command) async => _gone;
+  @override
+  Future<CommandOutcome> checkStatus(String commandId) async => _gone;
+  @override
+  Future<CommandOutcome> withdraw(String commandId) async => _gone;
+  @override
+  Future<GateResult> confirm(String reason, Command command) async =>
+      GateResult.keyLost;
+}

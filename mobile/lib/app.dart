@@ -63,6 +63,13 @@ class RootGate extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final phase = ref.watch(linkControllerProvider);
     ref.watch(surfacesClearProvider);
+    // The pairing ended under an open screen (the signing key was lost while a request was open): back to the root, which
+    // now shows what to do instead.
+    ref.listen(linkControllerProvider, (prev, next) {
+      if (prev?.value is Paired && next.value is! Paired) {
+        Navigator.of(context).popUntil((r) => r.isFirst);
+      }
+    });
     return switch (phase.value) {
       null when phase.hasError => const UnavailableScreen(),
       null => const PetsSplash(),
