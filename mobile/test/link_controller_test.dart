@@ -255,6 +255,24 @@ void main() {
     expect(c.read(pairingControllerProvider).step, PairStep.scan);
   });
 
+  test('after the signing key is lost, erase and pair again leaves nothing that refuses the next pairing', () async {
+    await storePairing();
+    final c = container();
+    final link = (await phaseOf(c) as Paired).link;
+    link.computer.pending.add('late-command');
+    c.read(linkControllerProvider.notifier).keyLost();
+    expect(c.read(linkControllerProvider).value, isA<PairAgain>());
+    await c.read(linkControllerProvider.notifier).eraseAndPairAgain();
+    // the old link's late work (a result that arrives, the app coming back) writes nothing and connects nowhere
+    await link.forget('late-command');
+    link.resume();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(link.connected, isFalse);
+    expect(await LinkStateStore(tmp).exists(), isFalse, reason: 'a new pairing checks this file');
+    expect(await keys.secret(SecureKeys.auth), isNull, reason: 'and this key');
+    expect(c.read(pairingControllerProvider).step, PairStep.scan);
+  });
+
   LogEntry old(String session) => LogEntry(
     at: DateTime(2026, 11, 13, 20, 35),
     kind: LogKind.allow,

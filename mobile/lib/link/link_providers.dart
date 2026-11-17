@@ -72,6 +72,26 @@ class PairAgain extends AppPhase {
 class LinkController extends AsyncNotifier<AppPhase> {
   AppLifecycleListener? _lifecycle;
   StreamSubscription<LinkStatus>? _status;
+  ComputerLink? _link;
+  Future<void>? _ending;
+
+  /// The link of a pairing that ended stops at once: it no longer connects, follows the app's lifecycle or writes its
+  /// state. A second call (Erase right after the key was lost) waits for the first one's last write.
+  Future<void> _detach() {
+    final link = _link;
+    _link = null;
+    _lifecycle?.dispose();
+    _lifecycle = null;
+    final status = _status;
+    _status = null;
+    final ending = link?.dispose();
+    final before = _ending;
+    return _ending = () async {
+      await before;
+      await status?.cancel();
+      await ending;
+    }();
+  }
 
   /// The paired computer's id, also while the phone shows "pair again" (the extension still holds its key then).
   String? _computerId;
@@ -235,9 +255,11 @@ class LinkController extends AsyncNotifier<AppPhase> {
                 : DateTime.fromMillisecondsSinceEpoch(s.revokedAtMs!),
           ),
         );
+        unawaited(_detach());
       }
     });
     // Connected only while the app is in front.
+    _link = link;
     _lifecycle = AppLifecycleListener(
       onResume: link.resume,
       onHide: () => unawaited(link.pause()),
@@ -257,6 +279,7 @@ class LinkController extends AsyncNotifier<AppPhase> {
     state = AsyncData(
       PairAgain(computer: current.link.computer.name, removedByComputer: false),
     );
+    unawaited(_detach());
   }
 
   /// "Disconnect": the computer is told (a signed goodbye, when the phone is connected), then every key and everything kept
@@ -310,8 +333,8 @@ class LinkController extends AsyncNotifier<AppPhase> {
     // The notification extension keeps its own copy of the computer's public key: it goes too, or it could still open
     // that computer's notices after an Erase.
     if (id != null) await _pushRemove(id);
-    if (current is Paired) await current.link.dispose();
-    await _status?.cancel();
+    // whatever the phase says: a link still running would write its state back after the erase
+    await _detach();
     await _forget(await _store(), ref.read(secureKeysProvider));
     state = const AsyncData(Unpaired());
   }

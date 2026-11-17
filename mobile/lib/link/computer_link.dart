@@ -238,7 +238,7 @@ class ComputerLink {
     computer
       ..recvState = channel.recvState
       ..eventReservation = channel.reservation;
-    await store.save(computer);
+    await _save();
   }
 
   void _set(LinkStatus s) {
@@ -260,7 +260,16 @@ class ComputerLink {
     await _session?.close();
   }
 
+  /// Kept on disk, unless this link has ended: a link left over after its pairing ended never writes its state back.
+  Future<void> _save() async {
+    if (_gone) return;
+    await store.save(computer);
+  }
+
+  /// Ends this link for good: it never connects or writes its state again, and what it was writing is on disk when this
+  /// returns.
   Future<void> dispose() async {
+    _gone = true;
     await pause();
     _pushForget();
     await _statusChanges.close();
@@ -269,6 +278,7 @@ class ComputerLink {
     await _relayEvents.close();
     await _results.close();
     await _closedNotices.close();
+    await store.flush();
   }
 
   Future<void> _loop() async {
@@ -409,7 +419,7 @@ class ComputerLink {
     final session = _session;
     if (session == null) throw const SocketLost();
     computer.pending.add(cid);
-    await store.save(computer);
+    await _save();
     final out = await relaySendFrame(
       to: computer.id,
       packet: channel.sealWith(counter, message),
@@ -428,7 +438,7 @@ class ComputerLink {
 
   /// A command that was dealt with (a result came, or the person gave up on it) is no longer waited for.
   Future<void> forget(String cid) async {
-    if (computer.pending.remove(cid)) await store.save(computer);
+    if (computer.pending.remove(cid)) await _save();
   }
 
   Future<void> _onFrame(RelaySession session, RelayFrame f) async {
@@ -524,7 +534,7 @@ class ComputerLink {
         computer
           ..home = m.json
           ..homeAt = snap.receivedAtMs;
-        await store.save(computer);
+        await _save();
         final held = {
           for (final w in (j['waiting'] as List).cast<Map<String, dynamic>>())
             w['id'] as String,
@@ -577,7 +587,7 @@ class ComputerLink {
         if (await relayAllowed(url, flavor) && url != computer.relay) {
           _pushForget();
           computer.relay = url;
-          await store.save(computer);
+          await _save();
           // The old connection ends; the loop opens the new relay at once.
           _moved = true;
           _set(status.copyWith(movedHost: relayHost(url)));
