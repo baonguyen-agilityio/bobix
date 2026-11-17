@@ -532,6 +532,94 @@ void main() {
     },
   );
 
+  /// A sealed message from the computer, as the relay hands it over.
+  Future<void> fromComputer(Map<String, Object?> json) async {
+    final packet = await sealPacket(
+      version: versions.current,
+      direction: LinkDirection.toPhone,
+      stream: LinkStream.event,
+      counter: BigInt.from(++counter),
+      senderBoxSecret: desktop.boxSecret,
+      recipientBoxPublic: phone.boxPublic,
+      plaintext: Uint8List.fromList(utf8.encode(jsonEncode(json))),
+    );
+    socket.push({
+      'type': 'msg',
+      'pid': 'p$counter',
+      'from': desktop.deviceId,
+      'body': b64(packet),
+    });
+  }
+
+  /// What this phone sealed for the computer in its last `send` frames, opened.
+  Future<List<Map<String, dynamic>>> toComputer() async => [
+    for (final f in socket.sent.where((f) => f['type'] == 'send'))
+      jsonDecode(
+        utf8.decode(
+          await openPacket(
+            receiverBoxSecret: desktop.boxSecret,
+            senderBoxPublic: phone.boxPublic,
+            packet: b64d(f['body'] as String),
+          ),
+        ),
+      ) as Map<String, dynamic>,
+  ];
+
+  test('a plan that changed: Approve is stale, the plan is fetched again, and the next Approve uses the new hash', () async {
+    home(waiting: [waitingItem('pc', 'plan')], sessions: [session()]);
+    Map<String, Object?> detail(String text) => {
+      'kind': 'detail',
+      'id': 'pc',
+      'what': 'plan',
+      'text': text,
+      'shown': '',
+      'cut': false,
+      'odd': false,
+    };
+    link.detailCache['pc'] = detail('# Plan, first version');
+    final first = await source.plan('pc');
+
+    Future<CommandOutcome> approve(String shown, String outcome) async {
+      final command = Command(
+        id: source.newCommandId(),
+        kind: CommandKind.approve,
+        target: 'pc',
+        shown: shown,
+      );
+      expect(await source.confirm('Confirm', command), GateResult.confirmed);
+      final sent = socket.sent.length;
+      final out = source.send(command);
+      await _until(() => socket.sent.length > sent ? true : null);
+      await fromComputer({
+        'kind': 'result',
+        'cid': command.id,
+        'outcome': outcome,
+      });
+      return out;
+    }
+
+    expect((await approve(first.shownHash, 'stale')).kind, OutcomeKind.stale);
+    expect(
+      link.answeredHere,
+      isNot(contains('pc')),
+      reason: 'the computer did not take that answer',
+    );
+
+    // Opening the plan again asks the computer for it instead of showing the old copy.
+    final asked = socket.sent.length;
+    final again = source.plan('pc');
+    await _until(() => socket.sent.length > asked ? true : null);
+    final request = (await toComputer()).last;
+    expect(request['kind'], isNot('command'));
+    await fromComputer(detail('# Plan, second version'));
+    final second = await again;
+    expect(second.markdown, '# Plan, second version');
+    expect(second.shownHash, isNot(first.shownHash));
+
+    expect((await approve(second.shownHash, 'ok')).kind, OutcomeKind.applied);
+    expect(link.answeredHere, contains('pc'));
+  });
+
   /// The computer says it closed [ref]; resolves once the phone has taken it in.
   Future<void> closedNotice(String ref, Map<String, Object?>? by) async {
     final packet = await sealPacket(

@@ -584,11 +584,13 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
         return const CommandOutcome(OutcomeKind.refused, reason: 'offline');
       }
       _pids[command.id] = pid;
-      return await first.future.timeout(
+      final out = await first.future.timeout(
         resultWithin,
         onTimeout: () =>
             _outcomes[command.id] ?? const CommandOutcome(OutcomeKind.queued),
       );
+      _settle(command, answered, out);
+      return out;
     } finally {
       await events.cancel();
       await results.cancel();
@@ -652,6 +654,15 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     } finally {
       await sub.cancel();
     }
+  }
+
+  /// After the computer's result: an answer it did not take is not this phone's, and an item whose content changed is
+  /// fetched again the next time it is opened.
+  void _settle(Command command, String? answered, CommandOutcome out) {
+    final kept =
+        out.kind == OutcomeKind.applied || out.kind == OutcomeKind.queued;
+    if (!kept && answered != null) link.answeredHere.remove(answered);
+    if (out.kind == OutcomeKind.stale) link.detailCache.remove(command.target);
   }
 
   /// What the computer's result means for the screen.

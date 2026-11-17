@@ -510,6 +510,12 @@ class ComputerLink {
         final snap = HomeSnapshot(j, _now().millisecondsSinceEpoch);
         home = snap;
         homeLive = true;
+        // Content of items that no longer wait is not needed again.
+        final open = {
+          for (final w in (j['waiting'] as List? ?? const []))
+            (w as Map<String, dynamic>)['id'],
+        };
+        detailCache.removeWhere((id, _) => !open.contains(id));
         // A `home` without `rights` (an older computer) keeps the rights the phone has.
         final granted = j['rights'];
         if (granted is Map<String, dynamic>) {
