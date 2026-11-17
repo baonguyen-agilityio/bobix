@@ -220,13 +220,20 @@ fn new_id() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+// How long a request is held, and whether it is held only for the phones (nothing here shows it). A request a phone can
+// answer never runs out: once the hook returns, nobody can answer it from Bobix, so no countdown is kept while a phone is
+// paired, whatever "wait" says. The computer answering first, Esc and Stop still end it. With no phone paired, hold_secs rules.
+fn hold_for(phones: &crate::phones::State, settings: &Value, pet: &str, plan: bool, src: &dyn crate::presence::Source) -> (f64, bool) {
+    let secs = if plan { f64::INFINITY } else { settings::hold_secs(settings, pet) };
+    // nothing is shown to the person here (pets hidden or paused), but a phone is paired and nobody is at the computer: hold it for the phones
+    let for_phones = secs == 0.0 && !plan && phones.holds_for_phones(settings, src);
+    (if for_phones || (secs > 0.0 && phones.has_phones()) { f64::INFINITY } else { secs }, for_phones)
+}
+
 // Holds session `s`'s request when the person can see it (settings::hold_secs). Called with the core locked.
 // plan: a ticket flow's plan, held until you answer whatever the pets show (it is the flow's one gate).
 pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut HashMap<String, Closed>, phones: &mut crate::phones::State, settings: &Value, s: &mut Session, e: &Value, plan: bool) -> Option<Reply> {
-    let mut secs = if plan { f64::INFINITY } else { settings::hold_secs(settings, &s.pet) };
-    // nothing is shown to the person here (pets hidden or paused), but a phone is paired and nobody is at the computer: hold it for the phones
-    let for_phones = secs == 0.0 && !plan && phones.holds_for_phones(settings, &*crate::presence::source());
-    if for_phones { secs = f64::INFINITY; }
+    let (secs, for_phones) = hold_for(phones, settings, &s.pet, plan, &*crate::presence::source());
     if secs == 0.0 { return None; }
     // one open request per session
     let now = crate::state::now();
@@ -505,6 +512,36 @@ mod tests {
         assert!(back["c"].plan && back["c"].end == End::Released("restart"), "a plan held at the restart is released with the reason");
         c.closed = back;
         assert_eq!(late(&c, "c", None), Answered::Released("restart"), "after a restart a phone is told released, not unknown");
+    }
+
+    // A request held while the pets are shown and "wait" is 60 seconds: with a phone paired it has no countdown (on the
+    // computer's own pages and on the phone), with none it keeps the 60 seconds and then goes back to Claude's prompt.
+    #[test]
+    fn a_request_a_phone_can_answer_has_no_countdown() {
+        let (tx, _) = tokio::sync::broadcast::channel(4);
+        let b = Arc::new(Bobix { core: std::sync::Mutex::new(crate::Core::default()), tx, token: "t".into(), port: 0, app: Default::default(),
+            usage: std::sync::Mutex::new(crate::usage::Store::new(std::env::temp_dir().join("bobix-answers-test"))), dirty: Default::default(), phones_dirty: Default::default() });
+        let settings = json!({ "approveWait": 60, "petsVisible": true, "paused": false });
+        let event = json!({ "tool_name": "Bash", "tool_input": { "command": "ls" } });
+        let held = |paired: bool| {
+            let mut phones = crate::phones::State::default();
+            if paired {
+                phones.cfg.on = true;
+                phones.store.phones.push(crate::phones::Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Default::default(), since: 0, needs_pairing: false, no_push: false });
+            }
+            let (mut pending, mut closed) = (HashMap::new(), HashMap::new());
+            let mut s = crate::state::Session::default();
+            s.id = "s1".into(); s.state = "waiting".into();
+            let Some(Reply::Answer { secs, .. }) = wait(&b, &mut pending, &mut closed, &mut phones, &settings, &mut s, &event, false) else { panic!("not held") };
+            let mut sessions = crate::state::Sessions::new();
+            sessions.insert("s1".into(), s);
+            let p = pending.values().next().unwrap();
+            let home = crate::phone_view::home(&sessions, &pending, "Studio", crate::state::now(), bobix_link::messages::ComputerState::Online, vec![]);
+            (secs, p.until, home.waiting[0].seconds_left)
+        };
+        assert_eq!(held(true), ("forever".into(), None, None), "a paired phone: no end, none shown");
+        let (secs, until, left) = held(false);
+        assert!(secs == "60" && until.is_some() && left.is_some_and(|l| l <= 60), "no phone: 60 seconds");
     }
 
     #[test]

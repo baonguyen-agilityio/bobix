@@ -533,11 +533,13 @@ impl State {
     pub fn was_sent(&self, id: &str) -> bool { self.notified.contains(id) }
     #[cfg(test)]
     pub fn mark_sent(&mut self, id: &str) { self.notified.insert(id.into()); }
+    // Phone access is on and at least one phone is paired: a held request may be answered there, so it never runs out.
+    pub fn has_phones(&self) -> bool { self.cfg.on && !self.store.phones.is_empty() }
     // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone is
     // paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the input time
     // cannot be read, the choice in Settings decides.
     pub fn holds_for_phones(&self, settings: &Value, src: &dyn crate::presence::Source) -> bool {
-        if !self.cfg.on || self.store.phones.is_empty() || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
+        if !self.has_phones() || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
         match src.idle_ms() { Some(ms) => ms >= crate::presence::AT_COMPUTER_MS, None => self.cfg.hold != "computer" }
     }
     // The peers, the revocations the relay may not know, an open pairing. After an invite code let this computer in, again:
