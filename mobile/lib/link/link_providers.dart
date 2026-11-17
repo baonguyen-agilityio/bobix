@@ -86,7 +86,9 @@ class LinkController extends AsyncNotifier<AppPhase> {
     });
     // Listens for the APNs token from the start, also before a pairing: the token the system hands over right after the
     // permission dialog must not be missed.
-    await _pushStart();
+    // Not waited for: start() attaches the token listener before its first await, and the first screen must not wait on a
+    // system call that may never answer (the notification settings on a simulator whose notification service is not up).
+    unawaited(_pushStart());
     final store = await _store();
     final PairedComputer? computer;
     try {
