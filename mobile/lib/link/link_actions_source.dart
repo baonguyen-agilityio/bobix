@@ -34,7 +34,11 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     this.answerWithin = const Duration(seconds: 10),
   }) : _now = now ?? DateTime.now {
     _results = link.results.listen((r) {
-      _outcomes[r.cid] = _outcomeOf(r);
+      final out = _outcomeOf(r);
+      _outcomes[r.cid] = out;
+      // however late the result comes (after `send` stopped waiting, or through Check status)
+      final sent = _sent.remove(r.cid);
+      if (sent != null) _settle(sent.command, sent.answered, out);
       unawaited(link.forget(r.cid));
     });
     _homes = link.homeChanges.listen(_track);
@@ -57,6 +61,9 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
 
   late final StreamSubscription<Object> _results, _homes, _notices;
   final _signed = <String, _Signed>{};
+
+  /// Commands sent whose result has not come, by id: what is undone when the computer does not take one.
+  final _sent = <String, ({Command command, String? answered})>{};
   final _pids = <String, String>{};
   final _outcomes = <String, CommandOutcome>{};
   final _closed = <String, RequestClosed>{};
@@ -539,6 +546,8 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       _ => command.target,
     };
     if (answered != null && answered.isNotEmpty) link.answeredItem(answered);
+    _sent[command.id] = (command: command, answered: answered);
+    if (_sent.length > 64) _sent.remove(_sent.keys.first);
     final message = await msg.finishCommand(
       input: s.input,
       cid: command.id,
@@ -561,9 +570,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
           first.complete(const CommandOutcome(OutcomeKind.queued));
         case RelayFrame_Dropped(pid: final p) when p == pid:
           unawaited(link.forget(command.id));
-          first.complete(
-            const CommandOutcome(OutcomeKind.refused, reason: 'dropped'),
-          );
+          first.complete(_unsent(command));
         default:
           break;
       }
@@ -581,16 +588,14 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
           Uint8List.fromList(message),
         );
       } on SocketLost {
-        return const CommandOutcome(OutcomeKind.refused, reason: 'offline');
+        return _unsent(command, reason: 'offline');
       }
       _pids[command.id] = pid;
-      final out = await first.future.timeout(
+      return await first.future.timeout(
         resultWithin,
         onTimeout: () =>
             _outcomes[command.id] ?? const CommandOutcome(OutcomeKind.queued),
       );
-      _settle(command, answered, out);
-      return out;
     } finally {
       await events.cancel();
       await results.cancel();
@@ -656,12 +661,20 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     }
   }
 
+  /// A command that never reached the computer: it answered nothing.
+  CommandOutcome _unsent(Command command, {String reason = 'dropped'}) {
+    final out = CommandOutcome(OutcomeKind.refused, reason: reason);
+    final sent = _sent.remove(command.id);
+    if (sent != null) _settle(sent.command, sent.answered, out);
+    return out;
+  }
+
   /// After the computer's result: an answer it did not take is not this phone's, and an item whose content changed is
   /// fetched again the next time it is opened.
   void _settle(Command command, String? answered, CommandOutcome out) {
-    final kept =
-        out.kind == OutcomeKind.applied || out.kind == OutcomeKind.queued;
-    if (!kept && answered != null) link.answeredHere.remove(answered);
+    if (out.kind != OutcomeKind.applied && answered != null) {
+      link.answeredHere.remove(answered);
+    }
     if (out.kind == OutcomeKind.stale) link.detailCache.remove(command.target);
   }
 

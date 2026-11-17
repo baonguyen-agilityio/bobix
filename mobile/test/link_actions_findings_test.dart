@@ -620,6 +620,49 @@ void main() {
     expect(link.answeredHere, contains('pc'));
   });
 
+  test('a stale result that comes after the phone stopped waiting still drops the old plan and the answer', () async {
+    final late = LinkActionsSource(
+      link: link,
+      keys: keys,
+      onKeyLost: () {},
+      answerWithin: const Duration(milliseconds: 500),
+      resultWithin: const Duration(milliseconds: 100),
+    );
+    addTearDown(late.dispose);
+    home(waiting: [waitingItem('pl', 'plan')], sessions: [session()]);
+    link.detailCache['pl'] = {
+      'kind': 'detail',
+      'id': 'pl',
+      'what': 'plan',
+      'text': '# Plan',
+      'shown': '',
+      'cut': false,
+      'odd': false,
+    };
+    final plan = await late.plan('pl');
+    final command = Command(
+      id: late.newCommandId(),
+      kind: CommandKind.approve,
+      target: 'pl',
+      shown: plan.shownHash,
+    );
+    expect(await late.confirm('Confirm', command), GateResult.confirmed);
+    expect(
+      (await late.send(command)).kind,
+      OutcomeKind.queued,
+      reason: 'no result in time: shown as held',
+    );
+    expect(link.answeredHere, contains('pl'));
+    await fromComputer({
+      'kind': 'result',
+      'cid': command.id,
+      'outcome': 'stale',
+    });
+    await _until(() => link.detailCache.containsKey('pl') ? null : true);
+    expect(link.answeredHere, isNot(contains('pl')));
+    expect((await late.checkStatus(command.id)).kind, OutcomeKind.stale);
+  });
+
   /// The computer says it closed [ref]; resolves once the phone has taken it in.
   Future<void> closedNotice(String ref, Map<String, Object?>? by) async {
     final packet = await sealPacket(
