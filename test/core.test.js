@@ -144,6 +144,16 @@ test('flat-icon pets: a design per project, its session colour, a pose and a bad
   strict.equal(plain(svg('working')), plain(svg('working', ['typing', 0])), 'without a pose: the first frame');
 });
 
+test('a session\'s pet is the one the phone view picks (test/pet-cases.json, also read by phone_view.rs)', () => {
+  const ctx = {};
+  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/creature.js'), 'utf8'), ctx);
+  const designOf = require('vm').runInContext('designOf', ctx), petColor = require('vm').runInContext('petColor', ctx);
+  for (const c of require('./pet-cases.json')) {
+    const got = c.list.map(s => { const art = (s.parent && c.list.find(x => x.id === s.parent)) || s; return [designOf(art.project || art.id), petColor(s, c.list)]; });
+    strict.deepEqual(got, c.pets, c.name);
+  }
+});
+
 test('effects start on the right changes, play once, and are drawn as flat shapes', () => {
   const ctx = {};
   require('vm').runInNewContext(['creature.js', 'pet-fx.js'].map(f => fs.readFileSync(path.join(__dirname, '../src/ui', f), 'utf8')).join('\n'), ctx);

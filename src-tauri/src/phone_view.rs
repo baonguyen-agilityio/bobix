@@ -17,8 +17,29 @@ fn hash_str(s: &str) -> u32 {
         (h ^ u).wrapping_mul(16777619)
     })
 }
-pub fn pet_of(project: &str, id: &str) -> Pet {
-    Pet { design: DESIGNS[hash_str(if project.is_empty() { id } else { project }) as usize % DESIGNS.len()].into(), color: (hash_str(&format!("{id}c")) % COLORS) as u8 }
+// What the panel's pet needs of a session (creature.js petColor reads project, id and parent only).
+pub struct PetIn { pub id: String, pub project: String, pub parent: Option<String> }
+
+// The pet of a session as the panel draws it: `list` is every shown session in the order they came (the sessions map's).
+// Design: creature.js designOf over the full project (or the id), a side session by its parent's. Colour: petColor.
+pub fn pet_of(s: &PetIn, list: &[PetIn]) -> Pet {
+    let proj = |x: &PetIn| if x.project.is_empty() { x.id.clone() } else { x.project.clone() };
+    let art = s.parent.as_ref().and_then(|p| list.iter().find(|x| &x.id == p)).unwrap_or(s);
+    Pet { design: DESIGNS[hash_str(&proj(art)) as usize % DESIGNS.len()].into(), color: pet_color(s, list, 0) as u8 }
+}
+fn pet_color(s: &PetIn, list: &[PetIn], depth: u8) -> u32 {
+    let proj = |x: &PetIn| if x.project.is_empty() { x.id.clone() } else { x.project.clone() };
+    let top = |x: &PetIn| !x.parent.as_ref().is_some_and(|p| list.iter().any(|y| &y.id == p));
+    let par = s.parent.as_ref().and_then(|p| list.iter().find(|x| &x.id == p));
+    if let (Some(par), true) = (par, depth < 4) { // side sessions avoid the colours of their project's own sessions
+        let pc = pet_color(par, list, depth + 1);
+        let taken: Vec<u32> = list.iter().filter(|x| top(x) && proj(x) == proj(par)).map(|x| pet_color(x, list, depth + 1)).collect();
+        let free: Vec<u32> = (0..COLORS).map(|i| (pc + 1 + i) % COLORS).filter(|i| !taken.contains(i)).collect();
+        let k = list.iter().filter(|x| x.parent == s.parent).position(|x| x.id == s.id).unwrap_or(0) as u32;
+        return if free.is_empty() { (pc + 1 + k % (COLORS - 1)) % COLORS } else { free[k as usize % free.len()] };
+    }
+    let mates = list.iter().filter(|x| top(x) && proj(x) == proj(s)).position(|x| x.id == s.id).unwrap_or(0) as u32;
+    (hash_str(&format!("{}c", proj(s))) % COLORS + mates) % COLORS
 }
 
 // One line of at most `max` bytes: secrets replaced, hidden characters dropped, whitespace folded.
@@ -43,13 +64,18 @@ pub fn home(sessions: &Sessions, pending: &HashMap<String, Pending>, computer: &
     let mut list: Vec<&crate::state::Session> = sessions.values().collect();
     list.sort_by(|a, b| b.updated.cmp(&a.updated));
     let unfinished = sessions.values().filter(|s| matches!(s.state.as_str(), "working" | "waiting")).count() as u32;
+    // the pets' list as the panel has it: every session that is not still waiting for its parent link, in arrival order, with
+    // the parent as the model finds it (by the Claude app's session id; the later session of that id)
+    let by_host: HashMap<&str, &str> = sessions.values().filter_map(|s| Some((s.host_session.as_deref()?, s.id.as_str()))).collect();
+    let pet_in = |s: &crate::state::Session| PetIn { id: s.id.clone(), project: s.project.clone().unwrap_or_default(), parent: s.parent_host.as_deref().and_then(|h| by_host.get(h)).map(|p| p.to_string()) };
+    let pets: Vec<PetIn> = sessions.values().filter(|s| !crate::state::linking(s, now)).map(pet_in).collect();
     let infos = list.iter().take(SESSIONS_MAX).map(|s| {
         let project = s.project.as_deref().map(folder).unwrap_or_else(|| folder(&s.cwd));
         // waiting with nothing held: it is answered at the computer
         let held = s.state == "waiting" && pending.values().any(|p| p.sid == s.id);
         let held_request = pending.values().any(|p| p.sid == s.id && p.kind() == Kind::Request); // Stop is only for a plain request
         let state = if s.state == "waiting" && !held { "atComputer".to_string() } else { s.state.clone() };
-        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&project, &s.id), can_stop: held_request, lines: activity_lines(s).len().min(40) as u8 }
+        SessionInfo { id: s.id.clone(), title: preview(if s.title.is_empty() { &s.name } else { &s.title }, 80), project: preview(&project, 60), state, pet: pet_of(&pet_in(s), &pets), can_stop: held_request, lines: activity_lines(s).len().min(40) as u8 }
     }).collect();
     let mut waiting: Vec<Waiting> = pending.iter().filter(|(_, p)| sessions.contains_key(&p.sid)).map(|(id, p)| Waiting {
         id: id.clone(), session: p.sid.clone(), what: match p.kind() { Kind::Plan => WaitingKind::Plan, Kind::Question => WaitingKind::Question, Kind::Request => WaitingKind::Request },
@@ -181,11 +207,15 @@ mod tests {
         assert!(preview(&"é".repeat(500), MAX_PREVIEW).len() <= MAX_PREVIEW, "cut on a character boundary");
     }
 
+    // test/pet-cases.json is read by core.test.js too, against creature.js: the same inputs give the same design and colour.
     #[test]
-    fn a_pet_is_the_pages_pet() {
-        // creature.js: hashStr('x') = 2166136261 ^ 120 * 16777619; the design is that mod 5, the colour that of 'x'+'c' mod 6
-        assert_eq!(hash_str("x"), (2166136261u32 ^ 120).wrapping_mul(16777619));
-        assert!(pet_of("", "s1").color < 6 && DESIGNS.contains(&pet_of("app", "s1").design.as_str()));
+    fn a_pet_is_the_same_as_creature_js_gives() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!("../../test/pet-cases.json")).unwrap();
+        for c in cases.as_array().unwrap() {
+            let list: Vec<PetIn> = c["list"].as_array().unwrap().iter().map(|x| PetIn { id: x["id"].as_str().unwrap().into(), project: x["project"].as_str().unwrap().into(), parent: x["parent"].as_str().map(String::from) }).collect();
+            let got: Vec<serde_json::Value> = list.iter().map(|s| { let p = pet_of(s, &list); serde_json::json!([p.design, p.color]) }).collect();
+            assert_eq!(serde_json::Value::Array(got), c["pets"], "{}", c["name"]);
+        }
     }
 
     fn held(raw: &str, plan: bool, cut: bool) -> HashMap<String, Pending> {
