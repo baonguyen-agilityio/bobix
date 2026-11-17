@@ -137,17 +137,18 @@ pub fn fit(mut h: Home) -> Home {
 // longer than the cap and `detail` shortened it. The one place that says so; a remote Allow or approve is refused for it.
 pub fn shown_cut(p: &Pending) -> bool { built("", p).cut }
 
-// Whether a remote Approve (or Allow) is refused for what the phone is shown: the text is cut (`shown_cut`), or a file that
-// comes with the plan is shortened or only listed. Sending a plan back is never refused for it.
-pub fn blocks_allow(p: &Pending) -> bool { shown_cut(p) || p.files.iter().any(|f| f.cut || !f.sent) }
+// Whether a remote Approve (or Allow) is refused for what the phone is shown: the text is cut (`shown_cut`), a file that
+// comes with the plan is shortened or only listed, or the plan names files that are not shown at all. Sending a plan back is
+// never refused for it.
+pub fn blocks_allow(p: &Pending) -> bool { shown_cut(p) || p.files_omitted > 0 || p.files.iter().any(|f| f.cut || !f.sent) }
 
 // One held item, whole, with the hash of what is held (a plan with its files: they go to no other message, and only to a phone
 // with the plan right, which is checked here). Err: "unknown" (not held) or "right" (the phone lacks the right).
 pub fn detail(pending: &HashMap<String, Pending>, id: &str, rights: Rights) -> Result<Detail, &'static str> {
     let p = pending.get(id).ok_or("unknown")?;
-    if !(match p.kind() { Kind::Plan => rights.plan, Kind::Question => rights.question, Kind::Request => rights.answer }) { return Err("right"); }
+    if !p.kind().answerable_with(rights) { return Err("right"); }
     let d = built(id, p);
-    Ok(if p.kind() == Kind::Plan { d.with_files(p.files.clone()) } else { d })
+    Ok(if p.kind() == Kind::Plan { d.with_files(p.files.clone()).with_omitted(p.files_omitted) } else { d })
 }
 
 // The text a phone is shown for a held item. The desktop's escaper runs first (it knows more hidden characters than the
@@ -207,9 +208,10 @@ pub fn waiting_notice(p: &Pending, id: &str, title: &str) -> Notice {
 // error says when the last read failed (`read`) or the first has not finished (`reading`). A phone without the Start right
 // is refused. Titles are redacted and cut, a repository whose path or host is not plain text is left out (it could not be
 // started either), and the repositories and issues are capped to what fits a frame.
-pub fn issues_reply(view: &serde_json::Value, settings: &serde_json::Value, rights: Rights) -> DesktopMsg {
+// `view` builds the work view and is not called for a phone without the right.
+pub fn issues_reply(view: impl FnOnce() -> serde_json::Value, settings: &serde_json::Value, rights: Rights) -> DesktopMsg {
     if !rights.start { return DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }; }
-    DesktopMsg::Issues(issue_list(view, settings))
+    DesktopMsg::Issues(issue_list(&view(), settings))
 }
 
 fn issue_list(view: &serde_json::Value, settings: &serde_json::Value) -> IssueList {
@@ -352,6 +354,12 @@ mod tests {
             m.get_mut("r1").unwrap().files = vec![file("b.md", "y", false, true), bad];
             assert!(blocks_allow(&m["r1"]));
         }
+        // so does a plan that names files which are not shown at all; the detail says how many, and the hash covers the count
+        m.get_mut("r1").unwrap().files = vec![file("b.md", "y", false, true)];
+        let whole = detail(&m, "r1", plan_right).unwrap();
+        m.get_mut("r1").unwrap().files_omitted = 2;
+        let more = detail(&m, "r1", plan_right).unwrap();
+        assert!(blocks_allow(&m["r1"]) && (whole.omitted, more.omitted) == (0, 2) && more.shown != whole.shown && more.shown == more.shown_now());
     }
 
     #[test]
@@ -481,7 +489,7 @@ mod tests {
         });
         let settings = json!({ "workRepos": { "github.com": ["acme/web", "acme/docs", "acme/empty"], "gitlab.example.test": ["g/api"], "unread.example.test": ["z/z"] } });
         let all = Rights { start: true, ..Default::default() };
-        let DesktopMsg::Issues(l) = issues_reply(&view, &settings, all) else { panic!("a phone with the right gets the list") };
+        let DesktopMsg::Issues(l) = issues_reply(|| view.clone(), &settings, all) else { panic!("a phone with the right gets the list") };
         let names: Vec<(&str, &str, bool, usize)> = l.repos.iter().map(|r| (r.path.as_str(), r.host.as_str(), r.cloned, r.issues.len())).collect();
         assert_eq!(names, [("acme/docs", "github.com", false, 1), ("acme/empty", "github.com", true, 0), ("acme/web", "github.com", true, 2), ("g/api", "gitlab.example.test", false, 0)],
             "ticked repos on the hosts read, with no issues too; one that is not ticked, or on a host not read, is left out");
@@ -492,21 +500,24 @@ mod tests {
         assert!(DesktopMsg::Issues(l).validate().is_ok());
         // a failed read says so and keeps what it has; the first read says it is not done
         for (status, want) in [("error", IssuesError::Read), ("loading", IssuesError::Reading)] {
-            let DesktopMsg::Issues(l) = issues_reply(&json!({ "status": status, "hosts": ["github.com"], "local": [], "away": [] }), &settings, all) else { panic!() };
+            let DesktopMsg::Issues(l) = issues_reply(|| json!({ "status": status, "hosts": ["github.com"], "local": [], "away": [] }), &settings, all) else { panic!() };
             assert_eq!((l.error, l.repos.len()), (Some(want), 3));
         }
         // Work off: nothing is listed, and it is not an error
-        assert_eq!(issues_reply(&json!({ "status": "off" }), &settings, all), DesktopMsg::Issues(IssueList::default()));
+        assert_eq!(issues_reply(|| json!({ "status": "off" }), &settings, all), DesktopMsg::Issues(IssueList::default()));
         // a phone without the Start right is refused
-        assert_eq!(issues_reply(&view, &settings, Rights { answer: true, ..Default::default() }), DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) });
+        // (and the work view is not even built for it)
+        let built = std::cell::Cell::new(false);
+        assert_eq!(issues_reply(|| { built.set(true); view.clone() }, &settings, Rights { answer: true, ..Default::default() }), DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) });
+        assert!(!built.get());
         // caps: the issues over all repos, the repos
         let many: Vec<serde_json::Value> = (1..=150).map(|n| issue(n, &"t".repeat(300), json!([]))).collect();
         let big = json!({ "status": "ok", "hosts": ["github.com"], "local": [{ "path": "acme/web", "issues": many }], "away": [] });
-        let DesktopMsg::Issues(l) = issues_reply(&big, &settings, all) else { panic!() };
+        let DesktopMsg::Issues(l) = issues_reply(|| big.clone(), &settings, all) else { panic!() };
         assert_eq!(l.repos.iter().map(|r| r.issues.len()).sum::<usize>(), MAX_ISSUES);
         assert!(l.repos.iter().flat_map(|r| &r.issues).all(|i| i.title.len() <= MAX_ISSUE_TITLE));
         let paths: Vec<String> = (0..60).map(|n| format!("o/r{n:02}")).collect();
-        let DesktopMsg::Issues(l) = issues_reply(&json!({ "status": "ok", "hosts": ["github.com"], "local": [], "away": [] }), &json!({ "workRepos": { "github.com": paths } }), all) else { panic!() };
+        let DesktopMsg::Issues(l) = issues_reply(|| json!({ "status": "ok", "hosts": ["github.com"], "local": [], "away": [] }), &json!({ "workRepos": { "github.com": paths } }), all) else { panic!() };
         assert_eq!(l.repos.len(), MAX_ISSUE_REPOS);
     }
 }

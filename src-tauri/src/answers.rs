@@ -15,8 +15,10 @@ pub struct Pending { pub sid: String, pub tool: String, pub tool_input: Value, p
     pub for_phones: bool, pub held_at: u64,
     // the Claude process's children when the watch first looked: a new one means the command started, so it was approved
     pub child_base: Option<Vec<u32>>,
-    // a plan's Markdown files, read when it was held (plan_files.rs): what a phone is shown with the plan, and what an approve covers
-    pub files: Vec<bobix_link::messages::PlanFile> }
+    // a plan's Markdown files, read when it was held (plan_files.rs): what a phone is shown with the plan, and what an approve covers;
+    // `files_omitted` counts the ones it names that could not be shown (an approve is refused for them); `cwd` is the folder they
+    // were read from, read again on an approve
+    pub files: Vec<bobix_link::messages::PlanFile>, pub files_omitted: u32, pub cwd: String }
 
 impl Pending {
     #[cfg(test)]
@@ -24,15 +26,22 @@ impl Pending {
         Pending { questions, input: Some(input), ..Pending::for_test(sid, false, tx, raw, false) }
     }
     pub fn kind(&self) -> Kind { if self.plan { Kind::Plan } else if self.input.is_some() { Kind::Question } else { Kind::Request } }
+    // The plan's Markdown files as they are on disk now (what was read when it was held is `files`).
+    pub fn files_now(&self) -> crate::plan_files::PlanFiles { crate::plan_files::read(self.tool_input["plan"].as_str().unwrap_or(""), &self.cwd) }
     #[cfg(test)]
     pub fn for_test(sid: &str, plan: bool, tx: oneshot::Sender<Option<Value>>, raw: &str, cut: bool) -> Pending {
-        Pending { sid: sid.into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0, child_base: None, files: vec![] }
+        Pending { sid: sid.into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: raw.into(), cut, risky: false, until: None, released: false, for_phones: false, held_at: 0, child_base: None, files: vec![], files_omitted: 0, cwd: String::new() }
     }
 }
 
 // What a held item is: a permission request, a ticket flow's plan, or Claude asking the person a question.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind { Request, Plan, Question }
+
+impl Kind {
+    // Whether a phone with these rights may answer an item of this kind.
+    pub fn answerable_with(self, r: bobix_link::pairing::Rights) -> bool { match self { Kind::Plan => r.plan, Kind::Question => r.question, Kind::Request => r.answer } }
+}
 
 // Who answered: the computer (a page, a pet, a notification) or a phone.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -223,23 +232,28 @@ fn new_id() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-// How long a request is held, and whether it is held only for the phones (nothing here shows it). A request a phone can
-// answer never runs out: once the hook returns, nobody can answer it from Bobix, so no countdown is kept while a phone is
-// paired, whatever "wait" says. The computer answering first, Esc and Stop still end it. With no phone paired, hold_secs rules.
-fn hold_for(phones: &crate::phones::State, settings: &Value, pet: &str, plan: bool, src: &dyn crate::presence::Source) -> (f64, bool) {
-    let secs = if plan { f64::INFINITY } else { settings::hold_secs(settings, pet) };
+// How long a request is held, and whether it is held only for the phones (nothing here shows it). An item a phone can
+// answer never runs out: once the hook returns, nobody can answer it from Bobix, so no countdown is kept while a phone that
+// holds the right for its kind (answer, plan or question) is paired, whatever "wait" says. The computer answering first, Esc
+// and Stop still end it. With no such phone, hold_secs rules.
+fn hold_for(phones: &crate::phones::State, settings: &Value, pet: &str, kind: Kind, src: &dyn crate::presence::Source) -> (f64, bool) {
+    let secs = if kind == Kind::Plan { f64::INFINITY } else { settings::hold_secs(settings, pet) };
     // nothing is shown to the person here (pets hidden or paused), but a phone is paired and nobody is at the computer: hold it for the phones
-    let for_phones = secs == 0.0 && !plan && phones.holds_for_phones(settings, src);
-    (if for_phones || (secs > 0.0 && phones.has_phones()) { f64::INFINITY } else { secs }, for_phones)
+    let for_phones = secs == 0.0 && kind != Kind::Plan && phones.holds_for_phones(settings, kind, src);
+    (if for_phones || (secs > 0.0 && phones.has_phone_for(kind)) { f64::INFINITY } else { secs }, for_phones)
 }
 
 // Holds session `s`'s request when the person can see it (settings::hold_secs). Called with the core locked.
 // plan: a ticket flow's plan, held until you answer whatever the pets show (it is the flow's one gate).
-pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut HashMap<String, Closed>, phones: &mut crate::phones::State, settings: &Value, s: &mut Session, e: &Value, plan: bool) -> Option<Reply> {
+// `read_files`: a plan's files read before the core was locked, with the folder they were read from; used when that is the
+// session's folder, else they are read here.
+#[allow(clippy::too_many_arguments)]
+pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut HashMap<String, Closed>, phones: &mut crate::phones::State, settings: &Value, s: &mut Session, e: &Value, plan: bool, read_files: Option<(String, crate::plan_files::PlanFiles)>) -> Option<Reply> {
     let src = crate::presence::source();
-    let (secs, for_phones) = hold_for(phones, settings, &s.pet, plan, &*src);
+    let kind = if plan { Kind::Plan } else if e["tool_name"] == "AskUserQuestion" { Kind::Question } else { Kind::Request };
+    let (secs, for_phones) = hold_for(phones, settings, &s.pet, kind, &*src);
     s.at_computer_why = None;
-    if secs == 0.0 { s.at_computer_why = Some(phones.why_not_held(settings, &*src)); return None; }
+    if secs == 0.0 { s.at_computer_why = Some(phones.why_not_held(settings, kind, &*src)); return None; }
     // one open request per session
     let now = crate::state::now();
     if let Some((oid, old)) = s.answer.as_ref().and_then(|a| a["id"].as_str()).and_then(|id| pending.remove(id).map(|p| (id.to_string(), p))) {
@@ -265,8 +279,10 @@ pub fn wait(b: &Arc<Bobix>, pending: &mut HashMap<String, Pending>, closed: &mut
         "risky": risky, "cut": cut, "odd": odd(&e["tool_input"]), "full": if is_question { escaped(&question_text(&questions)) } else { full_text(e) }, "plan": plan,
         "kind": if is_question { "question" } else if plan { "plan" } else { "request" },
         "questions": questions.iter().map(|q| json!({ "question": escaped(&q.text), "options": q.options.iter().map(|o| escaped(o)).collect::<Vec<_>>(), "multi": q.multi_select })).collect::<Vec<_>>() }));
+    let plan_text = e["tool_input"]["plan"].as_str().unwrap_or("");
+    let files = if !plan { Default::default() } else { match read_files { Some((cwd, f)) if cwd == s.cwd => f, _ => crate::plan_files::read(plan_text, &s.cwd) } };
     pending.insert(id.clone(), Pending { sid: s.id.clone(), tool: e["tool_name"].as_str().unwrap_or("").into(), tool_input: e["tool_input"].clone(), plan, input: is_question.then(|| e["tool_input"].clone()), raw: if is_question { question_text(&questions) } else { raw_text(e) }, questions, tx, cut, risky, until: (!forever).then(|| now + (secs * 1000.0) as u64), released: false, for_phones, held_at: now, child_base: None,
-        files: if plan { crate::plan_files::read(e["tool_input"]["plan"].as_str().unwrap_or(""), &s.cwd) } else { vec![] } });
+        files: files.files, files_omitted: files.omitted, cwd: s.cwd.clone() });
     // Nobody answered in time, or Claude moved on (Esc, session closed: the hook's request closes).
     let (b1, id1) = (b.clone(), id.clone());
     tauri::async_runtime::spawn(async move {
@@ -438,7 +454,7 @@ mod tests {
 
     fn pending(c: &mut crate::Core, id: &str, plan: bool) -> oneshot::Receiver<Option<Value>> {
         let (tx, rx) = oneshot::channel();
-        c.pending.insert(id.into(), Pending { sid: "s1".into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0, child_base: None, files: vec![] });
+        c.pending.insert(id.into(), Pending { sid: "s1".into(), tool: String::new(), tool_input: Value::Null, plan, questions: vec![], input: None, tx, raw: String::new(), cut: false, risky: false, until: None, released: false, for_phones: false, held_at: 0, child_base: None, files: vec![], files_omitted: 0, cwd: String::new() });
         rx
     }
 
@@ -520,34 +536,70 @@ mod tests {
         assert_eq!(late(&c, "c", None), Answered::Released("restart"), "after a restart a phone is told released, not unknown");
     }
 
-    // A request held while the pets are shown and "wait" is 60 seconds: with a phone paired it has no countdown (on the
-    // computer's own pages and on the phone), with none it keeps the 60 seconds and then goes back to Claude's prompt.
+    // A request held while the pets are shown and "wait" is 60 seconds: with a phone that can answer it paired it has no
+    // countdown (on the computer's own pages and on the phone), with none it keeps the 60 seconds and then goes back to Claude's
+    // prompt. A phone that holds only another right (activity, or the plan right for a plain request) is no reason to wait.
     #[test]
     fn a_request_a_phone_can_answer_has_no_countdown() {
         let (tx, _) = tokio::sync::broadcast::channel(4);
         let b = Arc::new(Bobix { core: std::sync::Mutex::new(crate::Core::default()), tx, token: "t".into(), port: 0, app: Default::default(),
             usage: std::sync::Mutex::new(crate::usage::Store::new(std::env::temp_dir().join("bobix-answers-test"))), dirty: Default::default(), phones_dirty: Default::default() });
         let settings = json!({ "approveWait": 60, "petsVisible": true, "paused": false });
-        let event = json!({ "tool_name": "Bash", "tool_input": { "command": "ls" } });
-        let held = |paired: bool| {
+        let held = |rights: Option<bobix_link::pairing::Rights>, tool: &str, input: Value| {
             let mut phones = crate::phones::State::default();
-            if paired {
+            if let Some(rights) = rights {
                 phones.cfg.on = true;
-                phones.store.phones.push(crate::phones::Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Default::default(), since: 0, needs_pairing: false, no_push: false });
+                phones.store.phones.push(crate::phones::Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights, since: 0, needs_pairing: false, no_push: false });
             }
             let (mut pending, mut closed) = (HashMap::new(), HashMap::new());
             let mut s = crate::state::Session::default();
             s.id = "s1".into(); s.state = "waiting".into();
-            let Some(Reply::Answer { secs, .. }) = wait(&b, &mut pending, &mut closed, &mut phones, &settings, &mut s, &event, false) else { panic!("not held") };
+            let event = json!({ "tool_name": tool, "tool_input": input });
+            let Some(Reply::Answer { secs, .. }) = wait(&b, &mut pending, &mut closed, &mut phones, &settings, &mut s, &event, false, None) else { panic!("not held") };
             let mut sessions = crate::state::Sessions::new();
             sessions.insert("s1".into(), s);
             let p = pending.values().next().unwrap();
             let home = crate::phone_view::home(&sessions, &pending, "Studio", crate::state::now(), bobix_link::messages::ComputerState::Online, vec![]);
-            (secs, p.until, home.waiting[0].seconds_left)
+            (secs, p.until.is_some(), home.waiting[0].seconds_left.is_some())
         };
-        assert_eq!(held(true), ("forever".into(), None, None), "a paired phone: no end, none shown");
-        let (secs, until, left) = held(false);
-        assert!(secs == "60" && until.is_some() && left.is_some_and(|l| l <= 60), "no phone: 60 seconds");
+        use bobix_link::pairing::Rights;
+        let bash = || ("Bash", json!({ "command": "ls" }));
+        let ask = || ("AskUserQuestion", json!({ "questions": [{ "question": "a", "options": [{ "label": "x" }, { "label": "y" }] }] }));
+        let with = |r: Option<Rights>, (tool, input): (&str, Value)| held(r, tool, input);
+        assert_eq!(with(Some(Rights { answer: true, ..Default::default() }), bash()), ("forever".into(), false, false), "a phone that can answer it: no end, none shown");
+        for r in [None, Some(Rights { activity: true, ..Default::default() }), Some(Rights { plan: true, question: true, ..Default::default() })] {
+            let (secs, until, left) = with(r, bash());
+            assert!(secs == "60" && until && left, "no phone that can answer a request ({r:?}): 60 seconds");
+        }
+        assert_eq!(with(Some(Rights { question: true, ..Default::default() }), ask()).0, "forever", "a question needs the question right");
+        assert_eq!(with(Some(Rights { answer: true, ..Default::default() }), ask()).0, "60");
+    }
+
+    // A plan's files read before the core was locked are used only for the folder they were read in; for any other the plan's
+    // files are read at once, never left out.
+    #[test]
+    fn a_plans_files_read_before_the_lock_are_used_only_for_their_folder() {
+        use crate::plan_files::PlanFiles;
+        let (tx, _) = tokio::sync::broadcast::channel(4);
+        let b = Arc::new(Bobix { core: std::sync::Mutex::new(crate::Core::default()), tx, token: "t".into(), port: 0, app: Default::default(),
+            usage: std::sync::Mutex::new(crate::usage::Store::new(std::env::temp_dir().join("bobix-answers-test"))), dirty: Default::default(), phones_dirty: Default::default() });
+        let dir = std::env::temp_dir().join(format!("bobix-wait-files-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("plans")).unwrap();
+        std::fs::write(dir.join("plans/a.md"), "from disk").unwrap();
+        let event = json!({ "tool_name": "ExitPlanMode", "tool_input": { "plan": "see plans/a.md" } });
+        let early = PlanFiles { files: vec![], omitted: 7 };
+        let held = |cwd: &str, read_files: Option<(String, PlanFiles)>| {
+            let (mut pending, mut closed, mut phones) = (HashMap::new(), HashMap::new(), crate::phones::State::default());
+            let mut s = crate::state::Session::default();
+            s.id = "s1".into(); s.cwd = dir.to_string_lossy().into_owned();
+            assert!(wait(&b, &mut pending, &mut closed, &mut phones, &json!({}), &mut s, &event, true, read_files.map(|(_, f)| (cwd.to_string(), f))).is_some());
+            let p = pending.into_values().next().unwrap();
+            (p.files.iter().map(|f| f.text.clone()).collect::<Vec<_>>(), p.files_omitted, p.cwd == s.cwd)
+        };
+        assert_eq!(held(&dir.to_string_lossy(), Some((String::new(), early.clone()))), (vec![], 7, true), "read in this folder: used as it is");
+        assert_eq!(held("/somewhere/else", Some((String::new(), early))), (vec!["from disk".to_string()], 0, true), "read in another folder: read again");
+        assert_eq!(held("", None), (vec!["from disk".to_string()], 0, true), "not read before: read now");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // A wait that is not held says why in `home`, only for the session that is answered at the computer.
@@ -564,7 +616,7 @@ mod tests {
             let mut s = crate::state::Session::default();
             s.id = "s1".into(); s.state = "waiting".into();
             let event = json!({ "tool_name": tool, "tool_input": input });
-            let reply = wait(&b, &mut pending, &mut closed, &mut phones, settings, &mut s, &event, false);
+            let reply = wait(&b, &mut pending, &mut closed, &mut phones, settings, &mut s, &event, false, None);
             let mut sessions = crate::state::Sessions::new();
             sessions.insert("s1".into(), s);
             let home = crate::phone_view::home(&sessions, &pending, "Studio", crate::state::now(), bobix_link::messages::ComputerState::Online, vec![]);

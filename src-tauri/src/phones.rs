@@ -281,6 +281,24 @@ impl State {
         Some((pid.clone(), Frame::Send { pid, to: id.into(), ttl: 600, collapse, push, body: b64(&sealed.packet) }))
     }
 
+    // The notices of the requests that ended: every paired phone learns who closed it (one that never had the push still has the
+    // item in its last `home`); the push that clears a shown notification goes only where it was announced. A phone's answer
+    // names the phone only to that phone (so it can say "this phone"); the others are told it was a phone, not which.
+    fn closed_frames(&mut self) -> Vec<Frame> {
+        let mut out = vec![];
+        for (id, sid, _, end) in std::mem::take(&mut self.closed_events) {
+            let notified = self.notified.remove(&id);
+            let answerer = self.answerers.remove(&id);
+            let push = notified.then(|| Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, event: None, replaces: Some(id.clone()) });
+            let ids: Vec<String> = self.store.phones.iter().map(|p| p.id.clone()).collect();
+            for p in ids {
+                let by = closed_by(end, answerer.as_deref(), &p);
+                let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid.clone(), title: String::new(), body: String::new(), by };
+                if let Some((_, f)) = self.tell(&p, &DesktopMsg::Notice(n), push.clone(), None) { out.push(f); }
+            }
+        }
+        out
+    }
     // The Live Activity pushes due now, one for each phone whose activity is out of date (see `activity_step`). Each is a
     // sealed `activity` packet with the count only (no names, no session), sent with a `liveActivity` push: the widget
     // opens the packet with the phone's key, so the relay and Apple carry nothing readable. Only a start is held back while
@@ -520,16 +538,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     }
     // requests that ended: the phones that were told of them are told they are gone
     let mut out = std::mem::take(&mut flushed);
-    for (id, sid, _, end) in std::mem::take(&mut st.closed_events) {
-        // every paired phone learns who closed it (one that never had the push still has the item in its last `home`);
-        // the push that clears a shown notification goes only where it was announced
-        let notified = st.notified.remove(&id);
-        let by = closed_by(end, st.answerers.remove(&id));
-        let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid, title: String::new(), body: String::new(), by };
-        let push = notified.then(|| Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, event: None, replaces: Some(id.clone()) });
-        let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
-        for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), push.clone(), None) { out.push(f); } }
-    }
+    out.extend(st.closed_frames());
     // homes: to every paired phone when something changed (the relay keeps only the latest for an offline one), a forced
     // one each minute to a phone that is online, and one at once for a phone that just paired or came online
     if st.cfg.on && !st.store.phones.is_empty() {
@@ -590,17 +599,18 @@ impl State {
     pub fn was_sent(&self, id: &str) -> bool { self.notified.contains(id) }
     #[cfg(test)]
     pub fn mark_sent(&mut self, id: &str) { self.notified.insert(id.into()); }
-    // Phone access is on and at least one phone is paired: a held request may be answered there, so it never runs out.
-    pub fn has_phones(&self) -> bool { self.cfg.on && !self.store.phones.is_empty() }
-    // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone is
-    // paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the input time
-    // cannot be read, the choice in Settings decides.
-    pub fn why_not_held(&self, settings: &Value, src: &dyn crate::presence::Source) -> bobix_link::messages::AtComputerWhy {
+    // Phone access is on and a paired phone holds the right to answer an item of this kind: it may be answered there, so it
+    // never runs out. A phone without the right cannot answer it, and holding it for that phone would only leave it unanswered.
+    pub fn has_phone_for(&self, kind: crate::answers::Kind) -> bool { self.cfg.on && self.store.phones.iter().any(|p| kind.answerable_with(p.rights)) }
+    // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone that can
+    // answer it is paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the
+    // input time cannot be read, the choice in Settings decides.
+    pub fn why_not_held(&self, settings: &Value, kind: crate::answers::Kind, src: &dyn crate::presence::Source) -> bobix_link::messages::AtComputerWhy {
         use bobix_link::messages::AtComputerWhy;
-        if self.has_phones() && settings["approveWait"].as_f64().unwrap_or(0.0) != 0.0 && src.idle_ms().is_some_and(|ms| ms < crate::presence::AT_COMPUTER_MS) { AtComputerWhy::Present } else { AtComputerWhy::NotShown }
+        if self.has_phone_for(kind) && settings["approveWait"].as_f64().unwrap_or(0.0) != 0.0 && src.idle_ms().is_some_and(|ms| ms < crate::presence::AT_COMPUTER_MS) { AtComputerWhy::Present } else { AtComputerWhy::NotShown }
     }
-    pub fn holds_for_phones(&self, settings: &Value, src: &dyn crate::presence::Source) -> bool {
-        if !self.has_phones() || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
+    pub fn holds_for_phones(&self, settings: &Value, kind: crate::answers::Kind, src: &dyn crate::presence::Source) -> bool {
+        if !self.has_phone_for(kind) || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
         match src.idle_ms() { Some(ms) => ms >= crate::presence::AT_COMPUTER_MS, None => self.cfg.hold != "computer" }
     }
     // The peers, the revocations the relay may not know, an open pairing. After an invite code let this computer in, again:
@@ -735,8 +745,7 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
             if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
         }
         PhoneMsg::Issues => {
-            let view = c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work));
-            let m = crate::phone_view::issues_reply(&view, &c.settings, rights);
+            let m = crate::phone_view::issues_reply(|| c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work)), &c.settings, rights);
             if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
         }
         PhoneMsg::StartPreview { project, iid, mode } => {
@@ -771,12 +780,13 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
     out
 }
 
-// Who a closed notice says closed the item. A phone's answer with the phone unknown says nothing (the phone then guesses).
-fn closed_by(end: crate::answers::End, phone: Option<String>) -> Option<ClosedBy> {
+// Who a closed notice to phone `to` says closed the item. A phone's answer with the phone unknown says nothing (the phone then
+// guesses). The phone that answered is named to that phone only; to another it is a phone with no id (empty).
+fn closed_by(end: crate::answers::End, answerer: Option<&str>, to: &str) -> Option<ClosedBy> {
     use crate::answers::{By, End};
     match end {
         End::Answered(By::Pc, _) | End::Computer => Some(ClosedBy::Computer),
-        End::Answered(By::Phone, _) => phone.map(|phone| ClosedBy::Phone { phone }),
+        End::Answered(By::Phone, _) => answerer.map(|a| ClosedBy::Phone { phone: if a == to { a.to_string() } else { String::new() } }),
         End::Expired => Some(ClosedBy::Expired),
         End::Released(_) => Some(ClosedBy::Released),
     }
@@ -967,17 +977,28 @@ fn apply_question(c: &mut crate::Core, cid: &str, id: &str, shown: &str, answers
 fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, note: &str, plan: bool, by: crate::answers::By, changed: &mut bool, _rights: &Rights) -> CmdResult {
     use crate::answers::{respond_core, Answered};
     // what is held, as the phone saw it: the kind first (an answer for a plan id is refused, and the reverse)
+    let mut fresh = None;
     match c.pending.get(id) {
         Some(p) if p.kind() != if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request } => return CmdResult::refused(cid, "kind"),
         Some(p) => {
-            if crate::phone_view::blocks_allow(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too, and a plan with a file cut or not sent: only what was shown is known
+            if crate::phone_view::blocks_allow(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too, and a plan with a file cut or not sent, or files not shown: only what was shown is known
             let rights = Rights { answer: true, plan: true, ..Default::default() };
             match crate::phone_view::detail(&c.pending, id, rights) {
                 Ok(d) if command::shown_matches(&d, shown) => {}
                 _ => return CmdResult::new(cid, Outcome::Stale),
             }
+            // An approve covers the files as they are on disk now, not as they were when the plan was held (what the hash
+            // covers is the copy in memory): read again, and when they differ the phone is told and shown the new ones.
+            if plan && choice == "allow" {
+                let now = p.files_now();
+                if now.files != p.files || now.omitted != p.files_omitted { fresh = Some(now); }
+            }
         }
         None => {}
+    }
+    if let Some(now) = fresh {
+        if let Some(p) = c.pending.get_mut(id) { (p.files, p.files_omitted) = (now.files, now.omitted); }
+        return CmdResult::new(cid, Outcome::Stale);
     }
     let r = respond_core(c, id, choice, note, by, Some(if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request }), now());
     match r {
@@ -1340,12 +1361,12 @@ mod tests {
         assert!(open_store(&c, &bad).is_none(), "a changed file is refused");
     }
 
-    use crate::{answers::{Pending, By}, presence::Fixed};
+    use crate::{answers::{Pending, By, Kind}, presence::Fixed};
 
     fn on_state() -> State {
         let mut st = State::default();
         st.cfg.on = true; st.cfg.hold = "phone".into();
-        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights::default(), since: 0, needs_pairing: false, no_push: false });
+        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights { answer: true, ..Default::default() }, since: 0, needs_pairing: false, no_push: false });
         st
     }
 
@@ -1415,34 +1436,74 @@ mod tests {
     #[test]
     fn a_closed_notice_says_who_closed_the_item() {
         use crate::answers::End;
-        assert_eq!(closed_by(End::Answered(By::Pc, true), None), Some(ClosedBy::Computer));
-        assert_eq!(closed_by(End::Computer, None), Some(ClosedBy::Computer), "answered in Claude's own prompt");
-        assert_eq!(closed_by(End::Answered(By::Phone, false), Some("p2".into())), Some(ClosedBy::Phone { phone: "p2".into() }));
-        assert_eq!(closed_by(End::Answered(By::Phone, true), None), None, "a phone's answer with the phone unknown says nothing");
-        assert_eq!(closed_by(End::Expired, None), Some(ClosedBy::Expired));
-        assert_eq!(closed_by(End::Released("settings"), None), Some(ClosedBy::Released));
+        assert_eq!(closed_by(End::Answered(By::Pc, true), None, "p1"), Some(ClosedBy::Computer));
+        assert_eq!(closed_by(End::Computer, None, "p1"), Some(ClosedBy::Computer), "answered in Claude's own prompt");
+        assert_eq!(closed_by(End::Answered(By::Phone, false), Some("p2"), "p2"), Some(ClosedBy::Phone { phone: "p2".into() }), "the phone that answered is told it was itself");
+        assert_eq!(closed_by(End::Answered(By::Phone, false), Some("p2"), "p1"), Some(ClosedBy::Phone { phone: String::new() }), "another phone is not told which");
+        assert_eq!(closed_by(End::Answered(By::Phone, true), None, "p1"), None, "a phone's answer with the phone unknown says nothing");
+        assert_eq!(closed_by(End::Expired, None, "p1"), Some(ClosedBy::Expired));
+        assert_eq!(closed_by(End::Released("settings"), None, "p1"), Some(ClosedBy::Released));
+    }
+
+    // Each paired phone is sent its own closed notice: the id of the phone that answered goes only to that phone.
+    #[test]
+    fn a_closed_notice_names_the_answering_phone_only_to_that_phone() {
+        let dir = std::env::temp_dir().join(format!("bobix-closed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let desktop = Identity::generate();
+        let mut st = on_state();
+        st.dir = dir.clone();
+        st.status = "online".into();
+        let mut links = vec![];
+        for (n, id) in ["p", "p2"].into_iter().enumerate() {
+            let phone = Identity::generate();
+            if n == 1 { let mut again = st.store.phones[0].clone(); again.id = id.into(); st.store.phones.push(again); }
+            st.store.phones[n].boxk = b64(&phone.public().boxk);
+            links.push((id, phone));
+        }
+        let desk_boxk = desktop.public().boxk;
+        st.identity = Some(desktop);
+        st.answerers.insert("r1".into(), "p2".into());
+        st.closed_events.push(("r1".into(), "s1".into(), false, crate::answers::End::Answered(By::Phone, true)));
+        let frames = st.closed_frames();
+        assert_eq!(frames.len(), 2, "every paired phone is told");
+        for (id, phone) in &links {
+            let mut link = Link::new(Direction::ToDesktop, *phone.box_secret(), desk_boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], now(), RecvState::default());
+            let Some(Frame::Send { body, .. }) = frames.iter().find(|f| matches!(f, Frame::Send { to, .. } if to == id)) else { panic!("no frame for {id}") };
+            let opened = link.open(&b64_decode(body).unwrap()).expect("the phone opens it");
+            let by: Value = serde_json::from_slice::<Value>(&opened.plaintext).unwrap()["by"].clone();
+            assert_eq!(by, if *id == "p2" { json!({ "kind": "phone", "phone": "p2" }) } else { json!({ "kind": "phone", "phone": "" }) }, "{id}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_request_is_held_for_phones_only_when_nobody_is_at_the_computer() {
         let s = json!({ "approveWait": -1 });
         let st = on_state();
-        assert!(!st.holds_for_phones(&s, &Fixed(Some(5_000))), "input 5 seconds ago: not held");
-        assert!(st.holds_for_phones(&s, &Fixed(Some(30_000))), "input 30 seconds ago: held");
-        assert_eq!(st.why_not_held(&s, &Fixed(Some(5_000))), AtComputerWhy::Present, "not held because someone is using the computer");
-        assert_eq!(st.why_not_held(&json!({ "approveWait": 0 }), &Fixed(Some(5_000))), AtComputerWhy::NotShown, "never hold: nobody is the reason");
-        assert!(!st.holds_for_phones(&json!({ "approveWait": 0 }), &Fixed(Some(30_000))), "never hold wins");
-        assert!(st.holds_for_phones(&s, &Fixed(None)), "no reading: the choice decides, keep for the phone by default");
+        assert!(!st.holds_for_phones(&s, Kind::Request, &Fixed(Some(5_000))), "input 5 seconds ago: not held");
+        assert!(st.holds_for_phones(&s, Kind::Request, &Fixed(Some(30_000))), "input 30 seconds ago: held");
+        assert_eq!(st.why_not_held(&s, Kind::Request, &Fixed(Some(5_000))), AtComputerWhy::Present, "not held because someone is using the computer");
+        assert_eq!(st.why_not_held(&json!({ "approveWait": 0 }), Kind::Request, &Fixed(Some(5_000))), AtComputerWhy::NotShown, "never hold: nobody is the reason");
+        assert!(!st.holds_for_phones(&json!({ "approveWait": 0 }), Kind::Request, &Fixed(Some(30_000))), "never hold wins");
+        assert!(st.holds_for_phones(&s, Kind::Request, &Fixed(None)), "no reading: the choice decides, keep for the phone by default");
         let mut c = on_state();
         c.cfg.hold = "computer".into();
-        assert!(!c.holds_for_phones(&s, &Fixed(None)), "no reading, let Claude ask at the computer");
-        assert!(c.holds_for_phones(&s, &Fixed(Some(60_000))), "a reading beats the choice");
+        assert!(!c.holds_for_phones(&s, Kind::Request, &Fixed(None)), "no reading, let Claude ask at the computer");
+        assert!(c.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "a reading beats the choice");
         let mut off = on_state();
         off.cfg.on = false;
-        assert!(!off.holds_for_phones(&s, &Fixed(Some(60_000))), "switch off");
+        assert!(!off.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "switch off");
         let mut none = on_state();
         none.store.phones.clear();
-        assert!(!none.holds_for_phones(&s, &Fixed(Some(60_000))), "no phone paired");
+        assert!(!none.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "no phone paired");
+        // a phone that cannot answer this kind of item is no reason to hold it
+        let mut quiet = on_state();
+        quiet.store.phones[0].rights = Rights { activity: true, ..Default::default() };
+        assert!(!quiet.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "a phone with only the activity right");
+        assert_eq!(quiet.why_not_held(&s, Kind::Request, &Fixed(Some(5_000))), AtComputerWhy::NotShown, "and it is not the reason either");
+        quiet.store.phones[0].rights = Rights { question: true, ..Default::default() };
+        assert!(quiet.holds_for_phones(&s, Kind::Question, &Fixed(Some(60_000))) && !quiet.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "the right for the kind");
     }
 
     fn held(c: &mut crate::Core, id: &str, plan: bool, raw: &str, cut: bool) {
@@ -1484,13 +1545,41 @@ mod tests {
             assert!(c.pending.contains_key(id));
             assert_eq!(a(&mut c, id, &sh, "deny", true, &mut changed).outcome, Outcome::Ok, "{id}: but sent back");
         }
-        held(&mut c, "filesok", true, "1. a plan with a whole file", false);
-        c.pending.get_mut("filesok").unwrap().files = vec![file(false, true)];
-        let shf = shown(&c, "filesok");
-        c.pending.get_mut("filesok").unwrap().files[0].text = "step, changed since".into();
-        assert_eq!(a(&mut c, "filesok", &shf, "allow", true, &mut changed).outcome, Outcome::Stale, "a file that is not the one that was shown");
-        let shf = shown(&c, "filesok");
-        assert_eq!(a(&mut c, "filesok", &shf, "allow", true, &mut changed).outcome, Outcome::Ok);
+        // the files are read again when a plan is approved: the hash covers the copy held, the approve covers the disk
+        let dir = std::env::temp_dir().join(format!("bobix-approve-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("plans")).unwrap();
+        let write = |name: &str, text: &str| std::fs::write(dir.join("plans").join(name), text).unwrap();
+        let hold_plan = |c: &mut crate::Core, id: &str, names: &[String]| {
+            held(c, id, true, "1. a plan that names files", false);
+            let p = c.pending.get_mut(id).unwrap();
+            p.tool_input = json!({ "plan": names.iter().map(|n| format!("plans/{n}")).collect::<Vec<_>>().join(" ") });
+            p.cwd = dir.to_string_lossy().into_owned();
+            let now = p.files_now();
+            (p.files, p.files_omitted) = (now.files, now.omitted);
+        };
+        write("phase-01.md", "step");
+        for id in ["filesame", "fileedit", "filegone"] { hold_plan(&mut c, id, &["phase-01.md".to_string()]); }
+        let shf = shown(&c, "filesame");
+        assert_eq!(a(&mut c, "filesame", &shf, "allow", true, &mut changed).outcome, Outcome::Ok, "files as they were when held: approved");
+        write("phase-01.md", "step, changed since");
+        let shf = shown(&c, "fileedit");
+        assert_eq!(a(&mut c, "fileedit", &shf, "allow", true, &mut changed).outcome, Outcome::Stale, "a file edited on disk since the plan was held");
+        assert!(c.pending.contains_key("fileedit") && c.pending["fileedit"].files[0].text == "step, changed since", "the phone is shown the new file");
+        let shf = shown(&c, "fileedit");
+        assert_eq!(a(&mut c, "fileedit", &shf, "allow", true, &mut changed).outcome, Outcome::Ok, "and approves what it was then shown");
+        std::fs::remove_file(dir.join("plans/phase-01.md")).unwrap();
+        let shf = shown(&c, "filegone");
+        assert_eq!(a(&mut c, "filegone", &shf, "deny", true, &mut changed).outcome, Outcome::Ok, "sending a plan back needs no re-read");
+        // a plan that names more files than a phone is shown cannot be approved remotely (it can be sent back)
+        let nine: Vec<String> = (0..9).map(|i| { write(&format!("p{i}.md"), "x"); format!("p{i}.md") }).collect();
+        hold_plan(&mut c, "nine", &nine);
+        assert_eq!((c.pending["nine"].files.len(), c.pending["nine"].files_omitted), (8, 1));
+        let sh9 = shown(&c, "nine");
+        assert_eq!(a(&mut c, "nine", &sh9, "allow", true, &mut changed).why.as_deref(), Some("cut"), "nine files: not approved from a phone");
+        assert!(c.pending.contains_key("nine"));
+        assert_eq!(a(&mut c, "nine", &sh9, "deny", true, &mut changed).outcome, Outcome::Ok);
+        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(a(&mut c, "cutplan", &shcp, "deny", true, &mut changed).outcome, Outcome::Ok, "but a cut plan may be sent back");
         assert_eq!(a(&mut c, "cutreq", &shc, "deny", false, &mut changed).outcome, Outcome::Ok, "deny on a cut request is allowed");
         assert_eq!(a(&mut c, "req", &sh, "allow", false, &mut changed).outcome, Outcome::Ok);
