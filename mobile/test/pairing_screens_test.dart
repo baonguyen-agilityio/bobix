@@ -150,6 +150,42 @@ void main() {
   );
 
   testWidgets(
+    'the scan line sweeps the viewfinder, and stays put with animations off',
+    (tester) async {
+      double top() => tester
+          .widget<Positioned>(find.byKey(const ValueKey('scan-line')))
+          .top!;
+      Future<void> toScan({required bool still}) async {
+        await tester.pumpWidget(
+          MediaQuery(
+            data: MediaQueryData(disableAnimations: still),
+            child: host(overrides: [...base(), scanner(const [])]),
+          ),
+        );
+        await tester.pump();
+        await tester.tap(find.text('Scan the code'));
+        await tester.pump();
+        await tester.pump();
+      }
+
+      await toScan(still: false);
+      final start = top();
+      await tester.pump(const Duration(milliseconds: 550));
+      expect(top(), isNot(start), reason: 'it moves');
+      await tester.pumpWidget(const SizedBox());
+      await toScan(still: true);
+      final rest = top();
+      await tester.pump(const Duration(milliseconds: 550));
+      expect(top(), rest, reason: 'it does not move');
+      expect(
+        tester.binding.hasScheduledFrame,
+        isFalse,
+        reason: 'nothing ticks',
+      );
+    },
+  );
+
+  testWidgets(
     'a relay that is not Bobix\'s is named before the person goes on; rights; refusing leaves nothing',
     (tester) async {
       tester.view.physicalSize = const Size(
