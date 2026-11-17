@@ -17,12 +17,15 @@ import 'package:phone/link/link_state.dart';
 import 'package:phone/link/pairing_controller.dart';
 import 'package:phone/link/pairing_service.dart';
 import 'package:phone/link/relay_session.dart';
+import 'package:phone/push/push_platform.dart';
+import 'package:phone/push/push_providers.dart';
 import 'package:phone/screens/pair_again_screen.dart';
 import 'package:phone/screens/pair_chrome.dart';
 import 'package:phone/screens/pairing_screens.dart';
 import 'package:phone/src/rust/api/messages.dart';
 
 import 'support/core_library.dart';
+import 'support/fake_push_platform.dart';
 import 'support/fixture_phone_data.dart';
 import 'support/memory_secure_keys.dart';
 
@@ -44,6 +47,14 @@ class _Fixed extends PairingController {
   final PairingState initial;
   @override
   PairingState build() => initial;
+}
+
+/// Stands on [initial] and counts how often the person went on from the done page.
+class _FixedDone extends _Fixed {
+  _FixedDone(super.initial);
+  static int finished = 0;
+  @override
+  Future<void> finish() async => finished++;
 }
 
 /// Stands on the naming step and records what is submitted.
@@ -419,6 +430,73 @@ void main() {
         find.text('The computer gave fewer rights than you asked for.'),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets(
+    'after a pairing the reason for notifications comes first and iOS is asked once, only on "Turn on"',
+    (tester) async {
+      final computer = PairedComputer(
+        id: 'c',
+        name: 'Studio Mac (demo)',
+        relay: 'wss://relay.example',
+        phoneName: 'p',
+        desktopBoxPublic: Uint8List(32),
+        rights: rights,
+        recvState: '',
+        eventReservation: BigInt.zero,
+      );
+      Future<FakePushPlatform> done(
+        WidgetTester tester, {
+        PushPermission status = PushPermission.notDetermined,
+      }) async {
+        final platform = FakePushPlatform()..permission = status;
+        _FixedDone.finished = 0;
+        await tester.pumpWidget(
+          host(
+            overrides: [
+              pairingControllerProvider.overrideWith(
+                () => _FixedDone(
+                  PairingState(
+                    step: PairStep.done,
+                    computer: computer,
+                    asked: rights,
+                  ),
+                ),
+              ),
+              pushPlatformProvider.overrideWithValue(platform),
+            ],
+          ),
+        );
+        await tester.pump();
+        return platform;
+      }
+
+      var platform = await done(tester);
+      await tester.tap(find.text('Open Home'));
+      await tester.pumpAndSettle();
+      expect(find.text('Know when a session needs you'), findsOneWidget);
+      expect(platform.calls, isEmpty, reason: 'the reason comes before the system dialog');
+      expect(_FixedDone.finished, 0);
+      await tester.tap(find.text('Turn on notifications'));
+      await tester.pumpAndSettle();
+      expect(platform.calls, ['requestPermission']);
+      expect(_FixedDone.finished, 1);
+
+      platform = await done(tester);
+      await tester.tap(find.text('Open Home'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+      expect(platform.calls, isEmpty);
+      expect(_FixedDone.finished, 1, reason: 'declining still opens the app');
+
+      platform = await done(tester, status: PushPermission.denied);
+      await tester.tap(find.text('Open Home'));
+      await tester.pumpAndSettle();
+      expect(find.text('Know when a session needs you'), findsNothing, reason: 'iOS would not show its dialog again');
+      expect(platform.calls, isEmpty);
+      expect(_FixedDone.finished, 1);
     },
   );
 

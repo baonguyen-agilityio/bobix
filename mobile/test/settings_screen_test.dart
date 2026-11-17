@@ -12,6 +12,7 @@ import 'package:phone/data/models.dart';
 import 'package:phone/keys/platform_secure_keys.dart';
 import 'package:phone/keys/secure_keys.dart';
 import 'package:phone/l10n/l10n.dart';
+import 'package:phone/push/push_platform.dart';
 import 'package:phone/push/push_providers.dart';
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_providers.dart';
@@ -105,6 +106,7 @@ void main() {
     Widget screen = const SettingsScreen(),
     Brightness brightness = Brightness.light,
     List<Override> extra = const [],
+    FakePushPlatform? push,
   }) async {
     tester.view.physicalSize = const Size(400, 2600);
     tester.view.devicePixelRatio = 1;
@@ -119,7 +121,7 @@ void main() {
       ),
       linkControllerProvider.overrideWith(() => link),
       secureKeysProvider.overrideWithValue(keys),
-      pushPlatformProvider.overrideWithValue(FakePushPlatform()),
+      pushPlatformProvider.overrideWithValue(push ?? FakePushPlatform()),
       ...extra,
     ];
     await tester.pumpWidget(
@@ -419,6 +421,28 @@ void main() {
     expect(find.text('Disconnect from Studio Mac (demo)?'), findsNothing);
   });
 
+  testWidgets('notifications that are refused say so and open iOS Settings; allowed ones show nothing', (tester) async {
+    final push = FakePushPlatform()..permission = PushPermission.denied;
+    await pump(tester, paired: computer(), push: push);
+    expect(find.text('Notifications are off for Bobix.'), findsOneWidget);
+    await tester.tap(find.text('Open iOS Settings'));
+    await tester.pump();
+    expect(push.calls, ['openSettings']);
+
+    final asked = FakePushPlatform();
+    await pump(tester, paired: computer(), push: asked);
+    expect(find.text('Know when a session needs you'), findsOneWidget, reason: 'never asked: offered here');
+    await tester.tap(find.text('Turn on notifications'));
+    await tester.pump();
+    await tester.pump();
+    expect(asked.calls, ['requestPermission']);
+    expect(find.text('Know when a session needs you'), findsNothing);
+
+    await pump(tester, paired: computer(), push: FakePushPlatform()..permission = PushPermission.authorized);
+    expect(find.text('Notifications are off for Bobix.'), findsNothing);
+    expect(find.text('Know when a session needs you'), findsNothing);
+  });
+
   testWidgets('the Safety group has the Hide details switch', (tester) async {
     await pump(tester, paired: computer());
     expect(find.text('Hide details on the lock screen'), findsOneWidget);
@@ -704,6 +728,8 @@ void main() {
         lang == 'en' ? 'What this phone may do' : 'Quyền của điện thoại này',
       );
       await tester.scrollUntilVisible(row, 200);
+      await tester.ensureVisible(row);
+      await tester.pump();
       await tester.tap(row);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'permissions $lang');

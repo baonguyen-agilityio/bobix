@@ -12,10 +12,12 @@ import 'package:phone/keys/secure_keys.dart';
 import 'package:phone/link/computer_link.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/link/relay_session.dart';
+import 'package:phone/push/push_registration.dart';
 import 'package:phone/src/rust/api/core.dart';
 import 'package:phone/src/rust/api/messages.dart';
 
 import 'support/core_library.dart';
+import 'support/fake_push_platform.dart';
 import 'support/memory_secure_keys.dart';
 import 'support/scripted_socket.dart';
 
@@ -46,7 +48,7 @@ void main() {
 
   setUpAll(initCoreLibrary);
 
-  Future<void> build({Flavor flavor = Flavor.dev}) async {
+  Future<void> build({Flavor flavor = Flavor.dev, PushRegistration? push}) async {
     tmp = Directory.systemTemp.createTempSync('bobix-link-unit-');
     keys = MemorySecureKeys();
     store = LinkStateStore(tmp);
@@ -89,6 +91,7 @@ void main() {
       flavor: flavor,
       identity: phone,
       versions: versions,
+      push: push,
       delay: (_, _) => const Duration(milliseconds: 20),
     );
     link.resume();
@@ -124,6 +127,28 @@ void main() {
       'body': b64(packet),
     };
   }
+
+  test(
+    'every connection registers the push tokens with the relay, with a grant for the relay\'s host',
+    () async {
+      final platform = FakePushPlatform()..currentToken = 'ab12cd';
+      final reg = PushRegistration(platform, platform: 'ios');
+      addTearDown(reg.dispose);
+      await build(push: reg);
+      await until(() => sockets.first.ofType('pushToken').isNotEmpty);
+      final f = sockets.first.ofType('pushToken').single;
+      expect((f['kind'], f['token'], f['platform']), ('device', 'ab12cd', 'ios'));
+      expect(platform.grants.single['relayId'], '127.0.0.1', reason: 'the grant names the host of the relay address');
+      // A token that comes with the activity rides the same link.
+      await reg.registerExtra(kind: 'activity', ref: 'act1', token: 'aa');
+      await until(() => sockets.first.ofType('pushToken').length == 2);
+      expect(sockets.first.ofType('pushToken').last['kind'], 'activity');
+      // The connection drops and the link reconnects: both tokens are registered again on the new one.
+      await sockets.first.close();
+      await until(() => sockets.length >= 2 && sockets[1].ofType('pushToken').length == 2);
+      expect(sockets[1].ofType('pushToken').map((x) => x['kind']).toSet(), {'device', 'activity'});
+    },
+  );
 
   test(
     'on connect: peers, then a sealed sync; every packet is acknowledged',

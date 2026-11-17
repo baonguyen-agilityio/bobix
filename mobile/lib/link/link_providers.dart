@@ -72,12 +72,18 @@ class LinkController extends AsyncNotifier<AppPhase> {
   AppLifecycleListener? _lifecycle;
   StreamSubscription<LinkStatus>? _status;
 
+  /// The paired computer's id, also while the phone shows "pair again" (the extension still holds its key then).
+  String? _computerId;
+
   @override
   Future<AppPhase> build() async {
     ref.onDispose(() {
       _lifecycle?.dispose();
       _status?.cancel();
     });
+    // Listens for the APNs token from the start, also before a pairing: the token the system hands over right after the
+    // permission dialog must not be missed.
+    await _pushStart();
     final store = await _store();
     final PairedComputer? computer;
     try {
@@ -101,6 +107,7 @@ class LinkController extends AsyncNotifier<AppPhase> {
     if (auth == null || box == null) {
       // The platform said the keys are definitely not there (a restore, a wiped keychain): pair again.
       await _forget(store, keys);
+      await _pushRemove(computer.id);
       return PairAgain(computer: computer.name, removedByComputer: false);
     }
     return _attach(
@@ -140,10 +147,48 @@ class LinkController extends AsyncNotifier<AppPhase> {
         ),
       );
 
+  /// Push is a convenience: whatever is wrong with it (no platform channel, a refused permission) never stops the app.
+  Future<void> _pushStart() async {
+    try {
+      await ref.read(pushRegistrationProvider).start();
+    } on Object {
+      // Not set up here: the notifications simply do not come.
+    }
+  }
+
+  /// The notification extension learns this computer's key, so that it can open the notices pushed for it.
+  Future<void> _pushComputer(PairedComputer c, ProtocolVersions v) async {
+    try {
+      await ref
+          .read(pushLinkStoreProvider)
+          .setComputer(
+            c.id,
+            c.desktopBoxPublic,
+            versionMin: v.min,
+            versionMax: v.max,
+          );
+    } on Object {
+      // The extension then shows the relay's own generic text.
+    }
+  }
+
+  /// The computer is gone from this phone (disconnected, erased, revoked): the extension forgets its key, or it could still
+  /// open that computer's notices. The link itself stops renewing the grants when it ends.
+  Future<void> _pushRemove(String id) async {
+    try {
+      await ref.read(pushLinkStoreProvider).removeComputer(id);
+    } on Object {
+      // Push is not set up (no channel, nothing registered): nothing to remove.
+    }
+  }
+
   Future<AppPhase> _attach(
     PairedComputer computer,
     DeviceIdentity identity,
   ) async {
+    final versions = await protocolVersions();
+    _computerId = computer.id;
+    await _pushComputer(computer, versions);
     final link = ComputerLink(
       computer: computer,
       keys: ref.read(secureKeysProvider),
@@ -151,12 +196,16 @@ class LinkController extends AsyncNotifier<AppPhase> {
       connect: ref.read(relayConnectorProvider),
       flavor: ref.read(flavorProvider),
       identity: identity,
-      versions: await protocolVersions(),
+      versions: versions,
+      push: ref.read(pushRegistrationProvider),
       now: ref.read(clockProvider),
     );
     _status = link.statusChanges.listen((s) {
       if (s.maybeRevoked || s.revokedByComputer) {
-        if (s.revokedByComputer) _logDisconnected(computer.name);
+        if (s.revokedByComputer) {
+          _logDisconnected(computer.name);
+          unawaited(_pushRemove(computer.id));
+        }
         state = AsyncData(
           PairAgain(
             computer: computer.name,
@@ -229,22 +278,17 @@ class LinkController extends AsyncNotifier<AppPhase> {
   /// the welcome screen without starting a pairing.
   Future<void> forgetComputer() async {
     final current = state.value;
-    // The notification extension keeps its own copy of the computer's public key: it goes too, or it could still open
-    // that computer's notices after an Erase.
-    final id = current is Paired ? current.link.computer.id : null;
+    final id = _computerId;
+    _computerId = null;
     final name = switch (current) {
       Paired p => p.link.computer.name,
       PairAgain a => a.computer,
       _ => '',
     };
     _logDisconnected(name);
-    if (id != null) {
-      try {
-        await ref.read(pushLinkStoreProvider).removeComputer(id);
-      } on Object {
-        // Push is not set up (no channel, nothing registered): nothing to remove.
-      }
-    }
+    // The notification extension keeps its own copy of the computer's public key: it goes too, or it could still open
+    // that computer's notices after an Erase.
+    if (id != null) await _pushRemove(id);
     if (current is Paired) await current.link.dispose();
     await _status?.cancel();
     await _forget(await _store(), ref.read(secureKeysProvider));

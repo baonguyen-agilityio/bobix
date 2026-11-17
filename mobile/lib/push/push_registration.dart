@@ -77,6 +77,9 @@ class PushRegistration {
     return status;
   }
 
+  /// Whether notifications are allowed, refused or not asked yet.
+  Future<PushPermission> permissionStatus() => _platform.permissionStatus();
+
   Future<void> openSystemSettings() => _platform.openSettings();
 
   /// A token of a Live Activity (`activity`, [ref] is the activity's id) or the token that lets a push start one

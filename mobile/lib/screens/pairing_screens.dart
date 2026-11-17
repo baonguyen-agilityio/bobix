@@ -11,6 +11,7 @@ import '../l10n/l10n.dart';
 import '../link/link_state.dart';
 import '../link/pairing_controller.dart';
 import '../link/pairing_service.dart';
+import '../push/notifications_permission.dart';
 import '../src/rust/api/messages.dart';
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
@@ -589,7 +590,11 @@ class _Done extends ConsumerWidget {
       actions: PillButton(
         label: s('phone.pair.open'),
         primary: true,
-        onPressed: ref.read(pairingControllerProvider.notifier).finish,
+        onPressed: () async {
+          // The moment to ask: the computer just said yes, and the person is about to open the app.
+          await offerNotifications(context, ref);
+          await ref.read(pairingControllerProvider.notifier).finish();
+        },
       ),
     );
   }

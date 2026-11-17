@@ -7,6 +7,7 @@ import '../config/flavor.dart';
 import '../config/relay.dart';
 import '../data/models.dart';
 import '../keys/secure_keys.dart';
+import '../push/push_registration.dart';
 import '../src/rust/api/core.dart';
 import '../src/rust/api/messages.dart';
 import '../src/rust/api/relay.dart';
@@ -109,6 +110,7 @@ class ComputerLink {
     required this.flavor,
     required this.identity,
     required this.versions,
+    this.push,
     DateTime Function()? now,
     Random? random,
     Duration Function(int attempt, double random)? delay,
@@ -139,6 +141,9 @@ class ComputerLink {
   final Flavor flavor;
   final DeviceIdentity identity;
   final ProtocolVersions versions;
+
+  /// Registers this phone's push tokens with the relay each time a connection is up. Null in tests that do not need it.
+  final PushRegistration? push;
   final DateTime Function() _now;
   final Random _random;
   final Duration Function(int attempt, double random) _delay;
@@ -237,6 +242,7 @@ class ComputerLink {
 
   Future<void> dispose() async {
     await pause();
+    _pushForget();
     await _statusChanges.close();
     await _homeChanges.close();
     await _messages.close();
@@ -262,6 +268,7 @@ class ComputerLink {
           break;
         }
         _set(status.copyWith(conn: ConnState.ok));
+        _pushUp(session);
         session.send(await relayPeersFrame(allow: [computer.id]));
         await _sendSealed(
           await syncMessage(
@@ -277,12 +284,14 @@ class ComputerLink {
           if (_gone || !_running) break;
         }
         _session = null;
+        _pushDown();
         await session.close();
         if (!_gone && _running && status.conn == ConnState.ok) {
           _set(status.copyWith(conn: ConnState.relayDown));
         }
       } on Object catch (e) {
         _session = null;
+        _pushDown();
         _set(status.copyWith(conn: _unreachable(e)));
       }
       if (!_running || _gone || status.maybeRevoked) break;
@@ -295,6 +304,40 @@ class ComputerLink {
       await _sleep(_delay(attempt, _random.nextDouble()));
     }
     _running = false;
+  }
+
+  /// The id push grants name: the host of the relay's address, which is the relay's own `RELAY_ID` by rule.
+  String? get _relayId => relayHost(computer.relay);
+
+  /// The relay id [push] has this link registered under, while a connection is up.
+  String? _pushId;
+
+  /// A connection is up: the push tokens go to the relay over it, each with a fresh grant. A failure here never ends the
+  /// connection: the next one, or the daily renewal, tries again.
+  void _pushUp(RelaySession session) {
+    final p = push, id = _relayId;
+    if (p == null || id == null) return;
+    _pushId = id;
+    unawaited(() async {
+      try {
+        await p.connected(id, (frame) async => session.send(jsonEncode(frame)));
+      } on Object {
+        // Push is not available (no platform channel, a closed socket): nothing is lost, it registers again later.
+      }
+    }());
+  }
+
+  /// The connection ended: nothing is sent to the relay until it is up again.
+  void _pushDown() {
+    final id = _pushId;
+    _pushId = null;
+    if (id != null) push?.disconnected(id);
+  }
+
+  /// This link no longer belongs to the relay (it moved, or the pairing ended): its grants are not renewed.
+  void _pushForget() {
+    final id = _relayId;
+    if (id != null) push?.forget(id);
   }
 
   ConnState _unreachable(Object e) => whyUnreachable(e) == Unreachable.noNetwork
@@ -495,6 +538,7 @@ class ComputerLink {
       case 'relayMoved':
         final url = j['url'] as String;
         if (await relayAllowed(url, flavor) && url != computer.relay) {
+          _pushForget();
           computer.relay = url;
           await store.save(computer);
           // The old connection ends; the loop opens the new relay at once.
@@ -508,6 +552,7 @@ class ComputerLink {
   Future<void> _eraseEverything() async {
     _gone = true;
     _running = false;
+    _pushForget();
     await keys.eraseAll();
     await store.erase();
     await _session?.close();

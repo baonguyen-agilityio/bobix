@@ -9,6 +9,7 @@ import '../keys/secure_keys.dart';
 import '../l10n/l10n.dart';
 import '../log/activity_log.dart';
 import '../push/hide_details.dart';
+import '../push/notifications_permission.dart';
 import '../src/rust/api/messages.dart' show PhoneRights;
 import '../link/link_providers.dart';
 import '../link/link_state.dart';
@@ -89,6 +90,7 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ),
         ],
+        const NotificationsPermissionNotice(),
         _Section(s('phone.settings.sec')),
         _Group(
           children: [

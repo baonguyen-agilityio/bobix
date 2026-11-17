@@ -10,10 +10,12 @@ import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/link/pairing_controller.dart';
 import 'package:phone/log/activity_log.dart';
+import 'package:phone/push/push_providers.dart';
 import 'package:phone/src/rust/api/core.dart';
 import 'package:phone/src/rust/api/messages.dart';
 
 import 'support/core_library.dart';
+import 'support/fake_push_platform.dart';
 import 'support/memory_secure_keys.dart';
 
 void main() {
@@ -55,9 +57,13 @@ void main() {
     await keys.putSecret(SecureKeys.box, identity.boxSecret);
   }
 
+  final push = FakePushPlatform();
+
   ProviderContainer container() {
+    push.calls.clear();
     final c = ProviderContainer(
       overrides: [
+        pushPlatformProvider.overrideWithValue(push),
         supportDirectoryProvider.overrideWith((ref) async => tmp),
         secureKeysProvider.overrideWithValue(keys),
         relayConnectorProvider.overrideWithValue(
@@ -139,6 +145,27 @@ void main() {
       expect(c.read(pairingControllerProvider).step, PairStep.welcome);
     },
   );
+
+  test('the notification extension learns the computer at every start, and forgets it on Erase', () async {
+    await storePairing();
+    final c = container();
+    final phase = await phaseOf(c);
+    expect(phase, isA<Paired>());
+    expect(push.calls.where((x) => x.startsWith('setComputer')), ['setComputer c 32 1-1']);
+    await c.read(linkControllerProvider.notifier).forgetComputer();
+    expect(push.calls.where((x) => x.startsWith('removeComputer')), ['removeComputer c']);
+  });
+
+  test('a pairing that just ended tells the extension the new computer', () async {
+    final c = container();
+    await phaseOf(c);
+    await storePairing();
+    final stored = (await LinkStateStore(tmp).load())!;
+    await c.read(linkControllerProvider.notifier).paired(stored);
+    expect(push.calls.where((x) => x.startsWith('setComputer')), ['setComputer c 32 1-1']);
+    final phase = c.read(linkControllerProvider).value;
+    if (phase is Paired) await phase.link.dispose();
+  });
 
   test('erase and pair again erases, then opens the scanner', () async {
     await storePairing();
