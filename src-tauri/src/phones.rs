@@ -449,6 +449,7 @@ pub fn init(b: &Arc<Bobix>) {
     let st = &mut c.phones;
     st.dir = dir.clone();
     st.cfg = cfg;
+    if st.cfg.relay.is_empty() { if let Some(url) = default_relay(option_env!("BOBIX_DEFAULT_RELAY")) { st.cfg.relay = url; } }
     if st.cfg.hold != "computer" { st.cfg.hold = "phone".into(); }
     st.log = read(log_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     // Only a computer that was ever paired has anything stored; nothing is created here.
@@ -1173,6 +1174,13 @@ fn relay_norm(url: &str, allow_lan: bool) -> Option<String> {
     (allow_lan || !norm.starts_with("ws://") || norm.starts_with("ws://localhost")).then_some(norm)
 }
 
+/// The relay address a build comes with (`BOBIX_DEFAULT_RELAY` at compile time; the `-phones` release sets it), shown in the
+/// field until another one is applied. Only a usable address counts; none for a build without it.
+fn default_relay(raw: Option<&str>) -> Option<String> {
+    let url = raw?.trim();
+    relay_norm(url, ENABLED).map(|_| url.to_string())
+}
+
 pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
     let mut out = vec![];
     {
@@ -1403,6 +1411,14 @@ mod tests {
         for never in ["ws://203.0.113.5:8787", "ws://relay.example", "ws://169.254.169.254", "http://192.168.1.20"] {
             assert!(relay_norm(never, false).is_none() && relay_norm(never, true).is_none(), "{never}");
         }
+    }
+
+    #[test]
+    fn default_relay_takes_only_a_usable_address() {
+        assert_eq!(default_relay(Some(" wss://relay.example ")).as_deref(), Some("wss://relay.example"));
+        assert_eq!(default_relay(None), None);
+        assert_eq!(default_relay(Some("")), None);
+        assert_eq!(default_relay(Some("https://relay.example")), None);
     }
 
     #[test]
