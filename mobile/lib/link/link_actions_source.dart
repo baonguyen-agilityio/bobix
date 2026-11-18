@@ -6,6 +6,7 @@ import '../data/models.dart' show ConnState;
 import '../features/actions/actions_models.dart';
 import '../features/actions/actions_source.dart';
 import '../keys/secure_keys.dart';
+import 'plan_files_wire.dart';
 import '../src/rust/api/core.dart' as core;
 import '../src/rust/api/messages.dart' as msg;
 import '../src/rust/api/relay.dart';
@@ -33,10 +34,15 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     this.answerWithin = const Duration(seconds: 10),
   }) : _now = now ?? DateTime.now {
     _results = link.results.listen((r) {
-      _outcomes[r.cid] = _outcomeOf(r);
+      final out = _outcomeOf(r);
+      _outcomes[r.cid] = out;
+      // however late the result comes (after `send` stopped waiting, or through Check status)
+      final sent = _sent.remove(r.cid);
+      if (sent != null) _settle(sent.command, sent.answered, out);
       unawaited(link.forget(r.cid));
     });
     _homes = link.homeChanges.listen(_track);
+    _notices = link.closedNotices.listen(_onClosedNotice);
     if (link.home != null) _track(link.home!);
   }
 
@@ -53,8 +59,11 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
   /// How long an answer to a question of the phone (a `detail`, a start preview) is waited for.
   final Duration answerWithin;
 
-  late final StreamSubscription<Object> _results, _homes;
+  late final StreamSubscription<Object> _results, _homes, _notices;
   final _signed = <String, _Signed>{};
+
+  /// Commands sent whose result has not come, by id: what is undone when the computer does not take one.
+  final _sent = <String, ({Command command, String? answered})>{};
   final _pids = <String, String>{};
   final _outcomes = <String, CommandOutcome>{};
   final _closed = <String, RequestClosed>{};
@@ -66,6 +75,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
   Future<void> dispose() async {
     await _results.cancel();
     await _homes.cancel();
+    await _notices.cancel();
     _lastOpen.clear();
     _closed.clear();
   }
@@ -104,13 +114,28 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     };
     for (final id in _held) {
       if (now.containsKey(id)) continue;
-      _closed[id] = RequestClosed(
-        ClosedBy.computer,
-        at: _clock(snap.receivedAtMs),
-        last: _lastOpen[id],
-      );
+      _closed[id] = _closedView(id, _clock(snap.receivedAtMs));
     }
     _held = now.keys.toSet();
+  }
+
+  /// How an item that left `home` closed: as the computer said, else this phone's own answer, else the old guess (the
+  /// computer; only an older computer says nothing).
+  RequestClosed _closedView(String id, String at) => RequestClosed(
+    switch (link.closerOf(id)) {
+      Closer.me => ClosedBy.thisPhone,
+      Closer.otherPhone => ClosedBy.otherPhone,
+      Closer.expired || Closer.released => ClosedBy.expired,
+      Closer.computer || Closer.unknown => ClosedBy.computer,
+    },
+    at: at,
+    last: _lastOpen[id],
+  );
+
+  /// The notice can come after the `home` that dropped the item: it corrects what was recorded from the guess.
+  void _onClosedNotice(ClosedNotice n) {
+    final old = _closed[n.ref];
+    if (old != null) _closed[n.ref] = _closedView(n.ref, old.at);
   }
 
   static String _clock(int ms) {
@@ -145,12 +170,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     if (closed != null) return closed;
     final w = await _until(() => _waiting(id), answerWithin);
     if (w == null) {
-      return _closed[id] ??
-          RequestClosed(
-            ClosedBy.computer,
-            at: _clock(_nowMs),
-            last: _lastOpen[id],
-          );
+      return _closed[id] ?? _closedView(id, _clock(_nowMs));
     }
     final d = await link.detail(id, within: answerWithin);
     if (d == null) return const RequestLoading();
@@ -194,6 +214,8 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
           multiSelect: q['multiSelect'] == true,
         ),
     ],
+    files: shownFilesOf(planFilesOf(d)),
+    omitted: planFilesOmittedOf(d),
   );
 
   Future<Map<String, dynamic>> _item(String id) async {
@@ -218,6 +240,8 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       markdown: d['text'] as String,
       shownHash: await _shown(d),
       cut: d['cut'] == true,
+      files: planFilesOf(d),
+      omitted: planFilesOmittedOf(d),
     );
   }
 
@@ -253,17 +277,29 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
         .firstOrNull;
     final rights = link.computer.rights;
     List<String>? lines;
+    var lineTimes = const <int>[];
     var linesAt = '';
     if (rights.activity && link.connected) {
       final d = await link.detail(id, fresh: true, within: answerWithin);
       if (d != null) {
-        // The computer sends them oldest first; the screen lists the newest first.
-        lines = (d['text'] as String)
-            .split('\n')
-            .where((l) => l.isNotEmpty)
-            .toList()
-            .reversed
-            .toList();
+        // The computer sends them oldest first; the screen lists the newest first. `times` (absent from an older
+        // computer) has one entry per line; unless it counts the lines it is not used.
+        final all = (d['text'] as String).split('\n');
+        final raw = d['times'];
+        final times = raw is List && raw.length == all.length
+            ? [
+                for (final x in raw)
+                  if (x is num) x.toInt(),
+              ]
+            : const <int>[];
+        final keep = [
+          for (var i = 0; i < all.length; i++)
+            if (all[i].isNotEmpty) i,
+        ].reversed.toList();
+        lines = [for (final i in keep) all[i]];
+        if (times.length == all.length) {
+          lineTimes = [for (final i in keep) times[i]];
+        }
         linesAt = _clock(_nowMs);
       }
     }
@@ -280,6 +316,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       },
       tool: '',
       lines: lines,
+      lineTimes: lineTimes,
       linesAt: linesAt,
       stopAllowed: stop,
       waitingOnRequest: held?['id'] as String?,
@@ -288,9 +325,67 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
 
   // ---- start ----
 
-  /// The computer sends no list of issues a phone could start (`home` has none): the picker is empty until it does.
+  /// The titles of the issues the computer listed last, by issue id: a start preview carries no title of its own.
+  final _titles = <String, String>{};
+
+  /// Asks the computer for the repositories ticked on it and their issues. A computer that does not answer in time
+  /// is an error (the screen says so); one that refuses says this phone has no Start right.
   @override
-  Future<List<StartIssue>> issues() async => const [];
+  Future<StartList> issues() async {
+    final answer = Completer<Map<String, dynamic>>();
+    final sub = link.messages.listen((m) {
+      if ((m.kind != 'issues' && m.kind != 'error') || answer.isCompleted) {
+        return;
+      }
+      final j = jsonDecode(m.json) as Map<String, dynamic>;
+      if (m.kind == 'issues' || j['code'] == 'right') answer.complete(j);
+    });
+    try {
+      await link.send(await msg.issuesRequestMessage());
+      final j = await answer.future.timeout(answerWithin);
+      if (j['kind'] == 'error') {
+        return const StartList([], error: StartListError.noRight);
+      }
+      final list = _issueList(j);
+      for (final r in list.repos) {
+        for (final i in r.issues) {
+          _titles[i.id] = i.title;
+        }
+      }
+      return list;
+    } finally {
+      await sub.cancel();
+    }
+  }
+
+  StartList _issueList(Map<String, dynamic> j) => StartList(
+    [
+      for (final r
+          in (j['repos'] as List? ?? const []).cast<Map<String, dynamic>>())
+        StartRepo(
+          r['path'] as String,
+          r['host'] as String,
+          cloned: r['cloned'] == true,
+          issues: [
+            for (final i
+                in (r['issues'] as List? ?? const [])
+                    .cast<Map<String, dynamic>>())
+              StartIssue(
+                '${r['path']}#${i['iid']}',
+                (i['iid'] as num).toInt(),
+                i['title'] as String,
+                r['path'] as String,
+                hasSession: i['hasSession'] == true,
+              ),
+          ],
+        ),
+    ],
+    error: switch (j['error']) {
+      'read' => StartListError.read,
+      'reading' => StartListError.reading,
+      _ => null,
+    },
+  );
 
   @override
   Future<StartPreview> startPreview(String issueId, StartMode mode) async {
@@ -321,7 +416,12 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
       final j = await answer.future.timeout(answerWithin);
       final free = (j['freeDisk'] as num).toInt();
       return StartPreview(
-        issue: StartIssue(issueId, int.tryParse(iid) ?? 0, '', project),
+        issue: StartIssue(
+          issueId,
+          int.tryParse(iid) ?? 0,
+          _titles[issueId] ?? '',
+          project,
+        ),
         mode: mode,
         prompt: j['prompt'] as String,
         promptHash: j['promptHash'] as String,
@@ -439,6 +539,15 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     if (s == null) {
       return const CommandOutcome(OutcomeKind.refused, reason: 'not confirmed');
     }
+    // From here the item is this phone's answer: when it leaves `home`, the computer did not close it.
+    final answered = switch (command.kind) {
+      CommandKind.stop => command.text,
+      CommandKind.start => null,
+      _ => command.target,
+    };
+    if (answered != null && answered.isNotEmpty) link.answeredItem(answered);
+    _sent[command.id] = (command: command, answered: answered);
+    if (_sent.length > 64) _sent.remove(_sent.keys.first);
     final message = await msg.finishCommand(
       input: s.input,
       cid: command.id,
@@ -461,9 +570,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
           first.complete(const CommandOutcome(OutcomeKind.queued));
         case RelayFrame_Dropped(pid: final p) when p == pid:
           unawaited(link.forget(command.id));
-          first.complete(
-            const CommandOutcome(OutcomeKind.refused, reason: 'dropped'),
-          );
+          first.complete(_unsent(command));
         default:
           break;
       }
@@ -481,7 +588,7 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
           Uint8List.fromList(message),
         );
       } on SocketLost {
-        return const CommandOutcome(OutcomeKind.refused, reason: 'offline');
+        return _unsent(command, reason: 'offline');
       }
       _pids[command.id] = pid;
       return await first.future.timeout(
@@ -552,6 +659,23 @@ class LinkActionsSource implements ActionsSource, BiometricGate {
     } finally {
       await sub.cancel();
     }
+  }
+
+  /// A command that never reached the computer: it answered nothing.
+  CommandOutcome _unsent(Command command, {String reason = 'dropped'}) {
+    final out = CommandOutcome(OutcomeKind.refused, reason: reason);
+    final sent = _sent.remove(command.id);
+    if (sent != null) _settle(sent.command, sent.answered, out);
+    return out;
+  }
+
+  /// After the computer's result: an answer it did not take is not this phone's, and an item whose content changed is
+  /// fetched again the next time it is opened.
+  void _settle(Command command, String? answered, CommandOutcome out) {
+    if (out.kind != OutcomeKind.applied && answered != null) {
+      link.answeredHere.remove(answered);
+    }
+    if (out.kind == OutcomeKind.stale) link.detailCache.remove(command.target);
   }
 
   /// What the computer's result means for the screen.

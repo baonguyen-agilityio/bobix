@@ -12,10 +12,10 @@ typedef PetRenderer = Future<Uint8List> Function(String design, int color, Strin
 /// Keeps the widgets, the controls and the Live Activity in step with the last `home`: writes the shared list and the
 /// pets' images, and starts, updates or ends the activity.
 ///
-/// Which Live Activity path runs: the activity is started HERE, when the app has data (the plan's fallback: counts and
-/// states only), and may be updated by push through its own token. Starting one by push needs a relay payload with
-/// `event: start` and the attributes type, which the relay does not send yet, so the push-to-start token is registered
-/// but nothing can use it until it does. Nothing was shown on a real iPhone.
+/// The Live Activity has two writers: this app (when it has data, counts only) and the computer, which pushes a sealed count
+/// through the relay (to start one with the app closed, to update it and to end it). Both draw the same count. This one
+/// never ends the activity on a zero it cannot trust: only a `home` that came over the connection that is up, from a
+/// computer that is reachable, says nothing waits.
 class SurfacesSync {
   SurfacesSync(
     this._platform, {
@@ -82,6 +82,9 @@ class SurfacesSync {
     try {
       if (!await _platform.liveActivities()) return;
       final waiting = SharedListJson.waiting(home);
+      // The `home` kept from an earlier run, or the last one before the computer went away, has no say in ending the
+      // activity: the computer's own push does that, and the app's next live `home` too.
+      if (waiting == 0 && !(home.live && home.conn == ConnState.ok)) return;
       // The platform keeps one activity: it ends it when nothing waits, updates the one that exists (also one from an
       // earlier run of the app) and starts one otherwise. No name goes into it: it draws the shared list.
       await _platform.syncActivity({

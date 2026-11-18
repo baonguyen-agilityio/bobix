@@ -79,8 +79,10 @@ fn patterns() -> &'static [(fancy_regex::Regex, &'static str)] {
     ].into_iter().map(|(p, r)| (fancy_regex::Regex::new(p).expect("redaction pattern"), r)).collect())
 }
 // The text with secrets replaced, cut at MAX_TEXT characters, and how many were replaced.
-pub fn redact(text: &str) -> (String, usize) {
-    let mut s: String = text.chars().filter(|c| !c.is_control() || *c == '\n' || *c == '\t').take(MAX_TEXT).collect();
+pub fn redact(text: &str) -> (String, usize) { redact_to(text, MAX_TEXT) }
+// The same, cut at `max` characters (a caller that cuts by itself and must not be cut silently passes a larger one).
+pub fn redact_to(text: &str, max: usize) -> (String, usize) {
+    let mut s: String = text.chars().filter(|c| !c.is_control() || *c == '\n' || *c == '\t').take(max).collect();
     let mut n = 0;
     for (re, rep) in patterns() {
         n += re.find_iter(&s).filter(|m| m.is_ok()).count();

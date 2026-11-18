@@ -66,7 +66,8 @@ pub enum PeerState {
 /// A frame from the relay, as far as the phone acts on it. Anything else is `Other` (ignored).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RelayFrame {
-    Challenge { nonce: String },
+    /// `relay_id`: the id the relay says its push grants must name (none from an older relay).
+    Challenge { nonce: String, relay_id: Option<String> },
     /// A sealed packet from `from`, its body already decoded.
     Msg { pid: String, from: String, packet: Vec<u8> },
     Presence { peer: String, state: PeerState },
@@ -85,7 +86,7 @@ pub enum RelayFrame {
 pub fn parse_relay_frame(text: String) -> Result<RelayFrame, CoreError> {
     let frame = Frame::parse(&text).map_err(|_| CoreError::Malformed)?;
     Ok(match frame {
-        Frame::Challenge { nonce } => RelayFrame::Challenge { nonce },
+        Frame::Challenge { nonce, relay_id } => RelayFrame::Challenge { nonce, relay_id },
         Frame::Msg { pid, from, body } => RelayFrame::Msg { pid, from, packet: b64_decode(&body).ok_or(CoreError::Malformed)? },
         Frame::Presence { peer, state } => RelayFrame::Presence {
             peer,
@@ -323,7 +324,11 @@ mod tests {
 
     #[test]
     fn frames_from_the_relay_are_read_by_the_crate() {
-        assert_eq!(parse_relay_frame(r#"{"type":"challenge","nonce":"n1"}"#.into()), Ok(RelayFrame::Challenge { nonce: "n1".into() }));
+        assert_eq!(parse_relay_frame(r#"{"type":"challenge","nonce":"n1"}"#.into()), Ok(RelayFrame::Challenge { nonce: "n1".into(), relay_id: None }));
+        assert_eq!(
+            parse_relay_frame(r#"{"type":"challenge","nonce":"n1","relayId":"r.example"}"#.into()),
+            Ok(RelayFrame::Challenge { nonce: "n1".into(), relay_id: Some("r.example".into()) })
+        );
         let msg = format!(r#"{{"type":"msg","pid":"p","from":"d","body":"{}"}}"#, b64(&[1, 2, 3]));
         assert_eq!(parse_relay_frame(msg), Ok(RelayFrame::Msg { pid: "p".into(), from: "d".into(), packet: vec![1, 2, 3] }));
         assert_eq!(

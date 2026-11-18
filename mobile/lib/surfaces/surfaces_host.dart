@@ -73,6 +73,8 @@ class _SurfacesHostState extends ConsumerState<SurfacesHost> with WidgetsBinding
           (t) => unawaited(reg.registerExtra(kind: 'pushToStart', token: t)),
         ),
       );
+      // The system handed these over at launch, before anything listened.
+      unawaited(p.replayTokens().catchError((Object _) {}));
     } catch (_) {
       // No platform (a test): nothing to register.
     }

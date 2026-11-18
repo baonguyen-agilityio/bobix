@@ -30,7 +30,7 @@ class _FaceIdPainter extends CustomPainter {
     final p = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6 * k
+      ..strokeWidth = 1.8 * k
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     Offset o(double x, double y) => Offset(x * k, y * k);

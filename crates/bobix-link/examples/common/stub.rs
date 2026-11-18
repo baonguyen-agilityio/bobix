@@ -72,7 +72,7 @@ async fn serve(ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, st
         }
     });
     let nonce = b64(&bobix_link::random::<32>());
-    let _ = tx.send(Frame::Challenge { nonce: nonce.clone() });
+    let _ = tx.send(Frame::Challenge { nonce: nonce.clone(), relay_id: None });
     let first = tokio::time::timeout(Duration::from_secs(5), stream.next()).await.map_err(|_| "no auth")?;
     let Some(Ok(Message::Text(t))) = first else { return Err("no auth".into()) };
     let Ok(Frame::Auth { id, key, relay, sig, .. }) = Frame::parse(t.as_str()) else { return Err("no auth".into()) };

@@ -314,8 +314,26 @@ Future<void> checkVectors(Map<String, dynamic> v) async {
           multiSelect: q['multiSelect'],
         ),
     ];
+    final files = [
+      for (final f
+          in ((c['files'] ?? const []) as List).cast<Map<String, dynamic>>())
+        ShownFile(
+          name: f['name'],
+          path: f['path'],
+          bytes: BigInt.from(f['bytes']),
+          text: f['text'],
+          cut: f['cut'],
+          sent: f['sent'],
+        ),
+    ];
     expect(
-      await shownHash(text: c['text'], cut: c['cut'], questions: questions),
+      await shownHash(
+        text: c['text'],
+        cut: c['cut'],
+        questions: questions,
+        files: files,
+        omitted: (c['omitted'] ?? 0) as int,
+      ),
       c['shown'],
       reason: '${c['what']} ${c['text']}',
     );
@@ -324,9 +342,24 @@ Future<void> checkVectors(Map<String, dynamic> v) async {
         text: '${c['text']} ',
         cut: c['cut'],
         questions: questions,
+        files: files,
+        omitted: 0,
       ),
       isNot(c['shown']),
     );
+    if (files.isNotEmpty) {
+      expect(
+        await shownHash(
+          text: c['text'],
+          cut: c['cut'],
+          questions: questions,
+          files: files.reversed.toList(),
+          omitted: 0,
+        ),
+        isNot(c['shown']),
+        reason: 'the order of the files is in the hash',
+      );
+    }
   }
 
   // New keys: 32 bytes each, never the same twice, and the id follows the public key.

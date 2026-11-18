@@ -146,6 +146,78 @@ fn shown_covers_the_options_their_order_and_cut() {
     assert_ne!(a.shown, b.shown);
 }
 
+fn plan_file(name: &str, text: &str) -> PlanFile {
+    PlanFile { name: name.into(), path: format!("plans/{name}"), bytes: text.len() as u64, text: text.into(), cut: false, sent: true }
+}
+
+#[test]
+fn a_plan_without_files_hashes_as_before_and_with_files_covers_each_of_them() {
+    // no files: the bytes are the old encoding, so an older phone and an older desktop still agree, and nothing is on the wire
+    let plain = Detail::build("p", DetailKind::Plan, "# Plan", false, vec![]);
+    assert_eq!(plain.shown, shown_hash("# Plan", false, &[]));
+    assert_eq!(plain.shown, shown_hash_with_files("# Plan", false, &[], &[]));
+    assert_eq!(plain.clone().with_files(vec![]).shown, plain.shown);
+    let v: Value = serde_json::from_slice(&DesktopMsg::Detail(plain.clone()).to_json()).unwrap();
+    assert!(v.get("files").is_none());
+    let old = br##"{"kind":"detail","id":"p","what":"plan","text":"# Plan","shown":"","odd":false,"cut":false}"##;
+    let Ok(DesktopMsg::Detail(d)) = DesktopMsg::from_json(old) else { panic!("a detail with no files must still parse") };
+    assert!(d.files.is_empty());
+
+    // with files: whatever the phone shows of a file is in the hash
+    let base = plain.clone().with_files(vec![plan_file("a.md", "one"), plan_file("b.md", "two")]);
+    assert_ne!(base.shown, plain.shown);
+    assert!(command::shown_matches(&base, &base.shown));
+    let changed = |f: &dyn Fn(&mut Vec<PlanFile>)| {
+        let mut files = base.files.clone();
+        f(&mut files);
+        plain.clone().with_files(files)
+    };
+    for other in [
+        changed(&|f| f[1].text = "tw0".into()),
+        changed(&|f| f[0].name = "c.md".into()),
+        changed(&|f| f[0].path = "other/a.md".into()),
+        changed(&|f| f[0].bytes += 1),
+        changed(&|f| f[1].cut = true),
+        changed(&|f| f[1].sent = false),
+        changed(&|f| f.swap(0, 1)),
+        changed(&|f| { f.pop(); }),
+    ] {
+        assert!(!command::shown_matches(&other, &base.shown));
+    }
+    // the boundary between two files' texts cannot move
+    let ab = plain.clone().with_files(vec![plan_file("a.md", "ab"), plan_file("b.md", "c")]);
+    let a_bc = plain.clone().with_files(vec![plan_file("a.md", "a"), plan_file("b.md", "bc")]);
+    assert_ne!(ab.shown, a_bc.shown);
+    let back: DesktopMsg = DesktopMsg::from_json(&DesktopMsg::Detail(base.clone()).to_json()).unwrap();
+    assert_eq!(back, DesktopMsg::Detail(base.clone()));
+
+    // files the plan names that could not be shown: the count is in the hash and on the wire, and 0 is neither
+    assert_eq!(base.clone().with_omitted(0).shown, base.shown);
+    let more = base.clone().with_omitted(2);
+    assert_ne!(more.shown, base.shown);
+    assert!(!command::shown_matches(&more, &base.shown), "a phone that was shown the files without the count cannot approve");
+    assert_ne!(base.clone().with_omitted(3).shown, more.shown);
+    let v: Value = serde_json::from_slice(&DesktopMsg::Detail(more.clone()).to_json()).unwrap();
+    assert_eq!(v["omitted"], 2);
+    assert!(serde_json::from_slice::<Value>(&DesktopMsg::Detail(base.clone()).to_json()).unwrap().get("omitted").is_none());
+    assert_eq!(DesktopMsg::from_json(&DesktopMsg::Detail(more.clone()).to_json()).unwrap(), DesktopMsg::Detail(more));
+}
+
+#[test]
+fn the_files_of_a_plan_are_limited() {
+    let with = |files: Vec<PlanFile>| DesktopMsg::Detail(Detail::build("p", DetailKind::Plan, "x", false, vec![]).with_files(files));
+    let full = "a".repeat(MAX_PLAN_FILE_TEXT);
+    assert!(with(vec![plan_file("a.md", &full); 6]).validate().is_ok());
+    assert_eq!(with(vec![plan_file("a.md", &full); 7]).validate(), Err(LimitError::TooLong("files", MAX_PLAN_FILES_TEXT)), "all texts together");
+    assert!(with(vec![plan_file("a.md", "x"); MAX_PLAN_FILES]).validate().is_ok());
+    assert!(with(vec![plan_file("a.md", "x"); MAX_PLAN_FILES + 1]).validate().is_err(), "too many files");
+    assert!(with(vec![plan_file("a.md", &"a".repeat(MAX_PLAN_FILE_TEXT + 1))]).validate().is_err(), "one text");
+    assert!(with(vec![plan_file(&"n".repeat(MAX_PLAN_FILE_NAME + 1), "x")]).validate().is_err(), "a name");
+    // the worst case still fits a sealed frame, though JSON doubles every quote: a full plan and 8 KB of quotes in each of 6 files
+    let worst = DesktopMsg::Detail(Detail::build("p", DetailKind::Plan, &"\"".repeat(MAX_PLAN), false, vec![]).with_files(vec![plan_file("a.md", &"\"".repeat(MAX_PLAN_FILE_TEXT)); 6]));
+    assert!(worst.validate().is_ok() && worst.to_json().len() <= MAX_FRAME / 4 * 3 - 2048, "{} bytes", worst.to_json().len());
+}
+
 #[test]
 fn sync_gives_unknown_for_a_command_never_received() {
     let known = CmdResult::new("aaaa", Outcome::LatePc);
@@ -181,7 +253,7 @@ fn desktop_messages_round_trip_with_documented_names() {
     let home = DesktopMsg::Home(Home {
         sent_at: NOW,
         computer: Computer { name: "Studio".into(), state: ComputerState::Online, unfinished: 0 },
-        sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 }, can_stop: false, lines: 0 }],
+        sessions: vec![SessionInfo { id: "s1".into(), title: "Fix login".into(), project: "demo".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 3 }, can_stop: false, lines: 0, at_computer_why: None }],
         waiting: vec![waiting],
         groups: vec![Group { group: GroupKind::NeedsYou, ids: vec!["r1".into()] }],
         rights: Some(Rights { answer: true, stop: true, ..Default::default() }),
@@ -201,9 +273,15 @@ fn desktop_messages_round_trip_with_documented_names() {
     assert!(round_trip(&DesktopMsg::Home(h)).get("rights").is_none());
 
     let detail = DesktopMsg::Detail(Detail {
-        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![],
+        id: "r1".into(), what: DetailKind::ToolInput, text: "ls".into(), shown: shown_hash("ls", false, &[]), odd: false, cut: false, questions: vec![], times: vec![], files: vec![], omitted: 0,
     });
     assert_eq!(round_trip(&detail)["what"], "toolInput");
+    assert!(round_trip(&detail).get("times").is_none(), "no times, nothing on the wire");
+    let old = br#"{"kind":"detail","id":"l","what":"lastLines","text":"a\nb","shown":"","odd":false,"cut":false}"#;
+    let Ok(DesktopMsg::Detail(d)) = DesktopMsg::from_json(old) else { panic!("an older detail must still parse") };
+    assert!(d.times.is_empty());
+    let timed = DesktopMsg::Detail(Detail { times: vec![5, 9], ..d });
+    assert_eq!(round_trip(&timed)["times"], serde_json::json!([5, 9]));
 
     let prompt = DesktopMsg::StartPrompt(StartPrompt {
         project: "demo".into(), iid: "12".into(), mode: Mode::Quick, prompt: "Do it".into(),
@@ -225,10 +303,53 @@ fn desktop_messages_round_trip_with_documented_names() {
     assert_eq!(round_trip(&DesktopMsg::Paired { computer: "Studio".into(), rights: rights() })["kind"], "paired");
     assert_eq!(round_trip(&DesktopMsg::Revoked { why: "removed".into() })["why"], "removed");
     assert_eq!(round_trip(&DesktopMsg::RelayMoved { url: "wss://r.example".into() })["kind"], "relayMoved");
-    let n = DesktopMsg::Notice(Notice { what: NoticeKind::Waiting, reference: "r1".into(), session: "s1".into(), title: "t".into(), body: "b".into() });
+    let n = DesktopMsg::Notice(Notice { what: NoticeKind::Waiting, reference: "r1".into(), session: "s1".into(), title: "t".into(), body: "b".into(), by: None });
     let v = round_trip(&n);
     assert_eq!((v["kind"].as_str(), v["what"].as_str(), v["ref"].as_str()), (Some("notice"), Some("waiting"), Some("r1")));
+    assert!(v.get("by").is_none(), "an absent `by` is not sent");
+    // a closed notice names who closed it; one from an older desktop has no `by`
+    let closed = |by| DesktopMsg::Notice(Notice { what: NoticeKind::Closed, reference: "r1".into(), session: "s1".into(), title: String::new(), body: String::new(), by });
+    assert_eq!(round_trip(&closed(Some(ClosedBy::Computer)))["by"], json!({"kind":"computer"}));
+    assert_eq!(round_trip(&closed(Some(ClosedBy::Phone { phone: "p2".into() })))["by"], json!({"kind":"phone","phone":"p2"}));
+    let old = br#"{"kind":"notice","what":"closed","ref":"r1","session":"s1","title":"","body":""}"#;
+    assert_eq!(DesktopMsg::from_json(old).unwrap(), closed(None));
+    // a session that waits at the computer says why, and an older desktop says nothing
+    let info = br#"{"id":"s","title":"t","project":"p","state":"atComputer","pet":{"design":"cat","color":1},"atComputerWhy":"tooLarge"}"#;
+    assert_eq!(serde_json::from_slice::<SessionInfo>(info).unwrap().at_computer_why, Some(AtComputerWhy::TooLarge));
+    let older = br#"{"id":"s","title":"t","project":"p","state":"atComputer","pet":{"design":"cat","color":1}}"#;
+    assert_eq!(serde_json::from_slice::<SessionInfo>(older).unwrap().at_computer_why, None);
     assert_eq!(round_trip(&DesktopMsg::Error { code: "update".into(), who: Some(Who::Desktop) })["who"], "desktop");
+}
+
+#[test]
+fn the_issue_list_names_repos_with_no_issues_and_why_it_may_be_short() {
+    let issue = |iid, has_session| IssueInfo { iid, title: "Fix login".into(), updated: None, has_session };
+    let list = DesktopMsg::Issues(IssueList {
+        repos: vec![
+            IssueRepo { path: "acme/web".into(), host: "github.com".into(), cloned: true, issues: vec![issue(7, true)] },
+            IssueRepo { path: "acme/docs".into(), host: "github.com".into(), cloned: false, issues: vec![] },
+        ],
+        error: Some(IssuesError::Read),
+    });
+    let v = round_trip(&list);
+    assert_eq!((v["kind"].as_str(), v["error"].as_str()), (Some("issues"), Some("read")));
+    assert_eq!(v["repos"][0]["issues"][0], json!({"iid":7,"title":"Fix login","hasSession":true}));
+    assert_eq!(v["repos"][1], json!({"path":"acme/docs","host":"github.com","cloned":false,"issues":[]}));
+    // a whole list has no `error`, and an issue nobody works on has no `hasSession`
+    let whole = br#"{"kind":"issues","repos":[{"path":"a/b","host":"h","cloned":true,"issues":[{"iid":1,"title":"t"}]}]}"#;
+    assert_eq!(DesktopMsg::from_json(whole).unwrap(), DesktopMsg::Issues(IssueList {
+        repos: vec![IssueRepo { path: "a/b".into(), host: "h".into(), cloned: true, issues: vec![IssueInfo { iid: 1, title: "t".into(), updated: None, has_session: false }] }],
+        error: None,
+    }));
+    // caps: repositories, issues over all of them, a title (bytes)
+    let repo = |n: usize| IssueRepo { path: "a/b".into(), host: "h".into(), cloned: true, issues: (0..n as u64).map(|i| issue(i, false)).collect() };
+    let of = |repos| DesktopMsg::Issues(IssueList { repos, error: None });
+    assert!(of(vec![repo(MAX_ISSUES)]).validate().is_ok());
+    assert_eq!(of(vec![repo(MAX_ISSUES), repo(1)]).validate(), Err(LimitError::TooLong("issues", MAX_ISSUES)));
+    assert_eq!(of((0..=MAX_ISSUE_REPOS).map(|_| repo(0)).collect()).validate(), Err(LimitError::TooLong("repos", MAX_ISSUE_REPOS)));
+    let long = |t: String| of(vec![IssueRepo { issues: vec![IssueInfo { title: t, ..issue(1, false) }], ..repo(0) }]);
+    assert!(long("a".repeat(MAX_ISSUE_TITLE)).validate().is_ok());
+    assert!(long("é".repeat(MAX_ISSUE_TITLE / 2 + 1)).validate().is_err());
 }
 
 #[test]
@@ -241,6 +362,7 @@ fn phone_messages_round_trip_with_documented_names() {
     assert_eq!(round_trip(&PhoneMsg::Detail { id: "r1".into() })["kind"], "detail");
     let v = round_trip(&PhoneMsg::StartPreview { project: "demo".into(), iid: "3".into(), mode: Mode::Full });
     assert_eq!((v["kind"].as_str(), v["mode"].as_str()), (Some("startPreview"), Some("full")));
+    assert_eq!(round_trip(&PhoneMsg::Issues)["kind"], "issues");
     assert_eq!(round_trip(&PhoneMsg::Bye { sig: "x".into() })["kind"], "bye");
 
     let bodies = [
@@ -261,7 +383,7 @@ fn phone_messages_round_trip_with_documented_names() {
 
 #[test]
 fn limits_are_measured_in_bytes() {
-    let detail = |what, text: String| DesktopMsg::Detail(Detail { id: "r".into(), what, text, shown: String::new(), odd: false, cut: false, questions: vec![] });
+    let detail = |what, text: String| DesktopMsg::Detail(Detail { id: "r".into(), what, text, shown: String::new(), odd: false, cut: false, questions: vec![], times: vec![], files: vec![], omitted: 0 });
     assert!(detail(DetailKind::ToolInput, "a".repeat(MAX_TOOL_INPUT)).validate().is_ok());
     assert_eq!(detail(DetailKind::ToolInput, "a".repeat(MAX_TOOL_INPUT + 1)).validate(), Err(LimitError::TooLong("detail", MAX_TOOL_INPUT)));
     // 3-byte characters: 6667 of them are 20 001 bytes, though only 6667 characters
@@ -288,7 +410,7 @@ fn limits_are_measured_in_bytes() {
 
 #[test]
 fn session_info_says_whether_stop_is_possible() {
-    let info = |can_stop| SessionInfo { id: "s".into(), title: "t".into(), project: "p".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 1 }, can_stop, lines: 0 };
+    let info = |can_stop| SessionInfo { id: "s".into(), title: "t".into(), project: "p".into(), state: "waiting".into(), pet: Pet { design: "cat".into(), color: 1 }, can_stop, lines: 0, at_computer_why: None };
     assert_eq!(serde_json::to_value(info(true)).unwrap()["canStop"], true);
     assert_eq!(serde_json::to_value(info(false)).unwrap()["canStop"], false);
     // a desktop from before the flag omits it: that reads as "not possible"
@@ -513,16 +635,17 @@ fn the_code_lives_two_minutes_and_an_unacknowledged_pairing_ten() {
 fn every_frame_round_trips_with_documented_names() {
     let versions = VersionRange::current();
     let frames: Vec<(Frame, Value)> = vec![
-        (Frame::Challenge { nonce: "n".into() }, json!({"type":"challenge","nonce":"n"})),
+        (Frame::Challenge { nonce: "n".into(), relay_id: None }, json!({"type":"challenge","nonce":"n"})),
+        (Frame::Challenge { nonce: "n".into(), relay_id: Some("r".into()) }, json!({"type":"challenge","nonce":"n","relayId":"r"})),
         (Frame::Auth { id: "i".into(), key: "k".into(), relay: "wss://r.example".into(), sig: "s".into(), versions }, json!({"type":"auth","id":"i","key":"k","relay":"wss://r.example","sig":"s","versions":{"min":1,"max":1}})),
         (Frame::Peers { allow: vec!["a".into()] }, json!({"type":"peers","allow":["a"]})),
         (Frame::Revoke { id: "a".into() }, json!({"type":"revoke","id":"a"})),
         (
             Frame::Send {
                 pid: "p".into(), to: "t".into(), ttl: 600, collapse: Some("c".into()),
-                push: Some(Push { kind: PushKind::LiveActivity, priority: 10, replaces: Some("r".into()) }), body: "b".into(),
+                push: Some(Push { kind: PushKind::LiveActivity, priority: 10, event: Some(ActivityEvent::Start), replaces: Some("r".into()) }), body: "b".into(),
             },
-            json!({"type":"send","pid":"p","to":"t","ttl":600,"collapse":"c","push":{"kind":"liveActivity","priority":10,"replaces":"r"},"body":"b"}),
+            json!({"type":"send","pid":"p","to":"t","ttl":600,"collapse":"c","push":{"kind":"liveActivity","priority":10,"event":"start","replaces":"r"},"body":"b"}),
         ),
         (Frame::Send { pid: "p".into(), to: "t".into(), ttl: 1, collapse: None, push: None, body: "b".into() }, json!({"type":"send","pid":"p","to":"t","ttl":1,"body":"b"})),
         (Frame::Msg { pid: "p".into(), from: "f".into(), body: "b".into() }, json!({"type":"msg","pid":"p","from":"f","body":"b"})),

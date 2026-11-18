@@ -12,6 +12,7 @@ import '../keys/platform_secure_keys.dart';
 import '../keys/secure_keys.dart';
 import '../log/activity_log.dart';
 import '../src/rust/api/core.dart';
+import '../features/actions/actions_models.dart';
 import '../features/actions/actions_source.dart';
 import 'computer_link.dart';
 import 'link_actions_source.dart';
@@ -71,6 +72,32 @@ class PairAgain extends AppPhase {
 class LinkController extends AsyncNotifier<AppPhase> {
   AppLifecycleListener? _lifecycle;
   StreamSubscription<LinkStatus>? _status;
+  ComputerLink? _link;
+  Future<void>? _ending;
+
+  /// The link of a pairing that ended stops at once: it no longer connects, follows the app's lifecycle or writes its
+  /// state. A second call (Erase right after the key was lost) waits for the first one's last write.
+  Future<void> _detach() {
+    final link = _link;
+    _link = null;
+    _lifecycle?.dispose();
+    _lifecycle = null;
+    final status = _status;
+    _status = null;
+    final ending = link?.dispose();
+    final before = _ending;
+    return _ending = () async {
+      await before;
+      await status?.cancel();
+      await ending;
+    }();
+  }
+
+  /// The paired computer's id, also while the phone shows "pair again" (the extension still holds its key then).
+  String? _computerId;
+
+  /// The relay id whose refused grant the log already says.
+  String? _refusedLogged;
 
   @override
   Future<AppPhase> build() async {
@@ -78,6 +105,11 @@ class LinkController extends AsyncNotifier<AppPhase> {
       _lifecycle?.dispose();
       _status?.cancel();
     });
+    // Listens for the APNs token from the start, also before a pairing: the token the system hands over right after the
+    // permission dialog must not be missed.
+    // Not waited for: start() attaches the token listener before its first await, and the first screen must not wait on a
+    // system call that may never answer (the notification settings on a simulator whose notification service is not up).
+    unawaited(_pushStart());
     final store = await _store();
     final PairedComputer? computer;
     try {
@@ -101,6 +133,7 @@ class LinkController extends AsyncNotifier<AppPhase> {
     if (auth == null || box == null) {
       // The platform said the keys are definitely not there (a restore, a wiped keychain): pair again.
       await _forget(store, keys);
+      await _pushRemove(computer.id);
       return PairAgain(computer: computer.name, removedByComputer: false);
     }
     return _attach(
@@ -140,10 +173,48 @@ class LinkController extends AsyncNotifier<AppPhase> {
         ),
       );
 
+  /// Push is a convenience: whatever is wrong with it (no platform channel, a refused permission) never stops the app.
+  Future<void> _pushStart() async {
+    try {
+      await ref.read(pushRegistrationProvider).start();
+    } on Object {
+      // Not set up here: the notifications simply do not come.
+    }
+  }
+
+  /// The notification extension learns this computer's key, so that it can open the notices pushed for it.
+  Future<void> _pushComputer(PairedComputer c, ProtocolVersions v) async {
+    try {
+      await ref
+          .read(pushLinkStoreProvider)
+          .setComputer(
+            c.id,
+            c.desktopBoxPublic,
+            versionMin: v.min,
+            versionMax: v.max,
+          );
+    } on Object {
+      // The extension then shows the relay's own generic text.
+    }
+  }
+
+  /// The computer is gone from this phone (disconnected, erased, revoked): the extension forgets its key, or it could still
+  /// open that computer's notices. The link itself stops renewing the grants when it ends.
+  Future<void> _pushRemove(String id) async {
+    try {
+      await ref.read(pushLinkStoreProvider).removeComputer(id);
+    } on Object {
+      // Push is not set up (no channel, nothing registered): nothing to remove.
+    }
+  }
+
   Future<AppPhase> _attach(
     PairedComputer computer,
     DeviceIdentity identity,
   ) async {
+    final versions = await protocolVersions();
+    _computerId = computer.id;
+    await _pushComputer(computer, versions);
     final link = ComputerLink(
       computer: computer,
       keys: ref.read(secureKeysProvider),
@@ -151,12 +222,30 @@ class LinkController extends AsyncNotifier<AppPhase> {
       connect: ref.read(relayConnectorProvider),
       flavor: ref.read(flavorProvider),
       identity: identity,
-      versions: await protocolVersions(),
+      versions: versions,
+      push: ref.read(pushRegistrationProvider),
       now: ref.read(clockProvider),
     );
     _status = link.statusChanges.listen((s) {
+      // The relay refused the push grant: one line in the log for each relay id, not one for each reconnection.
+      final refused = s.pushRefusedFor;
+      if (refused != null && refused != _refusedLogged) {
+        _refusedLogged = refused;
+        ref
+            .read(activityLogProvider.notifier)
+            .record(
+              LogEntry(
+                at: ref.read(clockProvider)(),
+                kind: LogKind.pushRefused,
+                detail: refused,
+              ),
+            );
+      }
       if (s.maybeRevoked || s.revokedByComputer) {
-        if (s.revokedByComputer) _logDisconnected(computer.name);
+        if (s.revokedByComputer) {
+          _logDisconnected(computer.name);
+          unawaited(_pushRemove(computer.id));
+        }
         state = AsyncData(
           PairAgain(
             computer: computer.name,
@@ -166,9 +255,11 @@ class LinkController extends AsyncNotifier<AppPhase> {
                 : DateTime.fromMillisecondsSinceEpoch(s.revokedAtMs!),
           ),
         );
+        unawaited(_detach());
       }
     });
     // Connected only while the app is in front.
+    _link = link;
     _lifecycle = AppLifecycleListener(
       onResume: link.resume,
       onHide: () => unawaited(link.pause()),
@@ -188,6 +279,7 @@ class LinkController extends AsyncNotifier<AppPhase> {
     state = AsyncData(
       PairAgain(computer: current.link.computer.name, removedByComputer: false),
     );
+    unawaited(_detach());
   }
 
   /// "Disconnect": the computer is told (a signed goodbye, when the phone is connected), then every key and everything kept
@@ -229,24 +321,20 @@ class LinkController extends AsyncNotifier<AppPhase> {
   /// the welcome screen without starting a pairing.
   Future<void> forgetComputer() async {
     final current = state.value;
-    // The notification extension keeps its own copy of the computer's public key: it goes too, or it could still open
-    // that computer's notices after an Erase.
-    final id = current is Paired ? current.link.computer.id : null;
+    final id = _computerId;
+    _computerId = null;
+    _refusedLogged = null;
     final name = switch (current) {
       Paired p => p.link.computer.name,
       PairAgain a => a.computer,
       _ => '',
     };
     _logDisconnected(name);
-    if (id != null) {
-      try {
-        await ref.read(pushLinkStoreProvider).removeComputer(id);
-      } on Object {
-        // Push is not set up (no channel, nothing registered): nothing to remove.
-      }
-    }
-    if (current is Paired) await current.link.dispose();
-    await _status?.cancel();
+    // The notification extension keeps its own copy of the computer's public key: it goes too, or it could still open
+    // that computer's notices after an Erase.
+    if (id != null) await _pushRemove(id);
+    // whatever the phase says: a link still running would write its state back after the erase
+    await _detach();
     await _forget(await _store(), ref.read(secureKeysProvider));
     state = const AsyncData(Unpaired());
   }
@@ -272,9 +360,11 @@ final linkStatusProvider = StreamProvider<LinkStatus>((ref) async* {
 
 /// The action screens' source and biometric step, over the link: one object, since the signature made at the biometric step
 /// is what the send step sends.
-final linkActionsProvider = Provider<LinkActionsSource>((ref) {
+/// Null once the pairing is gone: an action screen still open at that moment (the signing key was lost under it) reads
+/// [unpairedActions] until the app leaves it for "pair again".
+final linkActionsProvider = Provider<LinkActionsSource?>((ref) {
   final phase = ref.watch(linkControllerProvider).value;
-  if (phase is! Paired) throw StateError('no computer is paired');
+  if (phase is! Paired) return null;
   final source = LinkActionsSource(
     link: phase.link,
     keys: ref.read(secureKeysProvider),
@@ -287,7 +377,9 @@ final linkActionsProvider = Provider<LinkActionsSource>((ref) {
 
 /// What `main` overrides: the screens read the link.
 final linkActionOverrides = [
-  actionsSourceProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
+  actionsSourceProvider.overrideWith(
+    (ref) => ref.watch(linkActionsProvider) ?? unpairedActions,
+  ),
   grantedRightsProvider.overrideWith((ref) {
     final computer = ref.watch(pairedComputerProvider);
     if (computer == null) return null;
@@ -297,7 +389,9 @@ final linkActionOverrides = [
     ref.onDispose(() => rights.removeListener(changed));
     return rights.value;
   }),
-  biometricGateProvider.overrideWith((ref) => ref.watch(linkActionsProvider)),
+  biometricGateProvider.overrideWith(
+    (ref) => ref.watch(linkActionsProvider) ?? unpairedActions,
+  ),
 ];
 
 /// The computer this phone is paired with, or null.
@@ -305,3 +399,44 @@ final pairedComputerProvider = Provider<PairedComputer?>((ref) {
   final phase = ref.watch(linkControllerProvider).value;
   return phase is Paired ? phase.link.computer : null;
 });
+
+/// The action screens' source with no computer paired: nothing loads, nothing is signed or sent.
+const unpairedActions = _UnpairedActions();
+
+class _UnpairedActions implements ActionsSource, BiometricGate {
+  const _UnpairedActions();
+
+  static const _gone = CommandOutcome(
+    OutcomeKind.refused,
+    reason: 'not paired',
+  );
+
+  Future<T> _never<T>() => Completer<T>().future;
+
+  @override
+  String get computerName => '';
+  @override
+  Future<RequestView> request(String id) => _never();
+  @override
+  Future<PlanDoc> plan(String id) => _never();
+  @override
+  Future<QuestionDoc> question(String id) => _never();
+  @override
+  Future<SessionDetail> session(String id) => _never();
+  @override
+  Future<StartList> issues() => _never();
+  @override
+  Future<StartPreview> startPreview(String issueId, StartMode mode) =>
+      _never();
+  @override
+  String newCommandId() => '';
+  @override
+  Future<CommandOutcome> send(Command command) async => _gone;
+  @override
+  Future<CommandOutcome> checkStatus(String commandId) async => _gone;
+  @override
+  Future<CommandOutcome> withdraw(String commandId) async => _gone;
+  @override
+  Future<GateResult> confirm(String reason, Command command) async =>
+      GateResult.keyLost;
+}

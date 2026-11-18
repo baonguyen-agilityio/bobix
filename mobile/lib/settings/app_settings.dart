@@ -15,6 +15,7 @@ class AppSettings {
     this.theme = ThemeChoice.system,
     this.language,
     this.requireUnlock = true,
+    this.startRepo = '',
   });
 
   final ThemeChoice theme;
@@ -25,14 +26,19 @@ class AppSettings {
   /// "Require Face ID / fingerprint to open": asked when the app comes to the foreground. On by default.
   final bool requireUnlock;
 
+  /// The repository the Start screen filters by (`StartRepo.key`); empty is all repositories.
+  final String startRepo;
+
   AppSettings copyWith({
     ThemeChoice? theme,
     String? language,
     bool? requireUnlock,
+    String? startRepo,
   }) => AppSettings(
     theme: theme ?? this.theme,
     language: language ?? this.language,
     requireUnlock: requireUnlock ?? this.requireUnlock,
+    startRepo: startRepo ?? this.startRepo,
   );
 
   ThemeMode get themeMode => switch (theme) {
@@ -45,6 +51,7 @@ class AppSettings {
     'theme': theme.name,
     'language': language,
     'requireUnlock': requireUnlock,
+    'startRepo': startRepo,
   };
 
   static AppSettings fromJson(Map<String, dynamic> j) => AppSettings(
@@ -56,6 +63,7 @@ class AppSettings {
         ? j['language'] as String
         : null,
     requireUnlock: j['requireUnlock'] != false,
+    startRepo: j['startRepo'] is String ? j['startRepo'] as String : '',
   );
 }
 
@@ -125,6 +133,9 @@ class SettingsController extends AsyncNotifier<AppSettings> {
     ref.read(langProvider.notifier).set(lang);
     return _change((s) => s.copyWith(language: lang));
   }
+
+  Future<void> setStartRepo(String key) =>
+      _change((s) => s.copyWith(startRepo: key));
 
   Future<void> setRequireUnlock(bool on) =>
       _change((s) => s.copyWith(requireUnlock: on));

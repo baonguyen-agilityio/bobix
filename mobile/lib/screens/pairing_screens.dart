@@ -11,6 +11,7 @@ import '../l10n/l10n.dart';
 import '../link/link_state.dart';
 import '../link/pairing_controller.dart';
 import '../link/pairing_service.dart';
+import '../push/notifications_permission.dart';
 import '../src/rust/api/messages.dart';
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
@@ -176,6 +177,7 @@ class _ScanState extends ConsumerState<_Scan> {
                     const IgnorePointer(
                       child: CustomPaint(painter: _CornerBrackets()),
                     ),
+                    const IgnorePointer(child: _ScanLine()),
                   ],
                 ),
               ),
@@ -204,6 +206,69 @@ class _ScanState extends ConsumerState<_Scan> {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// The line that sweeps the viewfinder: 2 px in the accent colour with a 12 px glow, 14 % in from each side like the corner
+/// brackets, between 18 % and 80 % of the height and back, 2.2 s a round, eased. With animations off it stays at its start.
+class _ScanLine extends StatefulWidget {
+  const _ScanLine();
+
+  @override
+  State<_ScanLine> createState() => _ScanLineState();
+}
+
+class _ScanLineState extends State<_ScanLine>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _c.stop();
+      _c.value = 0;
+    } else if (!_c.isAnimating) {
+      _c.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = context.tokens.accent;
+    return LayoutBuilder(
+      builder: (context, box) => AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) => Stack(
+          children: [
+            Positioned(
+              key: const ValueKey('scan-line'),
+              left: box.maxWidth * .14,
+              right: box.maxWidth * .14,
+              top:
+                  box.maxHeight *
+                  (.18 + .62 * Curves.easeInOut.transform(_c.value)),
+              height: 2,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: color,
+                  boxShadow: [BoxShadow(color: color, blurRadius: 12)],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -525,7 +590,11 @@ class _Done extends ConsumerWidget {
       actions: PillButton(
         label: s('phone.pair.open'),
         primary: true,
-        onPressed: ref.read(pairingControllerProvider.notifier).finish,
+        onPressed: () async {
+          // The moment to ask: the computer just said yes, and the person is about to open the app.
+          await offerNotifications(context, ref);
+          await ref.read(pairingControllerProvider.notifier).finish();
+        },
       ),
     );
   }

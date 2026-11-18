@@ -13,7 +13,7 @@ use bobix_link::{
     messages::*,
     pairing::*,
     invite::{InviteCode, DAY_MS},
-    relay_frames::{ErrorCode, Frame, InviteReason, Invitee, Push},
+    relay_frames::{ActivityEvent, ErrorCode, Frame, InviteReason, Invitee, Push, PushKind},
 };
 use chacha20poly1305::{aead::{Aead, KeyInit}, XChaCha20Poly1305};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,8 @@ const SEAL_KEY: &str = "phones-seal";
 const MOVE_WAIT_MS: u64 = 10 * 60 * 1000;
 const LOG_KEEP: usize = 300;
 const RESULT_KEEP_MS: u64 = 24 * 3600 * 1000;
+/// A phone's Live Activity is pushed at most this often: a burst of changes becomes one push with the last count.
+const ACTIVITY_GAP_MS: u64 = 5_000;
 pub const MAX_PHONE_NAME: usize = 40;
 /// The longest project name (a path such as `group/sub/repo`) a phone may name in a `start`.
 pub const MAX_PROJECT: usize = 200;
@@ -131,13 +133,15 @@ pub struct State {
     last_home_at: u64,
     home_now: HashSet<String>,                  // phones that get a home at the next tick (just paired, just online)
     results: HashMap<String, (CmdResult, u64)>, // by cid, kept 24 hours
-    pub closed_events: Vec<(String, String, bool)>, // (request id, session id, plan): requests that ended, to tell the phones
+    pub closed_events: Vec<(String, String, bool, crate::answers::End)>, // (request id, session id, plan, how it ended): requests that ended, to tell the phones
+    answerers: HashMap<String, String>,         // request id → the phone that answered it, until the phones are told it closed
     notified: HashSet<String>,
     awake: crate::awake::Awake,
     asleep: bool,                               // the computer is going to sleep (or sleeps): phones are told, with how much is unfinished
     inflight: HashSet<String>,                  // `from:cid` of starts still running: a repeat of one gets no answer yet
     starting: HashSet<String>,                  // issues a start from a phone is running for: one at a time
     last_push: Option<(String, u64)>,           // the phone the last push went to, for an `error { grant }` that names none
+    activity_sent: HashMap<String, (u32, u64)>, // per phone: the waiting count its Live Activity was last pushed, and when
     invites: Invites,
     /// Cuts the link's wait before it reconnects (an invite code was entered while the relay was out of reach).
     pub wake: Arc<tokio::sync::Notify>,
@@ -266,11 +270,59 @@ impl State {
     // Seals a message to a phone and returns the frame. The counter reservation is stored before the frame leaves.
     pub fn tell(&mut self, id: &str, m: &DesktopMsg, push: Option<Push>, collapse: Option<String>) -> Option<(String, Frame)> {
         let stream = if matches!(m, DesktopMsg::Home(_)) { bobix_link::envelope::Stream::State } else { bobix_link::envelope::Stream::Event };
+        self.seal_to(id, stream, &m.to_json(), push, collapse)
+    }
+
+    fn seal_to(&mut self, id: &str, stream: bobix_link::envelope::Stream, plaintext: &[u8], push: Option<Push>, collapse: Option<String>) -> Option<(String, Frame)> {
         if push.is_some() { self.last_push = Some((id.to_string(), now())); }
-        let sealed = self.link_of(id)?.seal(stream, &m.to_json()).ok()?; // a low-order peer key: nothing is sent
+        let sealed = self.link_of(id)?.seal(stream, plaintext).ok()?; // a low-order peer key: nothing is sent
         if let Some((s, v)) = sealed.reserve { self.saved.entry(id.into()).or_default().res[s as usize] = v; self.save_counters(); }
         let pid = command::new_cid()[..16].to_string();
         Some((pid.clone(), Frame::Send { pid, to: id.into(), ttl: 600, collapse, push, body: b64(&sealed.packet) }))
+    }
+
+    // The notices of the requests that ended: every paired phone learns who closed it (one that never had the push still has the
+    // item in its last `home`); the push that clears a shown notification goes only where it was announced. A phone's answer
+    // names the phone only to that phone (so it can say "this phone"); the others are told it was a phone, not which.
+    fn closed_frames(&mut self) -> Vec<Frame> {
+        let mut out = vec![];
+        for (id, sid, _, end) in std::mem::take(&mut self.closed_events) {
+            let notified = self.notified.remove(&id);
+            let answerer = self.answerers.remove(&id);
+            let push = notified.then(|| Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, event: None, replaces: Some(id.clone()) });
+            let ids: Vec<String> = self.store.phones.iter().map(|p| p.id.clone()).collect();
+            for p in ids {
+                let by = closed_by(end, answerer.as_deref(), &p);
+                let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid.clone(), title: String::new(), body: String::new(), by };
+                if let Some((_, f)) = self.tell(&p, &DesktopMsg::Notice(n), push.clone(), None) { out.push(f); }
+            }
+        }
+        out
+    }
+    // The Live Activity pushes due now, one for each phone whose activity is out of date (see `activity_step`). Each is a
+    // sealed `activity` packet with the count only (no names, no session), sent with a `liveActivity` push: the widget
+    // opens the packet with the phone's key, so the relay and Apple carry nothing readable. Only a start is held back while
+    // notifications are quiet (Do Not Disturb, or "notify when waiting" off): an update or an end is never, or an activity
+    // that began earlier would stay up after the last request was answered.
+    fn activity_frames(&mut self, waiting: u32, quiet: bool, t: u64) -> Vec<Frame> {
+        if !self.cfg.on || self.status != "online" { return vec![]; }
+        let name = self.computer_name();
+        let state = if self.asleep { "asleep" } else { "online" };
+        let ids: Vec<String> = self.store.phones.iter().map(|p| p.id.clone()).collect();
+        let mut out = vec![];
+        for id in ids {
+            let Some(event) = activity_step(self.activity_sent.get(&id).copied(), waiting, t) else { continue };
+            if quiet && event == ActivityEvent::Start { continue; }
+            let body = ActivityBody { waiting, names: vec![], written: t, computer_name: crate::phone_view::preview(&name, 64), computer_state: state.into() };
+            // Apple budgets the pushes that wake the island at once: the two that matter (it appears, it goes) are immediate.
+            let push = Push { kind: PushKind::LiveActivity, priority: if event == ActivityEvent::Update { 5 } else { 10 }, event: Some(event), replaces: None };
+            let json = serde_json::to_vec(&body).unwrap_or_default();
+            if let Some((_, f)) = self.seal_to(&id, bobix_link::envelope::Stream::Activity, &json, Some(push), Some("activity".into())) {
+                out.push(f);
+                self.activity_sent.insert(id, (waiting, t));
+            }
+        }
+        out
     }
 
     pub fn send(&self, f: Frame) { if let Some(tx) = &self.tx { let _ = tx.send(Out::Frame(Box::new(f))); } }
@@ -289,6 +341,7 @@ impl State {
     fn forget(&mut self, id: &str) -> Option<Phone> {
         self.links.remove(id);
         self.saved.remove(id);
+        self.activity_sent.remove(id);
         let i = self.store.phones.iter().position(|p| p.id == id)?;
         let p = self.store.phones.remove(i);
         self.store.revoked.push(Revoked { id: p.id.clone(), name: p.name.clone(), at: now() });
@@ -425,6 +478,7 @@ pub fn link_ended(b: &Arc<Bobix>) {
     let mut c = b.core.lock().unwrap();
     c.phones.tx = None;
     if !c.phones.cfg.on { c.phones.status = "off".into(); }
+    c.phones.forget_closed();
 }
 // The address the link connects to: Settings' address, held to the same rule as when it was typed (a `ws://` address on a
 // private network only in a build with phone access), the same rule as when it was typed.
@@ -452,6 +506,7 @@ pub fn link_lost(b: &Arc<Bobix>) {
     let mut c = b.core.lock().unwrap();
     if c.phones.cfg.on { c.phones.status = "connecting".into(); }
     if let Some(p) = c.phones.pairing.as_mut() { p.opened = false; }
+    c.phones.forget_closed();
 }
 
 // Called once a second by the link: timers (a pairing that ran out, a relay move or a revocation that waited long enough),
@@ -485,12 +540,7 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
     }
     // requests that ended: the phones that were told of them are told they are gone
     let mut out = std::mem::take(&mut flushed);
-    for (id, sid, _) in std::mem::take(&mut st.closed_events) {
-        if !st.notified.remove(&id) { continue; }
-        let n = Notice { what: NoticeKind::Closed, reference: id.clone(), session: sid, title: String::new(), body: String::new() };
-        let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
-        for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), Some(Push { kind: bobix_link::relay_frames::PushKind::Background, priority: 5, replaces: Some(id.clone()) }), None) { out.push(f); } }
-    }
+    out.extend(st.closed_frames());
     // homes: to every paired phone when something changed (the relay keeps only the latest for an offline one), a forced
     // one each minute to a phone that is online, and one at once for a phone that just paired or came online
     if st.cfg.on && !st.store.phones.is_empty() {
@@ -512,8 +562,26 @@ pub fn tick(b: &Arc<Bobix>) -> Vec<Frame> {
             if minute { st.last_home_at = t; }
             st.home_now.clear();
         }
+        let quiet = settings["dndUntil"].as_f64().unwrap_or(0.0) > t as f64 || settings["notifyWaiting"] != true;
+        out.extend(st.activity_frames(crate::phone_view::waiting_for_phones(sessions, pending), quiet, t));
     }
     out
+}
+
+/// What the sealed `activity` packet holds (`ios/WidgetsShared/BobixActivityAttributes.swift` decodes exactly this): the
+/// count and the computer, with no session name.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActivityBody { waiting: u32, names: Vec<String>, written: u64, computer_name: String, computer_state: String }
+
+/// What a phone's Live Activity needs now. `last` is the count it was last pushed with and when (none: never, since this
+/// computer started). Nothing is sent while it already shows the count, nor within [ACTIVITY_GAP_MS] of the last push (the
+/// next tick compares again, so a burst ends with one push of its last count, and 0, 2, 0 or 2, 0, 2 inside the gap sends
+/// nothing). A count that rises from nothing starts the activity, one that falls to nothing ends it, any other change updates.
+fn activity_step(last: Option<(u32, u64)>, waiting: u32, now: u64) -> Option<ActivityEvent> {
+    let Some((was, at)) = last else { return (waiting > 0).then_some(ActivityEvent::Start) };
+    if was == waiting || now < at + ACTIVITY_GAP_MS { return None; }
+    Some(if waiting == 0 { ActivityEvent::End } else if was == 0 { ActivityEvent::Start } else { ActivityEvent::Update })
 }
 impl State {
     // The relay refused a push for an ended grant. It names the phone (`peer`); an older relay names none, and then it is
@@ -531,13 +599,37 @@ impl State {
     }
     // The request was announced to the phones (so a settings change does not hand it back).
     pub fn was_sent(&self, id: &str) -> bool { self.notified.contains(id) }
+    // An item that ended, for the closed notices of the next tick. With no link to the relay it is not kept: a phone learns the
+    // item is gone from its next `home`, and an outage never piles up a sealed frame for every item and phone.
+    pub fn closed_event(&mut self, e: (String, String, bool, crate::answers::End)) {
+        if self.cfg.on && self.status == "online" { self.closed_events.push(e); } else { self.forget_item(&e.0); }
+    }
+    fn forget_item(&mut self, id: &str) { self.notified.remove(id); self.answerers.remove(id); }
+    // The link to the relay ended: the notices not sent yet are dropped with what was kept for them.
+    fn forget_closed(&mut self) {
+        for (id, ..) in std::mem::take(&mut self.closed_events) { self.forget_item(&id); }
+    }
     #[cfg(test)]
     pub fn mark_sent(&mut self, id: &str) { self.notified.insert(id.into()); }
-    // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone is
-    // paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the input time
-    // cannot be read, the choice in Settings decides.
-    pub fn holds_for_phones(&self, settings: &Value, src: &dyn crate::presence::Source) -> bool {
-        if !self.cfg.on || self.store.phones.is_empty() || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
+    #[cfg(test)]
+    pub fn with_phone(rights: Rights) -> State {
+        let mut st = State::default();
+        st.cfg.on = true;
+        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights, since: 0, needs_pairing: false, no_push: false });
+        st
+    }
+    // Phone access is on and a paired phone holds the right to answer an item of this kind: it may be answered there, so it
+    // never runs out. A phone without the right cannot answer it, and holding it for that phone would only leave it unanswered.
+    pub fn has_phone_for(&self, kind: crate::answers::Kind) -> bool { self.cfg.on && self.store.phones.iter().any(|p| !p.needs_pairing && kind.answerable_with(p.rights)) }
+    // Whether a request that nothing on this computer would show is held for the phones: phone access is on, a phone that can
+    // answer it is paired, "never hold" is not set, and nobody is at the computer (input in the last 10 seconds). Where the
+    // input time cannot be read, the choice in Settings decides.
+    pub fn why_not_held(&self, settings: &Value, kind: crate::answers::Kind, src: &dyn crate::presence::Source) -> bobix_link::messages::AtComputerWhy {
+        use bobix_link::messages::AtComputerWhy;
+        if self.has_phone_for(kind) && settings["approveWait"].as_f64().unwrap_or(0.0) != 0.0 && src.idle_ms().is_some_and(|ms| ms < crate::presence::AT_COMPUTER_MS) { AtComputerWhy::Present } else { AtComputerWhy::NotShown }
+    }
+    pub fn holds_for_phones(&self, settings: &Value, kind: crate::answers::Kind, src: &dyn crate::presence::Source) -> bool {
+        if !self.has_phone_for(kind) || settings["approveWait"].as_f64().unwrap_or(0.0) == 0.0 { return false; }
         match src.idle_ms() { Some(ms) => ms >= crate::presence::AT_COMPUTER_MS, None => self.cfg.hold != "computer" }
     }
     // The peers, the revocations the relay may not know, an open pairing. After an invite code let this computer in, again:
@@ -671,6 +763,10 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
             };
             if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
         }
+        PhoneMsg::Issues => {
+            let m = crate::phone_view::issues_reply(|| c.work.view(&c.settings, &crate::model::Model::build(&c.settings, &c.sessions, &c.work)), &c.settings, rights);
+            if let Some((_, f)) = c.phones.tell(from, &m, None, None) { out.push(f); }
+        }
         PhoneMsg::StartPreview { project, iid, mode } => {
             let m = if !rights.start { Some(DesktopMsg::Error { code: "right".into(), who: Some(Who::Desktop) }) }
                 else if iid.parse::<i64>().is_err() || project.len() > MAX_PROJECT { Some(DesktopMsg::Error { code: "encoding".into(), who: Some(Who::Desktop) }) } else { None };
@@ -703,6 +799,18 @@ fn on_packet(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, packet: &[u8], cha
     out
 }
 
+// Who a closed notice to phone `to` says closed the item. A phone's answer with the phone unknown says nothing (the phone then
+// guesses). The phone that answered is named to that phone only; to another it is a phone with no id (empty).
+fn closed_by(end: crate::answers::End, answerer: Option<&str>, to: &str) -> Option<ClosedBy> {
+    use crate::answers::{By, End};
+    match end {
+        End::Answered(By::Pc, _) | End::Computer => Some(ClosedBy::Computer),
+        End::Answered(By::Phone, _) => answerer.map(|a| ClosedBy::Phone { phone: if a == to { a.to_string() } else { String::new() } }),
+        End::Expired => Some(ClosedBy::Expired),
+        End::Released(_) => Some(ClosedBy::Released),
+    }
+}
+
 // A command from a phone, checked in this order: counter (already by the link), a `cid` seen before (the stored result: the
 // packet already authenticated the sender with its box key, and the store is per phone), the signature (with the packet's
 // version, phone id, computer id, age), the phone's right for the kind of thing held, `cut`, the `shown` hash against what is
@@ -717,11 +825,13 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, version: u8, coun
     let (Some(cid), Some(sign)) = (c.phones.computer_id(), b64_decode(&phone.sign).and_then(|s| SignPublic::from_sec1(&s).ok())) else { return Some(CmdResult::refused(&cmd.cid, "encoding")) };
     let ctx = command::VerifyCtx { version, phone_id: from, computer_id: &cid, sign_key: &sign, counter, now_ms: t };
     let mut later = false;
+    let mut item = None; // the held item the command answers
     let (result, what) = match command::verify(&ctx, cmd) {
         Err(r) => (CmdResult::refused(&cmd.cid, r.why()), "command".to_string()),
         Ok(body) => {
             let target = match &body { CommandBody::Answer { id, .. } | CommandBody::Plan { id, .. } | CommandBody::Question { id, .. } => Some(id.clone()), _ => None };
             let shown_of = target.as_deref().and_then(|id| c.pending.get(id)).map(|p| crate::phone_view::preview(p.raw.lines().next().unwrap_or(""), 60)).unwrap_or_default();
+            item = target.clone().or_else(|| if let CommandBody::Stop { request, .. } = &body { Some(request.clone()) } else { None });
             let what = format!("{} {}", body.kind(), shown_of).trim().to_string();
             let refuse = |why: &str| CmdResult::refused(&cmd.cid, why);
             // a note or a free-text answer goes into Claude's reply: plain text, newlines allowed
@@ -729,11 +839,20 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, version: u8, coun
             let r = if !phone.rights.allows(&body) { refuse("right") } else if !plain { refuse("text") } else { match &body {
                 CommandBody::Answer { id, choice, shown } => {
                     let allow = *choice == Choice::Allow;
-                    apply(c, &cmd.cid, id, shown, if allow { "allow" } else { "deny" }, "", false, By::Phone, changed, &phone.rights)
+                    apply(c, &cmd.cid, id, shown, if allow { "allow" } else { "deny" }, "", false, By::Phone, changed, None)
                 }
                 CommandBody::Plan { id, decision, note, shown } => {
                     let approve = *decision == Decision::Approve;
-                    apply(c, &cmd.cid, id, shown, if approve { "allow" } else { "deny" }, note.as_deref().unwrap_or(""), true, By::Phone, changed, &phone.rights)
+                    // an approve of a held plan reads its files again, off the core's lock: the result comes when that is done
+                    let held = c.pending.get(id).filter(|p| approve && p.kind() == crate::answers::Kind::Plan).map(|p| (p.tool_input["plan"].as_str().unwrap_or("").to_string(), p.cwd.clone()));
+                    match held {
+                        Some(plan) => {
+                            begin_approve(b, c, Approve { from: from.into(), name: phone.name.clone(), cid: cmd.cid.clone(), id: id.clone(), shown: shown.clone(), note: note.clone().unwrap_or_default(), what: what.clone(), t }, plan);
+                            later = true;
+                            CmdResult::new(&cmd.cid, Outcome::Unknown)
+                        }
+                        None => apply(c, &cmd.cid, id, shown, if approve { "allow" } else { "deny" }, note.as_deref().unwrap_or(""), true, By::Phone, changed, None),
+                    }
                 }
                 CommandBody::Question { id, answers, shown } => apply_question(c, &cmd.cid, id, shown, answers, changed),
                 CommandBody::Stop { session, request } => {
@@ -750,13 +869,52 @@ fn on_command(b: &Arc<Bobix>, c: &mut crate::Core, from: &str, version: u8, coun
             (r, what)
         }
     };
-    if later { return None; } // the start thread logs and stores it when it is done
+    if later { return None; } // the start or approve thread logs and stores it when it is done
+    record(c, from, &phone.name, &what, item, &result, t);
+    Some(result)
+}
+
+// A command's result, kept: who answered (for the closed notice), the log line, and the result by `cid` for 24 hours.
+fn record(c: &mut crate::Core, from: &str, name: &str, what: &str, item: Option<String>, result: &CmdResult, t: u64) {
+    if let (Some(id), Outcome::Ok) = (item, result.outcome) { c.phones.answerers.insert(id, from.to_string()); }
     let word = serde_json::to_value(result.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
     let shown = if let Some(w) = &result.why { format!("{word} ({w})") } else { word };
-    c.phones.push_log(&phone.name, &what, &shown);
-    c.phones.results.insert(key, (result.clone(), t));
+    c.phones.push_log(name, what, &shown);
+    c.phones.results.insert(format!("{from}:{}", result.cid), (result.clone(), t));
     c.phones.save_results(&c.closed);
-    Some(result)
+}
+
+// A phone's approve of a held plan, after the signature and the right.
+struct Approve { from: String, name: String, cid: String, id: String, shown: String, note: String, what: String, t: u64 }
+
+// The plan's files are read again in a thread, so a slow or hung disk never holds the core's lock; then the approve is
+// checked and applied as any answer (the plan may have closed meanwhile), and its result goes to the phone.
+fn begin_approve(b: &Arc<Bobix>, c: &mut crate::Core, a: Approve, (plan, cwd): (String, String)) {
+    c.phones.inflight.insert(format!("{}:{}", a.from, a.cid));
+    let b2 = b.clone();
+    std::thread::spawn(move || {
+        let files = crate::plan_files::read(&plan, &cwd);
+        let mut changed = false;
+        let mut c = b2.core.lock().unwrap();
+        let result = finish_approve(&mut c, &a, files, &mut changed);
+        if let Some((_, f)) = c.phones.tell(&a.from, &DesktopMsg::Result(result), None, None) { c.phones.send(f); }
+        drop(c);
+        if changed { b2.broadcast(); }
+    });
+}
+
+// The approve after its files were read. The phone may have been disconnected, lost the right or been asked to pair again,
+// or phone access turned off, while the files were read: all of it is checked again before the plan is answered.
+fn finish_approve(c: &mut crate::Core, a: &Approve, files: crate::plan_files::PlanFiles, changed: &mut bool) -> CmdResult {
+    c.phones.inflight.remove(&format!("{}:{}", a.from, a.cid));
+    let phone = c.phones.store.phones.iter().find(|p| p.id == a.from);
+    let result = match phone {
+        None => CmdResult::refused(&a.cid, "unknown"),
+        Some(p) if !c.phones.cfg.on || p.needs_pairing || !p.rights.plan => CmdResult::refused(&a.cid, "right"),
+        Some(_) => apply(c, &a.cid, &a.id, &a.shown, "allow", &a.note, true, crate::answers::By::Phone, changed, Some(files)),
+    };
+    record(c, &a.from, &a.name, &a.what, Some(a.id.clone()), &result, a.t);
+    result
 }
 
 // The prompt as the phone shows it: hidden characters (tag characters, bidirectional overrides, invisible letters) written as
@@ -882,20 +1040,32 @@ fn apply_question(c: &mut crate::Core, cid: &str, id: &str, shown: &str, answers
 
 // An `answer` (plan: false) or `plan` (plan: true) command that passed the signature and the right.
 #[allow(clippy::too_many_arguments)]
-fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, note: &str, plan: bool, by: crate::answers::By, changed: &mut bool, _rights: &Rights) -> CmdResult {
+fn apply(c: &mut crate::Core, cid: &str, id: &str, shown: &str, choice: &str, note: &str, plan: bool, by: crate::answers::By, changed: &mut bool, read: Option<crate::plan_files::PlanFiles>) -> CmdResult {
     use crate::answers::{respond_core, Answered};
     // what is held, as the phone saw it: the kind first (an answer for a plan id is refused, and the reverse)
+    let mut fresh = None;
     match c.pending.get(id) {
         Some(p) if p.kind() != if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request } => return CmdResult::refused(cid, "kind"),
         Some(p) => {
-            if crate::phone_view::shown_cut(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too: only what was shown is known
+            if crate::phone_view::blocks_allow(p) && choice == "allow" { return CmdResult::refused(cid, "cut"); } // a cut plan too, and a plan with a file cut or not sent, or files not shown: only what was shown is known
             let rights = Rights { answer: true, plan: true, ..Default::default() };
             match crate::phone_view::detail(&c.pending, id, rights) {
                 Ok(d) if command::shown_matches(&d, shown) => {}
                 _ => return CmdResult::new(cid, Outcome::Stale),
             }
+            // An approve covers the files as they are on disk now, not as they were when the plan was held (what the hash
+            // covers is the copy in memory): read again, and when they differ the phone is told and shown the new ones. The
+            // phone's approve reads them before the core is locked (`begin_approve`); only a test reads them here.
+            if plan && choice == "allow" {
+                let now = read.unwrap_or_else(|| p.files_now());
+                if now.files != p.files || now.omitted != p.files_omitted { fresh = Some(now); }
+            }
         }
         None => {}
+    }
+    if let Some(now) = fresh {
+        if let Some(p) = c.pending.get_mut(id) { (p.files, p.files_omitted) = (now.files, now.omitted); }
+        return CmdResult::new(cid, Outcome::Stale);
     }
     let r = respond_core(c, id, choice, note, by, Some(if plan { crate::answers::Kind::Plan } else { crate::answers::Kind::Request }), now());
     match r {
@@ -1202,10 +1372,10 @@ pub fn on_notify(b: &Arc<Bobix>, kind: &str, sid: &str) {
             if !st.notified.insert(id.clone()) { return; }
             (crate::phone_view::waiting_notice(p, id, title), id.clone())
         }
-        "done" => (Notice { what: NoticeKind::Done, reference: sid.into(), session: sid.into(), title: crate::phone_view::preview(title, 80), body: crate::phone_view::preview(&s.summary, 200) }, sid.to_string()),
+        "done" => (Notice { what: NoticeKind::Done, reference: sid.into(), session: sid.into(), title: crate::phone_view::preview(title, 80), body: crate::phone_view::preview(&s.summary, 200), by: None }, sid.to_string()),
         _ => return,
     };
-    let push = Push { kind: bobix_link::relay_frames::PushKind::Alert, priority: 10, replaces: Some(id) };
+    let push = Push { kind: bobix_link::relay_frames::PushKind::Alert, priority: 10, event: None, replaces: Some(id) };
     let ids: Vec<String> = st.store.phones.iter().map(|p| p.id.clone()).collect();
     for p in ids { if let Some((_, f)) = st.tell(&p, &DesktopMsg::Notice(n.clone()), Some(push.clone()), None) { st.send(f); } }
 }
@@ -1258,33 +1428,221 @@ mod tests {
         assert!(open_store(&c, &bad).is_none(), "a changed file is refused");
     }
 
-    use crate::{answers::{Pending, By}, presence::Fixed};
+    use crate::{answers::{Pending, By, Kind}, presence::Fixed};
 
     fn on_state() -> State {
         let mut st = State::default();
         st.cfg.on = true; st.cfg.hold = "phone".into();
-        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights::default(), since: 0, needs_pairing: false, no_push: false });
+        st.store.phones.push(Phone { id: "p".into(), name: "n".into(), auth: String::new(), boxk: String::new(), sign: String::new(), rights: Rights { answer: true, ..Default::default() }, since: 0, needs_pairing: false, no_push: false });
         st
+    }
+
+    #[test]
+    fn a_phone_that_must_pair_again_holds_nothing() {
+        let mut st = on_state();
+        let s = json!({ "approveWait": -1 });
+        let away = Fixed(Some(30_000));
+        assert!(st.has_phone_for(Kind::Request) && st.holds_for_phones(&s, Kind::Request, &away));
+        // it did not follow a relay move: it cannot be reached, so nothing is kept waiting for it
+        st.store.phones[0].needs_pairing = true;
+        assert!(!st.has_phone_for(Kind::Request));
+        assert!(!st.holds_for_phones(&s, Kind::Request, &away));
+    }
+
+    #[test]
+    fn the_live_activity_follows_the_count_one_push_at_a_time() {
+        use ActivityEvent::*;
+        let gap = ACTIVITY_GAP_MS;
+        // Never pushed since this computer started: only something waiting starts it.
+        assert_eq!(activity_step(None, 0, 10), None);
+        assert_eq!(activity_step(None, 2, 10), Some(Start));
+        // The count it already shows is not pushed again, and a change inside the gap waits for the next tick.
+        assert_eq!(activity_step(Some((2, 100)), 2, 100 + gap), None);
+        assert_eq!(activity_step(Some((2, 100)), 3, 100 + gap - 1), None);
+        assert_eq!(activity_step(Some((2, 100)), 0, 100 + gap - 1), None);
+        // After the gap: rises from nothing start, falls to nothing end, anything else updates.
+        assert_eq!(activity_step(Some((0, 100)), 1, 100 + gap), Some(Start));
+        assert_eq!(activity_step(Some((2, 100)), 3, 100 + gap), Some(Update));
+        assert_eq!(activity_step(Some((3, 100)), 1, 100 + gap), Some(Update));
+        assert_eq!(activity_step(Some((2, 100)), 0, 100 + gap), Some(End));
+        // 0, 2, 0 and 2, 0, 2 inside the gap come back to the count that was pushed: nothing goes out.
+        assert_eq!(activity_step(Some((0, 100)), 0, 100 + gap), None);
+        assert_eq!(activity_step(Some((2, 100)), 2, 100 + gap), None);
+    }
+
+    #[test]
+    fn a_live_activity_push_is_a_sealed_count_with_no_name_and_goes_once_per_phone() {
+        let dir = std::env::temp_dir().join(format!("bobix-activity-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (desktop, phone) = (Identity::generate(), Identity::generate());
+        let mut st = on_state();
+        st.dir = dir.clone();
+        st.status = "online".into();
+        st.computer = "Studio Mac".into();
+        st.store.phones[0].boxk = b64(&phone.public().boxk);
+        st.identity = Some(desktop);
+        let desk_boxk = st.identity.as_ref().unwrap().public().boxk;
+        let mut phone_link = Link::new(Direction::ToDesktop, *phone.box_secret(), desk_boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], now(), RecvState::default());
+        let push_of = |f: &Frame| match f { Frame::Send { push, collapse, body, .. } => (push.clone().unwrap(), collapse.clone(), b64_decode(body).unwrap()), _ => panic!("not a send") };
+
+        let t = 1_000_000;
+        let out = st.activity_frames(2, false, t);
+        assert_eq!(out.len(), 1);
+        let (push, collapse, packet) = push_of(&out[0]);
+        assert_eq!((push.kind, push.event, push.priority, collapse.as_deref()), (PushKind::LiveActivity, Some(ActivityEvent::Start), 10, Some("activity")));
+        let opened = phone_link.open(&packet).expect("the phone opens it");
+        assert_eq!(opened.stream, bobix_link::envelope::Stream::Activity);
+        let body: Value = serde_json::from_slice(&opened.plaintext).unwrap();
+        assert_eq!(body, json!({ "waiting": 2, "names": [], "written": t, "computerName": "Studio Mac", "computerState": "online" }), "exactly what the widget decodes, no session name");
+
+        assert!(st.activity_frames(2, false, t + ACTIVITY_GAP_MS).is_empty(), "the same count is not pushed again");
+        assert!(st.activity_frames(3, false, t + 1).is_empty(), "a change inside the gap waits");
+        let later = st.activity_frames(3, false, t + ACTIVITY_GAP_MS);
+        let (push, _, _) = push_of(&later[0]);
+        assert_eq!((push.event, push.priority), (Some(ActivityEvent::Update), 5), "the busy-time updates stay under Apple's budget");
+        let end = st.activity_frames(0, true, t + 2 * ACTIVITY_GAP_MS);
+        assert_eq!(push_of(&end[0]).0.event, Some(ActivityEvent::End), "quiet notifications never keep an activity from ending");
+        assert!(st.activity_frames(1, true, t + 3 * ACTIVITY_GAP_MS).is_empty(), "quiet notifications keep a new activity from starting");
+        assert_eq!(st.activity_frames(1, false, t + 3 * ACTIVITY_GAP_MS).len(), 1);
+
+        st.status = "connecting".into();
+        assert!(st.activity_frames(0, false, t + 9 * ACTIVITY_GAP_MS).is_empty(), "nothing while the relay is down");
+        st.forget("p");
+        assert!(st.activity_sent.is_empty(), "a forgotten phone's state goes with it");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_closed_notice_says_who_closed_the_item() {
+        use crate::answers::End;
+        assert_eq!(closed_by(End::Answered(By::Pc, true), None, "p1"), Some(ClosedBy::Computer));
+        assert_eq!(closed_by(End::Computer, None, "p1"), Some(ClosedBy::Computer), "answered in Claude's own prompt");
+        assert_eq!(closed_by(End::Answered(By::Phone, false), Some("p2"), "p2"), Some(ClosedBy::Phone { phone: "p2".into() }), "the phone that answered is told it was itself");
+        assert_eq!(closed_by(End::Answered(By::Phone, false), Some("p2"), "p1"), Some(ClosedBy::Phone { phone: String::new() }), "another phone is not told which");
+        assert_eq!(closed_by(End::Answered(By::Phone, true), None, "p1"), None, "a phone's answer with the phone unknown says nothing");
+        assert_eq!(closed_by(End::Expired, None, "p1"), Some(ClosedBy::Expired));
+        assert_eq!(closed_by(End::Released("settings"), None, "p1"), Some(ClosedBy::Released));
+    }
+
+    // Each paired phone is sent its own closed notice: the id of the phone that answered goes only to that phone.
+    #[test]
+    fn a_closed_notice_names_the_answering_phone_only_to_that_phone() {
+        let dir = std::env::temp_dir().join(format!("bobix-closed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let desktop = Identity::generate();
+        let mut st = on_state();
+        st.dir = dir.clone();
+        st.status = "online".into();
+        let mut links = vec![];
+        for (n, id) in ["p", "p2"].into_iter().enumerate() {
+            let phone = Identity::generate();
+            if n == 1 { let mut again = st.store.phones[0].clone(); again.id = id.into(); st.store.phones.push(again); }
+            st.store.phones[n].boxk = b64(&phone.public().boxk);
+            links.push((id, phone));
+        }
+        let desk_boxk = desktop.public().boxk;
+        st.identity = Some(desktop);
+        st.answerers.insert("r1".into(), "p2".into());
+        st.closed_events.push(("r1".into(), "s1".into(), false, crate::answers::End::Answered(By::Phone, true)));
+        let frames = st.closed_frames();
+        assert_eq!(frames.len(), 2, "every paired phone is told");
+        for (id, phone) in &links {
+            let mut link = Link::new(Direction::ToDesktop, *phone.box_secret(), desk_boxk, CURRENT_VERSION, VersionRange::current(), [0; 3], now(), RecvState::default());
+            let Some(Frame::Send { body, .. }) = frames.iter().find(|f| matches!(f, Frame::Send { to, .. } if to == id)) else { panic!("no frame for {id}") };
+            let opened = link.open(&b64_decode(body).unwrap()).expect("the phone opens it");
+            let by: Value = serde_json::from_slice::<Value>(&opened.plaintext).unwrap()["by"].clone();
+            assert_eq!(by, if *id == "p2" { json!({ "kind": "phone", "phone": "p2" }) } else { json!({ "kind": "phone", "phone": "" }) }, "{id}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn test_bobix(c: crate::Core) -> Arc<Bobix> {
+        let (tx, _) = tokio::sync::broadcast::channel(4);
+        Arc::new(Bobix { core: std::sync::Mutex::new(c), tx, token: "t".into(), port: 0, app: Default::default(),
+            usage: std::sync::Mutex::new(crate::usage::Store::new(std::env::temp_dir().join("bobix-phones-test"))), dirty: Default::default(), phones_dirty: Default::default() })
+    }
+
+    #[test]
+    fn closed_notices_are_not_kept_across_a_lost_link() {
+        use crate::answers::End;
+        let mut c = crate::Core::default();
+        c.phones = on_state();
+        c.phones.status = "online".into();
+        let ended = |id: &str| (id.to_string(), "s1".to_string(), false, End::Answered(By::Phone, true));
+        c.phones.answerers.insert("r1".into(), "p".into());
+        c.phones.closed_event(ended("r1"));
+        assert_eq!(c.phones.closed_events.len(), 1, "online: told at the next tick");
+        let b = test_bobix(c);
+        link_lost(&b);
+        {
+            let mut c = b.core.lock().unwrap();
+            assert!(c.phones.closed_events.is_empty() && !c.phones.answerers.contains_key("r1"), "the link was lost: dropped");
+            c.phones.answerers.insert("r2".into(), "p".into());
+            c.phones.closed_event(ended("r2"));
+            assert!(c.phones.closed_events.is_empty() && !c.phones.answerers.contains_key("r2"), "while it is down: never kept");
+            c.phones.status = "online".into();
+            c.phones.closed_event(ended("r3"));
+        }
+        link_ended(&b);
+        assert!(b.core.lock().unwrap().phones.closed_events.is_empty(), "the link ended: dropped");
+    }
+
+    #[test]
+    fn an_approve_checks_the_phone_again_after_its_files_were_read() {
+        let mut c = crate::Core::default();
+        c.phones = State::with_phone(Rights { plan: true, ..Default::default() });
+        let dir = std::env::temp_dir().join(format!("bobix-approve-again-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        c.phones.dir = dir.clone(); // the log and results it keeps
+        held(&mut c, "plan", true, "1. do it", false);
+        let a = Approve { from: "p".into(), name: "n".into(), cid: "c1".into(), id: "plan".into(), shown: shown(&c, "plan"), note: String::new(), what: "plan".into(), t: 0 };
+        let mut changed = false;
+        let phone = c.phones.store.phones[0].clone();
+        let mut run = |c: &mut crate::Core| finish_approve(c, &a, Default::default(), &mut changed);
+        // while the files were read: the phone was disconnected, lost the right, must pair again, or phone access went off
+        c.phones.store.phones.clear();
+        assert_eq!(run(&mut c).why.as_deref(), Some("unknown"));
+        c.phones.store.phones.push(Phone { rights: Rights { answer: true, ..Default::default() }, ..phone.clone() });
+        assert_eq!(run(&mut c).why.as_deref(), Some("right"));
+        c.phones.store.phones[0] = Phone { needs_pairing: true, ..phone.clone() };
+        assert_eq!(run(&mut c).why.as_deref(), Some("right"));
+        c.phones.store.phones[0] = phone.clone();
+        c.phones.cfg.on = false;
+        assert_eq!(run(&mut c).why.as_deref(), Some("right"));
+        assert!(c.pending.contains_key("plan") && c.phones.answerers.is_empty(), "nothing was answered");
+        c.phones.cfg.on = true;
+        assert_eq!(run(&mut c).outcome, Outcome::Ok);
+        assert!(!c.pending.contains_key("plan") && c.phones.answerers.get("plan").map(String::as_str) == Some("p"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_request_is_held_for_phones_only_when_nobody_is_at_the_computer() {
         let s = json!({ "approveWait": -1 });
         let st = on_state();
-        assert!(!st.holds_for_phones(&s, &Fixed(Some(5_000))), "input 5 seconds ago: not held");
-        assert!(st.holds_for_phones(&s, &Fixed(Some(30_000))), "input 30 seconds ago: held");
-        assert!(!st.holds_for_phones(&json!({ "approveWait": 0 }), &Fixed(Some(30_000))), "never hold wins");
-        assert!(st.holds_for_phones(&s, &Fixed(None)), "no reading: the choice decides, keep for the phone by default");
+        assert!(!st.holds_for_phones(&s, Kind::Request, &Fixed(Some(5_000))), "input 5 seconds ago: not held");
+        assert!(st.holds_for_phones(&s, Kind::Request, &Fixed(Some(30_000))), "input 30 seconds ago: held");
+        assert_eq!(st.why_not_held(&s, Kind::Request, &Fixed(Some(5_000))), AtComputerWhy::Present, "not held because someone is using the computer");
+        assert_eq!(st.why_not_held(&json!({ "approveWait": 0 }), Kind::Request, &Fixed(Some(5_000))), AtComputerWhy::NotShown, "never hold: nobody is the reason");
+        assert!(!st.holds_for_phones(&json!({ "approveWait": 0 }), Kind::Request, &Fixed(Some(30_000))), "never hold wins");
+        assert!(st.holds_for_phones(&s, Kind::Request, &Fixed(None)), "no reading: the choice decides, keep for the phone by default");
         let mut c = on_state();
         c.cfg.hold = "computer".into();
-        assert!(!c.holds_for_phones(&s, &Fixed(None)), "no reading, let Claude ask at the computer");
-        assert!(c.holds_for_phones(&s, &Fixed(Some(60_000))), "a reading beats the choice");
+        assert!(!c.holds_for_phones(&s, Kind::Request, &Fixed(None)), "no reading, let Claude ask at the computer");
+        assert!(c.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "a reading beats the choice");
         let mut off = on_state();
         off.cfg.on = false;
-        assert!(!off.holds_for_phones(&s, &Fixed(Some(60_000))), "switch off");
+        assert!(!off.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "switch off");
         let mut none = on_state();
         none.store.phones.clear();
-        assert!(!none.holds_for_phones(&s, &Fixed(Some(60_000))), "no phone paired");
+        assert!(!none.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "no phone paired");
+        // a phone that cannot answer this kind of item is no reason to hold it
+        let mut quiet = on_state();
+        quiet.store.phones[0].rights = Rights { activity: true, ..Default::default() };
+        assert!(!quiet.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "a phone with only the activity right");
+        assert_eq!(quiet.why_not_held(&s, Kind::Request, &Fixed(Some(5_000))), AtComputerWhy::NotShown, "and it is not the reason either");
+        quiet.store.phones[0].rights = Rights { question: true, ..Default::default() };
+        assert!(quiet.holds_for_phones(&s, Kind::Question, &Fixed(Some(60_000))) && !quiet.holds_for_phones(&s, Kind::Request, &Fixed(Some(60_000))), "the right for the kind");
     }
 
     fn held(c: &mut crate::Core, id: &str, plan: bool, raw: &str, cut: bool) {
@@ -1303,7 +1661,7 @@ mod tests {
         held(&mut c, "cutreq", false, "echo hi", true);
         held(&mut c, "cutplan", true, "1. a plan that was cut", true);
         held(&mut c, "escplan", true, &"\u{200b}".repeat(12_000), false); // not cut by the hook; its escaped form crosses the cap
-        let a = |c: &mut crate::Core, id: &str, sh: &str, choice: &str, plan: bool, ch: &mut bool| apply(c, "cid", id, sh, choice, "", plan, By::Phone, ch, &Rights::default());
+        let a = |c: &mut crate::Core, id: &str, sh: &str, choice: &str, plan: bool, ch: &mut bool| apply(c, "cid", id, sh, choice, "", plan, By::Phone, ch, None);
         let (sh, shp, shc) = (shown(&c, "req"), shown(&c, "plan"), shown(&c, "cutreq"));
         assert_eq!(a(&mut c, "plan", &shp, "allow", false, &mut changed).why.as_deref(), Some("kind"), "an answer for a plan id");
         assert_eq!(a(&mut c, "req", &sh, "allow", true, &mut changed).why.as_deref(), Some("kind"), "a plan decision for a request id");
@@ -1316,6 +1674,51 @@ mod tests {
         assert!(c.pending.contains_key("escplan"));
         assert_eq!(a(&mut c, "req", "not what was shown", "allow", false, &mut changed).outcome, Outcome::Stale);
         assert!(c.pending.contains_key("req") && !changed, "nothing was applied");
+        // a file that comes with the plan: shown whole it is approved with the plan; cut or only listed it is not, but the plan can go back
+        let file = |cut: bool, sent: bool| bobix_link::messages::PlanFile { name: "phase-01.md".into(), path: "plans/phase-01.md".into(), bytes: 9, text: if sent { "step".into() } else { String::new() }, cut, sent };
+        for (id, f) in [("filecut", file(true, true)), ("fileunsent", file(false, false))] {
+            held(&mut c, id, true, "1. a plan whose file is not whole", false);
+            c.pending.get_mut(id).unwrap().files = vec![file(false, true), f];
+            let sh = shown(&c, id);
+            assert_eq!(a(&mut c, id, &sh, "allow", true, &mut changed).why.as_deref(), Some("cut"), "{id}: not approved from a phone");
+            assert!(c.pending.contains_key(id));
+            assert_eq!(a(&mut c, id, &sh, "deny", true, &mut changed).outcome, Outcome::Ok, "{id}: but sent back");
+        }
+        // the files are read again when a plan is approved: the hash covers the copy held, the approve covers the disk
+        let dir = std::env::temp_dir().join(format!("bobix-approve-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("plans")).unwrap();
+        let write = |name: &str, text: &str| std::fs::write(dir.join("plans").join(name), text).unwrap();
+        let hold_plan = |c: &mut crate::Core, id: &str, names: &[String]| {
+            held(c, id, true, "1. a plan that names files", false);
+            let p = c.pending.get_mut(id).unwrap();
+            p.tool_input = json!({ "plan": names.iter().map(|n| format!("plans/{n}")).collect::<Vec<_>>().join(" ") });
+            p.cwd = dir.to_string_lossy().into_owned();
+            let now = p.files_now();
+            (p.files, p.files_omitted) = (now.files, now.omitted);
+        };
+        write("phase-01.md", "step");
+        for id in ["filesame", "fileedit", "filegone"] { hold_plan(&mut c, id, &["phase-01.md".to_string()]); }
+        let shf = shown(&c, "filesame");
+        assert_eq!(a(&mut c, "filesame", &shf, "allow", true, &mut changed).outcome, Outcome::Ok, "files as they were when held: approved");
+        write("phase-01.md", "step, changed since");
+        let shf = shown(&c, "fileedit");
+        assert_eq!(a(&mut c, "fileedit", &shf, "allow", true, &mut changed).outcome, Outcome::Stale, "a file edited on disk since the plan was held");
+        assert!(c.pending.contains_key("fileedit") && c.pending["fileedit"].files[0].text == "step, changed since", "the phone is shown the new file");
+        let shf = shown(&c, "fileedit");
+        assert_eq!(a(&mut c, "fileedit", &shf, "allow", true, &mut changed).outcome, Outcome::Ok, "and approves what it was then shown");
+        std::fs::remove_file(dir.join("plans/phase-01.md")).unwrap();
+        let shf = shown(&c, "filegone");
+        assert_eq!(a(&mut c, "filegone", &shf, "deny", true, &mut changed).outcome, Outcome::Ok, "sending a plan back needs no re-read");
+        // a plan that names more files than a phone is shown cannot be approved remotely (it can be sent back)
+        let nine: Vec<String> = (0..9).map(|i| { write(&format!("p{i}.md"), "x"); format!("p{i}.md") }).collect();
+        hold_plan(&mut c, "nine", &nine);
+        assert_eq!((c.pending["nine"].files.len(), c.pending["nine"].files_omitted), (8, 1));
+        let sh9 = shown(&c, "nine");
+        assert_eq!(a(&mut c, "nine", &sh9, "allow", true, &mut changed).why.as_deref(), Some("cut"), "nine files: not approved from a phone");
+        assert!(c.pending.contains_key("nine"));
+        assert_eq!(a(&mut c, "nine", &sh9, "deny", true, &mut changed).outcome, Outcome::Ok);
+        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(a(&mut c, "cutplan", &shcp, "deny", true, &mut changed).outcome, Outcome::Ok, "but a cut plan may be sent back");
         assert_eq!(a(&mut c, "cutreq", &shc, "deny", false, &mut changed).outcome, Outcome::Ok, "deny on a cut request is allowed");
         assert_eq!(a(&mut c, "req", &sh, "allow", false, &mut changed).outcome, Outcome::Ok);
@@ -1396,7 +1799,7 @@ mod tests {
         held(&mut c, "req", false, "ls", false);
         assert_eq!(apply_question(&mut c, "c3", "req", "x", &ans(&["a"]), &mut changed).why.as_deref(), Some("kind"), "a question command on a request id");
         let _rx2 = held_question(&mut c, "q2", "s1");
-        let a = |c: &mut crate::Core, id: &str, ch: &mut bool| apply(c, "c4", id, "x", "allow", "", false, By::Phone, ch, &Rights::default());
+        let a = |c: &mut crate::Core, id: &str, ch: &mut bool| apply(c, "c4", id, "x", "allow", "", false, By::Phone, ch, None);
         assert_eq!(a(&mut c, "q2", &mut changed).why.as_deref(), Some("kind"), "an answer on a question id");
         assert!(crate::answers::respond_core(&mut c, "q2", "allow", "", By::Pc, None, 1) == crate::answers::Answered::WrongKind, "a bare Allow never skips a question");
     }

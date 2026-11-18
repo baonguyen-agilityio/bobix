@@ -227,6 +227,21 @@ final class SecureKeysTests: XCTestCase {
     XCTAssertNil(try makeStore(software: true).signingPublicKey(), "it was erased on that launch")
   }
 
+  func testTheStoresNativeCodeOpensKeepTheDebugSoftwareKeyOnlyInItsMode() throws {
+    let before = KeyStore.debugSoftware
+    defer { KeyStore.debugSoftware = before }
+    let debug = try makeStore(software: true)
+    _ = try debug.createSigningKey()
+    // The Dart side opened the store with the software key: a store opened at launch or for push keeps it.
+    KeyStore.debugSoftware = true
+    _ = try KeyStore(service: service, markerURL: marker)
+    XCTAssertNotNil(try makeStore(software: true).signingPublicKey(), "a relaunch does not erase the key the app signs with")
+    // Not that mode (and never in a release build, where the flag always reads false): any software key is erased.
+    KeyStore.debugSoftware = false
+    _ = try KeyStore(service: service, markerURL: marker)
+    XCTAssertNil(try makeStore(software: true).signingPublicKey())
+  }
+
   func testOnlyANotFoundReadMeansNoKey() throws {
     XCTAssertTrue(try KeyStore.readOutcome(errSecSuccess))
     XCTAssertFalse(try KeyStore.readOutcome(errSecItemNotFound), "definitely not there")

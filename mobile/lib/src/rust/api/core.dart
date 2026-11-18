@@ -200,16 +200,21 @@ Future<Uint8List?> authBytes({
 /// A new command id: 16 random bytes in hex. A command is never sent twice under one id.
 String newCommandId() => RustLib.instance.api.crateApiCoreNewCommandId();
 
-/// The hash an `answer` carries as `shown`: of exactly what this phone displayed (the text, whether it was cut, and the
-/// questions with their options). The computer compares it with what it holds now, and refuses a stale answer.
+/// The hash an `answer` carries as `shown`: of exactly what this phone displayed (the text, whether it was cut, the
+/// questions with their options, and for a plan its files). The computer compares it with what it holds now, and refuses
+/// a stale answer. `omitted` is how many files the plan names that the computer could not show.
 Future<String> shownHash({
   required String text,
   required bool cut,
   required List<ShownQuestion> questions,
+  required List<ShownFile> files,
+  required int omitted,
 }) => RustLib.instance.api.crateApiCoreShownHash(
   text: text,
   cut: cut,
   questions: questions,
+  files: files,
+  omitted: omitted,
 );
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<SendCounter>>
@@ -425,6 +430,46 @@ class ProtocolVersions {
           min == other.min &&
           max == other.max &&
           current == other.current;
+}
+
+/// One file of a plan, as shown.
+class ShownFile {
+  final String name;
+  final String path;
+  final BigInt bytes;
+  final String text;
+  final bool cut;
+  final bool sent;
+
+  const ShownFile({
+    required this.name,
+    required this.path,
+    required this.bytes,
+    required this.text,
+    required this.cut,
+    required this.sent,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      path.hashCode ^
+      bytes.hashCode ^
+      text.hashCode ^
+      cut.hashCode ^
+      sent.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ShownFile &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          path == other.path &&
+          bytes == other.bytes &&
+          text == other.text &&
+          cut == other.cut &&
+          sent == other.sent;
 }
 
 /// One question of a request, as shown.

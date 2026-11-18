@@ -19,11 +19,25 @@ pub enum PushKind {
     LiveActivity,
 }
 
+/// What a `liveActivity` push does to the phone's Live Activity. `start` begins one (the relay uses the phone's
+/// push-to-start token, or updates a running activity when it has that token instead), `update` changes a running one,
+/// `end` closes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ActivityEvent {
+    Start,
+    Update,
+    End,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Push {
     pub kind: PushKind,
     pub priority: u8,
+    /// Only for `liveActivity`; absent reads as `update`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<ActivityEvent>,
     /// An opaque id the relay passes on as the collapse id, so a later notice can take the place of an earlier one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replaces: Option<String>,
@@ -119,8 +133,13 @@ pub enum InviteReason {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Frame {
-    /// relay → device, first frame of a connection.
-    Challenge { nonce: String },
+    /// relay → device, first frame of a connection. `relay_id` is the id the relay's push grants must name (its
+    /// `RELAY_ID`); a phone signs its grants with it. An older relay sends none.
+    Challenge {
+        nonce: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay_id: Option<String>,
+    },
     /// device → relay. `relay` is the address the device is connected to; `sig` is Ed25519 over
     /// `command::auth_bytes(relay, nonce)`. The relay calls `command::verify_auth_frame`.
     Auth { id: String, key: String, relay: String, sig: String, versions: VersionRange },

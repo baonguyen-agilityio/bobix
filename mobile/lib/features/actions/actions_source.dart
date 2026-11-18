@@ -15,7 +15,9 @@ abstract class ActionsSource {
   Future<PlanDoc> plan(String id);
   Future<QuestionDoc> question(String id);
   Future<SessionDetail> session(String id);
-  Future<List<StartIssue>> issues();
+
+  /// The repositories ticked on the computer with their issues, fetched when the Start screen opens.
+  Future<StartList> issues();
 
   /// Asks the computer to build the prompt it would send; nothing starts.
   Future<StartPreview> startPreview(String issueId, StartMode mode);

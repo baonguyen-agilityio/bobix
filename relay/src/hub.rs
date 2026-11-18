@@ -4,11 +4,11 @@
 
 use crate::config::Config;
 use crate::mailbox::{Mailbox, Packet, Put};
-use crate::push::{token_kind_for, verify_grant, PushRequest};
+use crate::push::{verify_grant, PushRequest};
 use crate::invited::{Invited, Redeemed};
 use crate::revoked::Revoked;
 use bobix_link::invite::{InviteCode, MAX_VALIDITY_MS};
-use bobix_link::relay_frames::{ApnsEnv, ErrorCode, Frame, InviteReason, Platform, PresenceState, Push, TokenKind};
+use bobix_link::relay_frames::{ActivityEvent, ApnsEnv, ErrorCode, Frame, InviteReason, Platform, PresenceState, Push, PushKind, TokenKind};
 use bobix_link::messages::{Who, MAX_PUSH_BODY};
 use bobix_link::{b64, b64_decode, hex, random, sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -615,9 +615,8 @@ impl Hub {
         if body.len() > MAX_PUSH_BODY {
             return vec![]; // too big for a push; it still reaches the phone over its socket
         }
-        let kind = token_kind_for(push.kind);
         let now = now_ms();
-        let Some(reg) = self.tokens.get(to).and_then(|l| l.iter().rev().find(|t| t.kind == kind)).cloned() else { return vec![] };
+        let Some((reg, event)) = self.token_for(to, &push) else { return vec![] };
         if reg.expires_ms <= now {
             // The grant ended: say so to the sender (the error follows the `queued` of this very packet).
             self.grant_err(from, to);
@@ -632,6 +631,8 @@ impl Hub {
             platform: reg.platform,
             env: reg.env,
             kind: push.kind,
+            event,
+            computer: from.to_owned(),
             token: reg.token,
             priority: push.priority,
             replaces: push.replaces,
@@ -639,6 +640,33 @@ impl Hub {
             grant: reg.grant,
         };
         vec![PushJob { to: to.to_owned(), req }]
+    }
+
+    /// The token a push goes to, and for a Live Activity the event it becomes. Alerts and background pushes use the phone's
+    /// `device` token. A Live Activity push `update`s or `end`s through the running activity's own token and does nothing
+    /// without one (the push-to-start token only ever begins an activity, or one update would begin another each time). A
+    /// `start` updates a running activity when there is one, and otherwise begins one through the push-to-start token. An
+    /// `end` also forgets the activity's token: that activity is over, and the next `start` must not go to a dead token.
+    fn token_for(&mut self, to: &str, push: &Push) -> Option<(TokenReg, Option<ActivityEvent>)> {
+        let latest = |l: &[TokenReg], kind: TokenKind| l.iter().rev().find(|t| t.kind == kind).cloned();
+        let list = self.tokens.get_mut(to)?;
+        if push.kind != PushKind::LiveActivity {
+            return latest(list, TokenKind::Device).map(|t| (t, None));
+        }
+        let activity = latest(list, TokenKind::Activity);
+        let (reg, event) = match push.event.unwrap_or(ActivityEvent::Update) {
+            ActivityEvent::Update => (activity?, ActivityEvent::Update),
+            ActivityEvent::End => {
+                let a = activity?;
+                list.retain(|t| !(t.kind == TokenKind::Activity && t.token == a.token));
+                (a, ActivityEvent::End)
+            }
+            ActivityEvent::Start => match activity {
+                Some(a) => (a, ActivityEvent::Update),
+                None => (latest(list, TokenKind::PushToStart)?, ActivityEvent::Start),
+            },
+        };
+        Some((reg, Some(event)))
     }
 
     /// The push service said this token is dead.

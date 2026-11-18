@@ -7,6 +7,7 @@ import 'package:phone/data/phone_data.dart';
 import 'package:phone/features/actions/actions_source.dart';
 import 'package:phone/log/activity_log.dart';
 import 'package:phone/screens/task_log_screen.dart';
+import 'package:phone/widgets/glass_tab_bar.dart';
 import 'package:phone/widgets/session_row.dart';
 
 import 'support/actions/fixture_actions_source.dart';
@@ -211,6 +212,47 @@ void main() {
     expect(find.text('Claude has a question'), findsOneWidget);
   });
 
+  testWidgets(
+    'a session asked at the computer is not counted as needing the phone, and says why when opened',
+    (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(
+        app(
+          data: const _Sessions([
+            Session(
+              id: 'ses-at-computer',
+              name: 'Rename the settings page',
+              project: 'shop',
+              stage: Stage.doing,
+              needsYou: true,
+              answerAtComputer: true,
+              atComputerWhy: 'tooLarge',
+            ),
+          ]),
+          source: FixtureActionsSource(),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Needs you'), findsNothing);
+      expect(find.text('Nothing needs you'), findsOneWidget);
+      expect(find.text('At the computer'), findsOneWidget);
+      expect(find.text('Answer it at the computer'), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(GlassTabBar), matching: find.text('1')),
+        findsNothing,
+        reason: 'no count on the Home tab',
+      );
+      await tester.tap(find.text('Rename the settings page'));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.textContaining('Answer it there.'), findsOneWidget);
+      expect(
+        find.textContaining('The question is too large for the phone.'),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('a task card ends with its log count, which opens that log', (
     tester,
   ) async {
@@ -261,10 +303,10 @@ void main() {
       expect(find.text('To do'), findsOneWidget);
       final tickets = find.byIcon(Icons.confirmation_number_outlined);
       expect(tickets, findsNWidgets(4));
-      await tester.tap(tickets.at(3));
+      await tester.tap(tickets.at(1));
       await tester.pump();
       expect(find.text('Start Full'), findsOneWidget);
-      expect(checkedOf(tester, 'Update the sign-up email, shop #35'), isTrue);
+      expect(checkedOf(tester, 'Update the sign-up email, #35'), isTrue);
       semantics.dispose();
     },
   );
@@ -328,7 +370,7 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Start'));
       await tester.pump();
       bool checked(String label) => checkedOf(tester, label);
-      expect(checked('Fix the cart total rounding, shop #38'), isTrue);
+      expect(checked('Fix the cart total rounding, #38'), isTrue);
       expect(checked('Full, '), isTrue);
       expect(checked('Quick, '), isFalse);
       expect(find.text('Start Full'), findsOneWidget);

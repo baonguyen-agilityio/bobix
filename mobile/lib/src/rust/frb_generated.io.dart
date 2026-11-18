@@ -134,6 +134,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<ShownFile> dco_decode_list_shown_file(dynamic raw);
+
+  @protected
   List<ShownQuestion> dco_decode_list_shown_question(dynamic raw);
 
   @protected
@@ -194,6 +197,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SealedPacket dco_decode_sealed_packet(dynamic raw);
+
+  @protected
+  ShownFile dco_decode_shown_file(dynamic raw);
 
   @protected
   ShownQuestion dco_decode_shown_question(dynamic raw);
@@ -327,6 +333,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<ShownFile> sse_decode_list_shown_file(SseDeserializer deserializer);
+
+  @protected
   List<ShownQuestion> sse_decode_list_shown_question(
     SseDeserializer deserializer,
   );
@@ -391,6 +400,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SealedPacket sse_decode_sealed_packet(SseDeserializer deserializer);
+
+  @protected
+  ShownFile sse_decode_shown_file(SseDeserializer deserializer);
 
   @protected
   ShownQuestion sse_decode_shown_question(SseDeserializer deserializer);
@@ -550,6 +562,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_shown_file(
+    List<ShownFile> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_shown_question(
     List<ShownQuestion> self,
     SseSerializer serializer,
@@ -629,6 +647,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_sealed_packet(SealedPacket self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_shown_file(ShownFile self, SseSerializer serializer);
 
   @protected
   void sse_encode_shown_question(ShownQuestion self, SseSerializer serializer);

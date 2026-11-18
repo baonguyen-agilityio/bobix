@@ -123,11 +123,15 @@ class ActionButtons extends StatelessWidget {
     this.secondary,
     this.fine,
     this.lock = false,
+    this.note,
   });
 
   final Widget primary;
   final Widget? secondary;
   final String? fine;
+
+  /// A line of fine print above [fine]: what the buttons cover (no lock).
+  final String? note;
 
   /// A lock before the fine print (the command asks for the biometric).
   final bool lock;
@@ -148,6 +152,7 @@ class ActionButtons extends StatelessWidget {
               Expanded(child: primary),
             ],
           ),
+        if (note != null) ...[const SizedBox(height: 8), FinePrint(note!)],
         if (fine != null) ...[
           const SizedBox(height: 8),
           Row(

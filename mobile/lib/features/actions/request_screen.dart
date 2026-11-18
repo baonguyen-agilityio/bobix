@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/glass_backdrop.dart';
 import '../../widgets/status_banner.dart';
 import 'action_screen_parts.dart';
 import 'action_widgets.dart';
@@ -12,13 +14,16 @@ import 'actions_models.dart';
 import 'actions_source.dart';
 import 'command_flow.dart';
 import 'hidden_chars.dart';
+import 'session_screen.dart';
 
 /// An input longer than this (characters or lines) is collapsed, and Allow stays locked until it is opened.
 const collapseChars = 400, collapseLines = 8;
 
-final requestProvider = FutureProvider.autoDispose.family<RequestView, String>(
-  (ref, id) => ref.watch(actionsSourceProvider).request(id),
-);
+final requestProvider = FutureProvider.autoDispose.family<RequestView, String>((ref, id) {
+  // asked again once the link is back up: a screen opened while it was down gets the item then
+  ref.watch(connProvider.select((c) => c == ConnState.ok));
+  return ref.watch(actionsSourceProvider).request(id);
+});
 
 /// A permission request: the whole tool input, then Allow or Deny. An id the app does not know yet shows "loading";
 /// "closed" shows only when the computer says so.
@@ -115,6 +120,7 @@ class _ClosedBanner extends ConsumerWidget {
         title: s(
           switch (by) {
             ClosedBy.computer => 'phone.cl.pc',
+            ClosedBy.thisPhone => 'phone.cl.me',
             ClosedBy.otherPhone => 'phone.cl.ph',
             ClosedBy.expired => 'phone.cl.ex',
           },
@@ -123,6 +129,10 @@ class _ClosedBanner extends ConsumerWidget {
         body: s(
           switch (by) {
             ClosedBy.computer => 'phone.cl.pc.d',
+            ClosedBy.thisPhone => 'phone.cl.me.d',
+            // The computer names the other phone by id only: without a name the line does not use one.
+            ClosedBy.otherPhone when (closed.phone ?? '').isEmpty =>
+              'phone.cl.ph.d0',
             ClosedBy.otherPhone => 'phone.cl.ph.d',
             ClosedBy.expired => 'phone.cl.ex.d',
           },
@@ -413,6 +423,23 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
             ),
           ],
         ),
+        // Stop lives on the session's screen (with what it does); a held request is where the person meets it.
+        if (closed == null &&
+            ref.watch(homeSessionProvider(r.id))?.canStop == true) ...[
+          const SizedBox(height: 12),
+          ActionButton(
+            s('phone.rq.stop'),
+            icon: Icons.chevron_right,
+            onPressed: () => Navigator.of(context).push(
+              pageRoute<void>(
+                SessionScreen(
+                  id: ref.read(homeSessionProvider(r.id))!.id,
+                  fromItem: true,
+                ),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 14),
         ShieldNote(s('phone.rq.never')),
       ],

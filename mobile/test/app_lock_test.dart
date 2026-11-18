@@ -15,6 +15,7 @@ import 'package:phone/l10n/l10n.dart';
 import 'package:phone/link/link_providers.dart';
 import 'package:phone/link/link_state.dart';
 import 'package:phone/lock/app_lock.dart';
+import 'package:phone/lock/own_prompt.dart';
 import 'package:phone/pets/pet_view.dart';
 import 'package:phone/lock/secure_scope.dart';
 import 'package:phone/src/rust/api/messages.dart';
@@ -246,6 +247,28 @@ void main() {
       await tester.tap(find.textContaining('Unlock with'));
       await settle(tester);
       expect(find.text('the app content'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'no cover while the app\'s own prompt is up; going to the background still locks',
+    (tester) async {
+      await pump(tester);
+      final prompt = Completer<void>();
+      final asked = duringOwnPrompt(() => prompt.future);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(find.byType(CoverScreen), findsNothing);
+      // Really in the background (frames stop there): still locked when the app comes back, prompt or not.
+      keys.authAnswer = AppAuth.cancelled;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await settle(tester);
+      expect(find.text('Bobix is locked'), findsOneWidget);
+      prompt.complete();
+      await asked;
+      expect(ownPromptActive, isFalse);
     },
   );
 

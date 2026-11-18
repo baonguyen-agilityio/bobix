@@ -15,6 +15,7 @@ class Session {
     required this.stage,
     this.needsYou = false,
     this.answerAtComputer = false,
+    this.atComputerWhy,
     this.answeredAtComputer = false,
     this.handledAtComputer = false,
     this.waitingId,
@@ -26,6 +27,7 @@ class Session {
     this.petDesign = 'default',
     this.petColor = 0,
     this.activityLines = 0,
+    this.canStop = false,
   });
 
   final String id, name, project;
@@ -39,6 +41,12 @@ class Session {
 
   /// It waits, but the computer does not hold the request for phones: it can only be answered at the computer.
   final bool answerAtComputer;
+
+  /// Why the computer does not hold it for phones (`present`, `tooLarge`, `unsupported`, `notShown`), when it says.
+  final String? atComputerWhy;
+
+  /// It needs the person and can be answered from this phone: what the "needs you" count and look are for.
+  bool get answersHere => needsYou && !answerAtComputer;
 
   /// The request was answered at the computer first (the first answer wins), so it is withdrawn here.
   final bool answeredAtComputer;
@@ -62,6 +70,9 @@ class Session {
   /// How many lines of activity the computer has for this session (0 without the right to read them).
   final int activityLines;
 
+  /// The computer lets this phone stop the session (a request is held, and it has both the Stop and the Answer right).
+  final bool canStop;
+
   /// `project #12`, or just the project when there is no ticket.
   String get ref => issue == null ? project : '$project #$issue';
 
@@ -82,10 +93,15 @@ class HomeData {
     required this.conn,
     required this.lastContact,
     required this.sessions,
+    this.live = true,
   });
 
   final String computer;
   final ConnState conn;
+
+  /// Whether this `home` came over the connection that is up now. The one kept from an earlier run (shown at once, while
+  /// the link connects) is not: its zero may be old.
+  final bool live;
 
   /// When the computer last sent anything, as the clock time to show ("21:02").
   final String lastContact;

@@ -15,6 +15,7 @@ import '../settings/app_settings.dart';
 import '../theme/tokens.dart';
 import '../widgets/detail_scaffold.dart';
 import '../widgets/glass_backdrop.dart';
+import 'own_prompt.dart';
 
 /// The app lock and the cover.
 ///
@@ -52,7 +53,10 @@ class _AppLockState extends ConsumerState<AppLock> {
     final state = WidgetsBinding.instance.lifecycleState;
     _covered = state != null && state != AppLifecycleState.resumed;
     _lifecycle = AppLifecycleListener(
-      onInactive: () => setState(() => _covered = true),
+      // Not while our own biometric prompt is up: the person is looking at the screen that asked.
+      onInactive: () {
+        if (!ownPromptActive) setState(() => _covered = true);
+      },
       // Really in the background (not only a system prompt over the app): the next visit asks again.
       onHide: () => setState(() {
         _covered = true;
@@ -92,9 +96,9 @@ class _AppLockState extends ConsumerState<AppLock> {
     _askedThisLock = true;
     final reason = ref.read(stringsProvider)('phone.lock.reason');
     final generation = _generation;
-    final answer = await ref
-        .read(secureKeysProvider)
-        .authenticate(reason: reason);
+    final answer = await duringOwnPrompt(
+      () => ref.read(secureKeysProvider).authenticate(reason: reason),
+    );
     _asking = false;
     if (!mounted) return;
     if (generation != _generation) {

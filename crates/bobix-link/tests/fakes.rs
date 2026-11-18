@@ -474,8 +474,8 @@ async fn first_frame_after_login(relay: &str, signing_for: &str) -> Frame {
     conn.login_signing_for(&id, signing_for).await.unwrap();
     match conn.recv(Duration::from_millis(400)).await {
         common::Recv::Frame(f) => f,
-        common::Recv::Timeout => Frame::Challenge { nonce: "accepted: no frame followed".into() },
-        common::Recv::Closed => Frame::Challenge { nonce: "closed".into() },
+        common::Recv::Timeout => Frame::Challenge { nonce: "accepted: no frame followed".into(), relay_id: None },
+        common::Recv::Closed => Frame::Challenge { nonce: "closed".into(), relay_id: None },
     }
 }
 

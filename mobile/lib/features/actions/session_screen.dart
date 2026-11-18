@@ -23,8 +23,11 @@ final sessionProvider = FutureProvider.autoDispose
 /// (only when `home` says it is possible: the session waits on a request held for this phone and the phone has both
 /// the Stop and the Answer right).
 class SessionScreen extends ConsumerWidget {
-  const SessionScreen({super.key, required this.id});
+  const SessionScreen({super.key, required this.id, this.fromItem = false});
   final String id;
+
+  /// Opened from the held request's own screen: "Open what it asks" goes back to it instead of opening it again.
+  final bool fromItem;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -128,20 +131,33 @@ class SessionScreen extends ConsumerWidget {
                 d.waitingOnRequest == null &&
                 ref.watch(homeSessionProvider(d.id))?.waitingId == null) ...[
               const SizedBox(height: 12),
-              _AtComputerNote(s('phone.sv.atpc.d', {'c': c})),
+              _AtComputerNote(
+                [
+                  s('phone.sv.atpc.d', {'c': c}),
+                  switch (ref.watch(homeSessionProvider(d.id))?.atComputerWhy) {
+                    'present' => s('phone.sv.atpc.why.present'),
+                    'tooLarge' => s('phone.sv.atpc.why.toolarge'),
+                    'unsupported' => s('phone.sv.atpc.why.unsupported'),
+                    _ => '',
+                  },
+                ].where((l) => l.isNotEmpty).join('\n'),
+              ),
             ],
             if (d.waitingOnRequest != null) ...[
               const SizedBox(height: 12),
               ActionButton(
                 s('phone.sv.open'),
                 icon: Icons.chevron_right,
-                onPressed: () => Navigator.of(
-                  context,
-                ).push(pageRoute<void>(RequestScreen(id: d.waitingOnRequest!))),
+                onPressed: fromItem
+                    ? () => Navigator.of(context).pop()
+                    : () => Navigator.of(context).push(
+                        pageRoute<void>(RequestScreen(id: d.waitingOnRequest!)),
+                      ),
               ),
             ],
             SessionActivity(
               lines: d.lines,
+              times: d.lineTimes,
               at: d.linesAt,
               empty: s('phone.sv.lines.empty'),
               limit: 3,

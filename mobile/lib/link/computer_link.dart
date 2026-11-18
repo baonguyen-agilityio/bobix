@@ -7,6 +7,7 @@ import '../config/flavor.dart';
 import '../config/relay.dart';
 import '../data/models.dart';
 import '../keys/secure_keys.dart';
+import '../push/push_registration.dart';
 import '../src/rust/api/core.dart';
 import '../src/rust/api/messages.dart';
 import '../src/rust/api/relay.dart';
@@ -26,6 +27,7 @@ class LinkStatus {
     this.revokedByComputer = false,
     this.revokedAtMs,
     this.movedHost,
+    this.pushRefusedFor,
   });
 
   final ConnState conn;
@@ -43,6 +45,10 @@ class LinkStatus {
   /// The host of the relay the computer moved to, once the phone follows it (shown so the move is not silent).
   final String? movedHost;
 
+  /// The relay refused this phone's push grant, which named this relay id: notifications will not arrive. Cleared when the
+  /// next connection opens (the grant is made again, and refused again if it is still wrong).
+  final String? pushRefusedFor;
+
   LinkStatus copyWith({
     ConnState? conn,
     LinkProblem? problem,
@@ -50,6 +56,8 @@ class LinkStatus {
     bool? revokedByComputer,
     int? revokedAtMs,
     String? movedHost,
+    String? pushRefusedFor,
+    bool clearPushRefused = false,
   }) => LinkStatus(
     conn: conn ?? this.conn,
     problem: problem ?? this.problem,
@@ -57,6 +65,9 @@ class LinkStatus {
     revokedByComputer: revokedByComputer ?? this.revokedByComputer,
     revokedAtMs: revokedAtMs ?? this.revokedAtMs,
     movedHost: movedHost ?? this.movedHost,
+    pushRefusedFor: clearPushRefused
+        ? null
+        : (pushRefusedFor ?? this.pushRefusedFor),
   );
 }
 
@@ -65,6 +76,33 @@ class HomeSnapshot {
   const HomeSnapshot(this.home, this.receivedAtMs);
   final Map<String, dynamic> home;
   final int receivedAtMs;
+}
+
+/// Who closed an item, as far as this phone can tell.
+enum Closer {
+  /// This phone sent the answer.
+  me,
+  computer,
+  otherPhone,
+  expired,
+  released,
+
+  /// Nothing says (an older computer, and not this phone's own answer): the phone may only guess.
+  unknown,
+}
+
+/// A `closed` notice: the item, its session, and who closed it (`by` as the computer sent it: `kind` is `computer`, `phone`
+/// with a `phone` id, `expired` or `released`; null from an older computer).
+/// Whether [id] can be a relay's id: 1 to 253 printable ASCII characters (the crate's `valid_relay_id`).
+bool validRelayId(String id) =>
+    id.isNotEmpty &&
+    id.length <= 253 &&
+    id.codeUnits.every((c) => c >= 0x21 && c <= 0x7E);
+
+class ClosedNotice {
+  const ClosedNotice(this.ref, this.session, this.by);
+  final String ref, session;
+  final Map<String, dynamic>? by;
 }
 
 /// How long to wait before the next try: 1 s, 2 s, 4 s ... up to 60 s, each with up to a quarter more at random so phones
@@ -88,6 +126,7 @@ class ComputerLink {
     required this.flavor,
     required this.identity,
     required this.versions,
+    this.push,
     DateTime Function()? now,
     Random? random,
     Duration Function(int attempt, double random)? delay,
@@ -118,6 +157,9 @@ class ComputerLink {
   final Flavor flavor;
   final DeviceIdentity identity;
   final ProtocolVersions versions;
+
+  /// Registers this phone's push tokens with the relay each time a connection is up. Null in tests that do not need it.
+  final PushRegistration? push;
   final DateTime Function() _now;
   final Random _random;
   final Duration Function(int attempt, double random) _delay;
@@ -125,11 +167,16 @@ class ComputerLink {
 
   LinkStatus status = const LinkStatus();
   HomeSnapshot? home;
+
+  /// A `home` arrived over the connection that is up. False from the moment a connection opens until its first `home`, and
+  /// while the one kept from an earlier run is all there is.
+  bool homeLive = false;
   final _statusChanges = StreamController<LinkStatus>.broadcast();
   final _homeChanges = StreamController<HomeSnapshot>.broadcast();
   final _messages = StreamController<DesktopMessage>.broadcast();
   final _relayEvents = StreamController<RelayFrame>.broadcast();
   final _results = StreamController<CommandResultInfo>.broadcast();
+  final _closedNotices = StreamController<ClosedNotice>.broadcast();
   final _details = <String, Completer<Map<String, dynamic>>>{};
 
   Stream<LinkStatus> get statusChanges => _statusChanges.stream;
@@ -141,11 +188,42 @@ class ComputerLink {
   /// The relay's own answers to packets this phone sent: `queued`, `delivered`, `dropped`, `withdrawn`, `tooLate`.
   Stream<RelayFrame> get relayEvents => _relayEvents.stream;
 
+  /// Every `closed` notice of the computer.
+  Stream<ClosedNotice> get closedNotices => _closedNotices.stream;
+
   /// Every `result` of the computer, whatever it answers.
   Stream<CommandResultInfo> get results => _results.stream;
 
   /// When this phone first saw each waiting item (Unix ms), to say how long it has been waiting.
   final Map<String, int> waitingSince = {};
+
+  /// Items this phone sent an answer for (the newest 64), and who the computer said closed an item. Memory only. They
+  /// tell this phone's own answer from the computer's, so it never calls its own answer "answered at the computer".
+  final Set<String> answeredHere = {};
+  final Map<String, Map<String, dynamic>?> _closedBy = {};
+
+  void answeredItem(String id) {
+    answeredHere
+      ..remove(id)
+      ..add(id);
+    if (answeredHere.length > 64) answeredHere.remove(answeredHere.first);
+  }
+
+  /// Who closed [id]: the computer's notice first, then this phone's own answer, else [Closer.unknown].
+  Closer closerOf(String id) {
+    final by = _closedBy[id];
+    if (by != null) {
+      return switch (by['kind']) {
+        'computer' => Closer.computer,
+        'phone' =>
+          by['phone'] == identity.deviceId ? Closer.me : Closer.otherPhone,
+        'expired' => Closer.expired,
+        'released' => Closer.released,
+        _ => Closer.unknown,
+      };
+    }
+    return answeredHere.contains(id) ? Closer.me : Closer.unknown;
+  }
 
   /// Whole inputs, plans and questions: in memory only, never written to the stored state.
   final Map<String, Map<String, dynamic>> detailCache = {};
@@ -160,7 +238,7 @@ class ComputerLink {
     computer
       ..recvState = channel.recvState
       ..eventReservation = channel.reservation;
-    await store.save(computer);
+    await _save();
   }
 
   void _set(LinkStatus s) {
@@ -182,13 +260,25 @@ class ComputerLink {
     await _session?.close();
   }
 
+  /// Kept on disk, unless this link has ended: a link left over after its pairing ended never writes its state back.
+  Future<void> _save() async {
+    if (_gone) return;
+    await store.save(computer);
+  }
+
+  /// Ends this link for good: it never connects or writes its state again, and what it was writing is on disk when this
+  /// returns.
   Future<void> dispose() async {
+    _gone = true;
     await pause();
+    _pushForget();
     await _statusChanges.close();
     await _homeChanges.close();
     await _messages.close();
     await _relayEvents.close();
     await _results.close();
+    await _closedNotices.close();
+    await store.flush();
   }
 
   Future<void> _loop() async {
@@ -207,7 +297,9 @@ class ComputerLink {
           await session.close();
           break;
         }
-        _set(status.copyWith(conn: ConnState.ok));
+        homeLive = false;
+        _set(status.copyWith(conn: ConnState.ok, clearPushRefused: true));
+        _pushUp(session);
         session.send(await relayPeersFrame(allow: [computer.id]));
         await _sendSealed(
           await syncMessage(
@@ -223,12 +315,14 @@ class ComputerLink {
           if (_gone || !_running) break;
         }
         _session = null;
+        _pushDown();
         await session.close();
         if (!_gone && _running && status.conn == ConnState.ok) {
           _set(status.copyWith(conn: ConnState.relayDown));
         }
       } on Object catch (e) {
         _session = null;
+        _pushDown();
         _set(status.copyWith(conn: _unreachable(e)));
       }
       if (!_running || _gone || status.maybeRevoked) break;
@@ -241,6 +335,45 @@ class ComputerLink {
       await _sleep(_delay(attempt, _random.nextDouble()));
     }
     _running = false;
+  }
+
+  /// The relay id [push] has this link registered under while a connection is up, and the last one it used (to forget).
+  String? _pushId, _pushUsed;
+
+  /// A connection is up: the push tokens go to the relay over it, each with a fresh grant. A failure here never ends the
+  /// connection: the next one, or the daily renewal, tries again.
+  void _pushUp(RelaySession session) {
+    // The id the relay announced; an older relay announces none, and its address's host is the best guess. An id that is
+    // not one a relay can have (the rule the invite codes use) is not signed over: the grant would name a text the relay
+    // never chose, and the address's host stands in.
+    final announced = session.relayId;
+    final p = push,
+        id = announced != null && validRelayId(announced)
+            ? announced
+            : relayHost(computer.relay);
+    if (p == null || id == null) return;
+    _pushId = _pushUsed = id;
+    unawaited(() async {
+      try {
+        await p.connected(id, (frame) async => session.send(jsonEncode(frame)));
+      } on Object {
+        // Push is not available (no platform channel, a closed socket): nothing is lost, it registers again later.
+      }
+    }());
+  }
+
+  /// The connection ended: nothing is sent to the relay until it is up again.
+  void _pushDown() {
+    final id = _pushId;
+    _pushId = null;
+    if (id != null) push?.disconnected(id);
+  }
+
+  /// This link no longer belongs to the relay (it moved, or the pairing ended): its grants are not renewed.
+  void _pushForget() {
+    final id = _pushUsed;
+    if (id != null) push?.forget(id);
+    _pushUsed = null;
   }
 
   ConnState _unreachable(Object e) => whyUnreachable(e) == Unreachable.noNetwork
@@ -286,7 +419,7 @@ class ComputerLink {
     final session = _session;
     if (session == null) throw const SocketLost();
     computer.pending.add(cid);
-    await store.save(computer);
+    await _save();
     final out = await relaySendFrame(
       to: computer.id,
       packet: channel.sealWith(counter, message),
@@ -305,7 +438,7 @@ class ComputerLink {
 
   /// A command that was dealt with (a result came, or the person gave up on it) is no longer waited for.
   Future<void> forget(String cid) async {
-    if (computer.pending.remove(cid)) await store.save(computer);
+    if (computer.pending.remove(cid)) await _save();
   }
 
   Future<void> _onFrame(RelaySession session, RelayFrame f) async {
@@ -353,6 +486,10 @@ class ComputerLink {
         );
       case RelayError.invite:
         _set(status.copyWith(problem: LinkProblem.invite));
+      case RelayError.grant:
+        // Only a refusal of this phone's own token reaches a phone. It is said, not guessed at: nothing will be pushed.
+        final id = _pushId;
+        if (id != null) _set(status.copyWith(pushRefusedFor: id));
       default:
         break;
     }
@@ -382,6 +519,13 @@ class ComputerLink {
       case 'home':
         final snap = HomeSnapshot(j, _now().millisecondsSinceEpoch);
         home = snap;
+        homeLive = true;
+        // Content of items that no longer wait is not needed again.
+        final open = {
+          for (final w in (j['waiting'] as List? ?? const []))
+            (w as Map<String, dynamic>)['id'],
+        };
+        detailCache.removeWhere((id, _) => !open.contains(id));
         // A `home` without `rights` (an older computer) keeps the rights the phone has.
         final granted = j['rights'];
         if (granted is Map<String, dynamic>) {
@@ -390,7 +534,7 @@ class ComputerLink {
         computer
           ..home = m.json
           ..homeAt = snap.receivedAtMs;
-        await store.save(computer);
+        await _save();
         final held = {
           for (final w in (j['waiting'] as List).cast<Map<String, dynamic>>())
             w['id'] as String,
@@ -405,6 +549,23 @@ class ComputerLink {
           _set(status.copyWith(conn: ConnState.asleep));
         } else if (state == 'online' && status.conn == ConnState.asleep) {
           _set(status.copyWith(conn: ConnState.ok));
+        }
+      case 'notice' when j['what'] == 'closed':
+        final by = j['by'];
+        final ref = j['ref'] as String;
+        if (by is Map<String, dynamic>) {
+          _closedBy.remove(ref);
+          _closedBy[ref] = by;
+          if (_closedBy.length > 64) _closedBy.remove(_closedBy.keys.first);
+        }
+        if (!_closedNotices.isClosed) {
+          _closedNotices.add(
+            ClosedNotice(
+              ref,
+              j['session'] as String? ?? '',
+              by is Map<String, dynamic> ? by : null,
+            ),
+          );
         }
       case 'result':
         final r = await commandResult(messageJson: m.json);
@@ -424,8 +585,9 @@ class ComputerLink {
       case 'relayMoved':
         final url = j['url'] as String;
         if (await relayAllowed(url, flavor) && url != computer.relay) {
+          _pushForget();
           computer.relay = url;
-          await store.save(computer);
+          await _save();
           // The old connection ends; the loop opens the new relay at once.
           _moved = true;
           _set(status.copyWith(movedHost: relayHost(url)));
@@ -437,6 +599,7 @@ class ComputerLink {
   Future<void> _eraseEverything() async {
     _gone = true;
     _running = false;
+    _pushForget();
     await keys.eraseAll();
     await store.erase();
     await _session?.close();
@@ -453,6 +616,11 @@ class ComputerLink {
     if (cached != null && !fresh) return cached;
     final waiter = _details.putIfAbsent(id, Completer.new);
     try {
+      // A screen opened as the app comes back (a tap on a notification or the Live Activity) asks before the link is up
+      // again: the question waits for it instead of failing at once.
+      if (!connected) {
+        await statusChanges.firstWhere((_) => connected).timeout(within);
+      }
       await _sendSealed(await detailRequestMessage(id: id));
       return await waiter.future.timeout(within);
     } on Object {

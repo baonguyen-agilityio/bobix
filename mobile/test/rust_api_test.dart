@@ -58,6 +58,7 @@ const exposed = {
   'pairedAckMessage',
   'syncMessage',
   'detailRequestMessage',
+  'issuesRequestMessage',
   'startPreviewMessage',
   'byeMessage',
   'prepareCommand',

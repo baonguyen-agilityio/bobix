@@ -9,6 +9,7 @@ import 'package:phone/data/models.dart';
 import 'package:phone/data/phone_data.dart';
 
 import 'package:phone/l10n/l10n.dart';
+import 'package:phone/settings/app_settings.dart';
 import 'package:phone/theme/theme.dart';
 
 class _Conn extends Conn {
@@ -16,6 +17,12 @@ class _Conn extends Conn {
   final ConnState value;
   @override
   ConnState build() => value;
+}
+
+/// Settings kept in memory: no support folder to read or write, so a choice shows at once and is not saved.
+class _MemorySettings extends SettingsController {
+  @override
+  Future<AppSettings> build() async => const AppSettings();
 }
 
 class _Lang extends Lang {
@@ -42,6 +49,7 @@ Future<FixtureActionsSource> pumpScreen(
   ConnState conn = ConnState.ok,
   bool approve = true,
   HomeData? home,
+  BiometricGate? gate,
 }) async {
   tester.view
     ..physicalSize = const Size(390 * 3, 844 * 3)
@@ -53,12 +61,13 @@ Future<FixtureActionsSource> pumpScreen(
       key: UniqueKey(),
       overrides: [
         langProvider.overrideWith(() => _Lang(lang)),
+        settingsProvider.overrideWith(_MemorySettings.new),
         connProvider.overrideWith(() => _Conn(conn)),
         actionsSourceProvider.overrideWithValue(src),
         if (home != null)
           homeProvider.overrideWith((ref) => Stream.value(home)),
         biometricGateProvider.overrideWithValue(
-          FixtureBiometricGate(approve: approve, after: Duration.zero),
+          gate ?? FixtureBiometricGate(approve: approve, after: Duration.zero),
         ),
       ],
       child: MaterialApp(theme: bobixTheme(brightness), home: screen),
@@ -77,9 +86,9 @@ Finder button(String label) => find.widgetWithText(InkWell, label);
 bool off(WidgetTester tester, String label) =>
     tester.widget<InkWell>(button(label).first).onTap == null;
 
-/// Lets the confirm step and the send finish.
+/// Lets the confirm step (the sheet rises, the read pause, the check, the hold, the sheet leaves) and the send finish.
 Future<void> settle(WidgetTester tester) async {
-  for (var i = 0; i < 8; i++) {
+  for (var i = 0; i < 14; i++) {
     await tester.pump(const Duration(milliseconds: 200));
   }
 }

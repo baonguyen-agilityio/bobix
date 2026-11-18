@@ -94,7 +94,7 @@ impl Dev {
     pub async fn connect(s: &Server, id: Arc<Identity>) -> Dev {
         let mut d = Dev::raw(s).await;
         d.ident = id;
-        let Frame::Challenge { nonce } = d.next(2000).await else { panic!("no challenge") };
+        let Frame::Challenge { nonce, .. } = d.next(2000).await else { panic!("no challenge") };
         let frame = auth_frame(&d.ident, &d.url, &nonce);
         d.send(&frame).await;
         d.sync().await;

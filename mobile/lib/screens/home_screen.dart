@@ -28,6 +28,9 @@ void openSession(BuildContext context, Session x) {
   final id = x.waitingId;
   final Widget page = id == null
       ? SessionScreen(id: x.id)
+      // Only the request screen has the closed view that says who answered.
+      : x.answeredAtComputer
+      ? RequestScreen(id: id)
       : switch (x.waitingKind) {
           WaitingKind.plan => PlanScreen(id: id),
           WaitingKind.question => QuestionScreen(id: id),
@@ -54,7 +57,11 @@ class HomeScreen extends ConsumerWidget {
     final t = context.tokens;
     final conn = data.conn, clock = data.lastContact, computer = data.computer;
 
-    final need = data.sessions.where((x) => x.needsYou).toList();
+    final need = data.sessions.where((x) => x.answersHere).toList();
+    // Claude waits, but asks in its own prompt at the computer: shown apart, never counted as needing this phone.
+    final atComputer = data.sessions
+        .where((x) => x.needsYou && x.answerAtComputer)
+        .toList();
     String minutes(int n) => s('phone.min', {'n': n});
 
     Widget row(
@@ -76,7 +83,7 @@ class HomeScreen extends ConsumerWidget {
         logCount: ref.watch(taskLogProvider(x.id)).length + x.activityLines,
         logLabel: s('phone.tl.open', {'n': x.name}),
         onLog: taskLogOpener(context, ref, x.id),
-        needsYou: x.needsYou,
+        needsYou: x.answersHere,
         muted: muted,
         subtitleColor: subtitleColor,
         onTap: () => openSession(context, x),
@@ -118,7 +125,8 @@ class HomeScreen extends ConsumerWidget {
 
     final closed = data.sessions.where((x) => x.answeredAtComputer).toList();
 
-    final issues = ref.watch(startIssuesProvider).value ?? const [];
+    final issues =
+        ref.watch(startIssuesProvider).value?.todo ?? const <StartIssue>[];
 
     List<Widget> stage(Stage g) {
       final items = data.sessions
@@ -238,14 +246,14 @@ class HomeScreen extends ConsumerWidget {
           for (final x in need)
             row(
               x,
-              x.answerAtComputer
-                  ? s('phone.home.atpc')
-                  : x.handledAtComputer
-                  ? s('phone.hc.short')
-                  : waitingText(s, x),
+              x.handledAtComputer ? s('phone.hc.short') : waitingText(s, x),
               meta:
                   '${x.project} · ${s('phone.home.waited', {'n': minutes(x.waitingMinutes)})}',
             ),
+        ],
+        if (atComputer.isNotEmpty) ...[
+          SectionHeader(s('phone.home.atpc.h'), count: atComputer.length),
+          for (final x in atComputer) row(x, s('phone.home.atpc'), muted: true),
         ],
         if (closed.isNotEmpty) ...[
           SectionHeader(s('phone.home.earlier'), count: closed.length),

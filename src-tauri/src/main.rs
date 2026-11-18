@@ -24,6 +24,7 @@ mod petstore;
 mod presence;
 mod phone_view;
 mod phones;
+mod plan_files;
 mod procs;
 mod process;
 mod project;
@@ -156,6 +157,13 @@ impl Bobix {
         let source = e["source"].as_str().unwrap_or("");
         let mut habit_lines = vec![];
         let mut follow = None; // a flow that just got this session: its key, the session, the folder the session is in
+        // A plan held for a phone comes with the Markdown files it names. They are read here, before the core is locked, with
+        // the folder the event reports (the one `state::apply` stores); `answers::wait` reads them itself if that is another.
+        let plan_files = (wait && ev == "PermissionRequest" && e["tool_name"] == "ExitPlanMode" && self.core.lock().unwrap().phones.has_phone_for(answers::Kind::Plan)).then(|| {
+            let cwd = e["cwd"].as_str().unwrap_or("").to_string();
+            let files = plan_files::read(e["tool_input"]["plan"].as_str().unwrap_or(""), &cwd);
+            (cwd, files)
+        });
         let (id, notice, since, reply, git_dir, gitlab) = {
             let mut c = self.core.lock().unwrap();
             c.last_event_at = Some(now);
@@ -198,7 +206,10 @@ impl Bobix {
                     }
                     let plan = tool == "ExitPlanMode" && flows.by_session(&id).is_some(); // the flow's one gate: held until answered
                     // AskUserQuestion is held as a question (answered with its answers, never with a bare Allow), whole or not at all
-                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, closed, phones, settings, s, &e, plan) }
+                    // a session that waits without a PermissionRequest that was held (a prompt Bobix does not hook) is answered at the computer
+                    if s.state != "waiting" { s.at_computer_why = None; }
+                    else if ev == "Notification" && s.at_computer_why.is_none() && !pending.values().any(|p| p.sid == s.id) { s.at_computer_why = Some(bobix_link::messages::AtComputerWhy::Unsupported); }
+                    let reply = if wait && ev == "PermissionRequest" { answers::wait(self, pending, closed, phones, settings, s, &e, plan, plan_files) }
                         // A session that starts on an issue (a start in Work, or its branch) gets its name from Bobix, the
                         // way /rename names it; one that has a name keeps it. One new where a start waits is named by its
                         // first prompt, once that names the issue (Work::claim): not one you opened there yourself.

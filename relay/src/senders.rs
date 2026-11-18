@@ -211,7 +211,7 @@ impl PushSender for GatewayClient {
     fn send(&self, r: PushRequest) -> BoxFuture<'_, Outcome> {
         Box::pin(async move {
             let body = json!({
-                "platform": r.platform, "kind": r.kind, "env": r.env, "token": r.token, "grant": r.grant, "body": r.body,
+                "platform": r.platform, "kind": r.kind, "event": r.event, "computer": r.computer, "env": r.env, "token": r.token, "grant": r.grant, "body": r.body,
                 "relay": self.relay_id, "replaces": r.replaces, "priority": r.priority,
             });
             let mut req = self.client.post(format!("{}/v1/push", self.url)).json(&body);

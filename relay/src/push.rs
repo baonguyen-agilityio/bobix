@@ -2,7 +2,7 @@
 //! The body is a sealed packet: the relay sends it without being able to read it.
 
 use bobix_link::keys::{device_id, verify_auth};
-use bobix_link::relay_frames::{ApnsEnv, Platform, PushKind};
+use bobix_link::relay_frames::{ActivityEvent, ApnsEnv, Platform, PushKind};
 use bobix_link::{b64, b64_decode, Fields};
 use serde_json::{json, Value};
 use std::future::Future;
@@ -16,12 +16,20 @@ pub const MAX_GRANT_MS: u64 = 30 * 24 * 3600 * 1000;
 /// The keys the phone's app resolves to the text iOS shows when the notification extension cannot open a payload.
 pub const TITLE_LOC_KEY: &str = "bobix.push.title";
 pub const BODY_LOC_KEY: &str = "bobix.push.body";
+/// The Swift type of the Live Activity (`BobixActivityAttributes`): a push that starts an activity names it.
+pub const ACTIVITY_ATTRIBUTES_TYPE: &str = "BobixActivityAttributes";
+/// How long a pushed Live Activity's content is current: the app's own 15 minutes. After that the system draws it stale.
+pub const ACTIVITY_STALE_SECS: u64 = 15 * 60;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PushRequest {
     pub platform: Platform,
     pub env: ApnsEnv,
     pub kind: PushKind,
+    /// For `LiveActivity` only: what the push does to the activity, after the relay chose it from the tokens it holds.
+    pub event: Option<ActivityEvent>,
+    /// The computer that sent the push: a pushed Live Activity names it in its attributes.
+    pub computer: String,
     pub token: String,
     pub priority: u8,
     pub replaces: Option<String>,
@@ -98,14 +106,6 @@ pub fn encode_grant(auth_public: &[u8; 32], expires_ms: u64, sig: &[u8]) -> Stri
     b64(&raw)
 }
 
-/// Whether a push kind goes to the phone's `device` token or its `activity` token.
-pub fn token_kind_for(kind: PushKind) -> bobix_link::relay_frames::TokenKind {
-    match kind {
-        PushKind::Alert | PushKind::Background => bobix_link::relay_frames::TokenKind::Device,
-        PushKind::LiveActivity => bobix_link::relay_frames::TokenKind::Activity,
-    }
-}
-
 /// The APNs `apns-priority`: a background push must be 5, anything else is 10 or 5.
 pub fn apns_priority(kind: PushKind, given: u8) -> u8 {
     if kind == PushKind::Background || given < 10 { 5 } else { 10 }
@@ -119,10 +119,35 @@ pub fn apns_payload(r: &PushRequest, now_secs: u64) -> Value {
             "sealed": r.body,
         }),
         PushKind::Background => json!({"aps": {"content-available": 1}, "sealed": r.body}),
-        PushKind::LiveActivity => json!({
-            "aps": {"timestamp": now_secs, "event": "update", "content-state": {"sealed": r.body}},
-        }),
+        PushKind::LiveActivity => live_activity_payload(r, now_secs),
     }
+}
+
+/// The ActivityKit payload. The content state is only the sealed `activity` packet: the relay holds no key, so no count and
+/// no name is written in the clear (the widget opens the packet itself). `start` also carries the attributes (the
+/// computer's id) and an alert, which the system requires to start an activity from a push.
+fn live_activity_payload(r: &PushRequest, now_secs: u64) -> Value {
+    let event = r.event.unwrap_or(ActivityEvent::Update);
+    let mut aps = json!({"timestamp": now_secs, "content-state": {"sealed": r.body}});
+    match event {
+        ActivityEvent::Start => {
+            aps["event"] = json!("start");
+            aps["stale-date"] = json!(now_secs + ACTIVITY_STALE_SECS);
+            aps["attributes-type"] = json!(ACTIVITY_ATTRIBUTES_TYPE);
+            aps["attributes"] = json!({"computerId": r.computer});
+            aps["input-push-token"] = json!(1);
+            aps["alert"] = json!({"title-loc-key": TITLE_LOC_KEY, "loc-key": BODY_LOC_KEY});
+        }
+        ActivityEvent::Update => {
+            aps["event"] = json!("update");
+            aps["stale-date"] = json!(now_secs + ACTIVITY_STALE_SECS);
+        }
+        ActivityEvent::End => {
+            aps["event"] = json!("end");
+            aps["dismissal-date"] = json!(now_secs);
+        }
+    }
+    json!({ "aps": aps })
 }
 
 /// `apns-collapse-id` allows 64 bytes; a longer key is shortened the same way every time so it still collapses.
@@ -144,7 +169,7 @@ mod tests {
     use super::*;
 
     fn req(kind: PushKind, priority: u8, replaces: Option<&str>) -> PushRequest {
-        PushRequest { platform: Platform::Ios, env: ApnsEnv::Sandbox, kind, token: "tok".into(), priority, replaces: replaces.map(Into::into), body: "SEALED".into(), grant: String::new() }
+        PushRequest { platform: Platform::Ios, env: ApnsEnv::Sandbox, kind, event: None, computer: "desk".into(), token: "tok".into(), priority, replaces: replaces.map(Into::into), body: "SEALED".into(), grant: String::new() }
     }
 
     #[test]

@@ -18,6 +18,20 @@ pub const MAX_PUSH_BODY: usize = 3_500;
 pub const MAX_NAME: usize = 64;
 /// A note on a plan and each answer to a question.
 pub const MAX_NOTE: usize = 2_000;
+/// The issue list (`issues`): repositories, issues over all of them, and the longest title, repository path and host.
+/// Far below `MAX_FRAME`: 100 issues of 120 bytes and 40 repositories of 300 bytes are about 30 KB.
+pub const MAX_ISSUE_REPOS: usize = 40;
+pub const MAX_ISSUES: usize = 100;
+pub const MAX_ISSUE_TITLE: usize = 120;
+pub const MAX_ISSUE_PATH: usize = 200;
+pub const MAX_ISSUE_HOST: usize = 100;
+/// The files a plan comes with (`Detail.files`): how many, the longest text of one, all texts together, and the longest
+/// name and folder path. Together with a plan's `MAX_PLAN` they stay far below `MAX_FRAME` even when JSON doubles them.
+pub const MAX_PLAN_FILES: usize = 8;
+pub const MAX_PLAN_FILE_TEXT: usize = 8 * 1024;
+pub const MAX_PLAN_FILES_TEXT: usize = 48 * 1024;
+pub const MAX_PLAN_FILE_NAME: usize = 200;
+pub const MAX_PLAN_FILE_PATH: usize = 400;
 
 /// A command is accepted from this long before to this long after the receiver's clock.
 pub const COMMAND_MAX_AGE_MS: u64 = 10 * 60 * 1000;
@@ -100,12 +114,34 @@ pub fn visible_escapes(text: &str) -> (String, bool) {
 /// as displayed (with visible escapes), whether it was cut, and the questions with their options in order. `detail`
 /// carries it; `answer`, `plan` and `question` send it back; the desktop recomputes it from what it holds.
 pub fn shown_hash(text: &str, cut: bool, questions: &[Question]) -> String {
+    shown_hash_with_files(text, cut, questions, &[])
+}
+
+/// [`shown_hash`] for a plan that comes with files: the files, in order, with everything the phone shows of each (name,
+/// folder, size, text, `cut`, `sent`), are appended after the questions. With no files the bytes are exactly those of
+/// `shown_hash` before files existed, so an older desktop and an older phone still agree.
+pub fn shown_hash_with_files(text: &str, cut: bool, questions: &[Question], files: &[PlanFile]) -> String {
+    shown_hash_with_omitted(text, cut, questions, files, 0)
+}
+
+/// [`shown_hash_with_files`] for a plan that names more files than it comes with: `omitted` of them could not be shown. It is
+/// appended only when it is above 0, so a plan whose files are all shown hashes as before.
+pub fn shown_hash_with_omitted(text: &str, cut: bool, questions: &[Question], files: &[PlanFile], omitted: u32) -> String {
     let mut f = Fields::new("bobix-shown-v1").field(text.as_bytes()).num(cut as u64).num(questions.len() as u64);
     for q in questions {
         f = f.field(q.text.as_bytes()).num(q.multi_select as u64).num(q.options.len() as u64);
         for o in &q.options {
             f = f.field(o.as_bytes());
         }
+    }
+    if !files.is_empty() {
+        f = f.field(b"files").num(files.len() as u64);
+        for p in files {
+            f = f.field(p.name.as_bytes()).field(p.path.as_bytes()).num(p.bytes).field(p.text.as_bytes()).num(p.cut as u64).num(p.sent as u64);
+        }
+    }
+    if omitted > 0 {
+        f = f.field(b"omitted").num(omitted as u64);
     }
     hex(&sha256(&[&f.done()]))
 }
@@ -136,7 +172,55 @@ pub enum DesktopMsg {
     /// Sent through the old relay before the desktop switches to another one.
     RelayMoved { url: String },
     Notice(Notice),
+    /// The reply to `issues`: the repositories ticked on the computer with their open issues.
+    Issues(IssueList),
     Error { code: String, who: Option<Who> },
+}
+
+/// The issues a phone with the Start right could start, grouped by the repositories ticked on the computer (a repository
+/// with no open issue is listed too). Titles are redacted and cut by the computer.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueList {
+    pub repos: Vec<IssueRepo>,
+    /// Why the list may be incomplete: the computer could not read the issues (`gh` / `glab` missing, signed out or
+    /// offline), or has not finished its first read. Absent when the list is whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<IssuesError>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IssuesError {
+    /// The last read failed.
+    Read,
+    /// The first read has not finished.
+    Reading,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueRepo {
+    /// The repository's path on its host (`owner/name`), the `project` of a `startPreview` and a `start`.
+    pub path: String,
+    pub host: String,
+    /// A clone of it is on the computer; without one an issue cannot be started.
+    pub cloned: bool,
+    #[serde(default)]
+    pub issues: Vec<IssueInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueInfo {
+    pub iid: u64,
+    pub title: String,
+    /// When the tracker says it was last changed (as the tracker writes it, ISO 8601).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated: Option<String>,
+    /// A session on the computer already works on it: the computer refuses a start (`exists`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub has_session: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -202,6 +286,24 @@ pub struct SessionInfo {
     /// phone that may see activity, so the phone can show the count without asking; absent reads as 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub lines: u8,
+    /// For a session that waits with nothing held for phones (`state` is `atComputer`): why, when the desktop knows.
+    /// Absent from an older desktop and whenever the reason is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_computer_why: Option<AtComputerWhy>,
+}
+
+/// Why a waiting session is not held for phones: Claude asks in its own prompt, so it is answered at the computer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AtComputerWhy {
+    /// Someone is using the computer.
+    Present,
+    /// The question could not be held whole (too many questions or options, text too long, or cut by the hook).
+    TooLarge,
+    /// A kind of prompt Bobix does not hold.
+    Unsupported,
+    /// Bobix is set to show or hold nothing on this computer for now.
+    NotShown,
 }
 
 fn is_zero(n: &u8) -> bool { *n == 0 }
@@ -269,7 +371,7 @@ pub struct Detail {
     pub what: DetailKind,
     /// With `odd`, every control or format character is already a visible escape.
     pub text: String,
-    /// See `shown_hash`: covers `text`, `cut` and `questions`.
+    /// See `shown_hash`: covers `text`, `cut`, `questions` and `files`.
     pub shown: String,
     pub odd: bool,
     /// Anything was dropped from `text`: a remote Allow is refused.
@@ -277,6 +379,40 @@ pub struct Detail {
     /// For a question: the questions with their options, in the order `question { answers }` answers them.
     #[serde(default)]
     pub questions: Vec<Question>,
+    /// For `lastLines`: when each line of `text` happened (Unix ms), one per line in order. Absent from an older desktop,
+    /// and empty when unknown; a phone uses it only when it counts the lines. Not in `shown_hash`: nothing is approved on it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub times: Vec<u64>,
+    /// For a plan: the Markdown files the plan names inside the session's folder, read when the plan was held. Absent from
+    /// an older desktop and when the plan names none. In `shown_hash`: approving a plan covers exactly these files as shown.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<PlanFile>,
+    /// For a plan: how many files it names that are in neither `files` nor listed (more than `MAX_PLAN_FILES`, or names the
+    /// computer could not show). Absent from an older desktop and when it is 0. In `shown_hash`; a remote Approve is refused.
+    #[serde(default, skip_serializing_if = "no_files_omitted")]
+    pub omitted: u32,
+}
+
+fn no_files_omitted(n: &u32) -> bool {
+    *n == 0
+}
+
+/// One file of a plan. `text` is what the computer chose to send: redacted, with hidden characters as visible escapes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanFile {
+    /// The file's name (its last path component).
+    pub name: String,
+    /// Where it is, relative to the session's folder: the folder and the name, with `/` as the separator.
+    pub path: String,
+    /// The file's size on the computer, in bytes (not of `text`).
+    pub bytes: u64,
+    pub text: String,
+    /// `text` is the start of the file only: the rest was left out. A remote Approve is refused.
+    #[serde(default)]
+    pub cut: bool,
+    /// `text` was sent. When false the file is only listed (too large, unreadable, not text): a remote Approve is refused.
+    pub sent: bool,
 }
 
 impl Detail {
@@ -284,12 +420,26 @@ impl Detail {
     /// the text as displayed, `cut` and `questions`.
     pub fn build(id: &str, what: DetailKind, raw_text: &str, cut: bool, questions: Vec<Question>) -> Detail {
         let (text, odd) = visible_escapes(raw_text);
-        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions }
+        Detail { id: id.into(), what, shown: shown_hash(&text, cut, &questions), text, odd, cut, questions, times: vec![], files: vec![], omitted: 0 }
+    }
+
+    /// The same reply for a plan that comes with `files`: `shown` now covers them.
+    pub fn with_files(mut self, files: Vec<PlanFile>) -> Detail {
+        self.files = files;
+        self.shown = self.shown_now();
+        self
+    }
+
+    /// The same reply for a plan that names `omitted` files it could not show: `shown` covers the count.
+    pub fn with_omitted(mut self, omitted: u32) -> Detail {
+        self.omitted = omitted;
+        self.shown = self.shown_now();
+        self
     }
 
     /// Recomputes `shown` from the content (not from the stored field).
     pub fn shown_now(&self) -> String {
-        shown_hash(&self.text, self.cut, &self.questions)
+        shown_hash_with_omitted(&self.text, self.cut, &self.questions, &self.files, self.omitted)
     }
 }
 
@@ -386,6 +536,24 @@ pub struct Notice {
     pub session: String,
     pub title: String,
     pub body: String,
+    /// For `closed`: who closed the item. Absent from an older desktop and when the desktop does not know.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<ClosedBy>,
+}
+
+/// Who closed a held item.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ClosedBy {
+    /// Answered at the computer (a page, a pet, or Claude's own prompt).
+    Computer,
+    /// Answered from a phone: `phone` is its id in the notice sent to that phone itself, and empty in the one sent to any other
+    /// phone (which only learns that it was a phone).
+    Phone { phone: String },
+    /// Nobody answered in time, or Claude moved on.
+    Expired,
+    /// Handed back to Claude's own prompt.
+    Released,
 }
 
 impl DesktopMsg {
@@ -397,13 +565,29 @@ impl DesktopMsg {
                 }
                 Ok(())
             }
-            DesktopMsg::Detail(d) => within(
-                "detail",
-                &d.text,
-                if d.what == DetailKind::Plan { MAX_PLAN } else { MAX_TOOL_INPUT },
-            ),
+            DesktopMsg::Detail(d) => {
+                within("detail", &d.text, if d.what == DetailKind::Plan { MAX_PLAN } else { MAX_TOOL_INPUT })?;
+                if d.files.len() > MAX_PLAN_FILES { return Err(LimitError::TooLong("files", MAX_PLAN_FILES)); }
+                if d.files.iter().map(|f| f.text.len()).sum::<usize>() > MAX_PLAN_FILES_TEXT { return Err(LimitError::TooLong("files", MAX_PLAN_FILES_TEXT)); }
+                for f in &d.files {
+                    within("file", &f.text, MAX_PLAN_FILE_TEXT)?;
+                    within("fileName", &f.name, MAX_PLAN_FILE_NAME)?;
+                    within("filePath", &f.path, MAX_PLAN_FILE_PATH)?;
+                }
+                Ok(())
+            }
             DesktopMsg::StartPrompt(p) => within("prompt", &p.prompt, MAX_PLAN),
             DesktopMsg::Notice(n) => within("notice", &n.body, MAX_PUSH_BODY),
+            DesktopMsg::Issues(l) => {
+                if l.repos.len() > MAX_ISSUE_REPOS { return Err(LimitError::TooLong("repos", MAX_ISSUE_REPOS)); }
+                if l.repos.iter().map(|r| r.issues.len()).sum::<usize>() > MAX_ISSUES { return Err(LimitError::TooLong("issues", MAX_ISSUES)); }
+                for r in &l.repos {
+                    within("path", &r.path, MAX_ISSUE_PATH)?;
+                    within("host", &r.host, MAX_ISSUE_HOST)?;
+                    for i in &r.issues { within("title", &i.title, MAX_ISSUE_TITLE)?; }
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -429,6 +613,8 @@ pub enum PhoneMsg {
     Sync { waiting: Vec<String>, versions: VersionRange },
     Detail { id: String },
     StartPreview { project: String, iid: String, mode: Mode },
+    /// Asks for the issues the phone could start; the desktop answers with `issues` (or `error` `right`).
+    Issues,
     /// A signed command: answer, plan, question, start or stop.
     Cmd(crate::command::Command),
     /// Signed with the `auth` key (see `command::bye_bytes`).

@@ -30,10 +30,19 @@ class LinkPhoneData implements PhoneData {
   /// When this phone first saw a waiting item, to say how long it has been waiting.
   final _firstSeen = <String, int>{};
 
+  /// Where each session stands in the lists. The computer sends them by last activity, so a session that changes would jump
+  /// under the finger: here a session keeps its place, and one that appears later comes above those already shown.
+  final _order = <String, int>{};
+  int _top = 0;
+
   /// A request that was in the previous `home` and is not in this one while time was left: it was answered at the
   /// computer (first answer wins), so the session shows it. Cleared when the session waits again.
   final _answeredAtComputer = <String, String>{};
+
+  /// What kind each item in [_answeredAtComputer] was, by session (`request`, `plan` or `question`).
+  final _answeredKind = <String, String>{};
   Map<String, String> _previousWaiting = {};
+  Map<String, String> _previousKind = {};
   Map<String, int?> _previousExpiry = {};
   HomeSnapshot? _seen;
 
@@ -61,48 +70,75 @@ class LinkPhoneData implements PhoneData {
       conn: conn,
       computerName: link.computer.name,
       firstSeen: _firstSeen,
-      answeredAtComputer: _answeredAtComputer,
+      order: _order,
+      // Where the computer's notice (which may come after the `home`) says it was not the computer, it is not listed.
+      answeredAtComputer: {
+        for (final e in _answeredAtComputer.entries)
+          if (link.closerOf(e.value) case Closer.computer || Closer.unknown)
+            e.key: e.value,
+      },
+      answeredKind: _answeredKind,
       nowMs: _nowMs,
+      live: link.homeLive,
     );
   }
 
   void _track(HomeSnapshot snap) {
     final waiting = <String, String>{};
+    final kinds = <String, String>{};
     final expiry = <String, int?>{};
     for (final w
         in (snap.home['waiting'] as List).cast<Map<String, dynamic>>()) {
       final id = w['id'] as String;
       waiting[id] = w['session'] as String;
+      kinds[id] = w['what'] as String? ?? 'request';
       final left = w['secondsLeft'] as int?;
       expiry[id] = left == null ? null : snap.receivedAtMs + left * 1000;
       _firstSeen.putIfAbsent(id, () => snap.receivedAtMs);
       _answeredAtComputer.remove(w['session']);
+      _answeredKind.remove(w['session']);
     }
-    final sessions = {
+    final listed = [
       for (final x
           in (snap.home['sessions'] as List).cast<Map<String, dynamic>>())
         x['id'] as String,
-    };
+    ];
+    final sessions = listed.toSet();
+    for (final id in listed.reversed) {
+      _order.putIfAbsent(id, () => --_top);
+    }
+    _order.removeWhere((id, _) => !sessions.contains(id));
     for (final e in _previousWaiting.entries) {
-      final timeLeft =
-          _previousExpiry[e.key] == null ||
-          _previousExpiry[e.key]! > snap.receivedAtMs;
-      if (!waiting.containsKey(e.key) &&
-          !waiting.containsValue(e.value) &&
-          sessions.contains(e.value) &&
-          timeLeft) {
+      if (waiting.containsKey(e.key) ||
+          waiting.containsValue(e.value) ||
+          !sessions.contains(e.value)) {
+        continue;
+      }
+      if (_closedAtComputer(e.key, snap.receivedAtMs)) {
         _answeredAtComputer[e.value] = e.key;
+        _answeredKind[e.value] = _previousKind[e.key] ?? 'request';
       }
     }
     _firstSeen.removeWhere((id, _) => !waiting.containsKey(id));
     _previousWaiting = waiting;
+    _previousKind = kinds;
     _previousExpiry = expiry;
   }
+
+  /// Whether an item that left `home` was closed at the computer: as the computer said, or this phone's own answer (never
+  /// the computer's). Only with nothing to go by (an older computer) it is guessed, as before: its time had not run out.
+  bool _closedAtComputer(String id, int receivedAtMs) =>
+      switch (link.closerOf(id)) {
+        Closer.computer => true,
+        Closer.unknown =>
+          _previousExpiry[id] == null || _previousExpiry[id]! > receivedAtMs,
+        _ => false,
+      };
 
   @override
   Stream<HomeData> watchHome() {
     late final StreamController<HomeData> out;
-    StreamSubscription<Object>? a, b;
+    StreamSubscription<Object>? a, b, c;
     void emit() {
       final d = _build();
       if (d != null && !out.isClosed) out.add(d);
@@ -113,10 +149,13 @@ class LinkPhoneData implements PhoneData {
         emit();
         a = link.homeChanges.listen((_) => emit());
         b = link.statusChanges.listen((_) => emit());
+        // A notice after the `home` that dropped an item says who closed it: what it shows is made again.
+        c = link.closedNotices.listen((_) => emit());
       },
       onCancel: () async {
         await a?.cancel();
         await b?.cancel();
+        await c?.cancel();
       },
     );
     return out.stream;
@@ -136,8 +175,11 @@ HomeData homeData(
   required ConnState conn,
   required String computerName,
   required Map<String, int> firstSeen,
+  Map<String, int> order = const {},
   required Map<String, String> answeredAtComputer,
+  Map<String, String> answeredKind = const {},
   required int nowMs,
+  bool live = true,
 }) {
   final h = snap.home;
   final waiting = <String, Map<String, dynamic>>{
@@ -184,20 +226,30 @@ HomeData homeData(
               ),
         needsYou: needsYou,
         answerAtComputer: atComputerOnly,
+        atComputerWhy: atComputerOnly ? x['atComputerWhy'] as String? : null,
         answeredAtComputer: !needsYou && answeredAtComputer.containsKey(id),
         waitingId:
             w?['id'] as String? ?? (needsYou ? null : answeredAtComputer[id]),
         waitingKind: w != null
             ? _kindOf(w['what'] as String)
-            : (answeredAtComputer.containsKey(id) ? WaitingKind.request : null),
+            : (answeredAtComputer.containsKey(id)
+                  ? _kindOf(answeredKind[id] ?? 'request')
+                  : null),
         handledAtComputer: w?['atComputer'] == true,
         waitingMinutes: since == null ? 0 : (nowMs - since) ~/ 60000,
         holdSecs: _secondsLeft(w, snap.receivedAtMs, nowMs),
         petDesign: pet['design'] as String,
         petColor: pet['color'] as int,
         activityLines: (x['lines'] as num?)?.toInt() ?? 0,
+        canStop: x['canStop'] == true,
       ),
     );
+  }
+  // A stable order (see `LinkPhoneData._order`); sessions it does not know keep the computer's order, after the others.
+  if (order.isNotEmpty) {
+    final at = {for (var i = 0; i < sessions.length; i++) sessions[i].id: i};
+    int key(Session x) => order[x.id] ?? (1 << 30) + at[x.id]!;
+    sessions.sort((a, b) => key(a).compareTo(key(b)));
   }
   final computer = h['computer'] as Map<String, dynamic>;
   return HomeData(
@@ -205,6 +257,7 @@ HomeData homeData(
     conn: conn,
     lastContact: _clock(snap.receivedAtMs),
     sessions: sessions,
+    live: live,
   );
 }
 

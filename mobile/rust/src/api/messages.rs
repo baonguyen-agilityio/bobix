@@ -165,6 +165,11 @@ pub fn start_preview_message(project: String, iid: String, mode: StartMode) -> V
     PhoneMsg::StartPreview { project, iid, mode: mode.into() }.to_json()
 }
 
+/// Asks the computer for the issues this phone could start, grouped by the repositories ticked on it.
+pub fn issues_request_message() -> Vec<u8> {
+    PhoneMsg::Issues.to_json()
+}
+
 /// Goodbye to one computer: `signature` is the `auth` key's signature over `bye_bytes`.
 pub fn bye_message(signature: Vec<u8>) -> Vec<u8> {
     PhoneMsg::Bye { sig: bobix_link::b64(&signature) }.to_json()

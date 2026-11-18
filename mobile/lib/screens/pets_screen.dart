@@ -103,10 +103,12 @@ class _PetCard extends ConsumerWidget {
         _Chip.err,
       ),
       'waiting' => (
-        x.waitingKind == null || x.waitingKind == WaitingKind.request
+        x.answerAtComputer
+            ? s('phone.status.atpc')
+            : x.waitingKind == null || x.waitingKind == WaitingKind.request
             ? s('phone.status.waiting')
             : waitingText(s, x),
-        _Chip.accent,
+        x.answerAtComputer ? _Chip.neutral : _Chip.accent,
       ),
       'working' => (
         x.tool == null
@@ -130,7 +132,7 @@ class _PetCard extends ConsumerWidget {
       excludeSemantics: true,
       child: Glass(
         radius: 16,
-        tint: x.needsYou
+        tint: x.answersHere
             ? Color.alphaBlend(t.accent.withValues(alpha: .10), t.surface)
             : null,
         child: PressFeedback(
@@ -149,7 +151,7 @@ class _PetCard extends ConsumerWidget {
                     color: x.petColor,
                     state: x.petState,
                     size: 96,
-                    halo: x.needsYou,
+                    halo: x.answersHere,
                   ),
                   const SizedBox(height: 4),
                   Text(

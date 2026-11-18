@@ -48,6 +48,7 @@ class TaskLogScreen extends ConsumerWidget {
           if (isSession)
             SessionActivity(
               lines: detail?.lines,
+              times: detail?.lineTimes ?? const [],
               at: detail?.linesAt ?? '',
               empty: s('phone.tl.act.empty'),
             ),
@@ -125,7 +126,7 @@ class _LogRow extends ConsumerWidget {
     final s = ref.watch(stringsProvider);
     final t = context.tokens;
     final phone = ref.watch(phoneNameProvider);
-    final isApp = e.kind == LogKind.pair || e.kind == LogKind.disconnect;
+    final isApp = e.kind == LogKind.pair || e.kind == LogKind.disconnect || e.kind == LogKind.pushRefused;
     final isTool = e.kind == LogKind.allow || e.kind == LogKind.deny;
     final title = switch (e.kind) {
       LogKind.allow => s('phone.lg.allow', {'tool': _tool(s)}),
@@ -138,6 +139,7 @@ class _LogRow extends ConsumerWidget {
       LogKind.startQuick => s('phone.lg.start.quick'),
       LogKind.pair => s('phone.lg.pair', {'c': e.detail}),
       LogKind.disconnect => s('phone.lg.disc'),
+      LogKind.pushRefused => s('phone.lg.pushrefused'),
     };
     final at =
         '${e.at.hour.toString().padLeft(2, '0')}:${e.at.minute.toString().padLeft(2, '0')}';

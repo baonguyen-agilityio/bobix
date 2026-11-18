@@ -4,18 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../widgets/glass_backdrop.dart';
-import '../../widgets/face_id_icon.dart';
-
 import '../../data/phone_data.dart';
 import '../../l10n/l10n.dart';
 import '../../log/activity_log.dart';
-import '../../theme/tokens.dart';
-import '../../widgets/floating_sheet.dart';
 import 'action_screen_parts.dart';
-import 'action_widgets.dart';
 import 'actions_models.dart';
 import 'actions_source.dart';
 import 'result_screen.dart';
+import 'unlock_sheet.dart';
 
 /// The one command path of the action screens: the confirm step (the system's biometric prompt, which is also the
 /// signature), then send, then the result screen. A cancelled confirm sends nothing and leaves the screen as it was.
@@ -52,25 +48,34 @@ Future<void> runCommand(
     answers: answers,
     mode: mode,
   );
+  final reduced = MediaQuery.disableAnimationsOf(context);
+  final circle = ValueNotifier<Offset?>(null);
   final result = await showModalBottomSheet<GateResult>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) =>
-        UnlockSheet(reason: reason, warning: warning, command: command),
+    // The sheet rises in 320 ms and leaves the same way; with reduced motion it does not move: it fades in and out.
+    sheetAnimationStyle: reduced
+        ? const AnimationStyle(
+            duration: Duration.zero,
+            reverseDuration: Duration.zero,
+          )
+        : const AnimationStyle(
+            duration: Duration(milliseconds: 320),
+            reverseDuration: Duration(milliseconds: 320),
+            curve: Cubic(.2, .8, .2, 1),
+            reverseCurve: Cubic(.4, 0, 1, 1),
+          ),
+    builder: (_) => UnlockSheet(
+      reason: reason,
+      warning: warning,
+      command: command,
+      circle: circle,
+    ),
   );
+  // Why a check did not work is said in the sheet, which stays until the person cancels: leaving here is a choice.
   if (result != GateResult.confirmed) {
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(switch (result) {
-          GateResult.lockedOut => s('phone.un.locked'),
-          GateResult.unavailable => s('phone.un.nobio'),
-          GateResult.failed => s('phone.un.failed'),
-          GateResult.keyLost => s('phone.un.keylost'),
-          _ => s('phone.un.cancelled'),
-        }),
-      ),
-    );
+    messenger.showSnackBar(SnackBar(content: Text(s('phone.un.cancelled'))));
     return;
   }
   final first = source.send(command);
@@ -102,116 +107,35 @@ Future<void> runCommand(
       onError: (_) {},
     ),
   );
+  // The result comes in while the sheet is still sliding down, its icon growing from where the sheet's circle was.
   navigator.pushReplacement(
-    pageRoute<void>(ResultScreen(command: command, first: first)),
+    _ResultRoute(
+      reduced: reduced,
+      builder: (_) => GlassBackdrop(
+        child: ResultScreen(
+          command: command,
+          first: first,
+          iconFrom: circle.value,
+        ),
+      ),
+    ),
   );
 }
 
-/// The designed reason shown while the system asks for the biometric. Dismissing it cancels.
-class UnlockSheet extends ConsumerStatefulWidget {
-  const UnlockSheet({
-    super.key,
-    required this.reason,
-    required this.command,
-    this.warning,
-  });
-  final String reason;
-  final Command command;
-  final String? warning;
+/// The route of the result after a command: it fades in over the screen it replaces (350 ms, 150 ms with reduced motion).
+class _ResultRoute extends MaterialPageRoute<void> {
+  _ResultRoute({required super.builder, required this.reduced});
+  final bool reduced;
 
   @override
-  ConsumerState<UnlockSheet> createState() => _UnlockSheetState();
-}
-
-class _UnlockSheetState extends ConsumerState<UnlockSheet> {
-  bool _ok = false;
+  Duration get transitionDuration =>
+      Duration(milliseconds: reduced ? 150 : 350);
 
   @override
-  void initState() {
-    super.initState();
-    unawaited(_ask());
-  }
-
-  Future<void> _ask() async {
-    final result = await ref
-        .read(biometricGateProvider)
-        .confirm(widget.reason, widget.command);
-    if (!mounted) return;
-    if (result != GateResult.confirmed) {
-      return Navigator.of(context).pop(result);
-    }
-    setState(() => _ok = true);
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    if (mounted) Navigator.of(context).pop(GateResult.confirmed);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = ref.watch(stringsProvider);
-    final t = context.tokens;
-    final ios = Theme.of(context).platform == TargetPlatform.iOS;
-    final c = _ok ? t.ok : t.accentInk;
-    return FloatingSheet(
-      horizontal: 20,
-      children: [
-        const SizedBox(height: 4),
-        Center(
-          child: Container(
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(
-              color: _ok ? t.okBg : t.accentBg,
-              shape: BoxShape.circle,
-            ),
-            child: _ok
-                ? Icon(Icons.check_rounded, size: 40, color: c)
-                : bioGlyph(size: 40, color: c),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Semantics(
-          header: true,
-          child: Text(
-            _ok ? s('phone.un.ok') : s('phone.un.h'),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: t.ink,
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          widget.reason,
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 14, color: t.ink2),
-        ),
-        if (widget.warning != null) ...[
-          const SizedBox(height: 6),
-          Text(
-            widget.warning!,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: t.err,
-            ),
-          ),
-        ],
-        const SizedBox(height: 8),
-        FinePrint(
-          ios ? s('phone.un.ios', {'os': bioName(s)}) : s('phone.un.and'),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: ActionButton(
-            s('phone.a.cancel'),
-            onPressed: () => Navigator.of(context).pop(GateResult.cancelled),
-          ),
-        ),
-      ],
-    );
-  }
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => FadeTransition(opacity: animation, child: child);
 }

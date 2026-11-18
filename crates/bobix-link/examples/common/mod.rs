@@ -74,7 +74,7 @@ impl Conn {
 
     /// Answers the challenge with a signature for `relay_url` (for tests of a signature meant for another relay).
     pub async fn login_signing_for(&mut self, id: &Identity, relay_url: &str) -> Result<(), String> {
-        let Recv::Frame(Frame::Challenge { nonce }) = self.recv(Duration::from_secs(5)).await else {
+        let Recv::Frame(Frame::Challenge { nonce, .. }) = self.recv(Duration::from_secs(5)).await else {
             return Err("the relay sent no challenge".into());
         };
         let frame = bobix_link::command::auth_frame(id, relay_url, &nonce, VersionRange::current())
