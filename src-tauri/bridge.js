@@ -88,7 +88,7 @@
     usageEffects: () => invoke('usage_effects'),
     questionAnswer: (id, answers) => invoke('question_answer', { id: String(id), answers: Array.isArray(answers) ? answers.map(String) : [] }),
     phonesState: () => invoke('phones_state'),
-    phonesEnable: (on, hold, awake) => invoke('phones_enable', { on: typeof on === 'boolean' ? on : null, hold: typeof hold === 'string' ? hold : null, awake: typeof awake === 'boolean' ? awake : null }),
+    phonesEnable: (on, hold, awake, relay) => invoke('phones_enable', { on: typeof on === 'boolean' ? on : null, hold: typeof hold === 'string' ? hold : null, awake: typeof awake === 'boolean' ? awake : null, relay: typeof relay === 'string' ? relay : null }),
     phonesRelay: url => invoke('phones_relay', { url: String(url || '') }),
     phonesPairStart: () => invoke('phones_pair_start'),
     phonesPairCancel: () => invoke('phones_pair_cancel'),

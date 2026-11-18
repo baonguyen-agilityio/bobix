@@ -181,6 +181,12 @@ svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .tk-ch input{width:100%;box-sizing:border-box;padding:var(--s2) var(--s3);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font:inherit}
 .tk-mr .tk-ch{margin-bottom:8px}.tk-mr .tk-ch textarea.tk-prompt{font:var(--t-xs)/1.5 var(--f-mono)}
 .chk{display:flex;gap:8px;align-items:center;margin:4px 0}.rights{display:grid;gap:2px;margin:6px 0}.qr img{display:block;background:#fff;padding:8px;border-radius:8px}.plog li{display:flex;flex-wrap:wrap;gap:8px;font-size:var(--t-xs)}.plog .r{color:var(--ink-3)}
+/* Settings → Phones: every field, select, button and the device id share one height (the app's field height); the text fields drop the native frame, so focus shows only the accent outline */
+#sec-phones{--ctl-h:30px}
+#sec-phones input[type=text],#sec-phones select,#sec-phones .btn,#sec-phones .dev-id{box-sizing:border-box;height:var(--ctl-h);min-height:var(--ctl-h)}
+#sec-phones input[type=text]{appearance:none;-webkit-appearance:none;padding:0 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font-size:var(--t-sm)}
+#sec-phones select{appearance:none;-webkit-appearance:none;line-height:normal;padding:0 28px 0 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);color:var(--ink);font-size:var(--t-sm);background:linear-gradient(45deg,transparent 50%,var(--ink-3) 50%) calc(100% - 15px) 50%/5px 5px no-repeat,linear-gradient(135deg,var(--ink-3) 50%,transparent 50%) calc(100% - 10px) 50%/5px 5px no-repeat,var(--surface)}
+#sec-phones .dev-id{display:inline-flex;align-items:center;padding:0 var(--s2);border-radius:var(--r-md)}
 .risk{margin:0;font-size:var(--t-xs);font-weight:600;color:var(--accent-ink)}
 .uw{margin:0;font-size:var(--t-xs);color:var(--accent-ink)}
 .why{margin:0;font-size:var(--t-xs);color:var(--ink-3)}
@@ -1248,7 +1254,7 @@ function phonesInviteHTML(d) {
   const inv = d.invite || {};
   if (!d.on) return '';
   if (inv.owner) {
-    const list = inv.invitees.map(x => `<li data-inv="${esc(x.id)}"><div class="phr"><b data-inv-label></b> <code>${esc(x.id.slice(0, 8))}</code> <span class="note" data-inv-at></span> <button class="btn sm" type="button" data-inv-rm="${esc(x.id)}">${esc(T('phones.inv.remove'))}</button></div></li>`).join('');
+    const list = inv.invitees.map(x => `<li data-inv="${esc(x.id)}"><div class="phr"><b data-inv-label></b> <code class="dev-id">${esc(x.id.slice(0, 8))}</code> <span class="note" data-inv-at></span> <button class="btn sm" type="button" data-inv-rm="${esc(x.id)}">${esc(T('phones.inv.remove'))}</button></div></li>`).join('');
     return `<div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.inv.title'))}</div><p class="note">${esc(T('phones.inv.owner.note'))}</p>
       <div class="acts" style="margin:6px 0 0"><input type="text" id="phones-inv-label" maxlength="40" placeholder="${esc(T('phones.inv.label'))}" aria-label="${esc(T('phones.inv.label'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0">
         <select id="phones-inv-days" aria-label="${esc(T('phones.inv.valid'))}">${inv.days.map(n => `<option value="${n}" ${n === inviteDays ? 'selected' : ''}>${esc(n === 1 ? T('phones.inv.day') : T('phones.inv.days', { n }))}</option>`).join('')}</select>
@@ -1278,7 +1284,7 @@ function phonesSettingsHTML() {
     <div class="opt"><div><div class="lbl" id="l-phonesOn">${esc(T('phones.switch'))}</div><div class="desc">${esc(T('phones.promise'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesOn" data-phones-on ${d.on ? 'checked' : ''}></div></div>
     <div class="opt wide"><div style="width:100%"><div class="lbl">${esc(T('phones.relay'))}</div><div class="acts" style="margin:6px 0 0"><input type="text" id="phones-relay" value="" placeholder="${esc(T('phones.relay.ph'))}" spellcheck="false" autocomplete="off" style="flex:1;min-width:0"><button class="btn" type="button" data-act="phones-relay">${esc(T('phones.relay.change'))}</button></div>
       <p class="note">${esc(T('phones.status'))}: ${esc(T('phones.status.' + statusKey))}${d.moving ? ' · ' + esc(T('phones.relay.moving')) : ''}</p>${d.unreadable ? `<p class="note err">${esc(T('phones.unreadable'))}</p>` : ''}${phoneErr ? `<p class="note err">${esc(phoneErr)}</p>` : ''}</div></div>
-    ${d.deviceId ? `<div class="opt wide"><div><div class="lbl">${esc(T('phones.device'))}</div><div><code>${esc(d.deviceId)}</code> <button class="btn sm" type="button" data-act="phones-copy">${esc(T('phones.copy'))}</button></div><p class="note">${esc(T('phones.invite.hint'))}</p></div></div>` : ''}
+    ${d.deviceId ? `<div class="opt wide"><div><div class="lbl">${esc(T('phones.device'))}</div><div class="acts" style="margin:6px 0 0"><code class="dev-id">${esc(d.deviceId)}</code><button class="btn sm" type="button" data-act="phones-copy">${esc(T('phones.copy'))}</button></div><p class="note">${esc(T('phones.invite.hint'))}</p></div></div>` : ''}
     ${phonesInviteHTML(d)}
     ${d.on && !d.node ? `<div class="opt wide"><p class="note err">${esc(T('phones.node'))}</p></div>` : ''}
     <div class="opt"><div><div class="lbl" id="l-phonesAwake">${esc(T('phones.awake'))}</div><div class="desc">${esc(T('phones.awake.note'))}</div></div><div class="ctl"><input type="checkbox" role="switch" class="sw" id="f-phonesAwake" data-phones-awake ${d.awake ? 'checked' : ''}></div></div>
@@ -1296,7 +1302,7 @@ function fillPhoneText(box) {
   const d = phoneData;
   if (!d) return;
   const rel = box.querySelector('#phones-relay');
-  if (rel && !rel.dataset.set) { rel.value = d.relay || ''; rel.dataset.set = '1'; }
+  if (rel && !rel.dataset.set) { rel.value = d.relay || d.defaultRelay || ''; rel.dataset.set = '1'; } // a build's default only fills the empty field
   const made = d.invite?.made;
   if (made) { box.querySelector('[data-inv-code]').textContent = made.code; box.querySelector('[data-inv-expires]').textContent = T('phones.inv.expires', { date: new Date(made.expires).toLocaleString(LOCALE(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }); box.querySelector('[data-inv-relay]').textContent = T('phones.inv.for', { relay: made.relay || '' }); }
   for (const li of box.querySelectorAll('[data-inv]')) {
@@ -3153,8 +3159,9 @@ $('#settings').addEventListener('change', e => {
   if (!bridge || cur?.id !== 'set:phones') return;
   if (t.matches('[data-phones-on]')) {
     const on = t.checked;
-    if (on && !(phoneData?.relay)) { t.checked = false; phoneErr = T('phones.relay.set'); return renderSettings(); }
-    return phonesDo(bridge.phonesEnable(on));
+    const field = $('#phones-relay')?.value.trim() || ''; // switched on with the address on screen, applied first if it changed
+    if (on && !field) { t.checked = false; phoneErr = T('phones.relay.set'); return renderSettings(); }
+    return phonesDo(bridge.phonesEnable(on, null, null, on ? field : null));
   }
   if (t.dataset.hold) return phonesDo(bridge.phonesEnable(null, t.dataset.hold));
   if (t.matches('[data-phones-awake]')) return phonesDo(bridge.phonesEnable(null, null, t.checked));
