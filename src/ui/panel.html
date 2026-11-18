@@ -1302,7 +1302,7 @@ function fillPhoneText(box) {
   const d = phoneData;
   if (!d) return;
   const rel = box.querySelector('#phones-relay');
-  if (rel && !rel.dataset.set) { rel.value = d.relay || ''; rel.dataset.set = '1'; }
+  if (rel && !rel.dataset.set) { rel.value = d.relay || d.defaultRelay || ''; rel.dataset.set = '1'; } // a build's default only fills the empty field
   const made = d.invite?.made;
   if (made) { box.querySelector('[data-inv-code]').textContent = made.code; box.querySelector('[data-inv-expires]').textContent = T('phones.inv.expires', { date: new Date(made.expires).toLocaleString(LOCALE(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }); box.querySelector('[data-inv-relay]').textContent = T('phones.inv.for', { relay: made.relay || '' }); }
   for (const li of box.querySelectorAll('[data-inv]')) {
@@ -3159,8 +3159,9 @@ $('#settings').addEventListener('change', e => {
   if (!bridge || cur?.id !== 'set:phones') return;
   if (t.matches('[data-phones-on]')) {
     const on = t.checked;
-    if (on && !(phoneData?.relay)) { t.checked = false; phoneErr = T('phones.relay.set'); return renderSettings(); }
-    return phonesDo(bridge.phonesEnable(on));
+    const field = $('#phones-relay')?.value.trim() || ''; // switched on with the address on screen, applied first if it changed
+    if (on && !field) { t.checked = false; phoneErr = T('phones.relay.set'); return renderSettings(); }
+    return phonesDo(bridge.phonesEnable(on, null, null, on ? field : null));
   }
   if (t.dataset.hold) return phonesDo(bridge.phonesEnable(null, t.dataset.hold));
   if (t.matches('[data-phones-awake]')) return phonesDo(bridge.phonesEnable(null, null, t.checked));

@@ -449,7 +449,6 @@ pub fn init(b: &Arc<Bobix>) {
     let st = &mut c.phones;
     st.dir = dir.clone();
     st.cfg = cfg;
-    if st.cfg.relay.is_empty() { if let Some(url) = default_relay(option_env!("BOBIX_DEFAULT_RELAY")) { st.cfg.relay = url; } }
     if st.cfg.hold != "computer" { st.cfg.hold = "phone".into(); }
     st.log = read(log_file(&dir)).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     // Only a computer that was ever paired has anything stored; nothing is created here.
@@ -1109,7 +1108,7 @@ pub fn view(b: &Arc<Bobix>) -> Value {
                 "name": p.offer.as_ref().map(|o| &o.name), "asked": p.offer.as_ref().map(|o| o.rights), "warning": warning_json(&st.pair_warning) })
         }
     };
-    json!({ "unreadable": !st.loaded, "on": st.cfg.on, "relay": st.cfg.relay, "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
+    json!({ "unreadable": !st.loaded, "on": st.cfg.on, "relay": st.cfg.relay, "defaultRelay": default_relay(option_env!("BOBIX_DEFAULT_RELAY")), "status": st.status, "hold": st.cfg.hold, "awake": st.cfg.awake, "awakeHeld": st.awake.is_held(), "node": node,
         "canRead": !st.cfg.on || crate::presence::source().idle_ms().is_some(), "deviceId": st.computer_id(), "storage": format!("{:?}", st.storage.unwrap_or(crate::secrets::Storage::Keychain)),
         "phones": st.store.phones.iter().map(|p| json!({ "id": p.id, "name": p.name, "rights": p.rights, "since": p.since, "needsPairing": p.needs_pairing, "noPush": p.no_push })).collect::<Vec<_>>(),
         "revoked": st.store.revoked.len(), "moving": st.moving.is_some(), "linked": st.tx.is_some(), "pairing": pairing, "invite": invite_view(&st.invites) })
@@ -1174,22 +1173,37 @@ fn relay_norm(url: &str, allow_lan: bool) -> Option<String> {
     (allow_lan || !norm.starts_with("ws://") || norm.starts_with("ws://localhost")).then_some(norm)
 }
 
-/// The relay address a build comes with (`BOBIX_DEFAULT_RELAY` at compile time; the `-phones` release sets it), shown in the
-/// field until another one is applied. Only a usable address counts; none for a build without it.
+/// The relay address a build comes with (`BOBIX_DEFAULT_RELAY` at compile time; the `-phones` release sets it). The page only
+/// puts it in the empty field; it is never kept in the configuration until it is applied or phone access is switched on with it.
+/// Only a `wss://` address counts; none for a build without it.
 fn default_relay(raw: Option<&str>) -> Option<String> {
     let url = raw?.trim();
-    relay_norm(url, ENABLED).map(|_| url.to_string())
+    relay_norm(url, ENABLED).filter(|n| n.starts_with("wss://")).map(|_| url.to_string())
 }
 
-pub fn enable(b: &Arc<Bobix>, on: bool) -> Result<Value, String> {
+/// Switching phone access on takes the address shown in the field (a default the page filled in, or one typed without Apply),
+/// with the same check as Apply, so the relay it connects to is always the one on screen. `Some` is a new address to keep once
+/// the switch is on; nothing changes when switching on fails.
+fn field_relay(st: &State, field: Option<&str>) -> Result<Option<String>, String> {
+    let Some(url) = field.map(str::trim).filter(|u| !u.is_empty() && *u != st.cfg.relay) else { return Ok(None) };
+    relay_norm(url, ENABLED).ok_or("relay")?;
+    Ok(Some(url.into()))
+}
+
+pub fn enable(b: &Arc<Bobix>, on: bool, field: Option<&str>) -> Result<Value, String> {
     let mut out = vec![];
     {
         let mut c = b.core.lock().unwrap();
         let st = &mut c.phones;
         if on {
-            if relay_norm(&st.cfg.relay, ENABLED).is_none() { return Err("relay".into()); }
+            let new = if st.cfg.on { None } else { field_relay(st, field)? };
+            if relay_norm(new.as_deref().unwrap_or(&st.cfg.relay), ENABLED).is_none() { return Err("relay".into()); }
             if !st.loaded { return Err("unreadable".into()); }
             st.ensure_identity(true)?;
+            if let Some(url) = new {
+                st.cfg.relay = url;
+                st.invites = Invites::default(); // another relay: its own owners and invitations
+            }
             st.cfg.on = true;
             st.status = "connecting".into();
         } else if st.cfg.on {
@@ -1419,6 +1433,34 @@ mod tests {
         assert_eq!(default_relay(None), None);
         assert_eq!(default_relay(Some("")), None);
         assert_eq!(default_relay(Some("https://relay.example")), None);
+        assert_eq!(default_relay(Some("ws://localhost:8787")), None, "a build's default is wss:// only");
+    }
+
+    #[test]
+    fn switching_on_takes_the_address_in_the_field() {
+        let mut st = State::default();
+        assert_eq!(field_relay(&st, Some(" wss://typed.example ")), Ok(Some("wss://typed.example".into())), "no saved relay: the field's address is used");
+        assert_eq!(field_relay(&st, Some("https://bad.example")), Err("relay".into()), "the same check as Apply");
+        st.cfg.relay = "wss://saved.example".into();
+        assert_eq!(field_relay(&st, None), Ok(None), "no field: the saved relay stays");
+        assert_eq!(field_relay(&st, Some("  ")), Ok(None));
+        assert_eq!(field_relay(&st, Some("wss://saved.example")), Ok(None), "the field shows the saved relay");
+        assert_eq!(field_relay(&st, Some("wss://typed.example")), Ok(Some("wss://typed.example".into())), "typed without Apply: that one is used");
+    }
+
+    #[test]
+    fn hold_and_awake_never_save_a_relay_that_was_not_applied() {
+        let dir = std::env::temp_dir().join(format!("bobix-phones-cfg-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let mut c = crate::Core::default();
+        c.phones.dir = dir.clone();
+        let b = test_bobix(c);
+        set_hold(&b, "computer");
+        set_awake(&b, true);
+        let saved: Config = serde_json::from_slice(&std::fs::read(cfg_file(&dir)).unwrap()).unwrap();
+        assert!(saved.relay.is_empty() && saved.hold == "computer" && saved.awake, "{saved:?}");
+        assert!(b.core.lock().unwrap().phones.cfg.relay.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

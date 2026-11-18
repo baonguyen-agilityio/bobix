@@ -58,7 +58,7 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     // From a fresh start with the switch off: no connection, no identity.
     r["offAtStart"] = json!(v()["on"] == false && v()["linked"] == false && v()["deviceId"].is_null());
     r["relaySet"] = json!(phones::set_relay(b, relay).is_ok());
-    r["on"] = json!(phones::enable(b, true).is_ok() && until(15, || v()["status"] == "online"));
+    r["on"] = json!(phones::enable(b, true, None).is_ok() && until(15, || v()["status"] == "online"));
     r["status"] = v()["status"].clone();
     r["deviceId"] = json!(v()["deviceId"].as_str().is_some_and(|d| d.len() == 32));
     let uri = phones::pair_start(b).ok().and_then(|x| x["pairing"]["uri"].as_str().map(String::from)).unwrap_or_default();
@@ -227,7 +227,7 @@ pub fn run(app: &tauri::AppHandle, b: &Arc<Bobix>, spec: &str) -> Value {
     phones::set_awake(b, true);
     let busy = b.core.lock().unwrap().sessions.values().any(|s| matches!(s.state.as_str(), "working" | "waiting"));
     r["awakeHeld"] = json!(!busy || (until(10, || v()["awakeHeld"] == true) && (!cfg!(target_os = "macos") || until(5, caff))));
-    r["off"] = json!(phones::enable(b, false).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
+    r["off"] = json!(phones::enable(b, false, None).is_ok() && until(20, || v()["status"] == "off" && v()["linked"] == false) && v()["awakeHeld"] == false && !caff());
     r["pass"] = json!(["offAtStart", "relaySet", "on", "deviceId", "qr", "offered", "notBeforeConfirm", "confirmed", "rights", "rightsInHome", "rightsClick", "pairedSeen", "homeSeen", "noticeSeen", "detailSeen", "redacted", "panelOk", "closedSeen", "hookAnswered", "atComputerSeen", "latePcTerminal", "notedTerminal", "latePcNoted", "watchBase", "startedNoticed", "asleepSeen", "wokeSeen", "awakeHeld", "questionHeld", "questionOption", "questionFreeText", "stopped", "staleStop", "lastLines", "heldForPhones", "phoneAllowed", "phoneDenied", "latePc", "logged", "refusedAfterDisconnect", "confirmWithoutPairing", "disconnected", "off"].iter().all(|k| r[*k] == true));
     r
 }
