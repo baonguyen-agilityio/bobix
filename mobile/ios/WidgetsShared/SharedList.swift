@@ -132,6 +132,15 @@ enum SharedListStore {
   /// exclusive lock, and goes through a temporary file, so a widget reading at that moment sees the old or the new file.
   @discardableResult
   static func update(in dir: URL? = directory(), _ change: (inout SharedList) -> Void) throws -> SharedList {
+    try locked(in: dir) { dir in
+      var list = load(from: dir)
+      change(&list)
+      return list
+    }
+  }
+
+  /// Takes the lock, builds the list with [make], drops the names if Hide details is on, and writes it atomically.
+  private static func locked(in dir: URL?, _ make: (URL) -> SharedList) throws -> SharedList {
     guard let dir else { return .empty }
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let fd = open(dir.appendingPathComponent("surfaces.lock").path, O_CREAT | O_RDWR, 0o600)
@@ -139,8 +148,7 @@ enum SharedListStore {
     defer { close(fd) }
     flock(fd, LOCK_EX)
     defer { flock(fd, LOCK_UN) }
-    var list = load(from: dir)
-    change(&list)
+    var list = make(dir)
     if hideDetails(in: dir) { list.dropNames() }
     try JSONEncoder().encode(list).write(to: dir.appendingPathComponent("surfaces.json"), options: .atomic)
     return list
@@ -153,7 +161,8 @@ enum SharedListStore {
 
   /// Replaces the whole list (the app's own `home`).
   static func save(_ list: SharedList, to dir: URL? = directory()) throws {
-    try update(in: dir) { $0 = list }
+    // The old file is not read: it is replaced whole.
+    _ = try locked(in: dir) { _ in list }
   }
 
   /// One image per design, colour and state a surface can show: `pets/<design>-<colour>-<state>.png`.

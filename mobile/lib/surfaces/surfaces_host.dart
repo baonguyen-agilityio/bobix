@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,6 +10,7 @@ import '../link/computer_link.dart';
 import '../link/link_providers.dart';
 import '../push/hide_details.dart';
 import '../push/push_providers.dart';
+import '../src/rust/api/messages.dart' show PhoneRights;
 import 'surfaces_platform.dart';
 import 'surfaces_sync.dart';
 
@@ -31,6 +33,7 @@ final surfacesClearProvider = Provider<void>((ref) {
   ref.listen(linkControllerProvider, (prev, next) {
     bool gone(AppPhase? p) => p is Unpaired || p is PairAgain;
     if (gone(next.value) && !gone(prev?.value)) {
+      ref.read(surfacesSyncProvider).reset();
       unawaited(ref.read(surfacesPlatformProvider).clear().catchError((Object _) {}));
       // A notification already shown has the session's name and request: it goes with the pairing.
       unawaited(ref.read(pushPlatformProvider).clearDelivered().catchError((Object _) {}));
@@ -52,11 +55,14 @@ class SurfacesHost extends ConsumerStatefulWidget {
 class _SurfacesHostState extends ConsumerState<SurfacesHost> with WidgetsBindingObserver {
   final _subs = <StreamSubscription<Object?>>[];
   Timer? _beat;
+  ValueListenable<PhoneRights>? _rights;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // A change of rights alone (the Start right) leaves the `home` equal, so nothing else would refresh the surfaces.
+    _rights = widget.link.computer.rightsListenable..addListener(_rightsChanged);
     try {
       final p = ref.read(surfacesPlatformProvider);
       final reg = ref.read(pushRegistrationProvider);
@@ -80,8 +86,14 @@ class _SurfacesHostState extends ConsumerState<SurfacesHost> with WidgetsBinding
     }
   }
 
+  void _rightsChanged() {
+    final c = widget.link.computer;
+    unawaited(ref.read(surfacesSyncProvider).again(computerId: c.id, canStart: c.rights.start));
+  }
+
   @override
   void dispose() {
+    _rights?.removeListener(_rightsChanged);
     WidgetsBinding.instance.removeObserver(this);
     _beat?.cancel();
     for (final s in _subs) {

@@ -446,11 +446,36 @@ final petColors = [
 /// The number of session colours; a colour index is taken modulo this.
 int get petColorCount => petColors.length;
 
-int _gid = 0;
+final _svgCache = <String, String>{};
 
 /// The pet as SVG, every colour written out. An unknown [design] draws the default pet and a colour index outside the
 /// list wraps round. [state] is one of [petStates]; [pose] is a (pose, frame) from [poseAt].
+///
+/// The same arguments return the same string, so flutter_svg's cache (keyed by the string) hits. The set of strings is
+/// small: a few designs, colours, states and pose frames.
 String flatSvg(
+  String design,
+  int colorIndex,
+  String state,
+  Pose pose, {
+  bool withBadge = true,
+
+  /// The coral ring behind a waiting pet; a pet that wears the halo instead is drawn without it.
+  bool ring = true,
+}) {
+  final key =
+      '${_flat.containsKey(design) ? design : 'default'}|${colorIndex % petColors.length}|$state|${pose.$1}|${pose.$2}|$withBadge|$ring';
+  return _svgCache[key] ??= _flatSvg(
+    design,
+    colorIndex,
+    state,
+    pose,
+    withBadge: withBadge,
+    ring: ring,
+  );
+}
+
+String _flatSvg(
   String design,
   int colorIndex,
   String state,
@@ -464,7 +489,8 @@ String flatSvg(
   final c = petColors[colorIndex % petColors.length];
   final (ps, f) = pose;
   final o = _flatPose(ps, f);
-  final id = 'bx${++_gid}';
+  // An id only resolves inside its own SVG, so one fixed id is safe.
+  const id = 'bx';
   final (g0, g1) = p.grad(c);
   final status = _status[state];
   final t =

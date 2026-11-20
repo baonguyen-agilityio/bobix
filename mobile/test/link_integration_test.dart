@@ -110,7 +110,15 @@ void main() {
       await until(() => link.home, what: 'home');
       await link.detail('req1');
       final shown = link.detailCache['req1']!['shown'] as String;
-      final text = File('${tmp.path}/link-state.json').readAsStringSync();
+      await link.store.flush();
+      expect(
+        File('${tmp.path}/link-state.json').readAsStringSync(),
+        isNot(contains('Fix the login retry')),
+        reason: 'the home is not in the counters file',
+      );
+      final text =
+          File('${tmp.path}/link-state.json').readAsStringSync() +
+          File('${tmp.path}/home-cache.json').readAsStringSync();
       expect(
         text,
         contains('Fix the login retry'),

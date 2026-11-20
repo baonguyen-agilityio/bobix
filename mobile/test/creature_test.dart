@@ -23,6 +23,21 @@ void main() {
     expect(bad, isEmpty, reason: '${bad.length} differ, first: ${bad.take(5)}');
   });
 
+  test('the SVG of the same pet and pose is the same string each time, with a fixed gradient id', () {
+    for (final state in petStates) {
+      for (final pose in [poseAt(state), poseAt(state, 400)]) {
+        final a = flatSvg('default', 2, state, pose);
+        final b = flatSvg('default', 2, state, pose);
+        expect(b, a);
+        expect(identical(a, b), isTrue, reason: 'memoized, so the SVG cache of flutter_svg can hit');
+        expect(RegExp(r'id="([^"]+)"').firstMatch(a)!.group(1), 'bx');
+      }
+    }
+    expect(flatSvg('default', 2, 'working', ('typing', 0)), isNot(flatSvg('default', 2, 'working', ('typing', 1))));
+    expect(flatSvg('default', 1, 'working', ('typing', 0)), isNot(flatSvg('default', 2, 'working', ('typing', 0))));
+    expect(flatSvg('default', 2 + petColorCount, 'working', ('typing', 0)), flatSvg('default', 2, 'working', ('typing', 0)));
+  });
+
   test('an unknown design or colour index draws a pet instead of failing', () {
     final fallback = flatSvg('no-such-pet', 99, 'working', poseAt('working'));
     expect(

@@ -73,6 +73,38 @@ class Session {
   /// The computer lets this phone stop the session (a request is held, and it has both the Stop and the Answer right).
   final bool canStop;
 
+  // Equal by value, so a `home` that changed nothing for this session does not rebuild what shows it.
+  List<Object?> get _fields => [
+    id,
+    name,
+    project,
+    issue,
+    stage,
+    needsYou,
+    answerAtComputer,
+    atComputerWhy,
+    answeredAtComputer,
+    handledAtComputer,
+    waitingId,
+    waitingKind,
+    waitingMinutes,
+    holdSecs,
+    tool,
+    pullRequest,
+    petDesign,
+    petColor,
+    activityLines,
+    canStop,
+  ];
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Session && _listEquals(_fields, other._fields);
+
+  @override
+  int get hashCode => Object.hashAll(_fields);
+
   /// `project #12`, or just the project when there is no ticket.
   String get ref => issue == null ? project : '$project #$issue';
 
@@ -106,4 +138,26 @@ class HomeData {
   /// When the computer last sent anything, as the clock time to show ("21:02").
   final String lastContact;
   final List<Session> sessions;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HomeData &&
+          computer == other.computer &&
+          conn == other.conn &&
+          live == other.live &&
+          lastContact == other.lastContact &&
+          _listEquals(sessions, other.sessions);
+
+  @override
+  int get hashCode =>
+      Object.hash(computer, conn, live, lastContact, Object.hashAll(sessions));
+}
+
+bool _listEquals(List<Object?> a, List<Object?> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }

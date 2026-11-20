@@ -144,18 +144,16 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (id != null) setState(() => _index = _start);
     });
     final pending = _pending;
-    if (pending != null && ref.watch(homeProvider).value != null) {
+    final hasHome = ref.watch(homeProvider.select((h) => h.value != null));
+    if (pending != null && hasHome) {
       _pending = null;
       WidgetsBinding.instance.addPostFrameCallback((_) => _onTap(pending));
     }
-    final need =
-        ref
-            .watch(homeProvider)
-            .value
-            ?.sessions
-            .where((x) => x.answersHere)
-            .length ??
-        0;
+    final need = ref.watch(
+      homeProvider.select(
+        (h) => h.value?.sessions.where((x) => x.answersHere).length ?? 0,
+      ),
+    );
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(

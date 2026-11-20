@@ -171,6 +171,9 @@ class ComputerLink {
   /// A `home` arrived over the connection that is up. False from the moment a connection opens until its first `home`, and
   /// while the one kept from an earlier run is all there is.
   bool homeLive = false;
+
+  /// The last `home` of this connection without its `sentAt`, to tell one that changed from a repeat.
+  String? _homeKey;
   final _statusChanges = StreamController<LinkStatus>.broadcast();
   final _homeChanges = StreamController<HomeSnapshot>.broadcast();
   final _messages = StreamController<DesktopMessage>.broadcast();
@@ -258,6 +261,7 @@ class ComputerLink {
     _running = false;
     _wake?.complete();
     await _session?.close();
+    await store.flush();
   }
 
   /// Kept on disk, unless this link has ended: a link left over after its pairing ended never writes its state back.
@@ -517,7 +521,20 @@ class ComputerLink {
     final j = jsonDecode(m.json) as Map<String, dynamic>;
     switch (m.kind) {
       case 'home':
-        final snap = HomeSnapshot(j, _now().millisecondsSinceEpoch);
+        final nowMs = _now().millisecondsSinceEpoch;
+        // The computer sends a `home` once a minute whatever changed; one that says what the last said (only `sentAt`
+        // differs) costs nothing: it only refreshes when this phone last heard. The first `home` of a connection is
+        // always taken, as it is what says the computer is reachable.
+        final key = jsonEncode({...j}..remove('sentAt'));
+        if (homeLive && key == _homeKey) {
+          home = HomeSnapshot(home?.home ?? j, nowMs);
+          computer.homeAt = nowMs;
+          if (!_gone) store.saveHome(computer);
+          _followComputerState(j);
+          return;
+        }
+        _homeKey = key;
+        final snap = HomeSnapshot(j, nowMs);
         home = snap;
         homeLive = true;
         // Content of items that no longer wait is not needed again.
@@ -529,12 +546,18 @@ class ComputerLink {
         // A `home` without `rights` (an older computer) keeps the rights the phone has.
         final granted = j['rights'];
         if (granted is Map<String, dynamic>) {
-          computer.rights = rightsFromJson(granted);
+          final next = rightsFromJson(granted);
+          final changed =
+              jsonEncode(rightsToJson(next)) !=
+              jsonEncode(rightsToJson(computer.rights));
+          computer.rights = next;
+          if (changed) await _save();
         }
+        // The counters were written when the packet was opened; the `home` goes to its own file, later.
         computer
           ..home = m.json
           ..homeAt = snap.receivedAtMs;
-        await _save();
+        if (!_gone) store.saveHome(computer);
         final held = {
           for (final w in (j['waiting'] as List).cast<Map<String, dynamic>>())
             w['id'] as String,
@@ -544,12 +567,7 @@ class ComputerLink {
         }
         waitingSince.removeWhere((id, _) => !held.contains(id));
         if (!_homeChanges.isClosed) _homeChanges.add(snap);
-        final state = (j['computer'] as Map<String, dynamic>)['state'];
-        if (state == 'asleep' && status.conn == ConnState.ok) {
-          _set(status.copyWith(conn: ConnState.asleep));
-        } else if (state == 'online' && status.conn == ConnState.asleep) {
-          _set(status.copyWith(conn: ConnState.ok));
-        }
+        _followComputerState(j);
       case 'notice' when j['what'] == 'closed':
         final by = j['by'];
         final ref = j['ref'] as String;
@@ -593,6 +611,16 @@ class ComputerLink {
           _set(status.copyWith(movedHost: relayHost(url)));
           await _session?.close();
         }
+    }
+  }
+
+  /// The connection state follows what the computer says of itself (asleep or online).
+  void _followComputerState(Map<String, dynamic> home) {
+    final state = (home['computer'] as Map<String, dynamic>)['state'];
+    if (state == 'asleep' && status.conn == ConnState.ok) {
+      _set(status.copyWith(conn: ConnState.asleep));
+    } else if (state == 'online' && status.conn == ConnState.asleep) {
+      _set(status.copyWith(conn: ConnState.ok));
     }
   }
 

@@ -57,6 +57,21 @@ class SharedListJson {
     ],
   };
 
+  /// What the list says, without the times it was written at: two lists with the same key look the same on every surface.
+  static String contentKey(Map<String, Object?> map) => jsonEncode({
+    for (final e in map.entries)
+      if (e.key != 'written')
+        e.key: e.key == 'rows'
+            ? [
+                for (final r in e.value! as List)
+                  {
+                    for (final f in (r as Map<String, Object?>).entries)
+                      if (f.key != 'at') f.key: f.value,
+                  },
+              ]
+            : e.value,
+  });
+
   /// The sessions that wait for this phone: something is held for it and the person has not taken it to the computer. The
   /// computer counts them the same way when it pushes the Live Activity.
   static int waiting(HomeData h) => h.sessions

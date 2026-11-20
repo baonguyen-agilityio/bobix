@@ -6,6 +6,7 @@ import 'package:phone/data/models.dart';
 import 'package:phone/data/phone_data.dart';
 import 'package:phone/features/actions/actions_source.dart';
 import 'package:phone/log/activity_log.dart';
+import 'package:phone/pets/pet_view.dart';
 import 'package:phone/screens/task_log_screen.dart';
 import 'package:phone/widgets/glass_tab_bar.dart';
 import 'package:phone/widgets/session_row.dart';
@@ -141,13 +142,31 @@ void main() {
     tallScreen(tester);
     await tester.pumpWidget(app());
     await tester.pump();
-    final onHome = tester.binding.transientCallbackCount;
+    final onHome = PetView.stepping;
     expect(onHome, greaterThan(3), reason: 'the pets of Home are running');
     await tester.tap(find.bySemanticsLabel('Settings'));
     await tester.pump(const Duration(milliseconds: 400));
     // Settings has no pet: nothing may keep ticking for the tabs behind it.
-    final onSettings = tester.binding.transientCallbackCount;
+    final onSettings = PetView.stepping;
     expect(onSettings, lessThan(onHome ~/ 2));
+  });
+
+  testWidgets('pets stop stepping while the app is not in front, and go on when it is', (tester) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app());
+    await tester.pump();
+    final running = PetView.stepping;
+    expect(running, greaterThan(0));
+    for (final st in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+      tester.binding.handleAppLifecycleStateChanged(st);
+    }
+    await tester.pump();
+    expect(PetView.stepping, 0);
+    for (final st in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+      tester.binding.handleAppLifecycleStateChanged(st);
+    }
+    await tester.pump();
+    expect(PetView.stepping, running);
   });
 
   testWidgets('Vietnamese strings are used when the language is vi', (

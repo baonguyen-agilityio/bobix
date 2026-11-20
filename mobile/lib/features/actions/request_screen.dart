@@ -220,32 +220,55 @@ class RequestBody extends ConsumerStatefulWidget {
 
 class _RequestBodyState extends ConsumerState<RequestBody> {
   bool _open = false;
-  int? _left;
+  // The seconds left tick in this notifier, so only the chip that shows them rebuilds each second. The page rebuilds
+  // once more when it runs out (the buttons lock).
+  final _left = ValueNotifier<int?>(null);
+  bool _expired = false;
   Timer? _timer;
+  // Read from the input once, not on every build: it can be 20 000 characters.
+  late bool _long;
+  late bool _hidden;
 
   @override
   void initState() {
     super.initState();
-    _left = widget.closed == null ? widget.request.secondsLeft : null;
+    _scan();
+    _left.value = widget.closed == null ? widget.request.secondsLeft : null;
+    _expired = _left.value == 0;
     // Counted from "seconds left", never from the two clocks.
-    if (_left != null) {
+    if (_left.value != null) {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted) return;
-        setState(() => _left = (_left! - 1).clamp(0, 1 << 30));
-        if (_left == 0) _timer?.cancel();
+        final n = (_left.value! - 1).clamp(0, 1 << 30);
+        _left.value = n;
+        if (n == 0) {
+          _timer?.cancel();
+          setState(() => _expired = true);
+        }
       });
     }
+  }
+
+  void _scan() {
+    final input = widget.request.input;
+    _long =
+        input.length > collapseChars ||
+        '\n'.allMatches(input).length >= collapseLines;
+    _hidden = hasHiddenChars(input);
+  }
+
+  @override
+  void didUpdateWidget(RequestBody old) {
+    super.didUpdateWidget(old);
+    if (old.request.input != widget.request.input) _scan();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _left.dispose();
     super.dispose();
   }
-
-  bool get _long =>
-      widget.request.input.length > collapseChars ||
-      '\n'.allMatches(widget.request.input).length >= collapseLines;
 
   @override
   Widget build(BuildContext context) {
@@ -256,9 +279,9 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
     final c = source.computerName;
     final canSend = ref.watch(canSendProvider);
     final closed = widget.closed;
-    final odd = r.odd || hasHiddenChars(r.input);
+    final odd = r.odd || _hidden;
     final destructive = closed == null && (r.destructive || odd);
-    final expired = _left == 0;
+    final expired = _expired;
     final collapsed = _long && !_open;
     final locked = collapsed || r.cut || expired;
     final label = s(switch (r.kind) {
@@ -267,14 +290,6 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
       InputKind.edit => 'phone.rq.k.edit',
       InputKind.mcp => 'phone.rq.k.mcp',
     });
-
-    String countdown() {
-      final n = _left!;
-      if (n == 0) return s('phone.rq.expd');
-      return n < 60
-          ? s('phone.rq.exp.s', {'n': n})
-          : s('phone.rq.exp', {'n': (n / 60).ceil()});
-    }
 
     VoidCallback? send(CommandKind kind) => !canSend || expired
         ? null
@@ -344,11 +359,21 @@ class _RequestBodyState extends ConsumerState<RequestBody> {
           showIssue: false,
           chip: closed == null ? waitedText(s, r.waitedMinutes) : null,
           extraChips: [
-            if (_left != null)
-              MetaChip(
-                countdown(),
-                icon: Icons.timer_outlined,
-                color: _left! < 60 ? t.err : null,
+            if (_left.value != null)
+              ValueListenableBuilder<int?>(
+                valueListenable: _left,
+                builder: (_, left, _) {
+                  final n = left ?? 0;
+                  return MetaChip(
+                    n == 0
+                        ? s('phone.rq.expd')
+                        : n < 60
+                        ? s('phone.rq.exp.s', {'n': n})
+                        : s('phone.rq.exp', {'n': (n / 60).ceil()}),
+                    icon: Icons.timer_outlined,
+                    color: n < 60 ? t.err : null,
+                  );
+                },
               ),
           ],
         ),
