@@ -31,6 +31,7 @@ final surfacesClearProvider = Provider<void>((ref) {
   ref.listen(linkControllerProvider, (prev, next) {
     bool gone(AppPhase? p) => p is Unpaired || p is PairAgain;
     if (gone(next.value) && !gone(prev?.value)) {
+      ref.read(surfacesSyncProvider).reset();
       unawaited(ref.read(surfacesPlatformProvider).clear().catchError((Object _) {}));
       // A notification already shown has the session's name and request: it goes with the pairing.
       unawaited(ref.read(pushPlatformProvider).clearDelivered().catchError((Object _) {}));

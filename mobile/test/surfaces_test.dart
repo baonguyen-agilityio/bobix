@@ -177,10 +177,48 @@ void main() {
 
     test('writes the list, and each pet once, with the colour taken inside the palette', () async {
       await sync.sync(home(), computerId: 'c1', canStart: true);
-      await sync.sync(home(), computerId: 'c1', canStart: true);
+      await sync.sync(home(waiting: 2), computerId: 'c1', canStart: true);
       expect(p.lists, hasLength(2));
       expect(p.pets.toSet(), hasLength(p.pets.length), reason: 'an image is written once');
       expect(p.pets.every((k) => int.parse(k.split('-')[1]) < 64), isTrue);
+    });
+
+    test('a list with the same content is not written again, until the heartbeat or the refresh age', () async {
+      var clock = now;
+      final s = SurfacesSync(p, now: () => clock, renderPet: (d, c, s) async => Uint8List.fromList([1]));
+      await s.sync(home(), computerId: 'c1', canStart: true);
+      clock = clock.add(const Duration(seconds: 30));
+      await s.sync(home(), computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(1), reason: 'only the time of writing differs');
+      expect(p.calls, ['sync 1'], reason: 'the activity shows the same count');
+      await s.sync(home(waiting: 2), computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(2), reason: 'a change is written at once');
+      expect(p.calls, ['sync 1', 'sync 2']);
+      await s.again(computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(3), reason: 'the heartbeat and Hide details always write');
+      expect(p.calls, ['sync 1', 'sync 2', 'sync 2'], reason: 'and move the stale date');
+      clock = clock.add(SurfacesSync.refreshAfter);
+      await s.sync(home(waiting: 2), computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(4), reason: 'old content is written again before the surfaces go stale');
+      expect(p.calls.last, 'sync 2');
+    });
+
+    test('a list that failed to write is tried again, and a cleared sync writes everything', () async {
+      p.listError = Exception('disk');
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      p.listError = null;
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(1));
+      sync.reset();
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      expect(p.lists, hasLength(2));
+    });
+
+    test('a live home after a connection that was not live updates the activity even with the same count', () async {
+      await sync.sync(home(waiting: 0, live: false), computerId: 'c1', canStart: true);
+      expect(p.calls, isEmpty);
+      await sync.sync(home(waiting: 0), computerId: 'c1', canStart: true);
+      expect(p.calls, ['sync 0'], reason: 'it can end an activity left over from before');
     });
 
     test('a failing write does not stop the app or the activity', () async {

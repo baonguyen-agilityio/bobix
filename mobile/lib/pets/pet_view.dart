@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../theme/tokens.dart';
@@ -33,16 +33,24 @@ class PetView extends StatefulWidget {
 
   static const haloCycle = Duration(milliseconds: 3200);
 
+  /// How many pets are stepping their pose right now: none on a hidden tab, none under reduced motion.
+  @visibleForTesting
+  static int get stepping => _stepping;
+  static int _stepping = 0;
+
   @override
   State<PetView> createState() => _PetViewState();
 }
 
-class _PetViewState extends State<PetView> with TickerProviderStateMixin {
-  late final Ticker _ticker = createTicker(_tick);
+class _PetViewState extends State<PetView> with SingleTickerProviderStateMixin {
   late final AnimationController _breath = AnimationController(
     vsync: this,
     duration: PetView.haloCycle ~/ 2,
   );
+  // The pose steps on a timer that fires only when the frame changes (every 150 ms to 1.2 s), so a pet that is on
+  // screen does not keep the engine drawing at the display's rate between steps.
+  final _clock = Stopwatch();
+  Timer? _timer;
   Pose _pose = ('', 0);
 
   @override
@@ -51,20 +59,42 @@ class _PetViewState extends State<PetView> with TickerProviderStateMixin {
     _pose = poseAt(widget.state);
   }
 
-  void _tick(Duration elapsed) {
-    final next = poseAt(widget.state, elapsed.inMilliseconds);
+  // Schedules the next frame boundary of the current pose, counted from when the clock started.
+  void _schedule() {
+    final (_, ms) = loops[_pose.$1] ?? (1, 1000);
+    final into = _clock.elapsedMilliseconds;
+    _timer = Timer(Duration(milliseconds: ms - into % ms), _step);
+  }
+
+  void _step() {
+    if (!mounted) return;
+    final next = poseAt(widget.state, _clock.elapsedMilliseconds);
     if (next != _pose) setState(() => _pose = next);
+    _schedule();
+  }
+
+  void _stopClock() {
+    if (_timer != null) PetView._stepping--;
+    _timer?.cancel();
+    _timer = null;
+    _clock
+      ..stop()
+      ..reset();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final still = MediaQuery.disableAnimationsOf(context);
-    if (still && _ticker.isActive) {
-      _ticker.stop();
+    // As a Ticker did: a pet under a disabled TickerMode (a hidden tab) does not step.
+    final run = !still && TickerMode.valuesOf(context).enabled;
+    if (!run && _timer != null) {
+      _stopClock();
       _pose = poseAt(widget.state);
-    } else if (!still && !_ticker.isActive) {
-      _ticker.start();
+    } else if (run && _timer == null) {
+      PetView._stepping++;
+      _clock.start();
+      _schedule();
     }
     _syncBreath(still);
   }
@@ -82,7 +112,16 @@ class _PetViewState extends State<PetView> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(PetView old) {
     super.didUpdateWidget(old);
-    if (old.state != widget.state) _pose = poseAt(widget.state);
+    if (old.state != widget.state) {
+      _pose = poseAt(widget.state);
+      if (_timer != null) {
+        _timer!.cancel();
+        _clock
+          ..reset()
+          ..start();
+        _schedule();
+      }
+    }
     if (old.halo != widget.halo) {
       _syncBreath(MediaQuery.disableAnimationsOf(context));
     }
@@ -90,7 +129,7 @@ class _PetViewState extends State<PetView> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _stopClock();
     _breath.dispose();
     super.dispose();
   }
@@ -103,19 +142,21 @@ class _PetViewState extends State<PetView> with TickerProviderStateMixin {
       height: widget.size,
     );
     return ExcludeSemantics(
-      child: SizedBox.square(
-        dimension: widget.size,
-        child: widget.halo
-            ? Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned.fill(
-                    child: _Halo(breath: _breath, child: svg),
-                  ),
-                  svg,
-                ],
-              )
-            : svg,
+      child: RepaintBoundary(
+        child: SizedBox.square(
+          dimension: widget.size,
+          child: widget.halo
+              ? Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned.fill(
+                      child: _Halo(breath: _breath, child: svg),
+                    ),
+                    svg,
+                  ],
+                )
+              : svg,
+        ),
       ),
     );
   }

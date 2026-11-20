@@ -9,6 +9,9 @@ import WidgetKit
 /// and ends the Live Activity. Tokens of the activity go back to Dart, which hands them to the relay.
 final class SurfacesBridge {
   private var channel: FlutterMethodChannel?
+  /// The list and the pets' images are written here, one at a time and in order: the file work (a lock that the
+  /// notification extension may hold, a read, an encode, an atomic write) must not take frame time on the main thread.
+  private let files = DispatchQueue(label: "dev.bobix.phone.surfaces.files", qos: .utility)
   /// The activities whose token and state this process already watches.
   private var observed = Set<String>()
   private var startTokenTask: Task<Void, Never>?
@@ -159,20 +162,40 @@ final class SurfacesBridge {
       guard let json = (args["json"] as? String)?.data(using: .utf8), let list = try? JSONDecoder().decode(SharedList.self, from: json) else {
         return fail("the list is not a list")
       }
-      do { try SharedListStore.save(list); SurfacesBridge.reloadSurfaces(); result(nil) } catch { fail("\(error)") }
+      files.async {
+        let outcome = Result { try SharedListStore.save(list) }
+        DispatchQueue.main.async {
+          switch outcome {
+          case .success: SurfacesBridge.reloadSurfaces(); result(nil)
+          case .failure(let error): fail("\(error)")
+          }
+        }
+      }
     case "writePet":
       guard let design = args["design"] as? String, let color = args["color"] as? Int, (0..<64).contains(color), let state = args["state"] as? String, let png = (args["png"] as? FlutterStandardTypedData)?.data,
         design.range(of: "^[a-z0-9-]{1,32}$", options: .regularExpression) != nil, state.range(of: "^[a-z]{1,16}$", options: .regularExpression) != nil,
         let url = SharedListStore.petURL(design: design, color: color, state: state)
       else { return fail("bad pet image") }
-      do {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try png.write(to: url, options: .atomic)
-        result(nil)
-      } catch { fail("\(error)") }
+      files.async {
+        let outcome = Result {
+          try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+          try png.write(to: url, options: .atomic)
+        }
+        DispatchQueue.main.async {
+          switch outcome {
+          case .success: result(nil)
+          case .failure(let error): fail("\(error)")
+          }
+        }
+      }
     case "syncActivity": syncActivity(args, result)
     case "replayTokens": replayTokens(); result(nil)
-    case "clearSurfaces": SurfacesBridge.clear(); result(nil)
+    case "clearSurfaces":
+      // Behind any list write still queued, so a late write cannot bring the old list back.
+      files.async {
+        SurfacesBridge.clear()
+        DispatchQueue.main.async { result(nil) }
+      }
     default: result(FlutterMethodNotImplemented)
     }
   }

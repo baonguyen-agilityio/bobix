@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../data/models.dart';
@@ -30,6 +31,16 @@ class SurfacesSync {
   final _petsWritten = <String>{};
   HomeData? _last;
 
+  /// The longest the list and the activity go without a write when nothing changed: well under the 15 minutes after which
+  /// every surface draws them stale.
+  static const refreshAfter = Duration(minutes: 5);
+
+  // What was last written (the list's content without its times, and when) and last sent to the activity.
+  String? _listKey;
+  DateTime? _listAt;
+  ({int waiting, String computerId, bool trusted})? _activityKey;
+  DateTime? _activityAt;
+
   /// The app is on the screen. While it is not (paused or hidden) the heartbeat writes nothing, so the last list ages into
   /// stale on its own, and still says what the computer last said (`online`): leaving the app is not the computer going away.
   bool visible = true;
@@ -49,14 +60,36 @@ class SurfacesSync {
     for (final s in home.sessions.where((s) => s.stage != Stage.todo)) {
       await _pet(s.petDesign, s.petColor % petColorCount, s.petState);
     }
-    try {
-      await _platform.writeList(
-        SharedListJson.build(home, computerId: computerId, canStart: canStart, now: now, builtAt: _builtAt),
-      );
-    } catch (_) {
-      // A surface that is not refreshed goes stale on its own; the app goes on.
+    final map = SharedListJson.toMap(
+      home,
+      computerId: computerId,
+      canStart: canStart,
+      now: now,
+      builtAt: _builtAt,
+    );
+    final key = SharedListJson.contentKey(map);
+    // Unchanged content is not written again (each write reloads every widget), except as the heartbeat or once it is old.
+    final fresh = _listAt != null && now.difference(_listAt!) < refreshAfter;
+    if (again || key != _listKey || !fresh) {
+      try {
+        await _platform.writeList(jsonEncode(map));
+        _listKey = key;
+        _listAt = now;
+      } catch (_) {
+        // A surface that is not refreshed goes stale on its own; the app goes on.
+        _listKey = null;
+      }
     }
-    await _activity(home, now, computerId);
+    await _activity(home, now, computerId, force: again);
+  }
+
+  /// Forgets what was written, so the next `home` writes everything (the surfaces were cleared).
+  void reset() {
+    _listKey = null;
+    _listAt = null;
+    _activityKey = null;
+    _activityAt = null;
+    _last = null;
   }
 
   /// Writes the last `home` again, as the heartbeat: only while the computer was reachable then (once the app is paused or the
@@ -78,7 +111,12 @@ class SurfacesSync {
     }
   }
 
-  Future<void> _activity(HomeData home, DateTime now, String computerId) async {
+  Future<void> _activity(
+    HomeData home,
+    DateTime now,
+    String computerId, {
+    required bool force,
+  }) async {
     try {
       if (!await _platform.liveActivities()) return;
       final waiting = SharedListJson.waiting(home);
@@ -87,11 +125,23 @@ class SurfacesSync {
       if (waiting == 0 && !(home.live && home.conn == ConnState.ok)) return;
       // The platform keeps one activity: it ends it when nothing waits, updates the one that exists (also one from an
       // earlier run of the app) and starts one otherwise. No name goes into it: it draws the shared list.
+      // The activity draws the count; its stale date is the last update plus 15 minutes. Without a change it is updated
+      // only to move that date.
+      final key = (
+        waiting: waiting,
+        computerId: computerId,
+        trusted: home.live && home.conn == ConnState.ok,
+      );
+      final fresh =
+          _activityAt != null && now.difference(_activityAt!) < refreshAfter;
+      if (!force && fresh && key == _activityKey) return;
       await _platform.syncActivity({
         'waiting': waiting,
         'written': now.millisecondsSinceEpoch,
         'computerId': computerId,
       });
+      _activityKey = key;
+      _activityAt = now;
     } catch (_) {
       // No Live Activity is not a reason to stop the app.
     }

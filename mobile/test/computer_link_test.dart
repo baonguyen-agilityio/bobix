@@ -205,6 +205,58 @@ void main() {
     },
   );
 
+  Map<String, Object?> homeMessage({String name = 'Cache Probe Mac', int? sentAt}) => {
+    'kind': 'home',
+    'sentAt': sentAt ?? DateTime.now().millisecondsSinceEpoch,
+    'computer': {'name': name, 'state': 'online', 'unfinished': 0},
+    'sessions': <Object?>[],
+    'waiting': <Object?>[],
+    'groups': <Object?>[],
+  };
+
+  test('a home that says what the last said is not passed on; the first of each connection always is', () async {
+    await build();
+    var seen = 0;
+    link.homeChanges.listen((_) => seen++);
+    final s = sockets.first;
+    s.push(await fromComputer(homeMessage(sentAt: 1000)));
+    await until(() => seen == 1);
+    final first = link.home!.receivedAtMs;
+    await Future<void>.delayed(const Duration(milliseconds: 15));
+    s.push(await fromComputer(homeMessage(sentAt: 61000)));
+    await until(() => s.ofType('ack').length == 2);
+    expect(seen, 1, reason: 'only sentAt differs');
+    expect(link.home!.receivedAtMs, greaterThan(first), reason: 'but the phone heard from the computer again');
+    expect(link.home!.home['sentAt'], 1000, reason: 'the content stays the one that was applied');
+    s.push(await fromComputer(homeMessage(name: 'Renamed Mac', sentAt: 62000)));
+    await until(() => seen == 2);
+    // A new connection: the same content is the first home of that connection and flips it live.
+    await s.close();
+    await until(() => sockets.length >= 2 && sockets[1].sent.length >= 3);
+    expect(link.homeLive, isFalse);
+    sockets[1].push(await fromComputer(homeMessage(name: 'Renamed Mac', sentAt: 63000)));
+    await until(() => seen == 3);
+    expect(link.homeLive, isTrue);
+  });
+
+  test('the counters are written for every packet, the home in its own file once flushed, and erase removes both', () async {
+    await build();
+    final state = File('${tmp.path}/link-state.json');
+    final cache = File('${tmp.path}/home-cache.json');
+    final before = state.readAsStringSync();
+    sockets.first.push(await fromComputer(homeMessage()));
+    await until(() => link.home != null);
+    await until(() => state.readAsStringSync() != before);
+    expect(state.readAsStringSync(), isNot(contains('Cache Probe Mac')), reason: 'no home in the state file');
+    expect(jsonDecode(state.readAsStringSync())['computer']['recvState'], isNot(jsonDecode(before)['computer']['recvState']));
+    expect(cache.existsSync(), isFalse, reason: 'it waits for the debounce');
+    await store.flush();
+    expect(cache.readAsStringSync(), contains('Cache Probe Mac'));
+    expect((await store.load())!.home, isNotNull);
+    await store.erase();
+    expect(state.existsSync() || cache.existsSync(), isFalse);
+  });
+
   test('a replayed packet and one that travels the wrong way are dropped, not answered', () async {
     await build();
     final s = sockets.first;
