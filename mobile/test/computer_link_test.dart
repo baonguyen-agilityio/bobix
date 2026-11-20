@@ -226,8 +226,14 @@ void main() {
     s.push(await fromComputer(homeMessage(sentAt: 61000)));
     await until(() => s.ofType('ack').length == 2);
     expect(seen, 1, reason: 'only sentAt differs');
-    expect(link.home!.receivedAtMs, greaterThan(first), reason: 'but the phone heard from the computer again');
+    await until(() => link.home!.receivedAtMs > first); // the phone heard from the computer again
     expect(link.home!.home['sentAt'], 1000, reason: 'the content stays the one that was applied');
+    await store.flush();
+    expect(
+      jsonDecode(File('${tmp.path}/home-cache.json').readAsStringSync())['homeAt'],
+      link.home!.receivedAtMs,
+      reason: 'the time it was heard is kept too',
+    );
     s.push(await fromComputer(homeMessage(name: 'Renamed Mac', sentAt: 62000)));
     await until(() => seen == 2);
     // A new connection: the same content is the first home of that connection and flips it live.

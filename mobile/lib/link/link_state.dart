@@ -97,7 +97,7 @@ class PairedComputer {
   };
 
   /// The cached `home`, kept apart from [toJson]: it is large and changes often, and a lost cache costs nothing.
-  Map<String, Object?> homeToJson() => {'home': home, 'homeAt': homeAt};
+  Map<String, Object?> homeToJson() => {'id': id, 'home': home, 'homeAt': homeAt};
 
   /// Reads the state. An older file also holds the `home` and `homeAt` (before the cache had its own file): they are read
   /// too, and [LinkStateStore.load] moves them.
@@ -179,7 +179,8 @@ class LinkStateStore {
           jsonDecode(await _homeFile.readAsString()) as Map<String, dynamic>;
       final h = j['home'];
       final at = j['homeAt'];
-      if (h is String && at is int) {
+      // A cache left by another pairing (the app was killed during Erase) is not this computer's.
+      if (j['id'] == c.id && h is String && at is int) {
         c
           ..home = h
           ..homeAt = at;

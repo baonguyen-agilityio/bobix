@@ -529,6 +529,8 @@ class ComputerLink {
         if (homeLive && key == _homeKey) {
           home = HomeSnapshot(home?.home ?? j, nowMs);
           computer.homeAt = nowMs;
+          if (!_gone) store.saveHome(computer);
+          _followComputerState(j);
           return;
         }
         _homeKey = key;
@@ -565,12 +567,7 @@ class ComputerLink {
         }
         waitingSince.removeWhere((id, _) => !held.contains(id));
         if (!_homeChanges.isClosed) _homeChanges.add(snap);
-        final state = (j['computer'] as Map<String, dynamic>)['state'];
-        if (state == 'asleep' && status.conn == ConnState.ok) {
-          _set(status.copyWith(conn: ConnState.asleep));
-        } else if (state == 'online' && status.conn == ConnState.asleep) {
-          _set(status.copyWith(conn: ConnState.ok));
-        }
+        _followComputerState(j);
       case 'notice' when j['what'] == 'closed':
         final by = j['by'];
         final ref = j['ref'] as String;
@@ -614,6 +611,16 @@ class ComputerLink {
           _set(status.copyWith(movedHost: relayHost(url)));
           await _session?.close();
         }
+    }
+  }
+
+  /// The connection state follows what the computer says of itself (asleep or online).
+  void _followComputerState(Map<String, dynamic> home) {
+    final state = (home['computer'] as Map<String, dynamic>)['state'];
+    if (state == 'asleep' && status.conn == ConnState.ok) {
+      _set(status.copyWith(conn: ConnState.asleep));
+    } else if (state == 'online' && status.conn == ConnState.asleep) {
+      _set(status.copyWith(conn: ConnState.ok));
     }
   }
 

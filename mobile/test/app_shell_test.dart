@@ -151,6 +151,24 @@ void main() {
     expect(onSettings, lessThan(onHome ~/ 2));
   });
 
+  testWidgets('pets stop stepping while the app is not in front, and go on when it is', (tester) async {
+    tallScreen(tester);
+    await tester.pumpWidget(app());
+    await tester.pump();
+    final running = PetView.stepping;
+    expect(running, greaterThan(0));
+    for (final st in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+      tester.binding.handleAppLifecycleStateChanged(st);
+    }
+    await tester.pump();
+    expect(PetView.stepping, 0);
+    for (final st in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+      tester.binding.handleAppLifecycleStateChanged(st);
+    }
+    await tester.pump();
+    expect(PetView.stepping, running);
+  });
+
   testWidgets('Vietnamese strings are used when the language is vi', (
     tester,
   ) async {

@@ -42,7 +42,7 @@ class PetView extends StatefulWidget {
   State<PetView> createState() => _PetViewState();
 }
 
-class _PetViewState extends State<PetView> with SingleTickerProviderStateMixin {
+class _PetViewState extends State<PetView> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _breath = AnimationController(
     vsync: this,
     duration: PetView.haloCycle ~/ 2,
@@ -53,10 +53,25 @@ class _PetViewState extends State<PetView> with SingleTickerProviderStateMixin {
   Timer? _timer;
   Pose _pose = ('', 0);
 
+  bool _still = false;
+  bool _shown = true;
+  // The timer is not a Ticker, so the engine's own pause does not stop it: a pet steps only while the app is in front
+  // (a background wake of the app runs Dart too).
+  bool _foreground = true;
+
   @override
   void initState() {
     super.initState();
     _pose = poseAt(widget.state);
+    WidgetsBinding.instance.addObserver(this);
+    final life = WidgetsBinding.instance.lifecycleState;
+    _foreground = life == null || life == AppLifecycleState.resumed;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _syncClock();
   }
 
   // Schedules the next frame boundary of the current pose, counted from when the clock started.
@@ -85,18 +100,24 @@ class _PetViewState extends State<PetView> with SingleTickerProviderStateMixin {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final still = MediaQuery.disableAnimationsOf(context);
+    _still = MediaQuery.disableAnimationsOf(context);
     // As a Ticker did: a pet under a disabled TickerMode (a hidden tab) does not step.
-    final run = !still && TickerMode.valuesOf(context).enabled;
+    _shown = TickerMode.valuesOf(context).enabled;
+    _syncClock();
+    _syncBreath(_still);
+  }
+
+  void _syncClock() {
+    final run = !_still && _shown && _foreground;
     if (!run && _timer != null) {
       _stopClock();
+      if (!_foreground && !_still && _shown) return;
       _pose = poseAt(widget.state);
     } else if (run && _timer == null) {
       PetView._stepping++;
       _clock.start();
       _schedule();
     }
-    _syncBreath(still);
   }
 
   // Half a cycle each way, ease-in-out, so the whole cycle is 3.2 s.
@@ -129,6 +150,7 @@ class _PetViewState extends State<PetView> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stopClock();
     _breath.dispose();
     super.dispose();

@@ -48,7 +48,7 @@ void main() {
     store.saveHome(c);
     expect(f('home-cache.json').existsSync(), isFalse);
     await store.flush();
-    expect(jsonDecode(f('home-cache.json').readAsStringSync()), {'home': 'b', 'homeAt': 2});
+    expect(jsonDecode(f('home-cache.json').readAsStringSync()), {'id': 'dev1', 'home': 'b', 'homeAt': 2});
   });
 
   test('a state file from before the split is migrated once: the home moves out of it', () async {
@@ -57,7 +57,7 @@ void main() {
     final loaded = (await LinkStateStore(tmp).load())!;
     expect((loaded.home, loaded.homeAt), ('{"kind":"home","x":1}', 7), reason: 'the person keeps the home they had');
     expect(f('link-state.json').readAsStringSync(), isNot(contains('"home"')));
-    expect(jsonDecode(f('home-cache.json').readAsStringSync()), {'home': '{"kind":"home","x":1}', 'homeAt': 7});
+    expect(jsonDecode(f('home-cache.json').readAsStringSync()), {'id': 'dev1', 'home': '{"kind":"home","x":1}', 'homeAt': 7});
     final again = (await LinkStateStore(tmp).load())!;
     expect((again.home, again.homeAt), ('{"kind":"home","x":1}', 7));
   });
@@ -68,6 +68,26 @@ void main() {
     final loaded = (await LinkStateStore(tmp).load())!;
     expect(loaded.home, isNull);
     expect(loaded.id, 'dev1');
+  });
+
+  test('a cache that belongs to another computer is ignored', () async {
+    final store = LinkStateStore(tmp, homeDelay: const Duration(minutes: 5));
+    final old = computer(home: 'old', homeAt: 1);
+    store.saveHome(old);
+    await store.flush();
+    expect(jsonDecode(f('home-cache.json').readAsStringSync())['id'], 'dev1');
+    final other = PairedComputer(
+      id: 'dev2',
+      name: 'Other',
+      relay: 'wss://relay.example/ws',
+      phoneName: 'Phone',
+      desktopBoxPublic: Uint8List.fromList(List.filled(32, 7)),
+      rights: old.rights,
+      recvState: '{}',
+      eventReservation: BigInt.zero,
+    );
+    await LinkStateStore(tmp).save(other);
+    expect((await LinkStateStore(tmp).load())!.home, isNull, reason: 'the old computer\'s sessions never show');
   });
 
   test('erase removes both files and their temporary files, and nothing is written back', () async {

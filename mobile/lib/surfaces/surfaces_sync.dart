@@ -90,6 +90,7 @@ class SurfacesSync {
     _activityKey = null;
     _activityAt = null;
     _last = null;
+    _petsWritten.clear(); // the images were deleted with the rest
   }
 
   /// Writes the last `home` again, as the heartbeat: only while the computer was reachable then (once the app is paused or the

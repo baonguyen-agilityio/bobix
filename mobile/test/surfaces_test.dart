@@ -214,6 +214,15 @@ void main() {
       expect(p.lists, hasLength(2));
     });
 
+    test('after reset the pets are written again (their images were deleted)', () async {
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      final n = p.pets.length;
+      expect(n, greaterThan(0));
+      sync.reset();
+      await sync.sync(home(), computerId: 'c1', canStart: true);
+      expect(p.pets.length, 2 * n);
+    });
+
     test('a live home after a connection that was not live updates the activity even with the same count', () async {
       await sync.sync(home(waiting: 0, live: false), computerId: 'c1', canStart: true);
       expect(p.calls, isEmpty);
